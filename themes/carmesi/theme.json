@@ -1,0 +1,15 @@
+{
+  "id": "carmesi",
+  "label": "Carmesí",
+  "emoji": "❖",
+  "swatches": ["#ff5c6a", "#a83644"],
+  "web": {
+    "tokens": {
+      "accent": "#ff5c6a",
+      "accent-hi": "#ffb2ba",
+      "accent-soft": "rgba(255,92,106,.5)",
+      "accent-line": "#a83644"
+    }
+  },
+  "_nota": "Manifiesto solo-tokens (ex-paleta 'carmesi' del mockup v5, mismos acentos exactos)."
+}

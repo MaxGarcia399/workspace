@@ -1,0 +1,46 @@
+/* ═══════════ SALVIA · invernadero en penumbra — skin del dev panel ════════════
+   Línea rosé en clave botánica. Capa L = bloom salvia/eucalipto arriba +
+   viñeta suave + velo verdoso en el sidebar. Capa A = respiración lenta.
+   REGLA DE ORO: DOM intacto, todo scoped a body[data-theme=salvia];
+   colores base = tokens del theme.json. Respeta prefers-reduced-motion y data-anim=off. */
+
+/* ── fondo: aurora salvia + eucalipto, tinte verdoso ── */
+body[data-theme="salvia"]{
+  background:radial-gradient(135% 100% at 50% -8%, #202b21, var(--th-bg) 58%)}
+body[data-theme="salvia"]::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(58% 44% at 80% 10%, rgba(169,197,164,.12), transparent 70%),
+    radial-gradient(52% 42% at 14% 6%, rgba(143,191,174,.10), transparent 70%);
+  animation:sal-breathe 9s ease-in-out infinite}
+/* viñeta suave que encuadra */
+body[data-theme="salvia"]::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  box-shadow:inset 0 0 200px 44px rgba(5,9,5,.5)}
+body[data-theme="salvia"] .shell{position:relative;z-index:1}
+body[data-theme="salvia"] ::selection{background:rgba(169,197,164,.3);color:#13200f}
+
+/* ── sidebar: velo verdoso translúcido ── */
+body[data-theme="salvia"] .side{
+  background:linear-gradient(180deg, rgba(25,30,25,.82), rgba(19,23,19,.82));
+  border-right:1px solid var(--th-border)}
+body[data-theme="salvia"] .brand .glyph{color:var(--th-accent);
+  text-shadow:0 0 14px rgba(169,197,164,.55)}
+body[data-theme="salvia"] .brand .txt b{letter-spacing:2px}
+body[data-theme="salvia"] .navitem.on{
+  box-shadow:inset 0 0 26px rgba(169,197,164,.09)}
+
+/* ── header + títulos: aire, glow tenue ── */
+body[data-theme="salvia"] .hdr{border-bottom:1px solid var(--th-border)}
+body[data-theme="salvia"] .hdr h1{letter-spacing:.4px;
+  text-shadow:0 0 18px rgba(169,197,164,.18)}
+
+/* ── botón primario: salvia con bloom ── */
+body[data-theme="salvia"] .ds-btn-mini.primary{
+  background:linear-gradient(180deg,#bed4b9,#a9c5a4);border:1px solid #93b18e;color:#13200f;
+  box-shadow:0 0 18px rgba(169,197,164,.32)}
+body[data-theme="salvia"] .ds-btn-mini.primary:hover{filter:brightness(1.04)}
+body[data-theme="salvia"] .ds-btn-mini{border:1px solid var(--th-border-hi)}
+body[data-theme="salvia"] .ds-btn-mini:hover{border-color:var(--th-accent);color:var(--th-accent-hi)}
+
+@keyframes sal-breathe{0%,100%{opacity:.85}50%{opacity:1}}
+@media (prefers-reduced-motion:reduce){body[data-theme="salvia"]::before{animation:none}}
+body[data-anim="off"] body[data-theme="salvia"]::before{animation:none}

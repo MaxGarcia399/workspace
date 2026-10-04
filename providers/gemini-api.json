@@ -1,0 +1,29 @@
+{
+  "name": "gemini-api",
+  "api_mode": "gemini",
+  "connection": "native_api",
+  "base_url": "https://generativelanguage.googleapis.com",
+  "auth_type": "api_key",
+  "cost": "metered",
+  "env_vars": [
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY"
+  ],
+  "credential_url": "https://aistudio.google.com/apikey",
+  "models": [
+    "gemini-2.5-pro",
+    "gemini-2.5-flash"
+  ],
+  "default_model": "gemini-2.5-pro",
+  "default_aux_model": "gemini-2.5-flash",
+  "task_models": {
+    "utility": "gemini-2.5-flash"
+  },
+  "fallback_models": [
+    "gemini-2.5-flash"
+  ],
+  "hidden_models": [],
+  "context_windows": {},
+  "quirks": {},
+  "_note": "API metered de Google Gemini (generateContent, native_api, modelo de conexión a). GEMINI_API_KEY (o GOOGLE_API_KEY) vive en el env per-máquina — este archivo lleva el NOMBRE, jamás el valor. La key viaja por HEADER x-goog-api-key, nunca por query ?key= (una credencial no se escribe en URLs que terminan en logs). La cuenta de CONSUMIDOR de Google (login del socio) JAMÁS se conecta directo — Google banea cuentas; eso sería official_cli (Gemini CLI, A-IMPLEMENTAR). Modelos A-EDITAR según el catálogo vigente. Uso: WORKSPACE_DREAM_BACKEND=gemini-api."
+}

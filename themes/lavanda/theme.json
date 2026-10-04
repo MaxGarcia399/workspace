@@ -1,0 +1,95 @@
+{
+  "id": "lavanda",
+  "label": "Lavanda",
+  "emoji": "✾",
+  "swatches": [
+    "#b4a6e3",
+    "#9db8dd"
+  ],
+  "web": {
+    "tokens": {
+      "bg": "#16141f",
+      "surface": "#1c1927",
+      "surface2": "#231f30",
+      "surface3": "#2b2639",
+      "border": "#302a40",
+      "border-hi": "#423a58",
+      "text": "#e6e1f0",
+      "dim": "#a49dbd",
+      "faint": "#6b6485",
+      "accent": "#b4a6e3",
+      "accent-hi": "#d4caf2",
+      "accent-soft": "rgba(180,166,227,.12)",
+      "accent-line": "rgba(180,166,227,.35)",
+      "accent-2": "#9db8dd",
+      "red": "#e07791",
+      "amber": "#dfc08a",
+      "blue": "#8fc2d6",
+      "green": "#8fc9a8",
+      "grey": "#6b6485",
+      "radius": "10px",
+      "radius-sm": "8px",
+      "fast": ".15s",
+      "med": ".22s",
+      "font": "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
+    },
+    "css": "web.css"
+  },
+  "tui": {
+    "_nota": "Lavanda — línea rosé en clave iris: lavanda suave + azul perla sobre violeta-carbón frío. Donde rose es rosa con iris de apoyo, aquí manda el iris.",
+    "roles": {
+      "text": "#e6e1f0",
+      "hi": "#d4caf2",
+      "accent": "#b4a6e3",
+      "mid": "#9db8dd",
+      "dim": "#a49dbd",
+      "dark": "#423a58",
+      "grey": "#6b6485",
+      "inactive": "#a49dbd",
+      "inactive_alt": "#302a40",
+      "err": "#e07791",
+      "ok": "#8fc9a8",
+      "bad": "#e07791"
+    },
+    "stars": {
+      "dim": [
+        "#231f30",
+        "#2b2639",
+        "#302a40",
+        "#282237"
+      ],
+      "mid": [
+        "#423a58",
+        "#58507a"
+      ],
+      "hi": "#d4caf2"
+    },
+    "fire": [
+      "#16141f",
+      "#1e1a2c",
+      "#272039",
+      "#322a4b",
+      "#3f3560",
+      "#514579",
+      "#6b5c97",
+      "#8a78b8",
+      "#b4a6e3",
+      "#c6baec",
+      "#d9d0f3",
+      "#ece6f9"
+    ],
+    "ember": [
+      "#322a4b",
+      "#3f3560",
+      "#514579",
+      "#6b5c97"
+    ],
+    "off": "#6b6485",
+    "osc": {
+      "bg": "#16141f",
+      "fg": "#e6e1f0",
+      "cursor": "#b4a6e3"
+    }
+  },
+  "_nota": "Lavanda — hermana iris de rose (pedido del socio 2026-10-02: más temas sutiles en esa línea). Violeta-carbón frío por elevación, texto lavanda-blanco (#e6e1f0), acento lavanda apagado (#b4a6e3) + azul perla de apoyo (#9db8dd). Semánticos suaves. Radios redondos (10/8), transiciones lentas. Contraste AA verificado (text/bg ~13:1, dim/bg ~6:1, accent/bg ~7:1)."
+}

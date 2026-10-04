@@ -1,0 +1,31 @@
+{
+  "name": "anthropic-api",
+  "api_mode": "anthropic",
+  "connection": "native_api",
+  "base_url": "https://api.anthropic.com",
+  "auth_type": "api_key",
+  "cost": "metered",
+  "env_vars": [
+    "ANTHROPIC_API_KEY"
+  ],
+  "credential_url": "https://console.anthropic.com/settings/keys",
+  "models": [
+    "claude-opus-4-8",
+    "claude-sonnet-4-6",
+    "claude-haiku-4-5"
+  ],
+  "default_model": "claude-opus-4-8",
+  "default_aux_model": "claude-haiku-4-5",
+  "task_models": {
+    "utility": "claude-haiku-4-5"
+  },
+  "fallback_models": [
+    "claude-haiku-4-5"
+  ],
+  "hidden_models": [],
+  "context_windows": {},
+  "quirks": {
+    "max_tokens": 8192
+  },
+  "_note": "Messages API metered de Anthropic (native_api, modelo de conexión a). ANTHROPIC_API_KEY vive en el env per-máquina — este archivo lleva el NOMBRE, jamás el valor. NO confundir con providers/anthropic.json: ese es la SUSCRIPCIÓN del socio y solo se usa lanzando el CLI oficial (official_cli); una credencial de suscripción JAMÁS se conecta directo. quirks.max_tokens = tope de salida por request (el Messages API lo exige; sube si un flujo lo necesita). Modelos A-EDITAR según el catálogo vigente. Uso: WORKSPACE_DREAM_BACKEND=anthropic-api."
+}

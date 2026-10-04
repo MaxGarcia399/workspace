@@ -1,0 +1,15 @@
+{
+  "id": "atlas",
+  "label": "Atlas",
+  "emoji": "📚",
+  "swatches": ["#4fd0c0", "#2f8a80"],
+  "web": {
+    "tokens": {
+      "accent": "#4fd0c0",
+      "accent-hi": "#a6efe2",
+      "accent-soft": "rgba(79,208,192,.5)",
+      "accent-line": "#2f8a80"
+    }
+  },
+  "_nota": "Tema del agente Atlas (teal/cian) — mismos tokens que argus/zenith, su color de identidad."
+}

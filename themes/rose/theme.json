@@ -1,0 +1,95 @@
+{
+  "id": "rose",
+  "label": "Rosé",
+  "emoji": "❀",
+  "swatches": [
+    "#e0a3b8",
+    "#c4a7e7"
+  ],
+  "web": {
+    "tokens": {
+      "bg": "#191622",
+      "surface": "#1f1b2b",
+      "surface2": "#262133",
+      "surface3": "#2e283d",
+      "border": "#322c44",
+      "border-hi": "#443c5c",
+      "text": "#e8def0",
+      "dim": "#a9a0bd",
+      "faint": "#6e6685",
+      "accent": "#e0a3b8",
+      "accent-hi": "#f4c8d6",
+      "accent-soft": "rgba(224,163,184,.12)",
+      "accent-line": "rgba(224,163,184,.35)",
+      "accent-2": "#c4a7e7",
+      "red": "#eb6f92",
+      "amber": "#f6c177",
+      "blue": "#9ccfd8",
+      "green": "#8fc9a0",
+      "grey": "#6e6685",
+      "radius": "10px",
+      "radius-sm": "8px",
+      "fast": ".15s",
+      "med": ".22s",
+      "font": "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
+    },
+    "css": "web.css"
+  },
+  "tui": {
+    "_nota": "Rosé — dark elegante tenue (Rosé Pine): malva/rosa apagado sobre carbón cálido, acento rosa con iris/lavanda de apoyo. Calmo y refinado.",
+    "roles": {
+      "text": "#e8def0",
+      "hi": "#f4c8d6",
+      "accent": "#e0a3b8",
+      "mid": "#c4a7e7",
+      "dim": "#a9a0bd",
+      "dark": "#443c5c",
+      "grey": "#6e6685",
+      "inactive": "#a9a0bd",
+      "inactive_alt": "#322c44",
+      "err": "#eb6f92",
+      "ok": "#8fc9a0",
+      "bad": "#eb6f92"
+    },
+    "stars": {
+      "dim": [
+        "#262133",
+        "#2e283d",
+        "#322c44",
+        "#2a2338"
+      ],
+      "mid": [
+        "#443c5c",
+        "#5a5075"
+      ],
+      "hi": "#f4c8d6"
+    },
+    "fire": [
+      "#191622",
+      "#241d30",
+      "#302540",
+      "#3d2f52",
+      "#4d3a68",
+      "#6b4a72",
+      "#9a6a86",
+      "#e0a3b8",
+      "#e8b6c8",
+      "#f0cad8",
+      "#f5dce6",
+      "#faedf2"
+    ],
+    "ember": [
+      "#3d2f52",
+      "#4d3a68",
+      "#6b4a72",
+      "#9a6a86"
+    ],
+    "off": "#6e6685",
+    "osc": {
+      "bg": "#191622",
+      "fg": "#e8def0",
+      "cursor": "#e0a3b8"
+    }
+  },
+  "_nota": "Rosé — dark con personalidad pero calmo (Rosé Pine): carbón cálido violáceo por elevación, texto lavanda-blanco (#e8def0), acento rosa apagado (#e0a3b8) + iris de apoyo (#c4a7e7). Semánticos suaves de la paleta (love/gold/foam). Radios más redondos (10/8) y transiciones un toque más lentas = sensación elegante. Contraste AA verificado. Solo-tokens."
+}

@@ -1,0 +1,7 @@
+{
+  "_help": "Tema de color de la terminal por banner/agente. Edita libremente: bg=fondo, fg=texto, cursor=opcional. Hex (#rrggbb). Se aplica al entrar y se restaura al salir. Cross-terminal (OSC).",
+  "workspace": {
+    "bg": "#000000",
+    "fg": "#e8d8a8"
+  }
+}

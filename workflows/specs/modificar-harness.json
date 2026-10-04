@@ -1,0 +1,84 @@
+{
+  "workflow": "modificar-harness",
+  "version": 1,
+  "map": "workflows/MAPA.md · P10 (meta-harness) — el wf que modifica wfs. Análogo a skill-improver.",
+  "note": "META-HARNESS · modificar. Guía a aplicar feedback a un workflow EXISTENTE sin romper runs vivos, siguiendo workflows/AUTHORING.md. Como skill-improver: distingue el TIPO de cambio (ajuste de nota → sin bump; estructural → nueva `version:`; preferencia de un socio) y versiona en consecuencia. SEGURO POR CONSTRUCCIÓN: el spec se congela por-run (deep-copy), así que modificar el archivo NUNCA afecta un run en curso — termina en su versión vieja. El oráculo central sigue siendo spec.validate. Pasos agent = STUB honesto sin driver (checklist guiado). Opera sobre `--param target_spec=<nombre>`.",
+  "inputs": ["target_spec"],
+  "triggers": ["modificar workflow", "editar workflow", "mejorar workflow", "cambiar harness", "modificar harness", "editar harness", "versionar workflow", "actualizar workflow"],
+  "steps": [
+    {
+      "id": "cargar",
+      "kind": "det",
+      "run": "spec.validate",
+      "produces": ["spec_valid", "spec_validation"],
+      "on_fail": "stop",
+      "note": "load_spec(target_spec) + validate — trae el spec vigente y confirma que parte de una base válida (no se modifica sobre algo ya roto)"
+    },
+    {
+      "id": "clasificar-cambio",
+      "kind": "agent",
+      "role": "autor",
+      "artifact": "clasificacion",
+      "produces": ["clasificacion"],
+      "output_schema": {"type": "object", "required": {"tipo": {"type": "string", "enum": ["nota", "estructural", "preferencia"]}, "diff": {"type": "string"}}},
+      "verify": "evidence.artifact_exists",
+      "on_fail": "stop",
+      "contract": {
+        "objetivo": "del feedback, decidir el TIPO de cambio (como skill-improver general-vs-personal)",
+        "formato": "objeto {tipo: (nota|estructural|preferencia), diff:string}",
+        "tools": "lectura del spec objetivo + AUTHORING.md + el feedback",
+        "limites": "nota = ajuste de texto sin bump; estructural = cambia pasos/verify → nueva version:; preferencia = ajuste de un socio"
+      },
+      "note": "STUB v1: la clasificación la hace el autor; verify de forma (el enum lo garantiza output_schema)"
+    },
+    {
+      "id": "aplicar",
+      "kind": "agent",
+      "role": "autor",
+      "produces": [],
+      "verify": "spec.validate",
+      "on_fail": "retry",
+      "max_iter": 3,
+      "contract": {
+        "objetivo": "editar el spec objetivo; si el cambio es estructural, INCREMENTAR `version:` (runs viejos siguen congelados en la vieja)",
+        "formato": "specs/<target_spec>.json editado — válido por validate_spec",
+        "tools": "editor sobre specs/<target_spec>.json",
+        "limites": "solo pasos de steps.known(); no bajar `version:`; frontera composición-vs-primitiva respetada (§2 AUTHORING)"
+      },
+      "note": "STUB v1: la edición la hace el autor; el verify (spec.validate) confirma que quedó válido tras el patch"
+    },
+    {
+      "id": "validar-carga",
+      "kind": "det",
+      "run": "spec.validate",
+      "produces": ["spec_valid", "spec_validation"],
+      "on_fail": "retry",
+      "max_iter": 2,
+      "note": "re-valida el spec tras la edición — el oráculo infalsificable (registry, integridad referencial, when, output_schema)"
+    },
+    {
+      "id": "smoke-dry",
+      "kind": "det",
+      "run": "spec.smoke",
+      "produces": ["smoke_ok", "smoke_steps"],
+      "on_fail": "retry",
+      "max_iter": 2,
+      "note": "--dry programático del spec modificado: valida + planea sin ejecutar. Frozen-spec: los runs EN CURSO no se afectan (usan su copia congelada), así que el impacto es solo a runs futuros"
+    },
+    {
+      "id": "aprobar",
+      "kind": "human",
+      "present": "lavish",
+      "on_fail": "stop",
+      "note": "GATE del cambio — Lavish muestra el diff. N2 dueño del scope; N3 si toca identidad/estructura. El gate honesto de '¿el cambio es correcto?'"
+    },
+    {
+      "id": "registrar",
+      "kind": "det",
+      "run": "spec.discoverable",
+      "produces": ["registrado", "descubrible"],
+      "on_fail": "stop",
+      "note": "el spec editado sigue en specs/, en `wf list`, y descubrible por sus triggers (si el cambio tocó triggers, que sigan empatando su tarea)"
+    }
+  ]
+}

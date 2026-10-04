@@ -1,0 +1,99 @@
+{
+  "id": "cyberpunk",
+  "label": "Cyberpunk",
+  "emoji": "⚡",
+  "swatches": [
+    "#e4569f",
+    "#56c9dd"
+  ],
+  "web": {
+    "tokens": {
+      "bg": "#0a0714",
+      "surface": "#140f23",
+      "surface2": "#1b1630",
+      "surface3": "#231d3e",
+      "border": "#2b2449",
+      "border-hi": "#3e3566",
+      "text": "#e8e0f5",
+      "dim": "#9a8fb5",
+      "faint": "#5d5378",
+      "accent": "#e4569f",
+      "accent-hi": "#f29ec9",
+      "accent-soft": "rgba(228,86,159,.10)",
+      "accent-line": "rgba(228,86,159,.32)",
+      "accent-2": "#56c9dd",
+      "red": "#e8616e",
+      "amber": "#e0a352",
+      "blue": "#56c9dd",
+      "green": "#95cf6a",
+      "grey": "#5d5378",
+      "radius": "0px",
+      "radius-sm": "0px",
+      "fast": ".08s",
+      "med": ".14s",
+      "font": "ui-monospace,'SF Mono',Menlo,Consolas,monospace"
+    },
+    "css": "web.css"
+  },
+  "tui": {
+    "_nota": "Paleta ANSI del TUI (tuitheme.py) — night-city REFINADO (retune 2026-10-02, pedido del socio: menos neón puro, más profundidad): magenta joya + cian empolvado sobre violeta-carbón desaturado; wordmark en gradiente magenta→cian; llama magenta con punta cian-bruma; caja angular.",
+    "roles": {
+      "text": "#e8e0f5",
+      "hi": "#56c9dd",
+      "accent": "#e4569f",
+      "mid": "#b365ab",
+      "dim": "#9a8fb5",
+      "dark": "#5d5378",
+      "grey": "#6f6590",
+      "inactive": "#9a8fb5",
+      "inactive_alt": "#453b66",
+      "err": "#e8616e",
+      "ok": "#95cf6a",
+      "bad": "#e8616e"
+    },
+    "stars": {
+      "dim": [
+        "#2b2449",
+        "#322a56",
+        "#3a3164",
+        "#231d3e"
+      ],
+      "mid": [
+        "#5d5378",
+        "#7a6da0"
+      ],
+      "hi": "#56c9dd"
+    },
+    "fire": [
+      "#160a28",
+      "#2a1142",
+      "#3e185c",
+      "#532074",
+      "#6b2b88",
+      "#87409a",
+      "#a855a6",
+      "#c968ae",
+      "#e07fb9",
+      "#ecaacf",
+      "#f4cce2",
+      "#eaf6f9"
+    ],
+    "ember": [
+      "#2a1142",
+      "#3e185c",
+      "#532074",
+      "#87409a"
+    ],
+    "off": "#3e3566",
+    "glyphs": {
+      "box": "┌┐└┘│─",
+      "orn": "◆"
+    },
+    "osc": {
+      "bg": "#0a0714",
+      "fg": "#e8e0f5",
+      "cursor": "#e4569f"
+    }
+  },
+  "_nota": "Night-city console REFINADO (retune 2026-10-02 — el socio: «muy saturado, hazlo más sutil»): la dirección del mockup sigue (magenta + cian sobre violeta-negro, monospace, scanlines CRT, esquinas anguladas) pero los neones bajan a tono joya — magenta #ff2ea6→#e4569f, cian #2ee6ff→#56c9dd, verde #b6ff3d→#95cf6a — y la base violeta se desatura un paso (#07000f→#0a0714) para ganar profundidad de grises. Glows y alphas del skin también bajan (~30%). El skin web.css va TODO scoped a body[data-theme=cyberpunk] — DOM idéntico, solo CSS."
+}

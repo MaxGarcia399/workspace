@@ -1,0 +1,23 @@
+{
+  "name": "ollama",
+  "api_mode": "openai-chat",
+  "connection": "openai_compatible",
+  "base_url": "http://localhost:11434/v1",
+  "auth_type": "none",
+  "cost": "free",
+  "env_vars": [],
+  "models": ["llama3.1", "qwen2.5"],
+  "default_model": "llama3.1",
+  "default_aux_model": "qwen2.5",
+  "task_models": {
+    "utility": "qwen2.5"
+  },
+  "fallback_models": ["qwen2.5"],
+  "hidden_models": [],
+  "context_windows": {
+    "llama3.1": 32768,
+    "qwen2.5": 32768
+  },
+  "quirks": {},
+  "_note": "Modelo LOCAL vía Ollama (endpoint OpenAI-compat en localhost). auth none: JAMÁS se manda Authorization a este endpoint. Edita models/default_model según lo que tengas (`ollama pull …`). Uso: WORKSPACE_DREAM_BACKEND=ollama WORKSPACE_DREAM_MODEL=llama3.1."
+}

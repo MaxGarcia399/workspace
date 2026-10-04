@@ -1,0 +1,26 @@
+{
+  "name": "stub",
+  "api_mode": "echo",
+  "base_url": "",
+  "auth_type": "none",
+  "cost": "free",
+  "env_vars": [],
+  "models": ["eco-1", "eco-mini", "eco-embed"],
+  "default_model": "eco-1",
+  "default_aux_model": "eco-mini",
+  "task_models": {
+    "utility": "eco-mini"
+  },
+  "fallback_models": ["eco-mini"],
+  "hidden_models": ["eco-embed"],
+  "context_windows": {
+    "eco-1": 8192,
+    "eco-mini": 4096
+  },
+  "quirks": {
+    "compression_thresholds": {
+      "eco-mini": 0.75
+    }
+  },
+  "_note": "Provider del motor stub (eco, sin LLM): existe para probar EN VIVO que el resolver y el switch de motor funcionan end-to-end. eco-embed está en hidden_models a propósito (el resolver jamás debe elegirlo)."
+}

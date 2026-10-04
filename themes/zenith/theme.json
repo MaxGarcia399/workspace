@@ -1,0 +1,15 @@
+{
+  "id": "zenith",
+  "label": "Zenith",
+  "emoji": "◆",
+  "swatches": ["#3fc8e6", "#2a8499"],
+  "web": {
+    "tokens": {
+      "accent": "#3fc8e6",
+      "accent-hi": "#a8e8f4",
+      "accent-soft": "rgba(63,200,230,.5)",
+      "accent-line": "#2a8499"
+    }
+  },
+  "_nota": "Manifiesto solo-tokens (ex-paleta 'zenith' del mockup v5, mismos acentos exactos). Sin web.css: re-tematiza los acentos del DS y nada más."
+}

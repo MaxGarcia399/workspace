@@ -1,0 +1,148 @@
+/* ═══════════ OBSERVATORIO · el atlas del astrónomo — skin del dev panel ═════
+   Dirección visual del mockup research/design/temas/mockups/observatorio.html:
+   tinta índigo profunda + latón/cobre, serif clásica (cuaderno de astrónomo),
+   hairlines finas, firmamento con estrellas fijas y UNA que titila, eclíptica
+   tenue cruzando el cielo. Elegante y LENTO — un cielo que respira. REGLA DE
+   ORO: el DOM no cambia por tema — todo scoped a body[data-theme=observatorio];
+   los colores base los puso el bloque de tokens (theme.json → --th-*/--ds-*).
+   Aquí viven la capa L (hairlines, latón, serif) y la capa A (titileo +
+   respiración del latón). Respeta prefers-reduced-motion y body[data-anim=off]. */
+
+/* ── el cielo: gradiente de tinta + firmamento fijo + eclíptica ── */
+body[data-theme="observatorio"]{
+  background:radial-gradient(120% 100% at 50% 0%, #0e1830, var(--th-bg) 60%);
+  letter-spacing:.15px}
+body[data-theme="observatorio"]::before{content:"";position:fixed;inset:0;
+  pointer-events:none;z-index:0;background:
+    radial-gradient(1px 1px at 11% 18%, rgba(242,234,210,.5) 50%, transparent 51%),
+    radial-gradient(1px 1px at 26% 7%,  rgba(242,234,210,.3) 50%, transparent 51%),
+    radial-gradient(1.4px 1.4px at 41% 26%, rgba(242,234,210,.45) 50%, transparent 51%),
+    radial-gradient(1px 1px at 58% 12%, rgba(242,234,210,.35) 50%, transparent 51%),
+    radial-gradient(1px 1px at 74% 21%, rgba(242,234,210,.5) 50%, transparent 51%),
+    radial-gradient(1.4px 1.4px at 89% 8%,  rgba(242,234,210,.4) 50%, transparent 51%),
+    radial-gradient(1px 1px at 7% 54%,  rgba(242,234,210,.2) 50%, transparent 51%),
+    radial-gradient(1px 1px at 93% 47%, rgba(242,234,210,.25) 50%, transparent 51%),
+    radial-gradient(1px 1px at 33% 68%, rgba(242,234,210,.18) 50%, transparent 51%),
+    radial-gradient(1px 1px at 66% 76%, rgba(242,234,210,.16) 50%, transparent 51%)}
+body[data-theme="observatorio"]::after{content:"";position:fixed;
+  top:16%;left:63%;width:2px;height:2px;border-radius:50%;pointer-events:none;
+  z-index:0;background:#f2ead2;box-shadow:0 0 8px rgba(242,234,210,.9);
+  animation:obs-tw 4.5s ease-in-out infinite}
+body[data-theme="observatorio"] .shell::after{content:"";position:fixed;
+  inset:-22% -12%;border:1px solid rgba(201,168,106,.07);border-radius:50%;
+  transform:rotate(-8deg);pointer-events:none;z-index:0}
+body[data-theme="observatorio"] .side,
+body[data-theme="observatorio"] .main{position:relative;z-index:1}
+body[data-theme="observatorio"] ::selection{
+  background:rgba(201,168,106,.3);color:#f6f1e3}
+
+/* ── sidebar: el margen del atlas — translúcido, hairline de latón ── */
+body[data-theme="observatorio"] .side{
+  background:linear-gradient(180deg, rgba(14,24,48,.88), rgba(10,18,38,.88));
+  border-right:1px solid rgba(138,111,60,.55)}
+body[data-theme="observatorio"] .brand .glyph{color:var(--th-accent);
+  text-shadow:0 0 12px rgba(201,168,106,.55);
+  animation:obs-breathe 6s ease-in-out infinite}
+body[data-theme="observatorio"] .brand .txt b{font-weight:400;font-size:14px;
+  letter-spacing:4px;text-transform:uppercase;color:var(--th-accent-hi)}
+body[data-theme="observatorio"] .brand .txt span{font-style:italic;
+  text-transform:none;letter-spacing:1px}
+body[data-theme="observatorio"] .nav .navhd{font-style:italic;font-weight:400;
+  letter-spacing:2px}
+body[data-theme="observatorio"] .navitem{font-weight:400;font-size:11.5px;
+  letter-spacing:2.5px;text-transform:uppercase}
+body[data-theme="observatorio"] .navitem .ni{color:var(--th-accent)}
+body[data-theme="observatorio"] .navitem.on{
+  box-shadow:inset 0 0 24px rgba(201,168,106,.05)}
+body[data-theme="observatorio"] .side .foot{font-style:italic;letter-spacing:.4px}
+body[data-theme="observatorio"] .side .foot::before{content:"✶ ";
+  color:var(--th-accent);font-style:normal}
+
+/* ── header: cabecera del cuaderno — hairline de latón, serif ligera ── */
+body[data-theme="observatorio"] .hdr{
+  background:rgba(10,18,38,.82);border-bottom:1px solid rgba(138,111,60,.55)}
+body[data-theme="observatorio"] .hdr h1{font-weight:400;font-size:17px;
+  letter-spacing:3px;color:var(--th-accent-hi)}
+body[data-theme="observatorio"] .hdr .sub{font-style:italic;letter-spacing:.5px}
+body[data-theme="observatorio"] .hdr .hbranch .ic{color:var(--th-accent)}
+body[data-theme="observatorio"] .hdr .hbranch b{color:var(--th-accent-hi);
+  font-weight:500}
+body[data-theme="observatorio"] .refresh:hover,
+body[data-theme="observatorio"] .side-toggle:hover{
+  color:var(--th-accent-hi);border-color:rgba(201,168,106,.5)}
+
+/* ── primitivas DS: instrumentos de latón (hairline, relleno al hover) ── */
+body[data-theme="observatorio"] .ds-btn-mini{background:transparent;
+  border:1px solid rgba(201,168,106,.5);color:var(--th-accent);
+  font-weight:400;font-size:11px;letter-spacing:2px;text-transform:uppercase}
+body[data-theme="observatorio"] .ds-btn-mini:hover{
+  background:var(--th-accent);border-color:var(--th-accent);color:#241a08}
+body[data-theme="observatorio"] .ds-btn-mini.primary{
+  background:linear-gradient(180deg, #ecd9ae, #c9a86a);
+  border-color:#8a6f3c;color:#241a08;font-weight:600}
+body[data-theme="observatorio"] .ds-btn-mini.primary:hover{filter:brightness(1.06)}
+body[data-theme="observatorio"] .ds-badge{letter-spacing:1.5px;font-size:10px;
+  text-transform:uppercase;font-weight:400}
+body[data-theme="observatorio"] .ds-badge.gold{border-color:#8a6f3c}
+body[data-theme="observatorio"] .ds-empty{font-style:italic;
+  border:1px dashed rgba(201,168,106,.35)}
+body[data-theme="observatorio"] .ds-section-title{font-weight:400;
+  letter-spacing:3px;color:var(--th-faint)}
+body[data-theme="observatorio"] .ds-section-title::before{content:"✶ ";
+  color:var(--th-accent-2)}
+body[data-theme="observatorio"] .ds-toast{background:rgba(14,24,48,.96);
+  border-color:#8a6f3c;box-shadow:0 18px 44px rgba(0,0,0,.6)}
+
+/* banner de switch = nota del observatorio (margen de latón, cursiva) */
+body[data-theme="observatorio"] .dev-flash{border:0;
+  border-left:2px solid #8a6f3c;border-radius:0;
+  background:rgba(201,168,106,.07);color:var(--th-accent-hi);font-weight:400}
+body[data-theme="observatorio"] .dev-flash .fx{font-style:italic}
+body[data-theme="observatorio"] .dev-flash .fi{color:var(--th-accent)}
+body[data-theme="observatorio"] .dev-flash.err{border-left-color:var(--th-red);
+  background:rgba(217,120,98,.08);color:var(--th-red)}
+body[data-theme="observatorio"] .dev-busy{background:rgba(6,10,22,.55)}
+body[data-theme="observatorio"] .dev-busy .box{border-color:#8a6f3c;
+  box-shadow:0 24px 60px rgba(0,0,0,.6);font-style:italic}
+body[data-theme="observatorio"] .dev-busy .box .big{color:var(--th-accent)}
+
+/* ── switcher de tema: carta con esquinas de latón, sol como muestra ── */
+body[data-theme="observatorio"] .palpop{background:rgba(14,24,48,.96);
+  border:1px solid #8a6f3c;box-shadow:0 18px 44px rgba(0,0,0,.6)}
+body[data-theme="observatorio"] .palpop::before{content:"";position:absolute;
+  top:5px;left:5px;width:12px;height:12px;
+  border:1px solid #8a6f3c;border-right:0;border-bottom:0}
+body[data-theme="observatorio"] .palpop::after{content:"";position:absolute;
+  bottom:5px;right:5px;width:12px;height:12px;
+  border:1px solid #8a6f3c;border-left:0;border-top:0}
+body[data-theme="observatorio"] .palpop .pophd{font-style:italic;font-weight:400;
+  letter-spacing:2px}
+body[data-theme="observatorio"] .paltheme.on{border-color:#8a6f3c;
+  box-shadow:0 0 16px rgba(201,168,106,.15)}
+body[data-theme="observatorio"] .paltheme .pnm{font-weight:400;letter-spacing:.5px}
+body[data-theme="observatorio"] .palbtn .paldot{border-color:rgba(201,168,106,.4);
+  background:radial-gradient(circle at 38% 35%, #ecd9ae, #c9a86a 55%, #8a6f3c);
+  box-shadow:0 0 10px rgba(201,168,106,.55);
+  animation:obs-tw 6s ease-in-out infinite}
+
+/* ── scrollbars: hairline de latón viejo ── */
+body[data-theme="observatorio"] *{scrollbar-color:rgba(138,111,60,.6) transparent}
+body[data-theme="observatorio"] ::-webkit-scrollbar-thumb{
+  background:rgba(138,111,60,.6)}
+body[data-theme="observatorio"] ::-webkit-scrollbar-thumb:hover{
+  background:var(--th-accent)}
+
+/* ── capa A: el cielo respira — titileo lento + latón que late ── */
+@keyframes obs-tw{0%,100%{opacity:.25}50%{opacity:1}}
+@keyframes obs-breathe{
+  0%,100%{text-shadow:0 0 8px rgba(201,168,106,.4)}
+  50%{text-shadow:0 0 20px rgba(201,168,106,.8)}}
+/* ui.anim off / reduced-motion → cielo quieto (mismo contrato que el shell) */
+body[data-theme="observatorio"][data-anim="off"]::after,
+body[data-theme="observatorio"][data-anim="off"] .brand .glyph,
+body[data-theme="observatorio"][data-anim="off"] .palbtn .paldot{animation:none}
+@media (prefers-reduced-motion: reduce){
+  body[data-theme="observatorio"]::after,
+  body[data-theme="observatorio"] .brand .glyph,
+  body[data-theme="observatorio"] .palbtn .paldot{animation:none}
+}

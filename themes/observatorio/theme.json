@@ -1,0 +1,95 @@
+{
+  "id": "observatorio",
+  "label": "Observatorio",
+  "emoji": "✶",
+  "swatches": [
+    "#c9a86a",
+    "#d08a5a"
+  ],
+  "web": {
+    "tokens": {
+      "bg": "#0a1226",
+      "surface": "#0e1830",
+      "surface2": "#141f3d",
+      "surface3": "#1b2848",
+      "border": "#233257",
+      "border-hi": "#33477a",
+      "text": "#e8e2d2",
+      "dim": "#8a93ad",
+      "faint": "#535e7d",
+      "accent": "#c9a86a",
+      "accent-hi": "#ecd9ae",
+      "accent-soft": "rgba(201,168,106,.10)",
+      "accent-line": "rgba(201,168,106,.45)",
+      "accent-2": "#d08a5a",
+      "red": "#d97862",
+      "amber": "#d9a441",
+      "blue": "#7fa3d8",
+      "green": "#86bf9a",
+      "grey": "#535e7d",
+      "radius": "3px",
+      "radius-sm": "2px",
+      "fast": ".2s",
+      "med": ".4s",
+      "font": "Palatino,'Palatino Linotype','Book Antiqua',Georgia,serif"
+    },
+    "css": "web.css"
+  },
+  "tui": {
+    "_nota": "Paleta ANSI del TUI (tuitheme.py) — atlas del astrónomo: latón/cobre sobre índigo, cielo protagonista (estrellas azuladas + la rara cálida), llama de brasero de bronce; glifos = los default del recinto (sobrio).",
+    "roles": {
+      "text": "#e8e2d2",
+      "hi": "#ecd9ae",
+      "accent": "#c9a86a",
+      "mid": "#9a7c46",
+      "dim": "#8a93ad",
+      "dark": "#535e7d",
+      "grey": "#66719a",
+      "inactive": "#8a93ad",
+      "inactive_alt": "#33425f",
+      "err": "#d97862",
+      "ok": "#86bf9a",
+      "bad": "#d97862"
+    },
+    "stars": {
+      "dim": [
+        "#3a4a72",
+        "#425380",
+        "#4a5c8e",
+        "#33425f"
+      ],
+      "mid": [
+        "#7fa3d8",
+        "#93b2e2"
+      ],
+      "hi": "#f5edd8"
+    },
+    "fire": [
+      "#2a1c08",
+      "#4a3210",
+      "#6b4a18",
+      "#8c6224",
+      "#a87c34",
+      "#c9a86a",
+      "#d4b57c",
+      "#dfc28e",
+      "#ecd9ae",
+      "#f3e5c4",
+      "#f9f0da",
+      "#fff8ea"
+    ],
+    "ember": [
+      "#4a3210",
+      "#6b4a18",
+      "#8c6224",
+      "#a87c34"
+    ],
+    "off": "#535e7d",
+    "osc": {
+      "bg": "#0a1226",
+      "fg": "#e8e2d2",
+      "cursor": "#c9a86a"
+    }
+  },
+  "_nota": "El atlas del astrónomo (dirección del mockup research/design/temas/mockups/observatorio.html): tinta índigo profunda + latón/cobre, serif clásica, hairlines finas, firmamento de estrellas fijas con una que titila, elegante y lento (transiciones .2s/.4s). El skin web.css va TODO scoped a body[data-theme=observatorio] — DOM idéntico, solo CSS."
+}

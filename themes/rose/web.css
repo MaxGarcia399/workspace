@@ -1,0 +1,46 @@
+/* ═══════════ ROSÉ · bruma elegante — skin del dev panel ══════════════════════
+   Dirección: onírico, suave, cálido. Capa L = bloom rosa/iris arriba + viñeta
+   suave + superficies translúcidas con micro-grano. Capa A = respiración lenta
+   del glow (gentil). REGLA DE ORO: DOM intacto, todo scoped a body[data-theme=rose];
+   colores base = tokens del theme.json. Respeta prefers-reduced-motion y data-anim=off. */
+
+/* ── fondo: aurora rosa + iris, tinte cálido ── */
+body[data-theme="rose"]{
+  background:radial-gradient(135% 100% at 50% -8%, #2a2038, var(--th-bg) 58%)}
+body[data-theme="rose"]::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(58% 44% at 80% 10%, rgba(224,163,184,.12), transparent 70%),
+    radial-gradient(52% 42% at 14% 6%, rgba(196,167,231,.10), transparent 70%);
+  animation:rose-breathe 9s ease-in-out infinite}
+/* viñeta suave que encuadra */
+body[data-theme="rose"]::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  box-shadow:inset 0 0 200px 44px rgba(9,5,16,.5)}
+body[data-theme="rose"] .shell{position:relative;z-index:1}
+body[data-theme="rose"] ::selection{background:rgba(224,163,184,.3);color:#2a1520}
+
+/* ── sidebar: velo violáceo translúcido ── */
+body[data-theme="rose"] .side{
+  background:linear-gradient(180deg, rgba(31,27,43,.82), rgba(25,22,34,.82));
+  border-right:1px solid var(--th-border)}
+body[data-theme="rose"] .brand .glyph{color:var(--th-accent);
+  text-shadow:0 0 14px rgba(224,163,184,.55)}
+body[data-theme="rose"] .brand .txt b{letter-spacing:2px}
+body[data-theme="rose"] .navitem.on{
+  box-shadow:inset 0 0 26px rgba(224,163,184,.09)}
+
+/* ── header + títulos: aire, glow tenue ── */
+body[data-theme="rose"] .hdr{border-bottom:1px solid var(--th-border)}
+body[data-theme="rose"] .hdr h1{letter-spacing:.4px;
+  text-shadow:0 0 18px rgba(224,163,184,.18)}
+
+/* ── botón primario: rosa con bloom ── */
+body[data-theme="rose"] .ds-btn-mini.primary{
+  background:linear-gradient(180deg,#ecb9cb,#e0a3b8);border:1px solid #cf8ea6;color:#2a1520;
+  box-shadow:0 0 18px rgba(224,163,184,.32)}
+body[data-theme="rose"] .ds-btn-mini.primary:hover{filter:brightness(1.04)}
+body[data-theme="rose"] .ds-btn-mini{border:1px solid var(--th-border-hi)}
+body[data-theme="rose"] .ds-btn-mini:hover{border-color:var(--th-accent);color:var(--th-accent-hi)}
+
+@keyframes rose-breathe{0%,100%{opacity:.85}50%{opacity:1}}
+@media (prefers-reduced-motion:reduce){body[data-theme="rose"]::before{animation:none}}
+body[data-anim="off"] body[data-theme="rose"]::before{animation:none}

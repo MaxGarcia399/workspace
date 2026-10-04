@@ -1,0 +1,41 @@
+# Config per-máquina (paths absolutos / sesiones locales, no sincronizar)
+.claude/settings.local.json
+.claude/socio.local
+.claude/{{AGENT_NAME}}-workspaces.json
+
+# macOS
+.DS_Store
+
+# Locks y temporales de estado
+STATE/tmp/
+
+# N12: sidecars de uso de skills — el .usage.json SÍ se versiona (conteo de equipo);
+# su lock N8 (WORKSPACE olock.py) es estado per-máquina → fuera de git
+skills/**/.usage.json.lock*
+
+# N4 (audit pipeline): el .audit.json SÍ se versiona; su lock N8 es per-máquina → fuera
+skills/**/.audit.json.lock*
+
+# N1 (Dreaming): DESTILADO.md SÍ se versiona (superficie de revisión humana);
+# su lock N8 es estado per-máquina → fuera de git
+STATE/DESTILADO.md.lock*
+
+# Runtime / derivados — per-máquina, regenerables, no sincronizar (E1+E2)
+# boot-lite.md: digest DERIVADO de BOOT/ (boot_lite.py lo regenera; jamás fuente de verdad)
+STATE/boot-lite.md
+# Locks genéricos del harness (olock.py — estado per-máquina)
+*.lock
+
+# ── Artefactos regenerables / código-proyecto — NUNCA al vault sincronizado (Obsidian ni git) ──
+# (Regresión 2026-07-16: un demo Next.js metió 22k archivos node_modules → topó Obsidian.)
+# REGLA: agentes construyen demos/apps y scratch FUERA del cerebro; si algo entra, node_modules
+# y build-artifacts se ignoran y se limpian.
+node_modules/
+.next/
+dist/
+build/
+.turbo/
+.cache/
+*.tsbuildinfo
+# Scratch / temporales — no sincronizar
+STATE/tmp/

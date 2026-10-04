@@ -1,0 +1,148 @@
+/* ═══════════ CYBERPUNK · night-city console — skin del dev panel ═══════════
+   Dirección visual del mockup research/design/temas/mockups/cyberpunk.html:
+   magenta + cian sobre violeta-negro, monospace, scanlines CRT, todo
+   angular (clip-path). RETUNE 2026-10-02 (pedido del socio: «muy saturado,
+   hazlo más sutil»): mismos gestos, neones a tono joya y glows/alphas ~30%
+   abajo — premium, no chillón. REGLA DE ORO: el DOM no cambia por tema —
+   todo esto va scoped a body[data-theme="cyberpunk"]; los colores base ya
+   los puso el bloque de tokens (theme.json → --th-* / alias --ds-*). Aquí
+   viven la capa L (forma) y la capa A (animación). Respeta
+   prefers-reduced-motion y body[data-anim="off"] (espejo de ui.anim). */
+
+/* ── backdrop: viñeta CRT + scanlines + piso de grid en perspectiva ── */
+body[data-theme="cyberpunk"]{
+  background:
+    radial-gradient(120% 80% at 50% 0%, #130d22 0%, var(--th-bg) 58%);
+  letter-spacing:.2px;
+}
+body[data-theme="cyberpunk"]::before{content:"";position:fixed;inset:0;
+  pointer-events:none;z-index:9998;
+  background:radial-gradient(125% 95% at 50% 40%, transparent 62%, rgba(3,2,10,.38) 100%)}
+body[data-theme="cyberpunk"]::after{content:"";position:fixed;inset:0;
+  pointer-events:none;z-index:9999;
+  background:repeating-linear-gradient(0deg, rgba(0,0,0,.08) 0 1px, transparent 1px 3px)}
+body[data-theme="cyberpunk"] .shell::after{content:"";position:fixed;
+  left:0;right:0;bottom:0;height:34vh;z-index:0;pointer-events:none;opacity:.26;
+  background:
+    linear-gradient(0deg, rgba(228,86,159,.08), transparent 70%),
+    repeating-linear-gradient(90deg, rgba(86,201,221,.07) 0 1px, transparent 1px 56px),
+    repeating-linear-gradient(0deg, rgba(86,201,221,.07) 0 1px, transparent 1px 24px);
+  transform:perspective(340px) rotateX(48deg);transform-origin:50% 100%;
+  mask-image:linear-gradient(0deg, black 25%, transparent);
+  -webkit-mask-image:linear-gradient(0deg, black 25%, transparent)}
+body[data-theme="cyberpunk"] .side,
+body[data-theme="cyberpunk"] .main{position:relative;z-index:1}
+body[data-theme="cyberpunk"] ::selection{background:rgba(228,86,159,.26);color:#fff}
+
+/* ── geometría: fuera lo redondo, entra lo angular ── */
+body[data-theme="cyberpunk"] .navitem,
+body[data-theme="cyberpunk"] .palbtn,
+body[data-theme="cyberpunk"] .paltheme,
+body[data-theme="cyberpunk"] .ds-btn-mini,
+body[data-theme="cyberpunk"] .ds-badge,
+body[data-theme="cyberpunk"] .ds-toast,
+body[data-theme="cyberpunk"] .dev-flash,
+body[data-theme="cyberpunk"] .refresh,
+body[data-theme="cyberpunk"] .side-toggle,
+body[data-theme="cyberpunk"] .hdr .hbranch,
+body[data-theme="cyberpunk"] .palpop,
+body[data-theme="cyberpunk"] .dev-busy .box{border-radius:0}
+body[data-theme="cyberpunk"] .navitem,
+body[data-theme="cyberpunk"] .palbtn{
+  clip-path:polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px)}
+body[data-theme="cyberpunk"] .ds-btn-mini,
+body[data-theme="cyberpunk"] .paltheme{
+  clip-path:polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px)}
+body[data-theme="cyberpunk"] .palpop,
+body[data-theme="cyberpunk"] .dev-busy .box,
+body[data-theme="cyberpunk"] .dev-flash{
+  clip-path:polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px)}
+
+/* ── sidebar: rack de netrunner ── */
+body[data-theme="cyberpunk"] .side{
+  background:linear-gradient(180deg, rgba(20,15,35,.94), rgba(13,9,24,.94));
+  border-right:1px solid var(--th-border-hi)}
+body[data-theme="cyberpunk"] .brand .glyph{color:var(--th-accent-2);
+  text-shadow:0 0 12px rgba(86,201,221,.35)}
+body[data-theme="cyberpunk"] .brand .txt b{letter-spacing:3px;text-transform:uppercase;
+  text-shadow:0 0 14px rgba(228,86,159,.22)}
+body[data-theme="cyberpunk"] .brand .txt span{color:var(--th-accent);letter-spacing:2px}
+body[data-theme="cyberpunk"] .brand .txt span::before{content:"// "}
+body[data-theme="cyberpunk"] .nav .navhd{color:var(--th-accent-2);opacity:.6;letter-spacing:2px}
+body[data-theme="cyberpunk"] .navitem{text-transform:uppercase;font-size:11.5px;
+  letter-spacing:1.6px;font-weight:600}
+body[data-theme="cyberpunk"] .navitem .ni{color:var(--th-accent-2);opacity:.75}
+body[data-theme="cyberpunk"] .navitem:hover{color:var(--th-accent-2)}
+body[data-theme="cyberpunk"] .navitem.on{
+  box-shadow:0 0 14px rgba(228,86,159,.10), inset 0 0 14px rgba(228,86,159,.04);
+  text-shadow:0 0 8px rgba(228,86,159,.3)}
+body[data-theme="cyberpunk"] .navitem.on .ni{color:var(--th-accent)}
+body[data-theme="cyberpunk"] .side .foot{color:var(--th-faint);letter-spacing:.6px}
+
+/* ── header: barra de ops ── */
+body[data-theme="cyberpunk"] .hdr{border-bottom:1px solid var(--th-border-hi);
+  background:rgba(13,9,24,.88)}
+body[data-theme="cyberpunk"] .hdr h1{text-transform:uppercase;letter-spacing:3px;font-size:15px}
+body[data-theme="cyberpunk"] .hdr h1::before{content:"▸ ";color:var(--th-accent)}
+body[data-theme="cyberpunk"] .hdr .sub{letter-spacing:1px}
+body[data-theme="cyberpunk"] .hdr .sub::before{content:"// "}
+body[data-theme="cyberpunk"] .hdr .hbranch .ic{color:var(--th-accent-2)}
+body[data-theme="cyberpunk"] .hdr .hbranch b{text-shadow:0 0 8px rgba(228,86,159,.28)}
+body[data-theme="cyberpunk"] .refresh:hover,
+body[data-theme="cyberpunk"] .side-toggle:hover{color:var(--th-accent-2);
+  border-color:var(--th-accent-2);box-shadow:0 0 10px rgba(86,201,221,.22)}
+
+/* ── primitivas DS con glow contenido ── */
+body[data-theme="cyberpunk"] .ds-btn-mini{text-transform:uppercase;
+  letter-spacing:1.2px;font-size:11px}
+body[data-theme="cyberpunk"] .ds-btn-mini:hover{border-color:var(--th-accent-2);
+  color:var(--th-accent-2);box-shadow:0 0 10px rgba(86,201,221,.2)}
+body[data-theme="cyberpunk"] .ds-btn-mini.primary{color:#140a1e;font-weight:700;
+  box-shadow:0 0 14px rgba(228,86,159,.26)}
+body[data-theme="cyberpunk"] .ds-btn-mini.primary:hover{filter:brightness(1.08)}
+body[data-theme="cyberpunk"] .ds-badge{letter-spacing:1px;text-transform:uppercase;font-size:10px}
+body[data-theme="cyberpunk"] .ds-badge.gold{box-shadow:0 0 10px rgba(228,86,159,.14)}
+body[data-theme="cyberpunk"] .ds-empty{border:1px dashed var(--th-border-hi);
+  letter-spacing:1px;text-transform:uppercase;font-size:11px}
+body[data-theme="cyberpunk"] .ds-section-title{color:var(--th-accent-2);
+  letter-spacing:2.2px}
+body[data-theme="cyberpunk"] .ds-section-title::before{content:"▸ ";color:var(--th-accent)}
+body[data-theme="cyberpunk"] .ds-toast{border-color:var(--th-border-hi);
+  box-shadow:0 0 18px rgba(228,86,159,.16), 0 16px 40px rgba(0,0,0,.55)}
+body[data-theme="cyberpunk"] .dev-flash{letter-spacing:.5px;
+  box-shadow:0 0 16px rgba(228,86,159,.12)}
+body[data-theme="cyberpunk"] .dev-busy{background:rgba(5,3,12,.5)}
+body[data-theme="cyberpunk"] .dev-busy .box{border-color:var(--th-border-hi);
+  box-shadow:0 0 22px rgba(228,86,159,.16), 0 24px 60px rgba(0,0,0,.55)}
+
+/* ── switcher de tema (popover) en clave neón contenida ── */
+body[data-theme="cyberpunk"] .palpop{border-color:var(--th-border-hi);
+  box-shadow:0 0 18px rgba(228,86,159,.13), 0 18px 44px rgba(0,0,0,.55)}
+body[data-theme="cyberpunk"] .paltheme.on{border-color:var(--th-accent);
+  box-shadow:0 0 10px rgba(228,86,159,.16)}
+body[data-theme="cyberpunk"] .palbtn .paldot{border-radius:0;
+  transform:rotate(45deg);width:9px;height:9px;
+  box-shadow:0 0 8px rgba(228,86,159,.38)}
+
+/* ── scrollbars cian ── */
+body[data-theme="cyberpunk"] *{scrollbar-color:var(--th-border-hi) transparent}
+body[data-theme="cyberpunk"] ::-webkit-scrollbar-thumb{background:var(--th-border-hi);
+  border-radius:0}
+body[data-theme="cyberpunk"] ::-webkit-scrollbar-thumb:hover{background:var(--th-accent-2)}
+
+/* ── capa A: micro-animación idle (flicker suave + pulso contenido) ── */
+@keyframes cyb-flicker{
+  0%, 89%, 100%{opacity:1}
+  90%{opacity:.72} 91%{opacity:1} 94%{opacity:.85} 95%{opacity:1}}
+@keyframes cyb-pulse{
+  0%, 100%{box-shadow:0 0 8px rgba(228,86,159,.35)}
+  50%{box-shadow:0 0 12px rgba(228,86,159,.55)}}
+body[data-theme="cyberpunk"] .brand .glyph{animation:cyb-flicker 7s steps(1) infinite}
+body[data-theme="cyberpunk"] .palbtn .paldot{animation:cyb-pulse 2.4s ease-in-out infinite}
+/* ui.anim off / reduced-motion → tema quieto (mismo contrato que el shell) */
+body[data-theme="cyberpunk"][data-anim="off"] .brand .glyph,
+body[data-theme="cyberpunk"][data-anim="off"] .palbtn .paldot{animation:none}
+@media (prefers-reduced-motion: reduce){
+  body[data-theme="cyberpunk"] .brand .glyph,
+  body[data-theme="cyberpunk"] .palbtn .paldot{animation:none}
+}

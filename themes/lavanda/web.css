@@ -1,0 +1,46 @@
+/* ═══════════ LAVANDA · bruma iris — skin del dev panel ════════════════════════
+   Línea rosé en clave iris. Capa L = bloom lavanda/perla arriba + viñeta
+   suave + velo violáceo en el sidebar. Capa A = respiración lenta del glow.
+   REGLA DE ORO: DOM intacto, todo scoped a body[data-theme=lavanda];
+   colores base = tokens del theme.json. Respeta prefers-reduced-motion y data-anim=off. */
+
+/* ── fondo: aurora lavanda + azul perla, tinte frío ── */
+body[data-theme="lavanda"]{
+  background:radial-gradient(135% 100% at 50% -8%, #262238, var(--th-bg) 58%)}
+body[data-theme="lavanda"]::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(58% 44% at 80% 10%, rgba(180,166,227,.12), transparent 70%),
+    radial-gradient(52% 42% at 14% 6%, rgba(157,184,221,.10), transparent 70%);
+  animation:lav-breathe 9s ease-in-out infinite}
+/* viñeta suave que encuadra */
+body[data-theme="lavanda"]::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  box-shadow:inset 0 0 200px 44px rgba(7,5,14,.5)}
+body[data-theme="lavanda"] .shell{position:relative;z-index:1}
+body[data-theme="lavanda"] ::selection{background:rgba(180,166,227,.3);color:#1d1530}
+
+/* ── sidebar: velo violáceo translúcido ── */
+body[data-theme="lavanda"] .side{
+  background:linear-gradient(180deg, rgba(28,25,39,.82), rgba(22,20,31,.82));
+  border-right:1px solid var(--th-border)}
+body[data-theme="lavanda"] .brand .glyph{color:var(--th-accent);
+  text-shadow:0 0 14px rgba(180,166,227,.55)}
+body[data-theme="lavanda"] .brand .txt b{letter-spacing:2px}
+body[data-theme="lavanda"] .navitem.on{
+  box-shadow:inset 0 0 26px rgba(180,166,227,.09)}
+
+/* ── header + títulos: aire, glow tenue ── */
+body[data-theme="lavanda"] .hdr{border-bottom:1px solid var(--th-border)}
+body[data-theme="lavanda"] .hdr h1{letter-spacing:.4px;
+  text-shadow:0 0 18px rgba(180,166,227,.18)}
+
+/* ── botón primario: lavanda con bloom ── */
+body[data-theme="lavanda"] .ds-btn-mini.primary{
+  background:linear-gradient(180deg,#c7bbed,#b4a6e3);border:1px solid #9d8dd0;color:#1d1530;
+  box-shadow:0 0 18px rgba(180,166,227,.32)}
+body[data-theme="lavanda"] .ds-btn-mini.primary:hover{filter:brightness(1.04)}
+body[data-theme="lavanda"] .ds-btn-mini{border:1px solid var(--th-border-hi)}
+body[data-theme="lavanda"] .ds-btn-mini:hover{border-color:var(--th-accent);color:var(--th-accent-hi)}
+
+@keyframes lav-breathe{0%,100%{opacity:.85}50%{opacity:1}}
+@media (prefers-reduced-motion:reduce){body[data-theme="lavanda"]::before{animation:none}}
+body[data-anim="off"] body[data-theme="lavanda"]::before{animation:none}

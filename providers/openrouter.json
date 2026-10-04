@@ -1,0 +1,32 @@
+{
+  "name": "openrouter",
+  "api_mode": "openai-chat",
+  "connection": "openai_compatible",
+  "base_url": "https://openrouter.ai/api/v1",
+  "auth_type": "api_key",
+  "cost": "metered",
+  "env_vars": [
+    "OPENROUTER_API_KEY"
+  ],
+  "credential_url": "https://openrouter.ai/keys",
+  "models": [
+    "deepseek/deepseek-chat",
+    "meta-llama/llama-3.1-70b-instruct"
+  ],
+  "default_model": "deepseek/deepseek-chat",
+  "default_aux_model": "meta-llama/llama-3.1-70b-instruct",
+  "task_models": {
+    "utility": "meta-llama/llama-3.1-70b-instruct"
+  },
+  "fallback_models": [
+    "meta-llama/llama-3.1-70b-instruct"
+  ],
+  "hidden_models": [],
+  "context_windows": {},
+  "quirks": {
+    "extra_headers": {
+      "X-Title": "WORKSPACE"
+    }
+  },
+  "_note": "Agregador multi-proveedor (modelo de conexión b). BYOK: tus API keys de proveedores subyacentes se configuran EN el dashboard de OpenRouter (server-side) — WORKSPACE solo maneja OPENROUTER_API_KEY desde el env per-máquina; este archivo lleva el NOMBRE, jamás el valor. Modelos A-EDITAR a gusto (catálogo en openrouter.ai/models)."
+}

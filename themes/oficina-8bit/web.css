@@ -1,0 +1,167 @@
+/* ═══════════ OFICINA 8-BIT · WORKSPACE OS/8 — skin del dev panel ═══════════
+   Dirección visual del mockup research/design/temas/mockups/oficina-8bit.html:
+   la oficina retro de 1992 — escritorio teal en damero, ventanas beige con
+   bisel (borde de 3px claro/oscuro), titlebar navy a rayas, Courier bold,
+   sombras duras, verde CRT. REGLA DE ORO: el DOM no cambia por tema — todo
+   scoped a body[data-theme="oficina-8bit"]; los colores base los puso el
+   bloque de tokens (theme.json → --th-* / alias --ds-*). Aquí viven la capa L
+   (el panel como DOS VENTANAS del OS sobre el desk) y la capa A (blink del
+   cursor + glow CRT, en steps()). Respeta prefers-reduced-motion y
+   body[data-anim="off"] (espejo de ui.anim). */
+
+/* ── el desk: damero teal, pixelado ── */
+body[data-theme="oficina-8bit"]{
+  background:repeating-conic-gradient(#0a4f47 0% 25%, #0e6b60 0% 50%);
+  background-size:24px 24px;image-rendering:pixelated;
+  font-weight:700}
+body[data-theme="oficina-8bit"] ::selection{background:#101c6e;color:#fff}
+
+/* ── sidebar = ventana vertical con bisel, flotando sobre el desk ── */
+body[data-theme="oficina-8bit"] .side{
+  margin:12px 0 14px 12px;
+  border:3px solid;border-color:#f2efe6 #55524a #55524a #f2efe6;
+  background:var(--th-surface);
+  box-shadow:6px 6px 0 rgba(0,0,0,.35)}
+body[data-theme="oficina-8bit"] .brand .glyph{
+  background:#03180a;color:#39ff70;font-size:12px;line-height:1;padding:4px 5px;
+  border:2px solid;border-color:#55524a #f2efe6 #f2efe6 #55524a;
+  text-shadow:0 0 6px rgba(57,255,112,.7);
+  animation:of8-crt 2.4s steps(3) infinite}
+body[data-theme="oficina-8bit"] .brand .txt b{
+  text-transform:uppercase;letter-spacing:2px;font-size:13px}
+body[data-theme="oficina-8bit"] .brand .txt span{color:#101c6e;letter-spacing:1.5px}
+body[data-theme="oficina-8bit"] .nav .navhd{color:#101c6e;letter-spacing:2px}
+body[data-theme="oficina-8bit"] .navitem{
+  text-transform:uppercase;font-size:11px;letter-spacing:1px}
+body[data-theme="oficina-8bit"] .navitem:hover{background:#101c6e;color:#fff}
+body[data-theme="oficina-8bit"] .navitem:hover .ni{color:#ffcf5e}
+body[data-theme="oficina-8bit"] .navitem.on{background:#101c6e;color:#fff;border-color:#101c6e}
+body[data-theme="oficina-8bit"] .navitem.on .ni{color:#ffcf5e;opacity:1}
+body[data-theme="oficina-8bit"] .side .foot{
+  border:2px solid;border-color:#55524a #f2efe6 #f2efe6 #55524a;
+  margin:10px 2px 0;padding:5px 8px;font-size:9.5px;color:#55524a;
+  text-transform:uppercase;letter-spacing:.5px}
+
+/* ── main = LA ventana del programa: titlebar navy + campo de trabajo ── */
+body[data-theme="oficina-8bit"] .main{
+  height:auto;margin:12px 14px 14px 12px;
+  border:3px solid;border-color:#f2efe6 #55524a #55524a #f2efe6;
+  background:var(--th-surface);
+  box-shadow:6px 6px 0 rgba(0,0,0,.35)}
+body[data-theme="oficina-8bit"] .hdr{
+  margin:3px 3px 0;padding:8px 14px;border:0;color:#fff;
+  background:repeating-linear-gradient(90deg,#101c6e 0 8px,#2a3cb0 8px 16px)}
+body[data-theme="oficina-8bit"] .hdr h1{
+  color:#fff;text-transform:uppercase;letter-spacing:2px;font-size:13px}
+body[data-theme="oficina-8bit"] .hdr h1::after{
+  content:"_";color:#ffcf5e;animation:of8-blink 1s steps(1) infinite}
+body[data-theme="oficina-8bit"] .hdr .sub{color:#b6bdf0;letter-spacing:1px}
+body[data-theme="oficina-8bit"] .hdr .hbranch{color:#d6daf5}
+body[data-theme="oficina-8bit"] .hdr .hbranch .ic,
+body[data-theme="oficina-8bit"] .hdr .hbranch b{color:#ffcf5e}
+/* el badge «sin commitear» trae color inline desde JS (var --ds-amber, oscuro
+   sobre beige) — sobre el titlebar NAVY necesita el amarillo CRT. Único
+   !important del skin: es la única forma de ganarle a un style= inline. */
+body[data-theme="oficina-8bit"] .hdr .hbranch .ds-badge{
+  color:#ffcf5e !important;border-color:rgba(255,207,94,.65) !important;
+  background:rgba(0,0,0,.22);border-radius:0}
+body[data-theme="oficina-8bit"] .content{
+  margin:8px;padding:16px;background:var(--th-bg);
+  border:3px solid;border-color:#55524a #f2efe6 #f2efe6 #55524a}
+
+/* botones de chrome (⟳ del hdr / chevron del sidebar): wbtn con bisel */
+body[data-theme="oficina-8bit"] .refresh,
+body[data-theme="oficina-8bit"] .side-toggle{
+  background:var(--th-surface);color:var(--th-text);border-radius:0;
+  border:3px solid;border-color:#f2efe6 #55524a #55524a #f2efe6}
+body[data-theme="oficina-8bit"] .refresh:hover,
+body[data-theme="oficina-8bit"] .side-toggle:hover{
+  color:#101c6e;border-color:#f2efe6 #55524a #55524a #f2efe6}
+body[data-theme="oficina-8bit"] .refresh:active,
+body[data-theme="oficina-8bit"] .side-toggle:active{
+  border-color:#55524a #f2efe6 #f2efe6 #55524a;transform:translate(1px,1px)}
+
+/* ── primitivas DS: todo botón es de bisel, todo :active se HUNDE ── */
+body[data-theme="oficina-8bit"] .ds-btn-mini{
+  border:3px solid;border-color:#f2efe6 #55524a #55524a #f2efe6;
+  background:var(--th-surface);box-shadow:2px 2px 0 rgba(0,0,0,.3);
+  text-transform:uppercase;font-size:11px;letter-spacing:.5px}
+body[data-theme="oficina-8bit"] .ds-btn-mini:hover{background:var(--th-surface3)}
+body[data-theme="oficina-8bit"] .ds-btn-mini:active{
+  border-color:#55524a #f2efe6 #f2efe6 #55524a;
+  transform:translate(1px,1px);box-shadow:none}
+body[data-theme="oficina-8bit"] .ds-btn-mini.primary{
+  background:#e8a020;border-color:#ffcf5e #8a5a10 #8a5a10 #ffcf5e;color:#1a1812}
+body[data-theme="oficina-8bit"] .ds-badge{
+  border:2px solid;border-color:#55524a #f2efe6 #f2efe6 #55524a;border-radius:0;
+  text-transform:uppercase;font-size:10px;letter-spacing:1px}
+body[data-theme="oficina-8bit"] .ds-badge.gold{
+  background:#e8a020;color:#1a1812;border-color:#ffcf5e #8a5a10 #8a5a10 #ffcf5e}
+body[data-theme="oficina-8bit"] .ds-empty{
+  border:3px dashed var(--th-border);text-transform:uppercase;
+  font-size:11px;letter-spacing:1px}
+body[data-theme="oficina-8bit"] .ds-section-title{color:#101c6e;letter-spacing:2px}
+body[data-theme="oficina-8bit"] .ds-section-title::before{
+  content:"■ ";color:var(--th-accent)}
+body[data-theme="oficina-8bit"] .ds-toast{
+  border:3px solid;border-color:#f2efe6 #55524a #55524a #f2efe6;
+  background:var(--th-surface);color:var(--th-text);
+  box-shadow:6px 6px 0 rgba(0,0,0,.4)}
+
+/* banner de switch = diálogo CONFIRMAR.DLL */
+body[data-theme="oficina-8bit"] .dev-flash{
+  margin:8px 8px 0;border:3px solid;border-color:#f2efe6 #55524a #55524a #f2efe6;
+  background:var(--th-surface3);color:var(--th-text);
+  box-shadow:4px 4px 0 rgba(0,0,0,.3);
+  text-transform:uppercase;font-size:12px;letter-spacing:.5px}
+body[data-theme="oficina-8bit"] .dev-flash .fi{color:var(--th-accent-hi)}
+body[data-theme="oficina-8bit"] .dev-flash.err{background:#f0d4cf;color:var(--th-red)}
+body[data-theme="oficina-8bit"] .dev-flash.err .fi{color:var(--th-red)}
+body[data-theme="oficina-8bit"] .dev-busy{background:rgba(3,24,10,.5)}
+body[data-theme="oficina-8bit"] .dev-busy .box{
+  border:3px solid;border-color:#f2efe6 #55524a #55524a #f2efe6;border-radius:0;
+  background:var(--th-surface);box-shadow:8px 8px 0 rgba(0,0,0,.45);
+  color:var(--th-dim);text-transform:uppercase;font-size:12px}
+body[data-theme="oficina-8bit"] .dev-busy .box .big{color:#101c6e}
+
+/* ── switcher de tema: popover con titlebar navy ── */
+body[data-theme="oficina-8bit"] .palpop{
+  border:3px solid;border-color:#f2efe6 #55524a #55524a #f2efe6;
+  background:var(--th-surface);box-shadow:8px 8px 0 rgba(0,0,0,.45)}
+body[data-theme="oficina-8bit"] .palpop .pophd{
+  margin:-12px -12px 12px;padding:5px 10px;color:#fff;letter-spacing:2px;
+  background:repeating-linear-gradient(90deg,#101c6e 0 8px,#2a3cb0 8px 16px)}
+body[data-theme="oficina-8bit"] .paltheme{
+  border:2px solid;border-color:#55524a #f2efe6 #f2efe6 #55524a;
+  background:var(--th-surface2)}
+body[data-theme="oficina-8bit"] .paltheme.on{background:#101c6e;border-color:#101c6e}
+body[data-theme="oficina-8bit"] .paltheme.on .pnm{color:#ffcf5e}
+body[data-theme="oficina-8bit"] .paltheme .psw i{
+  border-radius:0;border-color:rgba(0,0,0,.35)}
+body[data-theme="oficina-8bit"] .palbtn .paldot{
+  border-radius:0;border-color:rgba(0,0,0,.4);
+  animation:of8-blink 1.4s steps(1) infinite}
+
+/* ── scrollbars: gruesas, cuadradas, con bisel — como un file manager ── */
+body[data-theme="oficina-8bit"] *{scrollbar-color:#8a8578 #e2ded1}
+body[data-theme="oficina-8bit"] ::-webkit-scrollbar{width:12px;height:12px}
+body[data-theme="oficina-8bit"] ::-webkit-scrollbar-thumb{
+  background:var(--th-surface);border-radius:0;
+  border:2px solid;border-color:#f2efe6 #55524a #55524a #f2efe6}
+body[data-theme="oficina-8bit"] ::-webkit-scrollbar-thumb:hover{background:var(--th-surface3)}
+body[data-theme="oficina-8bit"] ::-webkit-scrollbar-track{background:#e2ded1}
+
+/* ── capa A: cursor que parpadea + glow del CRT (steps, nada suave) ── */
+@keyframes of8-blink{50%{opacity:0}}
+@keyframes of8-crt{
+  0%,100%{box-shadow:inset 0 0 6px rgba(57,255,112,.25)}
+  50%{box-shadow:inset 0 0 12px rgba(57,255,112,.5)}}
+/* ui.anim off / reduced-motion → tema quieto (mismo contrato que el shell) */
+body[data-theme="oficina-8bit"][data-anim="off"] .brand .glyph,
+body[data-theme="oficina-8bit"][data-anim="off"] .hdr h1::after,
+body[data-theme="oficina-8bit"][data-anim="off"] .palbtn .paldot{animation:none}
+@media (prefers-reduced-motion: reduce){
+  body[data-theme="oficina-8bit"] .brand .glyph,
+  body[data-theme="oficina-8bit"] .hdr h1::after,
+  body[data-theme="oficina-8bit"] .palbtn .paldot{animation:none}
+}

@@ -1,0 +1,28 @@
+{
+  "name": "openai",
+  "api_mode": "openai-chat",
+  "connection": "openai_compatible",
+  "base_url": "https://api.openai.com/v1",
+  "auth_type": "api_key",
+  "cost": "metered",
+  "env_vars": [
+    "OPENAI_API_KEY"
+  ],
+  "credential_url": "https://platform.openai.com/api-keys",
+  "models": [
+    "gpt-5",
+    "gpt-5-mini"
+  ],
+  "default_model": "gpt-5",
+  "default_aux_model": "gpt-5-mini",
+  "task_models": {
+    "utility": "gpt-5-mini"
+  },
+  "fallback_models": [
+    "gpt-5-mini"
+  ],
+  "hidden_models": [],
+  "context_windows": {},
+  "quirks": {},
+  "_note": "API metered de OpenAI (modelo de conexión a). OPENAI_API_KEY vive en el env per-máquina — este archivo lleva el NOMBRE, jamás el valor. Modelos A-EDITAR según el catálogo vigente. La SUSCRIPCIÓN ChatGPT/Codex del socio NO se conecta por aquí: eso es providers/codex.json (official_cli)."
+}

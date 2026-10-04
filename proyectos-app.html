@@ -1,0 +1,1832 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WORKSPACE · Proyectos</title>
+<!--
+  App «Proyectos» de WORKSPACE — front completo (vanilla, inline, cero libs).
+  El CENTRO (mapa conceptual: nodos, arrastre, flechas SVG, ramas colapsables,
+  selector de proyectos con color) viene del prototipo aprobado por el usuario:
+  se conserva su look y su mecánica. Lo NUEVO, en el mismo lenguaje visual:
+    · panel IZQUIERDO deslizable  → detalle del nodo (título, estado, notas)
+    · panel DERECHO deslizable    → chat con el agente elegido
+    · TODO persiste contra el server local (/api/proyectos/*, token de sesión)
+  El server inyecta window.WORKSPACE_TOKEN antes de </head>.
+-->
+<style>
+  /* ───────── Paleta MONOCROMA (blanco y negro, neutro) ─────────
+     Grises verdaderamente neutros (R=G=B): nada de tinte azul/violeta como
+     antes. El BLANCO es el acento — no hay color de marca. Los antiguos matices
+     (proyecto, estado) se conservan como DATO y se pintan en gris al vuelo
+     (helpers mono()/greyOf en el JS), así que traer un acento de vuelta es
+     revertir una llamada, no rehacer la data. */
+  :root{
+    color-scheme:dark;
+    --bg:#0a0a0a;
+    --panel:#0f0f0f;
+    --panel-2:#161616;
+    --line:#262626;
+    --txt:#ededed;
+    --muted:#8a8a8a;
+    --faint:#5a5a5a;
+    --accent:#f4f4f4;            /* el blanco es el acento */
+    --accent-2:#9a9a9a;          /* «hecho» = gris medio (era verde) */
+    --pc:var(--accent);
+    --sel:rgba(255,255,255,.09); /* relleno de lo seleccionado */
+    --sel-line:rgba(255,255,255,.42);
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;font:15px/1.6 system-ui,-apple-system,Segoe UI,sans-serif;
+    background:var(--bg);color:var(--txt);overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* grid-template-COLUMNS explícito: sin él la columna implícita es `auto` = se
+     estira al MAX-CONTENT, así que con muchos proyectos la fila de arriba
+     (.plist) estiraba TODA la app (2974px en una ventana de 1200) y se salían de
+     pantalla header, mapa y panel del agente. minmax(0,·) ata la columna al
+     ancho real Y vence el min-width:auto de los hijos de grid → .plist encoge y
+     scrollea sola (ya trae overflow-x:auto). Responsivo por construcción. */
+  .app{display:grid;grid-template-rows:auto 1fr;grid-template-columns:minmax(0,1fr);
+    height:100vh;min-height:0;overflow:hidden}
+
+  /* ---------- Barra de proyectos (arriba) ---------- */
+  .side{
+    background:var(--panel);border-bottom:1px solid var(--line);
+    display:flex;flex-direction:column;flex:none;
+  }
+  /* Barras de arriba COMPACTAS (38+32+36 = 106px): antes 52+44+52 = 148px, un
+     sexto de una pantalla de 900 gastado ANTES de que empezara el mapa. */
+  .side-head{
+    height:38px;flex:none;padding:0 8px 0 14px;display:flex;align-items:center;gap:10px;
+    border-bottom:1px solid var(--line)
+  }
+  .brand{
+    display:flex;align-items:center;gap:9px;font-weight:600;font-size:14px;
+    letter-spacing:.3px;flex:none
+  }
+  .brand .dot{
+    width:8px;height:8px;border-radius:2px;background:var(--pc);flex:none;
+    transition:background .18s
+  }
+  .spacer{flex:1;min-width:0}
+  .tally{color:var(--muted);font-size:12px;flex:none;white-space:nowrap}
+
+  .side-tools{display:flex;gap:8px;flex:none;align-items:center}
+  .search{
+    width:180px;background:transparent;border:1px solid var(--line);border-radius:6px;
+    color:var(--txt);padding:4px 9px;font:inherit;font-size:12.5px;outline:none;min-width:0;
+  }
+
+  /* Control de layout (arriba a la derecha, como VS Code): muestra/oculta las
+     columnas laterales. Vive aquí y no en la toolbar del mapa porque es del
+     ARMAZÓN, no del proyecto abierto. */
+  .lay{
+    display:flex;gap:2px;flex:none;align-items:center;
+    border-left:1px solid var(--line);margin-left:2px;padding-left:8px
+  }
+  .lbtn{
+    height:24px;border:0;border-radius:5px;background:transparent;padding:0 9px;
+    color:var(--muted);cursor:pointer;font-size:11.5px;line-height:1;
+    display:grid;place-items:center
+  }
+  .lbtn:hover{color:var(--txt);background:var(--panel-2)}
+  .lbtn.on{color:var(--txt);background:var(--panel-2)}   /* activo = sección visible */
+  .search::placeholder{color:#5a5a5a}
+  .search:focus{border-color:#3a3a3a}
+
+  /* ---------- Lista de proyectos (VERTICAL, en la barra lateral) ----------
+     Era una tira HORIZONTAL de pestañas con flechas: con 11 proyectos se veían 5
+     y llegar al último eran dos clics a ciegas — el ancho de pantalla es el
+     recurso escaso, el alto no. En columna caben ~14 de un vistazo, filtras
+     escribiendo, y escala a decenas con solo scrollear. */
+  .plist{
+    list-style:none;margin:0;padding:0 6px 6px;display:flex;flex-direction:column;gap:2px;
+    overflow-y:auto;overflow-x:hidden;flex:1;min-height:0;
+  }
+  .plist::-webkit-scrollbar{width:5px}
+  .plist::-webkit-scrollbar-thumb{background:var(--line);border-radius:20px}
+  .plist .none{color:var(--muted);font-size:12px;padding:6px 6px;line-height:1.5}
+
+  /* alto FIJO (28px): con padding vertical el alto lo decidía el line-height:1.6
+     heredado del body y cada fila crecía a 39px por una línea de texto */
+  .pitem{
+    position:relative;height:28px;padding:0 4px 0 12px;border-radius:5px;cursor:pointer;
+    border:1px solid transparent;display:flex;align-items:center;gap:8px;flex:none;
+    background:transparent;overflow:hidden;transition:border-color .12s,background .12s
+  }
+  .pitem::before{
+    content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--c,var(--accent))
+  }
+  .pitem:hover{background:var(--panel-2)}
+  .pitem .pc{width:7px;height:7px;border-radius:50%;flex:none;background:var(--c,var(--accent))}
+  .pitem .pn{flex:1;min-width:0;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pitem.active .pn{font-weight:600}
+  .pitem .pcount{font-size:10px;color:var(--muted);white-space:nowrap;
+    font-variant-numeric:tabular-nums;flex:none}
+  .pitem .pbar{width:22px;height:2px;border-radius:20px;background:#262626;overflow:hidden;flex:none}
+  .pitem .pbar i{display:block;height:100%;background:var(--c,var(--accent))}
+  .pitem .px{
+    opacity:0;border:0;background:transparent;color:var(--muted);cursor:pointer;
+    font-size:12px;padding:0 2px;line-height:1;width:0;transition:opacity .12s;flex:none
+  }
+  .pitem:hover .px,.pitem.active .px{opacity:.45;width:auto}
+  .pitem .px:hover{color:var(--txt);opacity:1}
+
+  .pitem.hi{background:var(--panel-2)}      /* resaltado del teclado (↑↓) */
+  .pfilter{flex:none;padding:8px 8px 6px}
+  .pfilter .search{width:100%}
+
+  /* ---------- Selector de proyecto (desplegable) ----------
+     El disparador es el TÍTULO que ya estaba en la toolbar → el selector cuesta
+     CERO espacio permanente, y la barra lateral entera queda para el Detalle.
+     Antes la lista vivía fija en el sidebar: con 11 proyectos se comía ~500px y
+     dejaba al Detalle sin sitio ni para su campo «Título». */
+  .pswitch{
+    display:flex;align-items:center;gap:7px;flex:none;max-width:26vw;min-width:0;
+    border:1px solid transparent;border-radius:6px;background:transparent;
+    color:var(--txt);font:inherit;font-size:14px;font-weight:600;
+    padding:4px 7px;cursor:pointer
+  }
+  .pswitch:hover,.pswitch.on{border-color:var(--line);background:var(--panel-2)}
+  .pswitch .ttl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  .pswitch .chev{color:var(--muted);font-size:9px;flex:none;transition:transform .12s}
+  .pswitch.on .chev{transform:rotate(180deg)}
+
+  .pdrop{
+    position:absolute;top:33px;left:8px;z-index:60;width:min(360px,84vw);
+    background:var(--panel);border:1px solid var(--line);border-radius:8px;
+    box-shadow:0 14px 36px rgba(0,0,0,.55);display:flex;flex-direction:column;
+    max-height:min(62vh,460px);overflow:hidden
+  }
+  .pdrop[hidden]{display:none}
+  .pdrop-head{
+    flex:none;display:flex;align-items:center;gap:8px;padding:0 10px;height:28px;
+    border-bottom:1px solid var(--line);font-size:10.5px;color:var(--muted);
+    letter-spacing:.6px;text-transform:uppercase
+  }
+  .pdrop-head .spacer{flex:1}
+
+  .btn{
+    border:1px solid var(--line);background:transparent;color:var(--txt);
+    border-radius:6px;padding:5px 10px;font:inherit;font-size:12.5px;cursor:pointer;
+    display:inline-flex;align-items:center;gap:6px;white-space:nowrap;transition:border-color .12s
+  }
+  .btn:hover{border-color:#3a3a3a}
+  .btn.primary{border-color:var(--accent);color:var(--accent)}
+  .btn.primary:hover{background:rgba(255,255,255,.08)}
+  .btn.ghost{border-color:transparent;color:var(--muted)}
+  .btn.ghost:hover{border-color:var(--line);color:var(--txt)}
+  .btn.on{border-color:var(--line);color:var(--txt);background:var(--panel-2)}
+  .btn:disabled{opacity:.35;cursor:default}
+  .btn:disabled:hover{border-color:transparent}
+  /* «Peligro» en monocromo: no hay rojo. Se marca con el blanco pleno (el
+     acento) sobre el resto atenuado — y la confirmación real vive en el modal. */
+  .btn.danger:hover{border-color:var(--txt);color:var(--txt)}
+
+  /* ---------- Estructura central ---------- */
+  .main{display:flex;flex-direction:column;min-width:0;min-height:0}
+  .top{
+    height:36px;flex:none;border-bottom:1px solid var(--line);background:var(--panel);
+    display:flex;align-items:center;gap:8px;padding:0 8px 0 12px;position:relative
+  }
+  .pcol{
+    width:10px;height:10px;border-radius:50%;border:0;
+    cursor:pointer;flex:none;padding:0;background:var(--pc)
+  }
+  .pcol:disabled{opacity:.3;cursor:default}
+  .top .sub{color:var(--muted);font-size:12px;flex:1;min-width:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  .modes{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;flex:none}
+  .mbtn{
+    border:0;background:transparent;color:var(--muted);font:inherit;font-size:12px;
+    padding:5px 11px;cursor:pointer;transition:color .12s,background .12s
+  }
+  .mbtn+.mbtn{border-left:1px solid var(--line)}
+  .mbtn:hover:not(:disabled){color:var(--txt)}
+  .mbtn.on{color:var(--txt);background:var(--panel-2)}
+  .mbtn:disabled{opacity:.35;cursor:default}
+
+  .fbar{
+    display:inline-flex;align-items:center;gap:7px;flex:none;max-width:22vw;
+    border:1px solid var(--line);border-radius:6px;padding:3px 5px 3px 9px;
+    font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden
+  }
+  .fbar[hidden]{display:none}
+  .fbar b{font-weight:500;color:var(--txt);font-variant-numeric:tabular-nums}
+  .fbar button{
+    border:0;background:transparent;color:var(--muted);cursor:pointer;
+    font-size:12px;line-height:1;padding:0 3px;border-radius:4px
+  }
+  .fbar button:hover{color:var(--txt)}
+
+  .zoom{display:flex;align-items:center;gap:4px;color:var(--muted);font-size:12px;flex:none}
+  .zoom span{min-width:38px;text-align:center;font-variant-numeric:tabular-nums}
+  .zbtn{
+    width:24px;height:24px;border-radius:6px;border:1px solid var(--line);background:transparent;
+    color:var(--txt);cursor:pointer;font-size:13px;line-height:1;display:grid;place-items:center
+  }
+  .zbtn:hover{border-color:#3a3a3a}
+
+  .body{display:flex;flex:1;min-height:0;min-width:0;position:relative}
+
+  /* ═══════════ DOCKS (modelo Obsidian/VS Code) ═══════════
+     Dos zonas laterales (izq/der); cada una apila paneles. Un panel se manda de
+     un dock al otro, se apila o se oculta, y todo se recuerda. El centro (mapa)
+     es fijo. El dock le quita ancho al centro, no flota encima. */
+  .dock{
+    flex:none;width:var(--w,300px);background:var(--panel);
+    display:flex;flex-direction:column;min-height:0;overflow:hidden
+  }
+  .dock:empty,.dock.off{width:0;border:0}     /* dock vacío = cero ancho */
+
+  /* Un panel dentro del dock. flex:1 → varios apilados se reparten el alto; el
+     que trae --h fijo cede el resto al de abajo (lo pone el divisor horizontal). */
+  .panel{
+    flex:1 1 0;min-height:60px;display:flex;flex-direction:column;overflow:hidden;
+    border-bottom:1px solid var(--line)
+  }
+  .panel:last-child{border-bottom:0}
+  .panel.fixed-h{flex:none;height:var(--h,240px)}
+  .panel.drop{outline:2px dashed var(--sel-line);outline-offset:-2px}  /* destino de arrastre */
+
+  /* El divisor ES el borde (línea de 1px con 5px de agarre): borde+handle darían
+     doble línea. Vertical entre dock y mapa; horizontal entre paneles apilados. */
+  .rsz{
+    flex:none;width:5px;cursor:col-resize;position:relative;z-index:6;background:transparent
+  }
+  .rsz[hidden]{display:none}
+  .rsz::before{
+    content:'';position:absolute;top:0;bottom:0;left:2px;width:1px;
+    background:var(--line);transition:background .12s
+  }
+  .rsz:hover::before,.rsz.on::before{background:var(--pc);left:1.5px;width:2px}
+  .hrsz{flex:none;height:5px;cursor:row-resize;position:relative;z-index:6;margin-top:-5px}
+  .hrsz::before{
+    content:'';position:absolute;left:0;right:0;top:2px;height:1px;
+    background:var(--line);transition:background .12s
+  }
+  .hrsz:hover::before,.hrsz.on::before{background:var(--pc);top:1.5px;height:2px}
+
+  /* Cabecera de panel: título + controles de layout (mover/ocultar). También es
+     el asa de arrastre para reordenar/mover paneles (como las pestañas de VS Code). */
+  .panel-head{
+    height:30px;flex:none;padding:0 5px 0 12px;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:4px;font-size:10.5px;color:var(--muted);
+    letter-spacing:.6px;text-transform:uppercase;cursor:grab;user-select:none;
+    background:var(--panel)
+  }
+  .panel-head.grabbing{cursor:grabbing}
+  .panel-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .phbtn{
+    border:0;background:transparent;color:var(--muted);cursor:pointer;flex:none;
+    font-size:12px;line-height:1;padding:4px 5px;border-radius:4px
+  }
+  .phbtn:hover{color:var(--txt);background:var(--panel-2)}
+  .phbtn:disabled{opacity:.25;cursor:default;background:transparent}
+  .panel-body{flex:1;min-height:0;overflow-y:auto;padding:12px;
+    display:flex;flex-direction:column;gap:12px}
+  .panel-body::-webkit-scrollbar,.chat::-webkit-scrollbar{width:5px}
+  .panel-body::-webkit-scrollbar-thumb,.chat::-webkit-scrollbar-thumb{
+    background:var(--line);border-radius:20px}
+
+  /* Retrocompat de nombres viejos usados por el contenido interno */
+  .pane-body{flex:1;min-height:0;overflow-y:auto;padding:12px;
+    display:flex;flex-direction:column;gap:12px}
+
+  /* El formulario ES la columna (no un bloque suelto que scrollea dentro de
+     ella): así «Notas» se estira hasta donde llegue el panel y los metadatos se
+     asientan abajo, en vez de dejar hueco muerto con un textarea de 130px que
+     scrollea por dentro teniendo media pantalla vacía debajo. */
+  .dform{display:flex;flex-direction:column;gap:12px;flex:1;min-height:0}
+  .dform[hidden]{display:none}   /* [hidden] lo pisaría el display:flex */
+  .fld{display:flex;flex-direction:column;gap:6px}
+  .fld.grow{flex:1;min-height:110px}
+  .fld.grow textarea.inp{flex:1;height:100%;min-height:0;resize:none}
+  .fld > label{font-size:10.5px;color:var(--muted);letter-spacing:.5px;text-transform:uppercase}
+  .inp{
+    background:transparent;border:1px solid var(--line);border-radius:6px;color:var(--txt);
+    padding:8px 10px;font:inherit;font-size:13px;outline:none;width:100%
+  }
+  .inp::placeholder{color:#5a5a5a}
+  .inp:focus{border-color:#3a3a3a}
+  textarea.inp{resize:vertical;min-height:130px;line-height:1.55}
+  select.inp{cursor:pointer}
+  .meta{font-size:11.5px;color:var(--muted);display:flex;flex-direction:column;gap:3px;
+    border-top:1px solid var(--line);padding-top:10px;flex:none}
+  .meta b{font-weight:500;color:#b0b0b0}
+  /* Tres botones a partes iguales: sueltos medían ~280px y envolvían a DOS filas
+     dentro de una columna de 264 — una fila entera perdida por 16px. */
+  .pact{display:flex;gap:6px;flex:none}
+  .pact .btn{flex:1;min-width:0;justify-content:center;padding:5px 6px}
+  .void{color:var(--muted);font-size:12.5px;padding:6px 0;line-height:1.6}
+  .void b{display:block;color:var(--txt);font-weight:600;font-size:13px;margin-bottom:3px}
+
+  /* ---------- Chat: un TRANSCRIPT, no tarjetas ----------
+     Cada turno venía envuelto en su caja (borde + fondo + esquinas). Eso gritaba
+     «formato inventado» y además cobraba ~20px de cromo por mensaje. Aquí se lee
+     como lo que es: una sesión. Monoespaciado, a sangre, el ❯ marca quién habla. */
+  .chat{
+    flex:1;min-height:0;overflow-y:auto;padding:12px;
+    display:flex;flex-direction:column;gap:14px;
+    font-family:var(--mono);font-size:12.5px;line-height:1.6
+  }
+  .msg{
+    white-space:pre-wrap;word-break:break-word;
+    border:0;border-radius:0;padding:0;background:transparent
+  }
+  /* El prompt en su propia columna: las líneas que envuelven se alinean bajo el
+     texto y no bajo el ❯ — como en una terminal de verdad. */
+  .msg.user{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;color:var(--txt)}
+  .msg.user .who{color:var(--pc);font-weight:700;user-select:none}
+  .msg.bot .who{display:block;color:var(--muted);font-size:11px;margin-bottom:3px}
+  .msg.sys{color:var(--muted);font-size:11.5px}
+  .msg.pend{opacity:.45}
+  .chat-foot{flex:none;border-top:1px solid var(--line);padding:9px 12px 11px;
+    display:flex;flex-direction:column;gap:7px}
+
+  /* UNA caja: campo + controles adentro (el patrón del chat de VS Code). Antes
+     eran tres piezas sueltas apiladas —stepper, contexto, campo— y parecían de
+     tres apps distintas. */
+  .cbox{
+    border:1px solid var(--line);border-radius:8px;background:var(--panel-2);
+    display:flex;flex-direction:column;overflow:hidden;transition:border-color .12s
+  }
+  .cbox:focus-within{border-color:#3a3a3a}
+  .cin{
+    border:0;background:transparent;color:var(--txt);outline:none;width:100%;
+    font-family:var(--mono);font-size:12.5px;line-height:1.5;
+    padding:9px 10px 4px;resize:none;min-height:38px;max-height:140px
+  }
+  .cin::placeholder{color:#5a5a5a}
+  .cbar{display:flex;align-items:center;gap:6px;padding:4px 5px 5px;flex:none}
+  .cbar .spacer{flex:1;min-width:0}
+  .cbar .btn{padding:4px 10px;font-size:12px}
+
+  .ctx{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;
+    white-space:nowrap}
+  .ctx b{font-weight:500;color:#b0b0b0}
+
+  /* ---------- v2: pestañas por agente + historial por día ----------
+     Cada agente es un HILO INDEPENDIENTE en este nodo (ya no un hilo compartido
+     con flechas). La pestaña activa = con quién hablas; el historial se navega
+     por día. */
+  .atabs{flex:none;display:flex;gap:2px;padding:6px 8px 0;overflow-x:auto;
+    border-bottom:1px solid var(--line);scrollbar-width:none}
+  .atabs::-webkit-scrollbar{display:none}
+  .atab{
+    border:1px solid var(--line);border-bottom:0;border-radius:6px 6px 0 0;
+    background:var(--panel);color:var(--muted);cursor:pointer;
+    padding:5px 11px;font-size:11.5px;font-family:var(--mono);white-space:nowrap;
+    max-width:130px;overflow:hidden;text-overflow:ellipsis;flex:none;
+    position:relative;top:1px
+  }
+  .atab:hover{color:var(--txt)}
+  .atab.on{background:var(--panel-2);color:var(--txt);border-color:#3a3a3a}
+  .atab.dim{color:#585858}      /* sin sesión aún: se puede empezar una (NO usar «empty»: colisiona con .empty global del canvas) */
+  .daybar{flex:none;display:flex;align-items:center;gap:5px;padding:6px 10px;
+    border-bottom:1px solid var(--line);font-size:11px;color:var(--muted)}
+  .dbtn{border:1px solid var(--line);border-radius:5px;background:var(--panel-2);
+    color:var(--muted);cursor:pointer;padding:2px 7px;font-size:11px;line-height:1.4}
+  .dbtn:hover:not(:disabled){color:var(--txt)}
+  .dbtn:disabled{opacity:.3;cursor:default}
+  .daylbl{font-variant-numeric:tabular-nums;color:var(--txt);min-width:80px;text-align:center}
+  .dbtn.today{margin-left:4px}
+
+  /* ---------- v2: handoff + archivos en el detalle ---------- */
+  .lbl-sub{color:var(--muted);font-weight:400;font-size:10.5px}
+  textarea.res{min-height:52px;max-height:150px;resize:vertical;
+    font-family:var(--mono);font-size:11.5px;line-height:1.5}
+  .filelist{list-style:none;margin:0 0 7px;padding:0;display:flex;
+    flex-direction:column;gap:3px}
+  .filelist:empty{display:none}
+  .fileitem{display:flex;align-items:center;gap:8px;font-size:11.5px;
+    padding:4px 8px;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+  .fileitem .fn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;
+    white-space:nowrap;color:var(--txt)}
+  .fileitem .fs{color:var(--muted);font-variant-numeric:tabular-nums;flex:none;font-size:10.5px}
+  .fileitem a.dl{color:var(--muted);text-decoration:none;flex:none;padding:0 4px}
+  .fileitem a.dl:hover{color:var(--txt)}
+  .fileact{display:flex}
+  .btn.upl{cursor:pointer;font-size:11.5px;padding:5px 10px}
+  .filenote{font-size:10.5px;color:var(--muted);margin-top:4px}
+
+  /* ---------- Canvas ---------- */
+  .stage{
+    position:relative;flex:1;min-width:0;min-height:0;overflow:hidden;cursor:grab;
+    background:
+      radial-gradient(circle at 1px 1px, var(--pdot,#1c1c1c) 1px, transparent 0) 0 0/24px 24px,
+      var(--bg);
+  }
+  .stage.panning{cursor:grabbing}
+  .stage.linking{cursor:crosshair}
+  .world{position:absolute;inset:0;transform-origin:0 0;will-change:transform}
+  .world svg{position:absolute;left:0;top:0;overflow:visible;pointer-events:none}
+
+  .node{
+    position:absolute;transform:translate(-50%,-50%);
+    background:var(--panel-2);border:1px solid var(--line);border-radius:6px;
+    padding:8px 12px;font-size:13px;max-width:190px;cursor:grab;user-select:none;
+  }
+  .node:hover{border-color:#3a3a3a}
+  .node.dragging{cursor:grabbing;z-index:50}
+  .node.sel{border-color:var(--pc)}
+  .node .nt{outline:none;word-break:break-word;line-height:1.35}
+  .node .badge{
+    display:inline-block;margin-top:3px;font-size:10px;letter-spacing:.4px;
+    text-transform:uppercase;color:var(--muted)
+  }
+  .node .hid{
+    display:inline-block;margin:3px 0 0 7px;font-size:10px;letter-spacing:.4px;
+    color:var(--pc);font-variant-numeric:tabular-nums
+  }
+  .node .note{
+    display:inline-block;margin:3px 0 0 6px;font-size:9px;color:var(--muted)
+  }
+  /* Raíz = chip INVERTIDO (relleno claro, texto oscuro): el único elemento
+     lleno de la vista → ancla el centro y siempre contrasta, venga de donde
+     venga el gris del proyecto. */
+  .node.root{font-size:14px;font-weight:600;padding:11px 16px;border-color:transparent;color:var(--bg)}
+  .node.root .badge{color:rgba(0,0,0,.55)}
+  .node.root .hid,.node.root .note{color:rgba(0,0,0,.7)}
+  .node.done{opacity:.5}
+  .node.done .nt{text-decoration:line-through}
+  /* Estado por INTENSIDAD, no por matiz: en curso = barra blanca (lo vivo),
+     hecho = gris medio + tachado/atenuado, pendiente = gris tenue. */
+  .node[data-st="doing"]{border-left:2px solid var(--txt)}
+  .node[data-st="done"]{border-left:2px solid var(--accent-2)}
+  .node[data-st="todo"]{border-left:2px solid #3a3a3a}
+  .node.open{box-shadow:0 0 0 1px rgba(255,255,255,.05)}
+  .node.tog{cursor:pointer}
+  .node.tog:hover .hid{color:var(--txt)}
+  .node.root.tog:hover .hid{color:#fff}
+  .stage.linking .node{cursor:crosshair}
+  .stage.linking .node.src{opacity:.45}
+
+  .nbar{
+    position:absolute;top:-12px;right:-4px;display:none;gap:2px;
+    background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:2px
+  }
+  .node.sel .nbar,.node:hover .nbar{display:flex}
+  .stage.linking .nbar{display:none !important}
+  .nbar button{
+    border:0;background:transparent;color:var(--muted);cursor:pointer;
+    font-size:11px;line-height:1;padding:3px 5px;border-radius:4px
+  }
+  .nbar button:hover{background:var(--panel-2);color:var(--txt)}
+
+  .empty{
+    position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:var(--muted);
+    padding:24px;pointer-events:none;background:var(--bg)
+  }
+  .empty[hidden]{display:none}
+  .empty strong{display:block;color:var(--txt);font-size:15px;font-weight:600;margin-bottom:4px}
+  .empty span{font-size:13px}
+
+  .hint{
+    position:absolute;left:16px;bottom:14px;color:#5a5a5a;font-size:11.5px;
+    pointer-events:none;max-width:70%
+  }
+  .hint[hidden]{display:none}
+
+  /* ---------- Modal ---------- */
+  .mask{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;place-items:center;z-index:100}
+  .mask.on{display:grid}
+  .modal{
+    width:min(400px,92vw);background:var(--panel);border:1px solid var(--line);
+    border-radius:8px;padding:20px
+  }
+  .modal h2{margin:0 0 4px;font-size:15px;font-weight:600}
+  .modal p{margin:0 0 14px;color:var(--muted);font-size:12.5px}
+  .modal input{
+    width:100%;background:transparent;border:1px solid var(--line);border-radius:6px;
+    color:var(--txt);padding:9px 12px;font:inherit;font-size:14px;outline:none
+  }
+  .modal input:focus{border-color:#3a3a3a}
+  .swatches{display:flex;gap:8px;margin-top:12px}
+  .sw{width:16px;height:16px;border-radius:50%;border:0;cursor:pointer;opacity:.45;padding:0}
+  .sw:hover{opacity:.8}
+  .sw.on{opacity:1;box-shadow:0 0 0 1px var(--panel),0 0 0 2px currentColor}
+  .mact{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+
+  /* ---------- Toast ---------- */
+  .toast{
+    position:fixed;left:50%;bottom:20px;transform:translateX(-50%) translateY(8px);
+    background:var(--panel-2);border:1px solid var(--line);border-radius:6px;
+    padding:8px 14px;font-size:12.5px;color:var(--txt);opacity:0;pointer-events:none;
+    transition:opacity .18s,transform .18s;z-index:200;max-width:80vw;text-align:center
+  }
+  .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  @media(max-width:1100px){
+    .pswitch{max-width:20vw}
+    .zoom span{display:none}
+  }
+  @media(max-width:980px){
+    .top .sub{display:none}
+    /* Por debajo de ~980px el centro no puede ceder más ancho sin dejar de ser
+       un mapa: los docks flotan encima (uno por lado) en vez de partir la fila. */
+    .dock{position:absolute;top:0;bottom:0;z-index:20;box-shadow:0 0 30px rgba(0,0,0,.5)}
+    .dock.d-left{left:0;border-right:1px solid var(--line)}
+    .dock.d-right{right:0;border-left:1px solid var(--line)}
+    .rsz{display:none}
+  }
+  @media(max-width:760px){
+    .brand{flex:1}
+    .pitem .pbar{display:none}
+    .pswitch{max-width:34vw}
+    .fbar,.modes{display:none}
+    .dock{--w:min(340px,86vw)}
+  }
+</style></head>
+<body>
+<div class="app">
+
+  <aside class="side" id="side">
+    <div class="side-head">
+      <div class="brand"><span class="dot"></span> WORKSPACE</div>
+      <span class="spacer"></span>
+      <div class="side-tools">
+        <button class="btn primary" id="newP">Nuevo proyecto</button>
+      </div>
+      <div class="lay">
+        <button class="lbtn" id="tgDetalle" title="Mostrar/ocultar Detalle (D)">Detalle</button>
+        <button class="lbtn" id="tgAgente" title="Mostrar/ocultar Agente (A)">Agente</button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="top">
+      <button class="pcol" id="pcol" title="Clic para cambiar el color del proyecto"></button>
+      <button class="pswitch" id="pswitch" title="Cambiar de proyecto (P)">
+        <span class="ttl" id="ttl">—</span>
+        <span class="chev">▼</span>
+      </button>
+
+      <div class="pdrop" id="pdrop" hidden>
+        <div class="pdrop-head">
+          Proyectos <span class="spacer"></span>
+          <span class="tally" id="tally">0</span>
+        </div>
+        <div class="pfilter">
+          <input class="search" id="q" placeholder="Filtrar… (↑↓ para moverte, Enter para abrir)">
+        </div>
+        <ul class="plist" id="plist"></ul>
+      </div>
+      <span class="fbar" id="fbar" hidden>
+        Ramas abiertas: <b id="fname"></b>
+        <button id="fclr" title="Contraer todas las ramas">×</button>
+      </span>
+      <span class="sub" id="sub"></span>
+      <button class="btn ghost" id="addNode">Añadir nodo</button>
+      <button class="btn ghost" id="fit">Centrar</button>
+      <div class="modes" id="modes">
+        <button class="mbtn on" data-m="all" title="Mostrar todas las ramas">Todo</button>
+        <button class="mbtn" data-m="focus" title="Expandir o contraer cada rama con un clic">Enfoque</button>
+      </div>
+      <div class="zoom">
+        <button class="zbtn" id="zo">−</button>
+        <span id="zl">100%</span>
+        <button class="zbtn" id="zi">+</button>
+      </div>
+    </div>
+
+    <div class="body" id="body">
+      <div class="dock d-left" id="dockL"></div>
+      <div class="rsz" id="rszL" hidden title="Arrastra para ajustar"></div>
+
+      <!-- ---------- CENTRO · mapa conceptual (fijo) ---------- -->
+      <div class="stage" id="stage">
+        <div class="world" id="world">
+          <svg id="links"></svg>
+        </div>
+        <div class="empty" id="empty" hidden>
+          <div><strong>Sin proyecto seleccionado</strong><span>Crea uno para empezar tu mapa.</span></div>
+        </div>
+        <div class="hint" id="hint"></div>
+      </div>
+
+      <div class="rsz" id="rszR" hidden title="Arrastra para ajustar"></div>
+      <div class="dock d-right" id="dockR"></div>
+    </div>
+  </main>
+</div>
+
+<!-- Los paneles viven aquí definidos UNA vez; el sistema de docks los reparte
+     (mueve el <section> entero, así sobreviven sus listeners y su estado). -->
+<div id="panelHolder" hidden>
+
+  <section class="panel" data-panel="detalle">
+    <div class="panel-head" data-panel="detalle">
+      <span class="panel-title">Detalle</span>
+      <button class="phbtn ph-left" title="Mover a la izquierda">◧</button>
+      <button class="phbtn ph-right" title="Mover a la derecha">◨</button>
+      <button class="phbtn ph-hide" title="Ocultar (D)">✕</button>
+    </div>
+    <div class="panel-body">
+      <div class="void" id="dvoid">
+        <b>Nada seleccionado</b>
+        <span>Haz clic en un nodo del mapa para ver y editar su detalle.</span>
+      </div>
+      <div class="dform" id="dform" hidden>
+        <div class="fld">
+          <label for="dt">Título</label>
+          <input class="inp" id="dt" maxlength="200">
+        </div>
+        <div class="fld">
+          <label>Estado</label>
+          <div class="modes" id="dst">
+            <button class="mbtn" data-s="todo">Pendiente</button>
+            <button class="mbtn" data-s="doing">En curso</button>
+            <button class="mbtn" data-s="done">Hecho</button>
+          </div>
+        </div>
+        <div class="fld grow">
+          <label for="dn">Notas</label>
+          <textarea class="inp" id="dn" maxlength="20000"
+            placeholder="Lo que no debe perderse de esta idea…"></textarea>
+        </div>
+        <div class="fld">
+          <label for="dres">Handoff <span class="lbl-sub">— resumen del nodo, para retomar</span></label>
+          <textarea class="inp res" id="dres" maxlength="40000" rows="3"
+            placeholder="Estado, avances, pendientes, punteros a archivos… (se guarda al salir del campo)"></textarea>
+        </div>
+        <div class="fld">
+          <label>Archivos <span class="lbl-sub" id="filecount"></span></label>
+          <ul class="filelist" id="filelist"></ul>
+          <div class="fileact">
+            <label class="btn upl" for="fileup">Subir archivo…</label>
+            <input type="file" id="fileup" hidden>
+          </div>
+        </div>
+        <div class="pact">
+          <button class="btn" id="dadd">+ Sub-nodo</button>
+          <button class="btn" id="dlink">Conectar…</button>
+          <button class="btn danger" id="ddel">Eliminar</button>
+        </div>
+        <div class="meta" id="dmeta"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" data-panel="agente">
+    <div class="panel-head" data-panel="agente">
+      <span class="panel-title">Agente</span>
+      <button class="phbtn ph-left" title="Mover a la izquierda">◧</button>
+      <button class="phbtn ph-right" title="Mover a la derecha">◨</button>
+      <button class="phbtn ph-hide" title="Ocultar (A)">✕</button>
+    </div>
+    <div class="atabs" id="atabs" title="Un hilo independiente por agente"></div>
+    <div class="daybar" id="daybar" hidden>
+      <button class="dbtn" id="dayprev" title="Día anterior">‹</button>
+      <span class="daylbl" id="daylbl">hoy</span>
+      <button class="dbtn" id="daynext" title="Día siguiente">›</button>
+      <button class="dbtn today" id="daytoday" title="Volver a hoy" hidden>hoy</button>
+    </div>
+    <div class="chat" id="chat"></div>
+    <div class="chat-foot">
+      <div class="ctx" id="ctx"></div>
+      <div class="cbox">
+        <textarea class="cin" id="cin" rows="1"
+          placeholder="Pregunta sobre este nodo…"></textarea>
+        <div class="cbar">
+          <span class="spacer"></span>
+          <button class="btn primary" id="csend">Enviar</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div class="mask" id="mask">
+  <div class="modal">
+    <h2>Nuevo proyecto</h2>
+    <p>Se creará un mapa con un nodo raíz.</p>
+    <input id="pname" placeholder="Nombre del proyecto" maxlength="60">
+    <div class="swatches" id="sws"></div>
+    <div class="mact">
+      <button class="btn" id="cancel">Cancelar</button>
+      <button class="btn primary" id="create">Crear</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  'use strict';
+
+  /* ═══════════ transporte (mismo contrato del dev panel: token de sesión) ═══════════ */
+  /* En modo EMBED (dentro del dev panel) el token válido es el del PANEL padre
+     (mismo origen): el server de dev corre como __main__ y su TOKEN ≠ el que
+     vería un `import dashboard`, así que NO se confía en un token horneado en el
+     HTML embebido — se toma el del panel. Standalone: el propio window. */
+  const TOKEN=(window.PROYECTOS_EMBED && window.parent && window.parent!==window
+               && window.parent.WORKSPACE_TOKEN) || window.WORKSPACE_TOKEN || '';
+  const H={'X-WORKSPACE-Token':TOKEN,'Content-Type':'application/json'};
+  /* SIEMPRE devuelven objeto (nunca lanzan): un server viejo o una respuesta
+     no-JSON se ven como {__err} y la app avisa en vez de romperse. */
+  async function get(p){
+    try{
+      const r=await fetch(p,{headers:{'X-WORKSPACE-Token':TOKEN}});
+      const t=await r.text();
+      try{return JSON.parse(t)}catch(e){return {__err:'respuesta no-JSON ('+r.status+')'}}
+    }catch(e){return {__err:'sin conexión con el server'}}
+  }
+  async function post(p,body){
+    try{
+      const r=await fetch(p,{method:'POST',headers:H,body:JSON.stringify(body||{})});
+      const t=await r.text();
+      try{return JSON.parse(t)}catch(e){return {__err:'respuesta no-JSON ('+r.status+')'}}
+    }catch(e){return {__err:'sin conexión con el server'}}
+  }
+  const errOf=d=>d&&(d.__err||d.error)||'';
+
+  const $=s=>document.querySelector(s);
+  let toastT=null;
+  function toast(m){
+    const el=$('#toast'); el.textContent=m; el.classList.add('on');
+    clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove('on'),2600);
+  }
+  /* si una mutación falla, el estado local ya no es de fiar → releer del server */
+  function fail(d,what){toast((what||'No se pudo guardar')+': '+(errOf(d)||'error'));boot(true)}
+
+  /* ═══════════ estado ═══════════ */
+  /* Rampa de GRISES (blanco→carbón), no matices: cada proyecto elige un tono de
+     gris como identidad. El picker sigue existiendo; ahora ofrece grises. */
+  let COLORS=['#e8e8e8','#c0c0c0','#9a9a9a','#767676','#565656','#3c3c3c'];
+
+  /* mono(hex): cualquier color → su GRIS por luminancia percibida. Todo lo que
+     pinta color de proyecto (punto, borde, nodo raíz, enlaces) pasa por aquí, así
+     que un proyecto viejo con color real (#7c6cff…) también se ve monocromo sin
+     tocar su dato. Revertir a color = pintar `hex` en vez de `mono(hex)`. */
+  function mono(hex){
+    const n=parseInt(String(hex||'').replace('#',''),16);
+    if(isNaN(n))return '#8a8a8a';
+    const r=n>>16&255,g=n>>8&255,b=n&255;
+    const y=Math.round(.2126*r+.7152*g+.0722*b);
+    const h=y.toString(16).padStart(2,'0');
+    return '#'+h+h+h;
+  }
+  const ST=['todo','doing','done'];
+  const STL={todo:'Pendiente',doing:'En curso',done:'Hecho'};
+
+  let projects=[];
+  let cur=null, sel=null;
+  let mode='all';            /* 'all' = todas las ramas · 'focus' = rama a rama */
+  let expanded=new Set();
+  let view={x:0,y:0,k:1};
+  let linking=false;         /* modo «conectar»: el próximo clic elige el padre */
+  let agents=[], agent=null;
+
+  const rgba=(h,a)=>{const n=parseInt(h.slice(1),16);
+    return 'rgba('+(n>>16&255)+','+(n>>8&255)+','+(n&255)+','+a+')'};
+  const stage=$('#stage'), world=$('#world'), svg=$('#links');
+  const P=()=>projects.find(p=>p.id===cur)||null;
+  const N=id=>{const p=P();return p?p.nodes.find(n=>n.id===id)||null:null};
+  const prog=p=>{const d=p.nodes.filter(n=>n.st==='done').length;
+    return{d:d,t:p.nodes.length,pc:p.nodes.length?Math.round(d/p.nodes.length*100):0}};
+  const rootOf=p=>p.nodes.find(n=>n.root)||p.nodes[0];
+  const kidsOf=(p,id)=>p.nodes.filter(n=>n.p===id);
+  const repl=p=>{const i=projects.findIndex(x=>x.id===p.id);if(i<0)projects.push(p);else projects[i]=p};
+  const typing=e=>{const t=e.target;
+    return !!(t&&(t.isContentEditable||t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT'))};
+
+  /* ═══════════ visibilidad de ramas (modo enfoque) ═══════════ */
+  function resetExpand(p){
+    expanded=new Set();
+    if(!p)return;
+    const r=rootOf(p);
+    if(r)expanded.add(r.id);
+  }
+  /* abre la cadena de padres hasta dejar visible `id`.
+     Anti-ciclo (`seen`): un árbol tocado a mano no debe colgar la pestaña. */
+  function openTo(p,id){
+    let cid=id; const seen=new Set();
+    while(cid&&!seen.has(cid)){
+      seen.add(cid);
+      const n=p.nodes.find(x=>x.id===cid);
+      if(!n)break;
+      if(n.p)expanded.add(n.p);
+      cid=n.p;
+    }
+  }
+  function visSet(p){
+    if(mode==='all')return null;
+    const s=new Set(), r=rootOf(p);
+    if(!r)return s;
+    s.add(r.id);
+    const queue=[r.id];
+    while(queue.length){
+      const id=queue.shift();
+      if(!expanded.has(id))continue;
+      kidsOf(p,id).forEach(n=>{if(!s.has(n.id)){s.add(n.id);queue.push(n.id)}});
+    }
+    return s;
+  }
+  const shown=(vs,n)=>!vs||vs.has(n.id);
+  function visNodes(p){const vs=visSet(p);return p.nodes.filter(n=>shown(vs,n))}
+
+  function toggleBranch(id){
+    const p=P();
+    if(!p||mode!=='focus')return false;
+    if(!kidsOf(p,id).length)return false;
+    if(expanded.has(id)){
+      const stack=[id];
+      while(stack.length){
+        const k=stack.pop();
+        expanded.delete(k);
+        kidsOf(p,k).forEach(c=>stack.push(c.id));
+      }
+    }else expanded.add(id);
+    renderTop(); renderNodes(); renderLinks();
+    return true;
+  }
+
+  /* ═══════════ selección (persistida: al reabrir caes donde estabas) ═══════════ */
+  let selT=null;
+  function pushSel(){
+    clearTimeout(selT);
+    selT=setTimeout(()=>post('/api/proyectos/select',{project_id:cur,node_id:sel}),250);
+  }
+  function setSel(id){
+    sel=id; markSel(); renderDetail(); renderCtx(); pushSel();
+  }
+
+  /* ═══════════ lista de proyectos ═══════════ */
+  const ul=$('#plist');
+  function renderList(){
+    const q=$('#q').value.trim().toLowerCase();
+    ul.innerHTML='';
+    const vis=projects.filter(p=>!q||p.name.toLowerCase().includes(q));
+    $('#tally').textContent=q ? vis.length+'/'+projects.length : String(projects.length);
+
+    if(!vis.length){
+      const li=document.createElement('li');
+      li.className='none';
+      li.textContent=projects.length?'Ninguno coincide con el filtro.':'Aún no hay proyectos.';
+      ul.appendChild(li);
+      return;
+    }
+    vis.forEach(p=>{
+      const g=prog(p);
+      const li=document.createElement('li');
+      li.className='pitem'+(p.id===cur?' active':'');
+      li.style.setProperty('--c',mono(p.color));
+      /* activo = relleno y borde BLANCOS (el acento), no el color del proyecto:
+         en monocromo el seleccionado se marca con luz, no con matiz. Borde solo
+         en el activo — 11 filas enmarcadas competirían; en lista una respira. */
+      li.style.background=p.id===cur?'var(--sel)':'transparent';
+      li.style.borderColor=p.id===cur?'var(--sel-line)':'transparent';
+      li.title=p.name+' · '+g.d+'/'+g.t+' nodos hechos ('+g.pc+'%)';
+      li.innerHTML='<span class="pc"></span><span class="pn"></span>'+
+        '<span class="pbar"><i></i></span>'+
+        '<span class="pcount">'+g.d+'/'+g.t+'</span>'+
+        '<button class="px" title="Eliminar">×</button>';
+      li.querySelector('.pn').textContent=p.name;
+      li.querySelector('.pbar i').style.width=g.pc+'%';
+      li.onclick=()=>openProject(p.id);
+      li.querySelector('.px').onclick=async e=>{
+        e.stopPropagation();
+        if(!confirm('¿Eliminar el proyecto "'+p.name+'" y su mapa?\n\nEsto no se puede deshacer.'))return;
+        const d=await post('/api/proyectos/project/delete',{project_id:p.id});
+        if(!d.ok)return fail(d,'No se pudo eliminar');
+        projects=projects.filter(x=>x.id!==p.id);
+        if(cur===p.id){cur=projects[0]?projects[0].id:null;sel=null;resetExpand(P());pushSel()}
+        renderAll();
+        if(P())fit();
+      };
+      ul.appendChild(li);
+    });
+    const a=ul.querySelector('.pitem.active');
+    if(a)a.scrollIntoView({block:'nearest',inline:'nearest'});
+  }
+  $('#q').oninput=renderList;
+
+  function openProject(id){
+    cur=id; sel=null; linking=false; stage.classList.remove('linking');
+    resetExpand(P()); view={x:0,y:0,k:1};
+    openDrop(false);
+    renderAll(); fit(); pushSel();
+  }
+
+  /* ═══════════ desplegable de proyectos ═══════════ */
+  let dropOpen=false, hi=-1;
+  function openDrop(on){
+    dropOpen=!!on;
+    $('#pdrop').hidden=!dropOpen;
+    $('#pswitch').classList.toggle('on',dropOpen);
+    if(dropOpen){
+      $('#q').value=''; hi=-1; renderList(); $('#q').focus();
+    }
+  }
+  $('#pswitch').onclick=e=>{e.stopPropagation();openDrop(!dropOpen)};
+  /* mousedown y no click: el click llega DESPUÉS de que el navegador movió el
+     foco, así que un clic en el mapa cerraría el menú a destiempo */
+  document.addEventListener('mousedown',e=>{
+    if(dropOpen&&!$('#pdrop').contains(e.target)&&!$('#pswitch').contains(e.target))
+      openDrop(false);
+  });
+  const hiItems=()=>[...ul.querySelectorAll('.pitem')];
+  function moveHi(d){
+    const it=hiItems(); if(!it.length)return;
+    hi=(hi+d+it.length)%it.length;
+    it.forEach((li,i)=>li.classList.toggle('hi',i===hi));
+    it[hi].scrollIntoView({block:'nearest'});
+  }
+  $('#q').addEventListener('keydown',e=>{
+    if(e.key==='ArrowDown'){e.preventDefault();moveHi(1)}
+    else if(e.key==='ArrowUp'){e.preventDefault();moveHi(-1)}
+    else if(e.key==='Enter'){
+      e.preventDefault();
+      const it=hiItems(), t=it[hi>=0?hi:0];   /* sin resaltar: el primero del filtro */
+      if(t)t.click();
+    }
+    else if(e.key==='Escape'){e.preventDefault();openDrop(false);$('#pswitch').focus()}
+  });
+
+  /* ═══════════ modal: nuevo proyecto ═══════════ */
+  let pcolor=COLORS[0];
+  function buildSw(){
+    const c=$('#sws'); c.innerHTML='';
+    COLORS.forEach(col=>{
+      const b=document.createElement('button');
+      b.className='sw'+(col===pcolor?' on':'');
+      b.style.background=mono(col); b.style.color=mono(col);   /* monocromo aunque el store mandara color */
+      b.onclick=()=>{pcolor=col;buildSw()};
+      c.appendChild(b);
+    });
+  }
+  $('#newP').onclick=()=>{
+    pcolor=COLORS[projects.length%COLORS.length];buildSw();
+    $('#pname').value='';$('#mask').classList.add('on');$('#pname').focus();
+  };
+  $('#cancel').onclick=()=>$('#mask').classList.remove('on');
+  $('#mask').onclick=e=>{if(e.target===$('#mask'))$('#mask').classList.remove('on')};
+  $('#pname').onkeydown=e=>{if(e.key==='Enter')create()};
+  $('#create').onclick=create;
+  async function create(){
+    const name=$('#pname').value.trim()||'Proyecto sin título';
+    $('#mask').classList.remove('on');
+    const d=await post('/api/proyectos/project/add',{name:name,color:pcolor});
+    if(!d.ok)return fail(d,'No se pudo crear');
+    projects.push(d.project);
+    $('#q').value='';
+    openProject(d.project.id);
+  }
+
+  /* color del proyecto actual */
+  $('#pcol').onclick=async()=>{
+    const p=P(); if(!p)return;
+    const c=COLORS[(COLORS.indexOf(p.color)+1)%COLORS.length];
+    const d=await post('/api/proyectos/project/update',{project_id:p.id,color:c});
+    if(!d.ok)return fail(d,'No se pudo cambiar el color');
+    repl(d.project); renderAll();
+  };
+
+  /* ═══════════ modos de vista ═══════════ */
+  $('#modes').addEventListener('click',e=>{
+    const b=e.target.closest('.mbtn'); if(!b||b.disabled)return;
+    const m=b.dataset.m;
+    if(m===mode)return;
+    mode=m;
+    const p=P();
+    if(mode==='focus'&&p){
+      resetExpand(p);
+      if(sel&&p.nodes.some(n=>n.id===sel)){openTo(p,sel);expanded.add(sel)}
+    }
+    renderAll();
+    if(p)fit();
+  });
+  $('#fclr').onclick=()=>{
+    const p=P(); if(!p)return;
+    resetExpand(p); setSel(null);
+    renderAll(); fit();
+  };
+
+  /* ═══════════ canvas ═══════════ */
+  function renderNodes(){
+    world.querySelectorAll('.node').forEach(n=>n.remove());
+    const p=P(); if(!p)return;
+    const vs=visSet(p);
+    p.nodes.forEach(n=>{
+      if(!shown(vs,n))return;
+      const kids=kidsOf(p,n.id).length;
+      const op=vs?expanded.has(n.id):false;
+      const tog=!!(vs&&kids);
+      const d=document.createElement('div');
+      d.className='node'+(n.root?' root':'')+(n.st==='done'?' done':'')+
+        (sel===n.id?' sel':'')+(tog&&op?' open':'')+(tog?' tog':'')+
+        (linking&&sel===n.id?' src':'');
+      d.dataset.id=n.id; d.dataset.st=n.st;
+      d.style.left=n.x+'px'; d.style.top=n.y+'px';
+      if(n.root)d.style.background='var(--accent)';   /* chip invertido fijo (ver .node.root) */
+      let mark='';
+      if(tog){
+        mark=op?'−':'+'+kids;
+        d.title=op?'Clic para contraer sus subramas'
+                  :'Clic para desplegar '+kids+(kids===1?' subrama':' subramas');
+      }
+      d.innerHTML='<div class="nt"></div><span class="badge">'+STL[n.st]+'</span>'+
+        (mark?'<span class="hid">'+mark+'</span>':'')+
+        (n.notes?'<span class="note" title="Tiene notas">✎</span>':'')+
+        '<div class="nbar">'+
+          '<button data-a="add" title="Añadir hijo">+</button>'+
+          '<button data-a="st" title="Cambiar estado">○</button>'+
+          (n.root?'':'<button data-a="del" title="Eliminar">×</button>')+
+        '</div>';
+      d.querySelector('.nt').textContent=n.t;
+      world.appendChild(d);
+    });
+  }
+  /* marca la selección sin reconstruir (el elemento bajo el cursor sobrevive) */
+  function markSel(){
+    world.querySelectorAll('.node').forEach(d=>{
+      d.classList.toggle('sel',d.dataset.id===sel);
+      d.classList.toggle('src',linking&&d.dataset.id===sel);
+    });
+  }
+  function renderLinks(){
+    const p=P(); if(!p){svg.innerHTML='';return}
+    const vs=visSet(p);
+    let s='';
+    p.nodes.forEach(n=>{
+      if(!n.p||!shown(vs,n))return;
+      const par=p.nodes.find(x=>x.id===n.p); if(!par||!shown(vs,par))return;
+      const mx=(par.x+n.x)/2;
+      s+='<path d="M'+par.x+','+par.y+' C'+mx+','+par.y+' '+mx+','+n.y+' '+n.x+','+n.y+
+         '" fill="none" stroke="'+(n.st==='done'?'var(--accent-2)':rgba(mono(p.color),.6))+
+         '" stroke-width="1.5" opacity="'+(n.st==='done'?.5:.8)+'"/>';
+    });
+    svg.innerHTML=s;
+  }
+  function applyView(){
+    world.style.transform='translate('+view.x+'px,'+view.y+'px) scale('+view.k+')';
+    $('#zl').textContent=Math.round(view.k*100)+'%';
+  }
+  function renderTop(){
+    const p=P();
+    const root=document.documentElement;
+    $('#ttl').textContent=p?p.name:'—';
+    $('#empty').hidden=!!p;
+    $('#hint').hidden=!p;
+    $('#addNode').disabled=!p;
+    $('#fit').disabled=!p;
+    $('#pcol').disabled=!p;
+    $('#pcol').style.background=p?mono(p.color):'';   /* su gris, no el blanco fijo del token */
+    document.querySelectorAll('#modes .mbtn').forEach(b=>{
+      b.disabled=!p;
+      b.classList.toggle('on',b.dataset.m===mode);
+    });
+    if(!p){
+      $('#sub').textContent='';
+      $('#fbar').hidden=true;
+      root.style.setProperty('--pc','var(--accent)');
+      stage.style.setProperty('--pdot','#1c1c1c');
+      return;
+    }
+    /* --pc (acento de lo seleccionado) es SIEMPRE blanco en monocromo — ya no lo
+       tiñe el proyecto. El punteado del lienzo, un gris fijo tenue. */
+    root.style.setProperty('--pc','var(--accent)');
+    stage.style.setProperty('--pdot','#1c1c1c');
+
+    const g=prog(p), vn=visNodes(p);
+    $('#sub').textContent=mode==='focus'
+      ? vn.length+' de '+g.t+' nodos visibles · '+g.pc+'% completado'
+      : g.t+' nodos · '+g.d+' hechos · '+g.pc+'% completado';
+
+    const open=(mode==='focus')
+      ? p.nodes.filter(n=>expanded.has(n.id)&&kidsOf(p,n.id).length).length : 0;
+    $('#fbar').hidden=!(mode==='focus'&&open>0);
+    if(open)$('#fname').textContent=String(open);
+
+    $('#hint').textContent=linking
+      ? 'Conectando: clic en el nodo que será el nuevo padre · Esc para cancelar'
+      : (mode==='focus'
+        ? 'Clic en un nodo para desplegar o contraer sus subramas · Doble clic para editar'
+        : 'Doble clic en un nodo para editar · Arrastra el fondo para mover · Rueda para zoom');
+  }
+  function renderAll(){renderList();renderTop();renderNodes();renderLinks();applyView();
+    renderDetail();renderCtx()}
+
+  function fit(){
+    const p=P(); if(!p||!p.nodes.length)return;
+    const ns=visNodes(p); if(!ns.length)return;
+    const xs=ns.map(n=>n.x), ys=ns.map(n=>n.y);
+    const cx=(Math.min(...xs)+Math.max(...xs))/2, cy=(Math.min(...ys)+Math.max(...ys))/2;
+    const w=Math.max(...xs)-Math.min(...xs)+400, h=Math.max(...ys)-Math.min(...ys)+240;
+    const r=stage.getBoundingClientRect();
+    if(!r.width||!r.height)return;
+    /* El piso de zoom era .3: un mapa grande (42 nodos ⇒ ~2800px) necesita ~18%
+       para caber, pero el piso lo dejaba en 30% y 40 de 42 nodos quedaban FUERA
+       de pantalla — «Centrar» mentía. Ahora el piso (.08) solo evita el zoom
+       absurdo; el encuadre manda. Cuenta además el canvas REAL, que se angosta
+       a ~560px cuando los dos paneles están abiertos. */
+    view.k=Math.min(1.1,Math.max(.08,Math.min(r.width/w,r.height/h)));
+    view.x=r.width/2-cx*view.k; view.y=r.height/2-cy*view.k;
+    applyView();
+  }
+  $('#fit').onclick=fit;
+  $('#zi').onclick=()=>{view.k=Math.min(2.5,view.k*1.2);applyView()};
+  $('#zo').onclick=()=>{view.k=Math.max(.2,view.k/1.2);applyView()};
+  stage.onwheel=e=>{
+    if(!P())return;
+    e.preventDefault();
+    const r=stage.getBoundingClientRect();
+    const mx=e.clientX-r.left, my=e.clientY-r.top;
+    const k2=Math.min(2.5,Math.max(.2,view.k*(e.deltaY<0?1.1:1/1.1)));
+    view.x=mx-(mx-view.x)*(k2/view.k); view.y=my-(my-view.y)*(k2/view.k);
+    view.k=k2; applyView();
+  };
+
+  /* ═══════════ pan + arrastre de nodos (posición PERSISTE al soltar) ═══════════ */
+  let act=null,start=null,dragN=null,moved=false,tapId=null;
+  stage.addEventListener('pointerdown',e=>{
+    if(!P())return;
+    const nd=e.target.closest('.node');
+    moved=false; tapId=null;
+    if(nd){
+      if(e.target.closest('.nbar')||e.target.isContentEditable)return;
+      const n=N(nd.dataset.id); if(!n)return;
+      if(linking){linkTo(n.id);return}
+      setSel(n.id);
+      nd.classList.add('dragging');
+      act='node'; dragN=n; tapId=n.id; start={mx:e.clientX,my:e.clientY,nx:n.x,ny:n.y};
+    }else{
+      if(linking){cancelLink();return}
+      setSel(null);
+      act='pan'; start={mx:e.clientX,my:e.clientY,vx:view.x,vy:view.y};
+      stage.classList.add('panning');
+    }
+    try{stage.setPointerCapture(e.pointerId)}catch(err){}
+  });
+  stage.addEventListener('pointermove',e=>{
+    if(!act)return;
+    if(Math.abs(e.clientX-start.mx)>3||Math.abs(e.clientY-start.my)>3)moved=true;
+    if(act==='pan'){
+      view.x=start.vx+(e.clientX-start.mx); view.y=start.vy+(e.clientY-start.my); applyView();
+    }else if(dragN){
+      dragN.x=start.nx+(e.clientX-start.mx)/view.k;
+      dragN.y=start.ny+(e.clientY-start.my)/view.k;
+      const el=world.querySelector('.node[data-id="'+dragN.id+'"]');
+      if(el){el.style.left=dragN.x+'px'; el.style.top=dragN.y+'px'}
+      renderLinks();
+    }
+  });
+  async function endPointer(){
+    const wasNode=act==='node', id=tapId, clean=!moved, n=dragN;
+    world.querySelectorAll('.dragging').forEach(d=>d.classList.remove('dragging'));
+    act=null;dragN=null;tapId=null;stage.classList.remove('panning');
+    if(wasNode&&!clean&&n){          /* soltó tras mover → guarda la posición */
+      const p=P(); if(!p)return;
+      const d=await post('/api/proyectos/node/update',
+        {project_id:p.id,node_id:n.id,x:n.x,y:n.y});
+      if(!d.ok)return fail(d,'No se pudo mover');
+      repl(d.project);
+    }
+    /* clic limpio sobre un nodo en modo enfoque = expandir / contraer su rama */
+    if(wasNode&&clean&&id&&mode==='focus')toggleBranch(id);
+  }
+  stage.addEventListener('pointerup',endPointer);
+  stage.addEventListener('pointercancel',endPointer);
+
+  /* ═══════════ acciones de nodo (barrita flotante) ═══════════ */
+  world.addEventListener('click',async e=>{
+    const b=e.target.closest('.nbar button'); if(!b)return;
+    const id=b.closest('.node').dataset.id, a=b.dataset.a;
+    if(a==='add')return addChild(id);
+    if(a==='st'){
+      const n=N(id); if(!n)return;
+      return setStatus(id,ST[(ST.indexOf(n.st)+1)%3]);
+    }
+    if(a==='del')return delNode(id);
+  });
+
+  async function addChild(pid){
+    const p=P(), n=N(pid); if(!p||!n)return;
+    const kids=kidsOf(p,pid).length;
+    const dir=n.x<0?-1:1;
+    const x=n.x+(n.root?220*(kids%2?-1:1):200*dir);
+    const y=n.y+(kids*90)-(kids*20);
+    const d=await post('/api/proyectos/node/add',
+      {project_id:p.id,parent_id:pid,t:'Nueva idea',x:x,y:y});
+    if(!d.ok)return fail(d,'No se pudo añadir');
+    repl(d.project);
+    if(mode==='focus'){openTo(P(),pid);expanded.add(pid)}
+    sel=d.node.id;
+    renderAll(); pushSel();
+  }
+  async function setStatus(id,st){
+    const p=P(); if(!p)return;
+    const d=await post('/api/proyectos/node/update',{project_id:p.id,node_id:id,st:st});
+    if(!d.ok)return fail(d,'No se pudo cambiar el estado');
+    repl(d.project); renderAll();
+  }
+  async function delNode(id){
+    const p=P(), n=N(id); if(!p||!n||n.root)return;
+    const kids=kidsOf(p,id).length;
+    if(kids&&!confirm('"'+n.t+'" tiene '+kids+(kids===1?' subrama':' subramas')+
+      '.\n\n¿Eliminarlo con todo lo que cuelga de él?'))return;
+    const d=await post('/api/proyectos/node/delete',{project_id:p.id,node_id:id});
+    if(!d.ok)return fail(d,'No se pudo eliminar');
+    repl(d.project);
+    (d.removed||[]).forEach(k=>expanded.delete(k));
+    if(sel&&(d.removed||[]).indexOf(sel)>=0)sel=null;
+    renderAll(); pushSel();
+  }
+
+  /* editar el título en el propio nodo (doble clic) */
+  world.addEventListener('dblclick',e=>{
+    const t=e.target.closest('.nt'); if(!t)return;
+    const nd=t.closest('.node'), id=nd.dataset.id;
+    t.contentEditable='true'; t.focus();
+    const rg=document.createRange(); rg.selectNodeContents(t);
+    const s=getSelection(); s.removeAllRanges(); s.addRange(rg);
+    let done=false;
+    const end=async()=>{
+      if(done)return; done=true;
+      t.contentEditable='false';
+      const p=P(), n=N(id); if(!p||!n)return;
+      const txt=t.textContent.trim()||'Sin título';
+      if(txt===n.t)return;
+      const d=await post('/api/proyectos/node/update',{project_id:p.id,node_id:id,t:txt});
+      if(!d.ok)return fail(d,'No se pudo renombrar');
+      repl(d.project); renderAll();
+    };
+    t.onblur=end;
+    t.onkeydown=ev=>{
+      if(ev.key==='Enter'){ev.preventDefault();t.blur()}
+      if(ev.key==='Escape'){const n=N(id);if(n)t.textContent=n.t;done=true;
+        t.contentEditable='false';t.blur()}
+    };
+  });
+
+  $('#addNode').onclick=()=>{
+    const p=P(); if(!p)return;
+    const par=(sel&&N(sel))||rootOf(p);
+    if(par)addChild(par.id);
+  };
+
+  /* ═══════════ conectar nodos (re-colgar una rama de otro padre) ═══════════ */
+  function startLink(){
+    if(!sel||!N(sel))return toast('Selecciona primero el nodo que quieres reconectar');
+    if(N(sel).root)return toast('El nodo raíz no se puede reconectar');
+    linking=true; stage.classList.add('linking'); markSel(); renderTop();
+    toast('Clic en el nodo que será el nuevo padre · Esc para cancelar');
+  }
+  function cancelLink(){
+    linking=false; stage.classList.remove('linking'); markSel(); renderTop();
+  }
+  async function linkTo(pid){
+    const p=P(), n=sel&&N(sel);
+    cancelLink();
+    if(!p||!n||pid===n.id)return;
+    const d=await post('/api/proyectos/node/update',{project_id:p.id,node_id:n.id,p:pid});
+    if(!d.ok){toast(errOf(d)||'No se pudo conectar');return}
+    repl(d.project);
+    if(mode==='focus'){openTo(P(),pid);expanded.add(pid)}
+    renderAll();
+    toast('Conectado');
+  }
+
+  /* ═══════════ Sistema de DOCKS (modelo Obsidian/VS Code) ═══════════
+     Cada panel (Detalle, Agente) vive en un dock (izq/der), se puede apilar con
+     otro, mover al otro lado, ocultar o arrastrar por su cabecera. Todo el
+     layout se guarda en UN blob. El truco clave: se MUEVE el <section> del panel
+     entre docks (no se recrea), así su estado y sus listeners sobreviven. */
+  const dockL=$('#dockL'), dockR=$('#dockR');
+  const rszL=$('#rszL'), rszR=$('#rszR');
+  const PANELS=['detalle','agente'];
+  const WMIN=220, WMAX=620, HMIN=90;
+  const clampW=w=>Math.max(WMIN,Math.min(WMAX,Math.round(w)));
+  const panelEl=k=>document.querySelector('.panel[data-panel="'+k+'"]');
+
+  const LKEY='workspace.proyectos.layout';
+  let LO={
+    slot:{detalle:'left', agente:'right'},     /* left | right | hidden */
+    order:{left:['detalle'], right:['agente']},
+    w:{left:null, right:null},
+    h:{},                                       /* alto fijo del panel superior por dock */
+    lastDock:{}                                 /* a dónde devolver un panel al re-mostrarlo */
+  };
+  function loadLayout(){
+    try{
+      const s=JSON.parse(localStorage.getItem(LKEY)||'null');
+      if(s&&s.slot&&s.order)LO=Object.assign(LO,s);
+    }catch(e){}
+    /* sanear: todo panel con un slot válido y el orden sólo con panels reales */
+    PANELS.forEach(k=>{ if(['left','right','hidden'].indexOf(LO.slot[k])<0)LO.slot[k]='hidden'; });
+    ['left','right'].forEach(d=>{
+      LO.order[d]=(LO.order[d]||[]).filter(k=>PANELS.indexOf(k)>=0&&LO.slot[k]===d);
+      PANELS.forEach(k=>{ if(LO.slot[k]===d&&LO.order[d].indexOf(k)<0)LO.order[d].push(k); });
+    });
+  }
+  function saveLayout(){ try{localStorage.setItem(LKEY,JSON.stringify(LO))}catch(e){} }
+
+  /* (Re)construye ambos docks desde LO e intercala divisores horizontales.
+     NO se usa innerHTML='' para vaciar: eso DESTRUIRÍA los <section> (y con
+     ellos su estado y listeners). Se DESANCLAN al holder —appendChild mueve, no
+     clona— y solo se borran los divisores, que sí son desechables. */
+  const holder=$('#panelHolder');
+  function applyLayout(){
+    PANELS.forEach(k=>holder.appendChild(panelEl(k)));
+    dockL.querySelectorAll('.hrsz').forEach(h=>h.remove());
+    dockR.querySelectorAll('.hrsz').forEach(h=>h.remove());
+    ['left','right'].forEach(side=>{
+      const dock=side==='left'?dockL:dockR, keys=LO.order[side];
+      keys.forEach((k,i)=>{
+        const el=panelEl(k);
+        el.classList.remove('fixed-h'); el.style.removeProperty('--h');
+        if(keys.length>1 && i<keys.length-1){    /* el superior lleva alto fijo, el resto reparte */
+          el.classList.add('fixed-h');
+          const h=LO.h[side]&&LO.h[side][i];
+          if(h)el.style.setProperty('--h',h+'px');
+        }
+        dock.appendChild(el);
+        if(i<keys.length-1){
+          const hr=document.createElement('div');
+          hr.className='hrsz';
+          dock.appendChild(hr);
+          initHRsz(hr, el, side, i);
+        }
+      });
+      const empty=!keys.length;
+      dock.classList.toggle('off',empty);
+      if(!empty)dock.style.setProperty('--w',
+        clampW(LO.w[side] || innerWidth*(side==='left'?.22:.24))+'px');
+      (side==='left'?rszL:rszR).hidden=empty;
+    });
+    $('#tgDetalle').classList.toggle('on', LO.slot.detalle!=='hidden');
+    $('#tgAgente').classList.toggle('on', LO.slot.agente!=='hidden');
+    PANELS.forEach(k=>{
+      const el=panelEl(k); if(!el)return;
+      el.querySelector('.ph-left').disabled =(LO.slot[k]==='left');
+      el.querySelector('.ph-right').disabled=(LO.slot[k]==='right');
+    });
+    saveLayout();
+  }
+  function setDockW(side,w){
+    LO.w[side]=clampW(w);
+    (side==='left'?dockL:dockR).style.setProperty('--w',LO.w[side]+'px');
+    saveLayout();
+  }
+  function movePanel(k,dest){
+    ['left','right'].forEach(d=>{ LO.order[d]=LO.order[d].filter(x=>x!==k); });
+    if(dest!=='hidden')LO.lastDock[k]=dest; else LO.lastDock[k]=LO.slot[k]!=='hidden'?LO.slot[k]:LO.lastDock[k];
+    LO.slot[k]=dest;
+    if(dest==='left'||dest==='right'){ if(LO.order[dest].indexOf(k)<0)LO.order[dest].push(k); }
+    applyLayout();
+  }
+  const togglePanel=k=>movePanel(k, LO.slot[k]==='hidden' ? (LO.lastDock[k]||'left') : 'hidden');
+
+  /* controles por panel + toggles de cabecera */
+  PANELS.forEach(k=>{
+    const el=panelEl(k);
+    el.querySelector('.ph-left').onclick =()=>movePanel(k,'left');
+    el.querySelector('.ph-right').onclick=()=>movePanel(k,'right');
+    el.querySelector('.ph-hide').onclick =()=>movePanel(k,'hidden');
+  });
+  $('#tgDetalle').onclick=()=>togglePanel('detalle');
+  $('#tgAgente').onclick =()=>togglePanel('agente');
+
+  /* divisores verticales dock↔mapa. Se escucha en window y NO en el handle: si el
+     puntero adelanta al divisor durante el arrastre, el handle deja de recibir
+     eventos y se queda clavado a medias. */
+  function initRsz(handle,side,dir){
+    handle.addEventListener('mousedown',e=>{
+      e.preventDefault();
+      const dock=side==='left'?dockL:dockR;
+      const x0=e.clientX, w0=dock.getBoundingClientRect().width;
+      handle.classList.add('on');
+      document.body.style.cursor='col-resize'; document.body.style.userSelect='none';
+      const mv=ev=>setDockW(side, w0+dir*(ev.clientX-x0));
+      const up=()=>{ handle.classList.remove('on');
+        document.body.style.cursor=''; document.body.style.userSelect='';
+        removeEventListener('mousemove',mv); removeEventListener('mouseup',up); };
+      addEventListener('mousemove',mv); addEventListener('mouseup',up);
+    });
+  }
+  initRsz(rszL,'left',1); initRsz(rszR,'right',-1);
+
+  /* divisor horizontal entre paneles apilados: fija el alto del de arriba */
+  function initHRsz(handle, topEl, side, i){
+    handle.addEventListener('mousedown',e=>{
+      e.preventDefault();
+      const y0=e.clientY, h0=topEl.getBoundingClientRect().height;
+      handle.classList.add('on');
+      document.body.style.cursor='row-resize'; document.body.style.userSelect='none';
+      const mv=ev=>{
+        const h=Math.max(HMIN, Math.round(h0+(ev.clientY-y0)));
+        topEl.classList.add('fixed-h'); topEl.style.setProperty('--h',h+'px');
+        LO.h[side]=LO.h[side]||{}; LO.h[side][i]=h;
+      };
+      const up=()=>{ handle.classList.remove('on');
+        document.body.style.cursor=''; document.body.style.userSelect=''; saveLayout();
+        removeEventListener('mousemove',mv); removeEventListener('mouseup',up); };
+      addEventListener('mousemove',mv); addEventListener('mouseup',up);
+    });
+  }
+
+  /* Arrastrar la CABECERA para mandar el panel al otro lado (como las pestañas de
+     VS Code). Umbral de 6px: un clic seco en el título no mueve nada. */
+  const markDrop=(side,on)=>(side==='left'?dockL:dockR).classList.toggle('drop',on);
+  PANELS.forEach(k=>{
+    const head=panelEl(k).querySelector('.panel-head');
+    head.addEventListener('mousedown',e=>{
+      if(e.target.closest('.phbtn'))return;
+      const x0=e.clientX; let dragging=false;
+      const mv=ev=>{
+        if(!dragging && Math.abs(ev.clientX-x0)<6)return;
+        dragging=true; head.classList.add('grabbing');
+        const overL=ev.clientX<innerWidth/2;
+        markDrop('left',overL); markDrop('right',!overL);
+      };
+      const up=ev=>{
+        head.classList.remove('grabbing'); markDrop('left',false); markDrop('right',false);
+        removeEventListener('mousemove',mv); removeEventListener('mouseup',up);
+        if(dragging){
+          const dest=ev.clientX<innerWidth/2?'left':'right';
+          if(dest!==LO.slot[k])movePanel(k,dest);
+        }
+      };
+      addEventListener('mousemove',mv); addEventListener('mouseup',up);
+    });
+  });
+
+  loadLayout(); applyLayout();
+
+  const dt=$('#dt'), dn=$('#dn'), dres=$('#dres');
+  const inPane=()=>{const a=document.activeElement;return a&&(a===dt||a===dn)};
+  function renderDetail(){
+    const n=sel&&N(sel);
+    $('#dvoid').hidden=!!n;
+    $('#dform').hidden=!n;
+    if(!n)return;
+    if(document.activeElement!==dt)dt.value=n.t;
+    if(document.activeElement!==dn)dn.value=n.notes||'';
+    document.querySelectorAll('#dst .mbtn').forEach(b=>b.classList.toggle('on',b.dataset.s===n.st));
+    $('#ddel').disabled=!!n.root;
+    $('#dlink').disabled=!!n.root;
+    const p=P(), kids=p?kidsOf(p,n.id).length:0;
+    const meta=$('#dmeta');
+    meta.innerHTML='';
+    const add=(k,v)=>{const d=document.createElement('div');
+      d.innerHTML='<b></b> ';d.querySelector('b').textContent=k+':';
+      d.appendChild(document.createTextNode(' '+v));meta.appendChild(d)};
+    add('Proyecto',p?p.name:'—');
+    add(n.root?'Nodo':'Sub-nodos',n.root?'raíz del mapa':String(kids));
+    if(!n.root&&kids)add('Ojo','al eliminarlo se va su rama entera');
+    add('Creado',(n.created||'').slice(0,10));
+    add('Actualizado',(n.updated||'').replace('T',' ').slice(0,16));
+  }
+  /* autosave: se escribe al dejar de teclear (no en cada tecla) */
+  function debouncedSave(el,field){
+    let t=null;
+    const flush=async()=>{
+      const p=P(), id=sel, n=id&&N(id); if(!p||!n)return;
+      let v=el.value;
+      if(field==='t'){v=v.trim()||'Sin título'}
+      if(v===(n[field]||''))return;
+      const body={project_id:p.id,node_id:id}; body[field]=v;
+      const d=await post('/api/proyectos/node/update',body);
+      if(!d.ok)return fail(d,'No se pudo guardar');
+      repl(d.project);
+      renderList(); renderTop(); renderNodes(); renderLinks();
+    };
+    el.addEventListener('input',()=>{clearTimeout(t);t=setTimeout(flush,600)});
+    el.addEventListener('blur',()=>{clearTimeout(t);flush()});
+  }
+  debouncedSave(dt,'t');
+  debouncedSave(dn,'notes');
+  $('#dst').addEventListener('click',e=>{
+    const b=e.target.closest('.mbtn'); if(!b||!sel)return;
+    setStatus(sel,b.dataset.s);
+  });
+  $('#dadd').onclick=()=>{if(sel)addChild(sel)};
+  $('#ddel').onclick=()=>{if(sel)delNode(sel)};
+  $('#dlink').onclick=startLink;
+
+  /* ═══════════ panel DERECHO · agente (v2: pestañas + historial por día) ═══════════
+     v1 era UN hilo compartido por proyecto, con flechas ‹ › que cambiaban de
+     agente sin cambiar de conversación. v2: cada agente es un HILO INDEPENDIENTE
+     por NODO, navegable por DÍA. El hilo NO viene en /state (es pesado) — se carga
+     aparte por (nodo × agente × día) y se persiste en sesiones/ del harness. */
+  let sessionTurns=[], sessionDays=[], sessionDay=null;   /* sessionDay null = hoy */
+  let sessAgents=new Set();                                /* agentes con hilo en el nodo */
+  let files=[], handoff='';
+  let ckChat='', ckNode='';                                /* de-dup de cargas async */
+
+  /* El chat SIEMPRE cuelga de un nodo: el seleccionado, o la raíz si no hay uno
+     (igual que el fallback del server). */
+  const curNid=()=>{const p=P();return p?(sel&&N(sel)?sel:rootOf(p).id):null};
+  const todayISO=()=>new Date().toISOString().slice(0,10);
+  const q=encodeURIComponent;
+  const fileURL=name=>{const p=P(),nid=curNid();return !p||!nid?'#':
+    '/api/proyectos/file/download?project_id='+q(p.id)+'&node_id='+q(nid)
+    +'&name='+q(name)+'&token='+q(TOKEN)};
+
+  /* Pestañas = UNIÓN de agentes REGISTRADOS (con quién puedes chatear) + agentes
+     que ya tienen HILO en este nodo (para leer su historial aunque hoy no estén
+     registrados). Así nunca se «pierde» de vista un hilo existente. */
+  function renderTabs(){
+    const box=$('#atabs'); box.innerHTML='';
+    const tabs=Array.from(new Set(agents.concat(Array.from(sessAgents)))).sort();
+    if(!tabs.length){
+      const s=document.createElement('span'); s.className='atab dim';
+      s.textContent='sin agentes'; s.title='Agrega un agente desde el hub';
+      box.appendChild(s); agent=null; return;
+    }
+    if(tabs.indexOf(agent)<0)agent=tabs[0];
+    tabs.forEach(a=>{
+      const b=document.createElement('button');
+      const reg=agents.indexOf(a)>=0;
+      b.className='atab'+(a===agent?' on':'')+(sessAgents.has(a)?'':' dim');
+      b.textContent=a;
+      b.title='Hablar con «'+a+'» — hilo propio en este nodo'
+        +(reg?'':' · no registrado (solo lectura del hilo)')
+        +(sessAgents.has(a)?'':' · aún sin mensajes');
+      b.onclick=()=>setAgent(a);
+      box.appendChild(b);
+    });
+  }
+  function setAgent(a){
+    if(!agents.length)return;
+    agent=a; sessionDay=null;
+    try{localStorage.setItem('workspace.proyectos.agent',agent)}catch(e){}
+    renderTabs(); syncChat(true);
+  }
+
+  /* historial por día: prev/next se mueven por los días CON sesión + «hoy». */
+  function dayList(){
+    const t=todayISO(), d=sessionDays.slice();
+    if(d.indexOf(t)<0)d.push(t);
+    return d;
+  }
+  function renderDayBar(){
+    $('#daybar').hidden=!(P()&&agent);
+    const days=dayList(), cur=sessionDay||todayISO();
+    let i=days.indexOf(cur); if(i<0)i=days.length-1;
+    $('#daylbl').textContent=(sessionDay===null)?'hoy':cur;
+    $('#dayprev').disabled=i<=0;
+    $('#daynext').disabled=i>=days.length-1;
+    $('#daytoday').hidden=(sessionDay===null);
+  }
+  function dayGo(delta){
+    const days=dayList(), t=todayISO(), cur=sessionDay||t;
+    let i=days.indexOf(cur); if(i<0)i=days.length-1;
+    i=Math.max(0,Math.min(days.length-1,i+delta));
+    sessionDay=(days[i]===t)?null:days[i];
+    syncChat(true);
+  }
+  $('#dayprev').onclick=()=>dayGo(-1);
+  $('#daynext').onclick=()=>dayGo(1);
+  $('#daytoday').onclick=()=>{sessionDay=null;syncChat(true)};
+
+  /* carga el hilo (días + vueltas) para (nodo×agente×día). De-dup por clave. */
+  async function syncChat(force){
+    const p=P(), nid=curNid();
+    const key=(p?p.id:'')+'|'+(nid||'')+'|'+(agent||'')+'|'+(sessionDay||'');
+    if(!force && key===ckChat)return; ckChat=key;
+    if(!p||!agent||!nid){sessionTurns=[];sessionDays=[];renderDayBar();renderChat();return}
+    const dd=await get('/api/proyectos/session/days?project_id='+q(p.id)
+      +'&node_id='+q(nid)+'&agent='+q(agent));
+    sessionDays=(dd&&dd.days)||[];
+    const dq=sessionDay?('&dia='+q(sessionDay)):'';
+    const rr=await get('/api/proyectos/session/read?project_id='+q(p.id)
+      +'&node_id='+q(nid)+'&agent='+q(agent)+dq);
+    sessionTurns=(rr&&rr.turns)||[];
+    renderDayBar(); renderChat();
+  }
+
+  /* carga lo del NODO (qué agentes tienen hilo, archivos, handoff). De-dup. */
+  async function syncNode(force){
+    const p=P(), nid=curNid();
+    const key=(p?p.id:'')+'|'+(nid||'');
+    if(!force && key===ckNode)return; ckNode=key;
+    sessAgents=new Set(); files=[]; handoff='';
+    if(p&&nid){
+      const la=await get('/api/proyectos/session/list?project_id='+q(p.id)+'&node_id='+q(nid));
+      sessAgents=new Set((la&&la.agents)||[]);
+      const rf=await get('/api/proyectos/files?project_id='+q(p.id)+'&node_id='+q(nid));
+      files=(rf&&rf.files)||[];
+      const rh=await get('/api/proyectos/resumen?project_id='+q(p.id)+'&node_id='+q(nid));
+      handoff=(rh&&typeof rh.text==='string')?rh.text:'';
+    }
+    renderTabs(); renderFiles(); renderHandoff();
+  }
+
+  function renderCtx(){
+    const p=P(), n=sel&&N(sel);
+    const el=$('#ctx'); el.innerHTML='';
+    if(!p){
+      el.textContent='Sin proyecto: crea uno para empezar.';
+      $('#cin').disabled=true; $('#csend').disabled=true;
+      syncNode(); syncChat(); return;
+    }
+    const b=document.createElement('b'); b.textContent='Contexto: ';
+    el.appendChild(b);
+    el.appendChild(document.createTextNode(p.name+(n?' › '+n.t:' › (raíz)')));
+    el.title=el.textContent;
+    $('#cin').disabled=false; $('#csend').disabled=false;
+    syncNode(); syncChat();
+  }
+
+  function sysMsg(t){const d=document.createElement('div');d.className='msg sys';
+    d.textContent=t;return d}
+  function renderChat(){
+    const box=$('#chat'); box.innerHTML='';
+    const p=P();
+    if(!p){box.appendChild(sysMsg('Elige o crea un proyecto para empezar.'));return}
+    if(!agent){box.appendChild(sysMsg('No hay agentes registrados en esta máquina. '
+      +'Agrega uno desde el hub para chatear.'));return}
+    if(!sessionTurns.length){
+      box.appendChild(sysMsg(sessionDay
+        ?('Sin mensajes con «'+agent+'» el '+sessionDay+'.')
+        :('Empieza un hilo con «'+agent+'» sobre este nodo. '
+          +'Cada agente tiene su propio hilo, guardado por día.')));
+    }
+    sessionTurns.forEach(m=>box.appendChild(msgEl(m)));
+    box.scrollTop=box.scrollHeight;
+  }
+  /* Transcript de terminal: «❯ …» lo tuyo, y la salida del agente con su nombre
+     tenue. Nunca innerHTML — el texto del modelo entra como TEXTO, jamás marcado. */
+  function msgEl(m){
+    const d=document.createElement('div');
+    const role=m.role;
+    d.className='msg '+(role==='user'?'user':(role==='system'?'sys':'bot'));
+    if(role!=='system'){
+      const w=document.createElement('span'); w.className='who';
+      w.textContent=role==='user'?'❯':(m.agent||agent||'agente');
+      d.appendChild(w);
+    }
+    const t=document.createElement('span'); t.className='tx'; t.textContent=m.text||'';
+    d.appendChild(t);
+    return d;
+  }
+
+  /* ── archivos del nodo ── */
+  const FILE_MAX=25*1024*1024;
+  function fmtSize(n){n=+n||0;return n<1024?n+' B':
+    n<1048576?(n/1024).toFixed(0)+' KB':(n/1048576).toFixed(1)+' MB'}
+  /* Descarga EMBEBIDA (dentro del dev panel): el server de dev no puede servir
+     binario por su framework JSON, así que el archivo viaja en base64 y aquí se
+     re-arma como Blob y se baja. En modo STANDALONE se usa el <a href> directo
+     al endpoint de attachment endurecido (mejor UX, ya probado). */
+  async function doDownload(name){
+    const p=P(), nid=curNid(); if(!p||!nid)return;
+    const r=await get('/api/proyectos/file/data?project_id='+q(p.id)
+      +'&node_id='+q(nid)+'&name='+q(name));
+    if(!r||!r.ok||typeof r.data_b64!=='string'){toast('No se pudo descargar');return}
+    try{
+      const bin=atob(r.data_b64), u8=new Uint8Array(bin.length);
+      for(let i=0;i<bin.length;i++)u8[i]=bin.charCodeAt(i);
+      const url=URL.createObjectURL(new Blob([u8],{type:'application/octet-stream'}));
+      const a=document.createElement('a'); a.href=url; a.download=(r.name||name);
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),1000);
+    }catch(e){toast('No se pudo descargar')}
+  }
+  function renderFiles(){
+    const ul=$('#filelist'); ul.innerHTML='';
+    $('#filecount').textContent=files.length?('· '+files.length):'';
+    files.forEach(f=>{
+      const li=document.createElement('li'); li.className='fileitem';
+      const nm=document.createElement('span'); nm.className='fn';
+      nm.textContent=f.name; nm.title=f.name;
+      const sz=document.createElement('span'); sz.className='fs'; sz.textContent=fmtSize(f.size);
+      const a=document.createElement('a'); a.className='dl'; a.textContent='↓';
+      a.title='Descargar'; a.href=fileURL(f.name); a.setAttribute('download',f.name);
+      if(window.PROYECTOS_EMBED)a.onclick=ev=>{ev.preventDefault();doDownload(f.name)};
+      li.appendChild(nm); li.appendChild(sz); li.appendChild(a);
+      ul.appendChild(li);
+    });
+  }
+  $('#fileup').addEventListener('change',async e=>{
+    const p=P(), nid=curNid(); const f=e.target.files&&e.target.files[0];
+    e.target.value='';
+    if(!p||!nid||!f)return;
+    if(f.size>FILE_MAX){toast('El archivo excede 25 MB');return}
+    const b64=await new Promise(res=>{
+      const r=new FileReader();
+      r.onload=()=>res(String(r.result||'').split(',')[1]||'');
+      r.onerror=()=>res(null); r.readAsDataURL(f);
+    });
+    if(b64===null){toast('No pude leer el archivo');return}
+    const d=await post('/api/proyectos/file/upload',
+      {project_id:p.id,node_id:nid,name:f.name,data_b64:b64});
+    if(!d.ok){toast(errOf(d)||'No se pudo subir (¿extensión no permitida?)');return}
+    toast('Archivo subido: '+d.name);
+    syncNode(true);
+  });
+
+  /* ── handoff (resumen.md) del nodo ── */
+  function renderHandoff(){ if(document.activeElement!==dres)dres.value=handoff||'' }
+  let hresT=null;
+  async function saveHandoff(){
+    const p=P(), nid=curNid(); if(!p||!nid)return;
+    const v=dres.value; if(v===(handoff||''))return;
+    const d=await post('/api/proyectos/resumen/set',{project_id:p.id,node_id:nid,text:v});
+    if(!d.ok){toast('No se pudo guardar el handoff');return}
+    handoff=v;
+  }
+  dres.addEventListener('input',()=>{clearTimeout(hresT);hresT=setTimeout(saveHandoff,700)});
+  dres.addEventListener('blur',()=>{clearTimeout(hresT);saveHandoff()});
+
+  const cin=$('#cin');
+  cin.addEventListener('input',()=>{
+    cin.style.height='auto';
+    cin.style.height=Math.min(140,cin.scrollHeight)+'px';
+  });
+  cin.addEventListener('keydown',e=>{
+    if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}
+  });
+  $('#csend').onclick=send;
+  let sending=false;
+  async function send(){
+    const p=P(); if(!p||sending)return;
+    if(!agent){toast('No hay ningún agente registrado en esta máquina');return}
+    const text=cin.value.trim(); if(!text)return;
+    const nid=curNid();
+    sessionDay=null;                          /* enviar siempre es «hoy» */
+    sending=true; $('#csend').disabled=true;
+    sessionTurns=sessionTurns.concat([{role:'user',text:text}]);
+    renderChat();
+    const box=$('#chat');
+    const pend=document.createElement('div');
+    pend.className='msg sys pend'; pend.textContent=agent+' está pensando…';
+    box.appendChild(pend); box.scrollTop=box.scrollHeight;
+    cin.value=''; cin.style.height='auto';
+    const d=await post('/api/proyectos/chat',
+      {project_id:p.id,node_id:nid,agent:agent,text:text});
+    sending=false; $('#csend').disabled=false;
+    if(Array.isArray(d.chat))sessionTurns=d.chat;
+    ckChat='';                                /* forzar refresco de días */
+    renderChat();
+    syncNode(true);                            /* el agente ya tiene hilo → pestaña activa */
+    if(!d.ok&&!d.stub)toast(errOf(d)||'El chat falló');
+    cin.focus();
+  }
+
+  /* ═══════════ teclado ═══════════ */
+  addEventListener('keydown',e=>{
+    if(e.key==='Escape'){
+      if(linking){cancelLink();return}
+      if($('#mask').classList.contains('on')){$('#mask').classList.remove('on');return}
+      if(dropOpen)openDrop(false);
+      return;
+    }
+    if(typing(e))return;                       /* jamás secuestrar la escritura */
+    if(e.key==='p'||e.key==='P'){e.preventDefault();openDrop(!dropOpen);return}
+    if((e.key==='Delete'||e.key==='Backspace')&&sel){e.preventDefault();delNode(sel);return}
+    if(e.key===' '&&sel&&mode==='focus'){e.preventDefault();toggleBranch(sel);return}
+    if(e.key==='d'||e.key==='D'){togglePanel('detalle');return}
+    if(e.key==='a'||e.key==='A'){togglePanel('agente');return}
+  });
+
+  /* ═══════════ arranque ═══════════ */
+  async function boot(quiet){
+    const d=await get('/api/proyectos/state');
+    if(d.__err||!d.ok){
+      toast('No pude leer tus proyectos: '+(errOf(d)||'error'));
+      return;
+    }
+    if(Array.isArray(d.colors)&&d.colors.length)COLORS=d.colors;
+    projects=d.projects||[];
+    const s=d.selection||{};
+    if(!quiet||!P()){
+      cur=(s.project_id&&projects.some(p=>p.id===s.project_id))
+        ? s.project_id : (projects[0]?projects[0].id:null);
+      sel=s.node_id||null;
+    }
+    const p=P();
+    if(p&&sel&&!p.nodes.some(n=>n.id===sel))sel=null;
+    resetExpand(p);
+    if(p&&sel)openTo(p,sel);
+    renderAll();
+    fit();
+  }
+  async function bootAgents(){
+    const d=await get('/api/proyectos/agents');
+    agents=(d&&d.agents)||[];
+    try{
+      const a=localStorage.getItem('workspace.proyectos.agent');
+      if(a&&agents.indexOf(a)>=0)agent=a;
+    }catch(e){}
+    renderTabs();
+    syncChat(true);      /* con el agente ya conocido, carga su hilo del nodo */
+  }
+  /* El layout ya se restauró arriba (loadLayout+applyLayout): Detalle a la izq,
+     Agente a la der por default; lo que el socio haya movido/ocultado, se respeta. */
+  buildSw();
+  boot();
+  bootAgents();
+  setTimeout(fit,0);
+})();
+</script>
+</body></html>

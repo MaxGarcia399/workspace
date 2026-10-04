@@ -1,0 +1,27 @@
+{
+  "name": "{{AGENT_NAME}}",
+  "display": "{{AGENT_DISPLAY}}",
+  "tagline": "{{TAGLINE}}",
+  "engine": "claude-code",
+  "brain": "../{{AGENT_UPPER}} - BRAIN",
+  "session_env": "{{AGENT_UPPER}}_WS",
+  "session_id_env": "{{AGENT_UPPER}}_WID",
+  "setup": {
+    "session_journal": true,
+    "autonomous": false,
+    "_note": "session_journal=true: hooks de sesión genéricos (WORKSPACE_WS) → STATE/sessions/<socio>/<slug>.md del cerebro; requiere .claude/socio.local en el cerebro. autonomous: cambiar a true si el agente corre headless/nocturno sin prompts."
+  },
+  "memory": {
+    "tiering": "v1",
+    "dreaming": true,
+    "fts_index": false,
+    "index_contract": "STATE/INDEX.md",
+    "_note": "tiering v1 = E2 (HOT/WARM/COLD con INDEX.md). dreaming=true: dream.py puede correr sobre este cerebro. fts_index: activar en E3 (requiere módulo indexador FTS5 del harness). El bloque 'memory' lo lee workspace doctor para auditar expectativas por agente."
+  },
+  "scripts": {
+    "banner": "{root}/agents/{{AGENT_NAME}}/brand/{{AGENT_NAME}}-banner.py",
+    "dashboard": "{root}/agents/{{AGENT_NAME}}/brand/{{AGENT_NAME}}-dashboard.py",
+    "statusline": "{root}/agents/{{AGENT_NAME}}/brand/{{AGENT_NAME}}-statusline.py"
+  },
+  "_note": "Nacido del template WORKSPACE/templates/agent/ ({{DATE}}). brain '{{AGENT_UPPER}} - BRAIN' (con espacios) hermano de los demás cerebros de agentes en ~/Desktop; para otro layout, override en ~/.claude/workspace/paths.local.json (gitignored). PITFALL: scripts.statusline es OBLIGATORIO — si se omite, install.py no escribe el bloque statusLine y el agente queda sin barra de sesión SIN error. Brand {{COLOR}}: los scripts nacen como stubs sobrios — el arte definitivo es follow-up."
+}

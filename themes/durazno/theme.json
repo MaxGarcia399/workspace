@@ -1,0 +1,95 @@
+{
+  "id": "durazno",
+  "label": "Durazno",
+  "emoji": "❁",
+  "swatches": [
+    "#e3a37e",
+    "#d98f8f"
+  ],
+  "web": {
+    "tokens": {
+      "bg": "#1d1613",
+      "surface": "#241c18",
+      "surface2": "#2b221d",
+      "surface3": "#342924",
+      "border": "#3a2e27",
+      "border-hi": "#4f3e34",
+      "text": "#f0e4da",
+      "dim": "#b3a496",
+      "faint": "#80705f",
+      "accent": "#e3a37e",
+      "accent-hi": "#f2c7a9",
+      "accent-soft": "rgba(227,163,126,.12)",
+      "accent-line": "rgba(227,163,126,.35)",
+      "accent-2": "#d98f8f",
+      "red": "#e07a6e",
+      "amber": "#e0b878",
+      "blue": "#9cc3d8",
+      "green": "#a3c998",
+      "grey": "#80705f",
+      "radius": "10px",
+      "radius-sm": "8px",
+      "fast": ".15s",
+      "med": ".22s",
+      "font": "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
+    },
+    "css": "web.css"
+  },
+  "tui": {
+    "_nota": "Durazno — línea rosé en clave cálida: durazno suave + coral rosado sobre carbón tostado. Calmo, dorado-sin-ser-dorado, atardecer tenue.",
+    "roles": {
+      "text": "#f0e4da",
+      "hi": "#f2c7a9",
+      "accent": "#e3a37e",
+      "mid": "#d98f8f",
+      "dim": "#b3a496",
+      "dark": "#4f3e34",
+      "grey": "#80705f",
+      "inactive": "#b3a496",
+      "inactive_alt": "#3a2e27",
+      "err": "#e07a6e",
+      "ok": "#a3c998",
+      "bad": "#e07a6e"
+    },
+    "stars": {
+      "dim": [
+        "#2b221d",
+        "#342924",
+        "#3a2e27",
+        "#30251f"
+      ],
+      "mid": [
+        "#4f3e34",
+        "#6a5443"
+      ],
+      "hi": "#f2c7a9"
+    },
+    "fire": [
+      "#1d1613",
+      "#291c15",
+      "#38251a",
+      "#4a2f1f",
+      "#5e3b26",
+      "#7d4e2f",
+      "#a3663f",
+      "#c98557",
+      "#e3a37e",
+      "#eebd9b",
+      "#f5d4bc",
+      "#fae8d9"
+    ],
+    "ember": [
+      "#4a2f1f",
+      "#5e3b26",
+      "#7d4e2f",
+      "#a3663f"
+    ],
+    "off": "#80705f",
+    "osc": {
+      "bg": "#1d1613",
+      "fg": "#f0e4da",
+      "cursor": "#e3a37e"
+    }
+  },
+  "_nota": "Durazno — hermano cálido de rose (pedido del socio 2026-10-02: más temas sutiles en esa línea). Carbón tostado por elevación, texto marfil cálido (#f0e4da), acento durazno apagado (#e3a37e) + coral rosado de apoyo (#d98f8f). Semánticos suaves. Radios redondos (10/8) y transiciones lentas = la misma sensación elegante de rose. Contraste AA verificado (text/bg ~13:1, dim/bg ~6:1, accent/bg ~7:1)."
+}

@@ -1,0 +1,15 @@
+{
+  "id": "argus",
+  "label": "Argus",
+  "emoji": "◉",
+  "swatches": ["#5fe08a", "#2f8a4f"],
+  "web": {
+    "tokens": {
+      "accent": "#5fe08a",
+      "accent-hi": "#b8f4cc",
+      "accent-soft": "rgba(95,224,138,.5)",
+      "accent-line": "#2f8a4f"
+    }
+  },
+  "_nota": "Manifiesto solo-tokens (ex-paleta 'argus' del mockup v5, mismos acentos exactos)."
+}

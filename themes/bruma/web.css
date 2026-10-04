@@ -1,0 +1,46 @@
+/* ═══════════ BRUMA · amanecer con niebla — skin del dev panel ═════════════════
+   Línea rosé en clave neblina. Capa L = bloom azul bruma + rosa empolvado
+   arriba + viñeta suave + velo azulado en el sidebar. Capa A = respiración.
+   REGLA DE ORO: DOM intacto, todo scoped a body[data-theme=bruma];
+   colores base = tokens del theme.json. Respeta prefers-reduced-motion y data-anim=off. */
+
+/* ── fondo: aurora azul bruma + rosa empolvado, tinte frío ── */
+body[data-theme="bruma"]{
+  background:radial-gradient(135% 100% at 50% -8%, #242c38, var(--th-bg) 58%)}
+body[data-theme="bruma"]::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(58% 44% at 80% 10%, rgba(169,191,221,.12), transparent 70%),
+    radial-gradient(52% 42% at 14% 6%, rgba(201,169,186,.10), transparent 70%);
+  animation:bru-breathe 9s ease-in-out infinite}
+/* viñeta suave que encuadra */
+body[data-theme="bruma"]::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  box-shadow:inset 0 0 200px 44px rgba(6,9,14,.5)}
+body[data-theme="bruma"] .shell{position:relative;z-index:1}
+body[data-theme="bruma"] ::selection{background:rgba(169,191,221,.3);color:#101a28}
+
+/* ── sidebar: velo azulado translúcido ── */
+body[data-theme="bruma"] .side{
+  background:linear-gradient(180deg, rgba(28,33,42,.82), rgba(22,26,33,.82));
+  border-right:1px solid var(--th-border)}
+body[data-theme="bruma"] .brand .glyph{color:var(--th-accent);
+  text-shadow:0 0 14px rgba(169,191,221,.55)}
+body[data-theme="bruma"] .brand .txt b{letter-spacing:2px}
+body[data-theme="bruma"] .navitem.on{
+  box-shadow:inset 0 0 26px rgba(169,191,221,.09)}
+
+/* ── header + títulos: aire, glow tenue ── */
+body[data-theme="bruma"] .hdr{border-bottom:1px solid var(--th-border)}
+body[data-theme="bruma"] .hdr h1{letter-spacing:.4px;
+  text-shadow:0 0 18px rgba(169,191,221,.18)}
+
+/* ── botón primario: azul bruma con bloom ── */
+body[data-theme="bruma"] .ds-btn-mini.primary{
+  background:linear-gradient(180deg,#bfd1e8,#a9bfdd);border:1px solid #91a9ca;color:#101a28;
+  box-shadow:0 0 18px rgba(169,191,221,.32)}
+body[data-theme="bruma"] .ds-btn-mini.primary:hover{filter:brightness(1.04)}
+body[data-theme="bruma"] .ds-btn-mini{border:1px solid var(--th-border-hi)}
+body[data-theme="bruma"] .ds-btn-mini:hover{border-color:var(--th-accent);color:var(--th-accent-hi)}
+
+@keyframes bru-breathe{0%,100%{opacity:.85}50%{opacity:1}}
+@media (prefers-reduced-motion:reduce){body[data-theme="bruma"]::before{animation:none}}
+body[data-anim="off"] body[data-theme="bruma"]::before{animation:none}

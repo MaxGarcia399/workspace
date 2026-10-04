@@ -1,0 +1,101 @@
+{
+  "id": "mono",
+  "label": "Mono",
+  "emoji": "◐",
+  "swatches": [
+    "#ffffff",
+    "#5a5a5a"
+  ],
+  "web_nota": "MISMA rampa que el bloque tui — el dev panel y la terminal son el mismo tema, no dos parecidos. Tonos: #fff (lo vivo) · #b4 · #7e · #5e · #3a (el cromo). Semánticos (red/amber/blue/green) en gris/blanco a propósito: en B/N el estado lo cargan el ícono y el peso, no el color.",
+  "web": {
+    "tokens": {
+      "bg": "#000000",
+      "surface": "#0b0b0b",
+      "surface2": "#141414",
+      "surface3": "#1c1c1c",
+      "border": "#2e2e2e",
+      "border-hi": "#5e5e5e",
+      "text": "#ffffff",
+      "dim": "#7e7e7e",
+      "faint": "#5e5e5e",
+      "accent": "#ffffff",
+      "accent-hi": "#ffffff",
+      "accent-soft": "rgba(255,255,255,.10)",
+      "accent-line": "rgba(255,255,255,.42)",
+      "accent-2": "#b4b4b4",
+      "red": "#ffffff",
+      "amber": "#b4b4b4",
+      "blue": "#b4b4b4",
+      "green": "#ffffff",
+      "grey": "#5e5e5e",
+      "radius": "0px",
+      "radius-sm": "0px",
+      "fast": ".08s",
+      "med": ".14s",
+      "font": "ui-monospace,'SF Mono',Menlo,Consolas,monospace"
+    }
+  },
+  "mono_nota": "mono:true = MONOCROMO POR DECLARACIÓN. Hace que los consumidores que pintan color propio fuera de los roles (la marca por agente de hublayout._agent_ink, que hardcodea 256) cedan a los roles del tema. Sin esta bandera el hub se ve manchado de azul/rojo/verde aunque el tema sea B/N.",
+  "tui": {
+    "_nota": "Paleta ANSI del TUI (tuitheme.py) — B/N ALTO CONTRASTE. Disciplina: CERO tinte; la jerarquía la carga el BRILLO y la semántica el GLIFO + PESO (✓/✗/●/○ + bold), no el color — por eso ok/err/bad son niveles de gris. RANGO AMPLIO a propósito (feedback del socio 2026-07-15: 'que se vean blancos llamativos'): lo vivo va a #fff PURO y el contexto cae fuerte a #6e/#3a; sin tinte que ayude, el contraste es lo ÚNICO que ordena la pantalla — grises intermedios = mugre gris.",
+    "mono": true,
+    "roles": {
+      "text": "#ffffff",
+      "hi": "#ffffff",
+      "accent": "#ffffff",
+      "mid": "#b4b4b4",
+      "dim": "#7e7e7e",
+      "dark": "#3a3a3a",
+      "grey": "#5e5e5e",
+      "inactive": "#7e7e7e",
+      "inactive_alt": "#2e2e2e",
+      "err": "#ffffff",
+      "ok": "#ffffff",
+      "bad": "#ffffff"
+    },
+    "stars": {
+      "dim": [
+        "#1c1c1c",
+        "#242424",
+        "#2c2c2c",
+        "#181818"
+      ],
+      "mid": [
+        "#4a4a4a",
+        "#5e5e5e"
+      ],
+      "hi": "#ffffff"
+    },
+    "fire": [
+      "#0a0a0a",
+      "#171717",
+      "#242424",
+      "#333333",
+      "#444444",
+      "#585858",
+      "#6e6e6e",
+      "#868686",
+      "#a0a0a0",
+      "#bcbcbc",
+      "#dadada",
+      "#ffffff"
+    ],
+    "ember": [
+      "#171717",
+      "#2b2b2b",
+      "#454545",
+      "#646464"
+    ],
+    "off": "#3a3a3a",
+    "glyphs": {
+      "box": "┌┐└┘│─",
+      "orn": "◆"
+    },
+    "osc": {
+      "bg": "#000000",
+      "fg": "#e8e8e8",
+      "cursor": "#ffffff"
+    }
+  },
+  "_nota": "Mono — B/N alto contraste, minimalista (pedido del socio 2026-07-15). Tesis: sin color que cargue el significado, la pantalla se ordena sola por BRILLO; lo blanco es lo vivo, lo gris es el contexto y lo casi-negro es el cromo. Caja recta (┌┐└┘) en vez de redondeada: menos ruido de curva a 1 celda. Convive con cyberpunk/olympo — se elige en Config ▸ Tema del hub."
+}

@@ -1,0 +1,36 @@
+# ── Credenciales: NUNCA versionar ni sincronizar ──────────────────────────────
+# Regla de oro de WORKSPACE (ver ARCHITECTURE.md § seguridad). API keys / tokens /
+# auth viven per-máquina, fuera del contenido versionado.
+*.local
+*.local.json
+*.key
+*.pem
+.env
+.env.*
+secrets/
+credentials/
+**/socio.local
+**/zenith-workspaces.json
+
+# ── Config y estado per-máquina ───────────────────────────────────────────────
+.claude/settings.local.json
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+
+# ── Ruido del sistema ─────────────────────────────────────────────────────────
+.DS_Store
+__pycache__/
+*.pyc
+
+# ── Editor / artefactos generados (no son código del harness) ─────────────────
+.obsidian/
+banner/workspace-opciones.html
+
+# changelog que genera herdr solo (no es fuente de WORKSPACE)
+release-notes.json
+office-design/tilesets/
+
+# ── App de escritorio: bundle .app es artefacto de build ──────────────────────
+# Lo regenera `dist/make-app.sh` (ese sí se versiona). El wrapper Tauri completo
+# vive fuera del repo (~/Desktop/workspace-desktop) porque su target/ son GB.
+dist/WORKSPACE.app/

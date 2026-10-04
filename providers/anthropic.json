@@ -1,0 +1,18 @@
+{
+  "name": "anthropic",
+  "api_mode": "anthropic",
+  "connection": "official_cli",
+  "cli": "claude-code",
+  "base_url": "https://api.anthropic.com",
+  "auth_type": "subscription",
+  "cost": "subscription",
+  "env_vars": [],
+  "models": [],
+  "default_model": "",
+  "default_aux_model": "",
+  "task_models": {},
+  "fallback_models": [],
+  "hidden_models": [],
+  "quirks": {},
+  "_note": "Motor #1 (claude-code): la suscripción de pago de Claude del socio (OAuth del vendor) gestiona modelos, failover y compaction internamente — WORKSPACE no lo ve ni lo controla. Este perfil es el registro declarativo del provider; claude-code lo ignora hoy. Si algún día se usa la API metered: auth_type api_key + env_vars [\"ANTHROPIC_API_KEY\"] (el NOMBRE, jamás el valor)."
+}

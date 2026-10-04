@@ -1,0 +1,84 @@
+{
+  "workflow": "construir-feature",
+  "version": 3,
+  "map": "workflows/MAPA.md · P1 (congelado v1, 2026-07-04) · contrato de artefactos v1.4 (produces)",
+  "note": "Flagship y primer consumidor del runner. Pasos agent: orquestables inyectando un driver (F2, contrato read-execute-commit en workflows/driver.py); sin driver siguen siendo STUB honesto. Paridad/promote/cleanup (P1 #8-10) siguen fuera del spec: corren por sus comandos existentes. v2 (runner v1.4): cada paso declara `produces:` — el contrato del namespace de artefactos que validate_spec usa para atrapar referencias colgantes AL CARGAR. v3: `triggers` — palabras clave que `workspace wf match` empata contra el texto de una tarea (candidato determinista; la PROPUESTA la hace el agente en el chat).",
+  "triggers": ["feature", "construir", "implementar", "login", "página"],
+  "steps": [
+    {
+      "id": "plan",
+      "kind": "agent",
+      "role": "orquestador",
+      "artifact": "plan.md",
+      "produces": ["plan.md"],
+      "verify": "evidence.artifact_exists",
+      "on_fail": "stop",
+      "note": "STUB v1: el plan lo produce el agente/socio por fuera; el verify exige que el artefacto exista cuando el paso sea real"
+    },
+    {
+      "id": "worktree",
+      "kind": "det",
+      "run": "worktree.acquire",
+      "produces": ["worktree_path", "branch", "adopted"],
+      "verify": "worktree.verify_acquired",
+      "on_fail": "stop",
+      "note": "rama desde main + worktree con dueño (pool tibio primero); branch/agent via --param"
+    },
+    {
+      "id": "build",
+      "kind": "agent",
+      "role": "implementador",
+      "produces": [],
+      "on_fail": "retry",
+      "max_iter": 3,
+      "verify": "suite.green",
+      "contract": {
+        "objetivo": "implementar el plan en la rama del worktree",
+        "formato": "commits atomicos + test nuevo anti-recaida",
+        "tools": "editor/git/suite del worktree",
+        "limites": "solo el worktree del run; sin push; sin tocar main"
+      },
+      "note": "STUB v1: contrato de 4 partes declarado para cuando el paso orqueste de verdad"
+    },
+    {
+      "id": "test",
+      "kind": "det",
+      "run": "suite.green",
+      "produces": ["suite_rc", "suite_timeout_s"],
+      "on_fail": "retry",
+      "max_iter": 2,
+      "note": "suite VERDE, 0 fallos (P1 #4); el check del test anti-recaida vive en el gate"
+    },
+    {
+      "id": "review",
+      "kind": "agent",
+      "role": "revisor",
+      "produces": [],
+      "on_fail": "stop",
+      "note": "STUB v1: /code-review corre por fuera; P2 (review-codigo) lo separa en pipeline propio"
+    },
+    {
+      "id": "gate",
+      "kind": "det",
+      "run": "suite.green",
+      "produces": ["suite_rc", "suite_timeout_s"],
+      "verify": "integrity.check",
+      "on_fail": "stop",
+      "note": "enforcement real: suite verde + guard anti-trampa B2/D3 (WARN fail-open, evidencia persistida); el re-suite staged llega en F2"
+    },
+    {
+      "id": "approve",
+      "kind": "human",
+      "who": "socio-dueno-del-scope",
+      "note": "N2: confirmacion del socio dueno del scope; `workspace wf resume <run-id>` = aprobar"
+    },
+    {
+      "id": "integrate",
+      "kind": "det",
+      "run": "front.integrate",
+      "produces": ["integrate_rc", "integrate_noop"],
+      "on_fail": "stop",
+      "note": "workspace integrate tal cual: suite antes Y despues del merge + guard (P1 #7)"
+    }
+  ]
+}

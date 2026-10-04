@@ -1,0 +1,95 @@
+{
+  "id": "estudio",
+  "label": "Estudio",
+  "emoji": "◐",
+  "swatches": [
+    "#e8590c",
+    "#26241f"
+  ],
+  "web": {
+    "tokens": {
+      "bg": "#f2efe8",
+      "surface": "#faf8f3",
+      "surface2": "#e9e5da",
+      "surface3": "#e1dcce",
+      "border": "#d5d0c3",
+      "border-hi": "#b8b4a8",
+      "text": "#26241f",
+      "dim": "#57534a",
+      "faint": "#8a857a",
+      "accent": "#e8590c",
+      "accent-hi": "#c24a08",
+      "accent-soft": "rgba(232,89,12,.09)",
+      "accent-line": "rgba(232,89,12,.5)",
+      "accent-2": "#3a7d44",
+      "red": "#b3402e",
+      "amber": "#a87408",
+      "blue": "#2f6bab",
+      "green": "#3a7d44",
+      "grey": "#8a857a",
+      "radius": "8px",
+      "radius-sm": "6px",
+      "fast": ".15s",
+      "med": ".2s",
+      "font": "'Helvetica Neue',Helvetica,-apple-system,BlinkMacSystemFont,Arial,sans-serif"
+    },
+    "css": "web.css"
+  },
+  "tui": {
+    "_nota": "Paleta ANSI del TUI (tuitheme.py) — el ÚNICO tema CLARO: tinta sobre papel cálido (fondo via OSC) + un solo acento naranja; estrellas = motas de papel apenas más oscuras; requiere terminal con OSC 10/11 (Terminal.app, iTerm, WT: sí).",
+    "roles": {
+      "text": "#26241f",
+      "hi": "#c24a08",
+      "accent": "#e8590c",
+      "mid": "#a87408",
+      "dim": "#57534a",
+      "dark": "#b0ab9e",
+      "grey": "#8a857a",
+      "inactive": "#8a857a",
+      "inactive_alt": "#c9c4b6",
+      "err": "#b3402e",
+      "ok": "#3a7d44",
+      "bad": "#b3402e"
+    },
+    "stars": {
+      "dim": [
+        "#ddd8cb",
+        "#d5d0c3",
+        "#cdc8ba",
+        "#e0dbce"
+      ],
+      "mid": [
+        "#b8b4a8",
+        "#c5c0b2"
+      ],
+      "hi": "#e8590c"
+    },
+    "fire": [
+      "#7f3608",
+      "#96400a",
+      "#ad4a0b",
+      "#c4520c",
+      "#d5560c",
+      "#e8590c",
+      "#ec6f2e",
+      "#f08450",
+      "#f49a72",
+      "#f7af94",
+      "#facdb6",
+      "#fdddd0"
+    ],
+    "ember": [
+      "#ad4a0b",
+      "#c4520c",
+      "#d5560c",
+      "#e8590c"
+    ],
+    "off": "#b0ab9e",
+    "osc": {
+      "bg": "#f2efe8",
+      "fg": "#26241f",
+      "cursor": "#e8590c"
+    }
+  },
+  "_nota": "La oficina de diseño, 1968 (dirección del mockup research/design/temas/mockups/estudio.html): el ÚNICO tema CLARO — papel cálido + tinta + UN acento naranja (Braun/Rams, «menos, pero mejor»), retícula tenue, módulos hi-fi con lámpara de encendido. OJO al invertir: accent-hi es texto sobre fondos claros → naranja OSCURO (#c24a08); semánticos oscurecidos para contraste AA sobre papel. Skin TODO scoped a body[data-theme=estudio] — DOM idéntico, solo CSS."
+}

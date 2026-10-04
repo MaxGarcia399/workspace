@@ -1,0 +1,116 @@
+/* ═══════════ ESTUDIO · la oficina de diseño, 1968 — skin del dev panel ══════
+   Dirección visual del mockup research/design/temas/mockups/estudio.html: el
+   giro total — TEMA CLARO. Papel cálido + tinta + UN acento naranja (Braun/
+   Rams: «menos, pero mejor»), retícula de 32px tenue, módulos hi-fi, lámpara
+   de encendido. REGLA DE ORO: el DOM no cambia por tema — todo scoped a
+   body[data-theme="estudio"]; los colores base los puso el bloque de tokens
+   (theme.json → --th-* / alias --ds-*). El skin ADEMÁS invierte lo que el
+   shell asume oscuro: sombras negras pesadas → sombras de tinta suaves,
+   bordes rgba(255,255,255,…) → tinta. Capa A: la lámpara del módulo late.
+   Respeta prefers-reduced-motion y body[data-anim="off"] (espejo de ui.anim). */
+
+/* ── el papel: retícula de estudio, tenue, bajo todo ── */
+body[data-theme="estudio"]{
+  background:
+    linear-gradient(rgba(38,36,31,.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(38,36,31,.045) 1px, transparent 1px),
+    var(--th-bg);
+  background-size:32px 32px, 32px 32px, auto;
+  background-position:-1px -1px}
+body[data-theme="estudio"] ::selection{background:rgba(232,89,12,.18)}
+
+/* ── sidebar: el rack — papel de tarjeta, hairlines, wordmark con punto ── */
+body[data-theme="estudio"] .side{background:var(--th-surface);
+  border-right:1px solid var(--th-border)}
+body[data-theme="estudio"] .brand .glyph{color:var(--th-accent)}
+body[data-theme="estudio"] .brand .txt b{font-weight:700;letter-spacing:-.3px;
+  text-transform:lowercase;font-size:15px}
+body[data-theme="estudio"] .brand .txt b::after{content:".";color:var(--th-accent)}
+body[data-theme="estudio"] .brand .txt span{
+  font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:9.5px;
+  letter-spacing:1.2px}
+body[data-theme="estudio"] .nav .navhd{letter-spacing:2px;font-weight:700}
+body[data-theme="estudio"] .navitem{font-weight:600}
+body[data-theme="estudio"] .navitem:hover{background:#fff}
+body[data-theme="estudio"] .navitem.on{background:#fff;color:var(--th-text);
+  border-color:var(--th-border);box-shadow:inset 3px 0 0 var(--th-accent),
+  0 1px 3px rgba(38,36,31,.06)}
+body[data-theme="estudio"] .navitem .ni{color:var(--th-accent)}
+body[data-theme="estudio"] .side .foot{
+  font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:10px;
+  letter-spacing:.4px}
+
+/* ── header: masthead editorial — regla de tinta, specs en mono ── */
+body[data-theme="estudio"] .hdr{border-bottom:2px solid var(--th-text)}
+body[data-theme="estudio"] .hdr h1{font-weight:700;letter-spacing:-.4px}
+body[data-theme="estudio"] .hdr .sub{
+  font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px}
+body[data-theme="estudio"] .hdr .hbranch{
+  font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11.5px}
+body[data-theme="estudio"] .hdr .hbranch .ic{color:var(--th-accent)}
+body[data-theme="estudio"] .refresh,
+body[data-theme="estudio"] .side-toggle{box-shadow:0 1px 2px rgba(38,36,31,.08)}
+body[data-theme="estudio"] .refresh:hover,
+body[data-theme="estudio"] .side-toggle:hover{color:var(--th-accent)}
+body[data-theme="estudio"] .refresh:active,
+body[data-theme="estudio"] .side-toggle:active{
+  box-shadow:inset 0 2px 4px rgba(38,36,31,.14)}
+
+/* ── primitivas DS: teclas de función — se HUNDEN al presionar ── */
+body[data-theme="estudio"] .ds-btn-mini{font-weight:600;
+  box-shadow:0 1px 2px rgba(38,36,31,.08)}
+body[data-theme="estudio"] .ds-btn-mini:hover{background:#fff}
+body[data-theme="estudio"] .ds-btn-mini:active{
+  box-shadow:inset 0 2px 5px rgba(38,36,31,.14)}
+body[data-theme="estudio"] .ds-btn-mini.primary{
+  box-shadow:0 1px 3px rgba(232,89,12,.3)}
+body[data-theme="estudio"] .ds-badge{
+  font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:10px;
+  letter-spacing:.5px;text-transform:uppercase;background:var(--th-surface)}
+body[data-theme="estudio"] .ds-empty{background:repeating-linear-gradient(45deg,
+  var(--th-surface) 0 8px, var(--th-surface2) 8px 9px)}
+body[data-theme="estudio"] .ds-section-title{display:flex;align-items:center;
+  gap:10px;letter-spacing:2px;font-weight:700;color:var(--th-faint)}
+body[data-theme="estudio"] .ds-section-title::after{content:"";flex:1;
+  height:1px;background:var(--th-text);opacity:.85}
+body[data-theme="estudio"] .ds-toast{background:var(--th-text);color:var(--th-bg);
+  border-color:var(--th-text);box-shadow:0 10px 30px rgba(38,36,31,.25)}
+
+/* banner de switch = ficha con canto naranja (sello del estudio) */
+body[data-theme="estudio"] .dev-flash{background:#fff;color:var(--th-text);
+  border:1px solid var(--th-border);border-left:3px solid var(--th-accent);
+  box-shadow:0 6px 18px rgba(38,36,31,.08);font-weight:600}
+body[data-theme="estudio"] .dev-flash .fi{color:var(--th-accent-hi)}
+body[data-theme="estudio"] .dev-flash.err{border-left-color:var(--th-red);
+  background:#fff;color:var(--th-red)}
+body[data-theme="estudio"] .dev-busy{background:rgba(242,239,232,.6)}
+body[data-theme="estudio"] .dev-busy .box{border-color:var(--th-border-hi);
+  box-shadow:0 24px 60px rgba(38,36,31,.2)}
+
+/* ── switcher de tema: la lámpara de encendido late en el rack ── */
+body[data-theme="estudio"] .palpop{background:var(--th-surface);
+  box-shadow:0 2px 6px rgba(38,36,31,.08), 0 18px 44px rgba(38,36,31,.16)}
+body[data-theme="estudio"] .palpop .pophd{letter-spacing:2px;font-weight:700}
+body[data-theme="estudio"] .paltheme{background:#fff;
+  box-shadow:0 1px 2px rgba(38,36,31,.05)}
+body[data-theme="estudio"] .paltheme.on{background:var(--th-surface);
+  border-color:var(--th-accent-line)}
+body[data-theme="estudio"] .paltheme.on .pnm{color:var(--th-accent-hi)}
+body[data-theme="estudio"] .paltheme .psw i{border-color:rgba(38,36,31,.12)}
+body[data-theme="estudio"] .palbtn .paldot{border-color:rgba(38,36,31,.2);
+  box-shadow:0 0 0 3px rgba(232,89,12,.14);
+  animation:est-lamp 2.6s ease-in-out infinite}
+
+/* ── scrollbars: acero pulido sobre papel ── */
+body[data-theme="estudio"] *{scrollbar-color:#c9c4b6 transparent}
+body[data-theme="estudio"] ::-webkit-scrollbar-thumb{background:#c9c4b6}
+body[data-theme="estudio"] ::-webkit-scrollbar-thumb:hover{
+  background:var(--th-border-hi)}
+
+/* ── capa A: la lámpara late — discreta, como un hi-fi encendido ── */
+@keyframes est-lamp{0%,100%{opacity:1}50%{opacity:.55}}
+/* ui.anim off / reduced-motion → módulo quieto (mismo contrato que el shell) */
+body[data-theme="estudio"][data-anim="off"] .palbtn .paldot{animation:none}
+@media (prefers-reduced-motion: reduce){
+  body[data-theme="estudio"] .palbtn .paldot{animation:none}
+}

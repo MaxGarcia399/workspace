@@ -1,0 +1,117 @@
+{
+  "id": "oficina-8bit",
+  "label": "Oficina 8-bit",
+  "emoji": "🖥",
+  "swatches": [
+    "#e8a020",
+    "#101c6e"
+  ],
+  "web": {
+    "tokens": {
+      "bg": "#beb8a6",
+      "surface": "#d4cfc0",
+      "surface2": "#e2ded1",
+      "surface3": "#f2efe6",
+      "border": "#8a8578",
+      "border-hi": "#55524a",
+      "text": "#1a1812",
+      "dim": "#55524a",
+      "faint": "#7d7869",
+      "accent": "#c98010",
+      "accent-hi": "#7a4e0c",
+      "accent-soft": "rgba(232,160,32,.25)",
+      "accent-line": "#8a5a10",
+      "accent-2": "#101c6e",
+      "red": "#c2331f",
+      "amber": "#9a6a00",
+      "blue": "#2a3cb0",
+      "green": "#0a6e2e",
+      "grey": "#6b675c",
+      "radius": "0px",
+      "radius-sm": "0px",
+      "fast": ".06s",
+      "med": ".1s",
+      "font": "'Courier New',ui-monospace,Menlo,monospace"
+    },
+    "css": "web.css"
+  },
+  "tui": {
+    "_nota": "Paleta ANSI del TUI (tuitheme.py) — pixel-art 8-bit (Terraria/Pokémon/Undertale): bandas saturadas rojo→ámbar→amarillo en el wordmark, fuego NES, caja DOS de doble línea ╔╗, flechas ►◄ de CP437, cielo de píxeles ASCII sobre navy.",
+    "roles": {
+      "text": "#f8f0d8",
+      "hi": "#ffd83d",
+      "accent": "#e8a020",
+      "mid": "#d84018",
+      "dim": "#8f8bb0",
+      "dark": "#4a4685",
+      "grey": "#5c5890",
+      "inactive": "#8f8bb0",
+      "inactive_alt": "#3a3770",
+      "err": "#ff3b2e",
+      "ok": "#3dd45c",
+      "bad": "#ff3b2e"
+    },
+    "stars": {
+      "dim": [
+        "#2a2a6e",
+        "#333380",
+        "#3c3c92",
+        "#232360"
+      ],
+      "mid": [
+        "#5c5cc0",
+        "#6f6fd0"
+      ],
+      "hi": "#ffffff"
+    },
+    "fire": [
+      "#4a0e00",
+      "#7f1b00",
+      "#b32d00",
+      "#e04400",
+      "#ff6a00",
+      "#ff8c00",
+      "#ffae00",
+      "#ffd000",
+      "#ffe95c",
+      "#fff7a8",
+      "#fffbe0",
+      "#ffffff"
+    ],
+    "ember": [
+      "#7f1b00",
+      "#b32d00",
+      "#e04400",
+      "#ff6a00"
+    ],
+    "off": "#4a4685",
+    "glyphs": {
+      "box": "╔╗╚╝║═",
+      "pointer": "►",
+      "bracket_l": "◄",
+      "bracket_r": "►",
+      "orn": "■",
+      "sep": "═",
+      "base": "▄",
+      "star_d": [
+        "·",
+        "·",
+        ".",
+        "·",
+        "+"
+      ],
+      "star_h": [
+        "+",
+        "*",
+        "·",
+        "+"
+      ]
+    },
+    "osc": {
+      "bg": "#0a0a2e",
+      "fg": "#f0ead8",
+      "cursor": "#ffd000"
+    }
+  },
+  "_nota": "WORKSPACE OS/8 (dirección del mockup research/design/temas/mockups/oficina-8bit.html): un sistema operativo de 1992 — escritorio teal en damero, ventanas beige con bisel de 3px, titlebar navy a rayas, Courier bold, sombras duras de 4-6px, verde CRT como acento decorativo. El panel entero se vuelve dos ventanas (sidebar + main) flotando sobre el desk. Skin TODO scoped a body[data-theme=oficina-8bit] — DOM idéntico, solo CSS."
+}

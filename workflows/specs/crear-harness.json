@@ -1,0 +1,126 @@
+{
+  "workflow": "crear-harness",
+  "version": 2,
+  "map": "workflows/MAPA.md · P10 (meta-harness) — el wf que crea wfs. Análogo a skill-creator.",
+  "note": "META-HARNESS · crear. Guía a un autor (agente o socio) a crear un workflow nuevo, siguiendo workflows/AUTHORING.md. Dogfooding: es un workflow WORKSPACE que produce workflows WORKSPACE, corre en el mismo runner y se verifica con la misma maquinaria. El oráculo central es `validar-carga` (spec.validate): convierte 'el autor escribió un spec' en 'el spec es estructural y referencialmente válido' — infalsificable por texto. La FRONTERA composición-vs-primitiva (§2 de AUTHORING) se aplica con un paso det (`clasificar-frontera`) + gate (`escalar-primitiva`), no con una advertencia. CUARENTENA (v2, client-safe): el spec se autora en specs/_pending/ — NO es descubrible ni corrible hasta que el gate humano `aprobar-scope` aprueba y `promover` (spec.promote) lo mueve a specs/. Los pasos agent quedan STUB honesto sin driver: entonces el workflow sirve como CHECKLIST GUIADO para un humano/Zenith que autora a mano (como skill-creator guía a Zenith). Con driver real, el agente lo autora y el runner lo verifica. Se opera sobre el spec objetivo por `--param target_spec=<nombre>`.",
+  "inputs": ["target_spec"],
+  "triggers": ["crear workflow", "nuevo workflow", "crear harness", "nuevo harness", "crear pipeline", "meta-harness", "autorar workflow", "wf nuevo"],
+  "steps": [
+    {
+      "id": "entender",
+      "kind": "agent",
+      "role": "autor",
+      "artifact": "descomposicion",
+      "produces": ["descomposicion"],
+      "output_schema": {"type": "object", "required": {"objetivo": {"type": "string"}, "pasos": {"type": "list"}}},
+      "verify": "evidence.artifact_exists",
+      "on_fail": "stop",
+      "contract": {
+        "objetivo": "leer workflows/AUTHORING.md + el texto de la tarea; descomponerla en pasos atómicos",
+        "formato": "objeto JSON {objetivo:string, pasos:[{desc, kind:(det|agent|human), run?}]} — nombra el `run:` del catálogo para cada paso det",
+        "tools": "solo lectura (AUTHORING.md, el catálogo `workspace wf steps`)",
+        "limites": "no inventa pasos det que no estén en el catálogo; clasifica cada paso con el árbol §3 de AUTHORING"
+      },
+      "note": "STUB v1: la descomposición la produce el autor (agente/socio) leyendo AUTHORING.md; el verify exige que el artefacto exista"
+    },
+    {
+      "id": "clasificar-frontera",
+      "kind": "det",
+      "run": "spec.classify_frontier",
+      "reads": ["descomposicion"],
+      "produces": ["needs_primitive", "missing_primitives"],
+      "on_fail": "stop",
+      "note": "la frontera composición-vs-primitiva HECHA CÓDIGO (§2 AUTHORING): ¿algún paso det candidato no existe en steps.known()? Eso sería una primitiva nueva = trabajo de código, no de composición"
+    },
+    {
+      "id": "escalar-primitiva",
+      "kind": "human",
+      "when": {"artifact": "needs_primitive", "op": "eq", "value": true},
+      "present": "lavish",
+      "on_fail": "stop",
+      "note": "pausa SOLO si la tarea pide una primitiva nueva: 'esta tarea necesita el paso det X; es ingeniería (Turing) con revisión, no composición'. Si es composición pura, este paso se salta (skipped) y el run sigue"
+    },
+    {
+      "id": "andamiar",
+      "kind": "det",
+      "run": "spec.scaffold",
+      "produces": ["scaffold_path"],
+      "on_fail": "stop",
+      "note": "skeleton_spec(target_spec) — crea el esqueleto GUIADO válido en CUARENTENA (specs/_pending/): un spec sin aprobar no debe ser corrible ni descubrible. Arranca de algo que ya pasa validate_spec, nunca de página en blanco. Idempotente: si ya existe (en _pending o promovido), no-op verde"
+    },
+    {
+      "id": "componer",
+      "kind": "agent",
+      "role": "autor",
+      "produces": [],
+      "verify": "spec.validate",
+      "on_fail": "retry",
+      "max_iter": 3,
+      "contract": {
+        "objetivo": "editar el esqueleto: mapear cada paso de la descomposición a det/agent/human; escribir run/verify/contract/produces/reads/when/output_schema/triggers/inputs",
+        "formato": "el spec JSON editado en specs/_pending/<target_spec>.json (cuarentena — aún no aprobado) — válido por validate_spec",
+        "tools": "editor sobre specs/_pending/<target_spec>.json; el catálogo de pasos",
+        "limites": "solo pasos de steps.known(); prefiere det; ningún verify de calidad fingido sobre prosa (§3 AUTHORING); calibra grados de libertad por paso"
+      },
+      "note": "STUB v1: el spec lo compone el autor; el verify (spec.validate) es el oráculo infalsificable de 'quedó válido'"
+    },
+    {
+      "id": "validar-carga",
+      "kind": "det",
+      "run": "spec.validate",
+      "produces": ["spec_valid", "spec_validation"],
+      "on_fail": "retry",
+      "max_iter": 2,
+      "note": "EL ORÁCULO CENTRAL: validate_spec sobre el spec objetivo — registry resuelto, integridad referencial, when, output_schema. Roto = fallo permanente (retriable:false) que escala con el QUÉ exacto, sin quemar max_iter"
+    },
+    {
+      "id": "smoke-dry",
+      "kind": "det",
+      "run": "spec.smoke",
+      "produces": ["smoke_ok", "smoke_steps"],
+      "on_fail": "retry",
+      "max_iter": 2,
+      "note": "workspace wf run <target> --dry programático: valida + planea sin ejecutar nada (el argo-lint/airflow-test de WORKSPACE)"
+    },
+    {
+      "id": "revisar",
+      "kind": "agent",
+      "role": "revisor",
+      "artifact": "revision",
+      "produces": ["revision"],
+      "output_schema": {"type": "list", "items": {"type": "object", "required": {"item": {"type": "string"}, "ok": {"type": "bool"}}}},
+      "verify": "evidence.artifact_exists",
+      "on_fail": "stop",
+      "contract": {
+        "objetivo": "correr el checklist de calidad de spec (§6 AUTHORING) contra el spec compuesto",
+        "formato": "lista de {item:string, ok:bool} — un ítem por check del §6",
+        "tools": "lectura del spec objetivo + AUTHORING.md",
+        "limites": "es prosa/juicio: el verify solo comprueba forma/existencia; el gate honesto de calidad es el humano (paso siguiente)"
+      },
+      "note": "STUB v1: el checklist lo corre el autor; forma verificada, calidad al humano"
+    },
+    {
+      "id": "aprobar-scope",
+      "kind": "human",
+      "present": "lavish",
+      "on_fail": "stop",
+      "note": "GATE de scope — el oráculo honesto de '¿es bueno / client-safe?' (no hay oráculo de máquina para eso). N2 = dueño del scope; N3 si el workflow toca identidad/estructura o es para cliente. + gate de no-sorpresa: el workflow no hace nada que sorprenda respecto a su descripción. Hasta AQUÍ el spec vive en cuarentena (_pending/): rechazar = jamás fue corrible"
+    },
+    {
+      "id": "promover",
+      "kind": "det",
+      "run": "spec.promote",
+      "produces": ["promoted_path"],
+      "on_fail": "stop",
+      "note": "el gate humano aprobó → PROMUEVE de _pending/ a specs/ (recién ahí es descubrible/corrible). Valida antes de mover; jamás sobrescribe un spec ya aprobado; idempotente si ya se promovió"
+    },
+    {
+      "id": "registrar",
+      "kind": "det",
+      "run": "spec.discoverable",
+      "produces": ["registrado", "descubrible"],
+      "on_fail": "stop",
+      "note": "cierra la fuga #1: el spec quedó en specs/, aparece en `wf list`, y `wf match` con sus triggers empata la tarea que lo motivó. Un workflow no descubrible = como si no existiera"
+    }
+  ]
+}

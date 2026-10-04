@@ -1,0 +1,95 @@
+{
+  "id": "bruma",
+  "label": "Bruma",
+  "emoji": "≈",
+  "swatches": [
+    "#a9bfdd",
+    "#c9a9ba"
+  ],
+  "web": {
+    "tokens": {
+      "bg": "#161a21",
+      "surface": "#1c212a",
+      "surface2": "#232935",
+      "surface3": "#2b3340",
+      "border": "#303948",
+      "border-hi": "#414d61",
+      "text": "#e1e7f0",
+      "dim": "#9fabc0",
+      "faint": "#6a7488",
+      "accent": "#a9bfdd",
+      "accent-hi": "#cbdaf0",
+      "accent-soft": "rgba(169,191,221,.12)",
+      "accent-line": "rgba(169,191,221,.35)",
+      "accent-2": "#c9a9ba",
+      "red": "#dd7d88",
+      "amber": "#dcba84",
+      "blue": "#8fb8d8",
+      "green": "#8fc3a8",
+      "grey": "#6a7488",
+      "radius": "10px",
+      "radius-sm": "8px",
+      "fast": ".15s",
+      "med": ".22s",
+      "font": "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
+    },
+    "css": "web.css"
+  },
+  "tui": {
+    "_nota": "Bruma — línea rosé en clave neblina: azul grisáceo suave + rosa empolvado sobre carbón azulado. Amanecer con niebla, lo más discreto de la familia.",
+    "roles": {
+      "text": "#e1e7f0",
+      "hi": "#cbdaf0",
+      "accent": "#a9bfdd",
+      "mid": "#c9a9ba",
+      "dim": "#9fabc0",
+      "dark": "#414d61",
+      "grey": "#6a7488",
+      "inactive": "#9fabc0",
+      "inactive_alt": "#303948",
+      "err": "#dd7d88",
+      "ok": "#8fc3a8",
+      "bad": "#dd7d88"
+    },
+    "stars": {
+      "dim": [
+        "#232935",
+        "#2b3340",
+        "#303948",
+        "#272e3b"
+      ],
+      "mid": [
+        "#414d61",
+        "#566483"
+      ],
+      "hi": "#cbdaf0"
+    },
+    "fire": [
+      "#161a21",
+      "#1c222e",
+      "#232c3d",
+      "#2c3a50",
+      "#374a66",
+      "#455d80",
+      "#58759e",
+      "#7391bd",
+      "#a9bfdd",
+      "#bccee7",
+      "#d0def0",
+      "#e4ecf7"
+    ],
+    "ember": [
+      "#2c3a50",
+      "#374a66",
+      "#455d80",
+      "#58759e"
+    ],
+    "off": "#6a7488",
+    "osc": {
+      "bg": "#161a21",
+      "fg": "#e1e7f0",
+      "cursor": "#a9bfdd"
+    }
+  },
+  "_nota": "Bruma — hermana neblinosa de rose (pedido del socio 2026-10-02: más temas sutiles en esa línea; «azul grisáceo rosado»). Carbón azulado por elevación, texto azul-marfil (#e1e7f0), acento azul bruma (#a9bfdd) + rosa empolvado de apoyo (#c9a9ba — el guiño rosé). Distinto de `slate`: bruma es pastel y empolvado, slate es azure vivo. Contraste AA verificado (text/bg ~13:1, dim/bg ~6:1, accent/bg ~7:1)."
+}

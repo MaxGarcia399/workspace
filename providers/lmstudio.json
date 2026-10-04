@@ -1,0 +1,18 @@
+{
+  "name": "lmstudio",
+  "api_mode": "openai-chat",
+  "connection": "openai_compatible",
+  "base_url": "http://localhost:1234/v1",
+  "auth_type": "none",
+  "cost": "free",
+  "env_vars": [],
+  "models": ["local-model"],
+  "default_model": "local-model",
+  "default_aux_model": "",
+  "task_models": {},
+  "fallback_models": [],
+  "hidden_models": [],
+  "context_windows": {},
+  "quirks": {},
+  "_note": "Modelo LOCAL vía LM Studio (server OpenAI-compat en localhost:1234). LM Studio enruta al modelo CARGADO en la app; 'local-model' es placeholder — A-EDITAR con el identificador real si quieres fijarlo. vLLM es el mismo patrón (copia este perfil con base_url http://localhost:8000/v1)."
+}

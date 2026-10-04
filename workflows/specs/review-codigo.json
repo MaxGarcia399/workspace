@@ -1,0 +1,107 @@
+{
+  "workflow": "review-codigo",
+  "version": 4,
+  "triggers": ["revisar", "review", "código", "bug"],
+  "map": "workflows/MAPA.md · P2 (congelado v1, 2026-07-04) · gramatica v1.2 (when/output_schema) · contrato de artefactos v1.4 (produces)",
+  "note": "P2 separado de P1 (antes vivia embebido en el paso review). Pasos agent: orquestables inyectando un driver (F2, contrato read-execute-commit en workflows/driver.py); sin driver siguen siendo STUB honesto. v2 (gramatica v1.2): `fix` corre SOLO cuando el triage dejo >=1 CONFIRMED y `escalar` pausa SOLO cuando la cola de escalamiento no esta vacia (antes escalar SIEMPRE pausaba y fix SIEMPRE corria — bug); `find` declara output_schema: su salida DEBE ser lista de hallazgos {verdict: string, ...} o el paso falla estructural antes del verify. v3 (runner v1.4): cada paso declara `produces:` (referencia colgante = error al CARGAR) y `triage` declara su propio output_schema — las colas fix/escalar que los `when` de fix/escalar referencian quedan garantizadas por contrato de forma, no por fe. v4: `triggers` — palabras clave que `workspace wf match` empata contra el texto de una tarea (candidato determinista; la PROPUESTA la hace el agente en el chat).",
+  "steps": [
+    {
+      "id": "find",
+      "kind": "agent",
+      "role": "revisor",
+      "on_fail": "stop",
+      "artifact": "findings",
+      "produces": ["findings"],
+      "output_schema": {
+        "type": "list",
+        "items": {
+          "type": "object",
+          "required": {"verdict": {"type": "string"}},
+          "optional": {"risk": {"type": "string"}}
+        }
+      },
+      "contract": {
+        "objetivo": "revisar el diff del run y emitir hallazgos con veredicto",
+        "formato": "lista JSON de hallazgos: {verdict: CONFIRMED|PLAUSIBLE, risk: low|medium|high, ...}",
+        "tools": "lectura del worktree del run",
+        "limites": "solo lee y reporta; no edita, no pushea"
+      },
+      "note": "STUB v1: los hallazgos llegan por el artefacto `findings` o --param findings=<ruta JSON> hasta que el paso orqueste de verdad; con driver el output_schema garantiza la FORMA de la lista antes de que el triage la toque"
+    },
+    {
+      "id": "triage",
+      "kind": "det",
+      "run": "triage.route",
+      "artifact": "triage",
+      "produces": ["triage"],
+      "output_schema": {
+        "type": "object",
+        "required": {
+          "fix": {
+            "type": "list",
+            "items": {
+              "type": "object",
+              "required": {
+                "queue": {"type": "string", "enum": ["fix"]},
+                "reason": {"type": "string"}
+              }
+            }
+          },
+          "escalar": {
+            "type": "list",
+            "items": {
+              "type": "object",
+              "required": {
+                "queue": {"type": "string", "enum": ["escalar"]},
+                "reason": {"type": "string"}
+              }
+            }
+          },
+          "counts": {
+            "type": "object",
+            "required": {
+              "total": {"type": "int"},
+              "fix": {"type": "int"},
+              "escalar": {"type": "int"}
+            }
+          }
+        }
+      },
+      "verify": "triage.verify_routed",
+      "on_fail": "stop",
+      "note": "router determinista (P2 #2, ex AD-HOC): CONFIRMED -> fix (auto) · PLAUSIBLE/desconocido/malformado -> escalar (humano); el verify confirma la invariante dura: 0 no-CONFIRMED en la cola de auto-fix. v3: output_schema propio — la FORMA de las colas que los `when` downstream referencian es contrato validado, y un path fuera de fix/escalar/counts revienta al CARGAR el spec"
+    },
+    {
+      "id": "fix",
+      "kind": "agent",
+      "role": "implementador",
+      "produces": [],
+      "on_fail": "retry",
+      "max_iter": 3,
+      "verify": "suite.green",
+      "when": {"artifact": "triage", "path": "fix", "op": "non_empty"},
+      "contract": {
+        "objetivo": "arreglar SOLO los hallazgos de la cola fix (CONFIRMED)",
+        "formato": "commits atomicos, un fix por hallazgo",
+        "tools": "editor/git/suite del worktree del run",
+        "limites": "jamas toca hallazgos escalados; sin push; sin tocar main"
+      },
+      "note": "STUB v1: re-suite tras el fix (P2 #3) via verify suite.green cuando el paso orqueste de verdad; when: sin CONFIRMED en el triage no hay nada que arreglar -> skipped"
+    },
+    {
+      "id": "escalar",
+      "kind": "human",
+      "who": "socio-dueno-del-scope",
+      "when": {"artifact": "triage", "path": "escalar", "op": "non_empty"},
+      "note": "P2 #4: solo lo ambiguo/de intencion llega al socio (la cola escalar del triage); `workspace wf resume <run-id>` = atendido; when: cola de escalamiento vacia -> nada que preguntar, el run NO pausa (skipped). Gate FALLA-CERRADO (v1.4): si el when no se pudiera evaluar con certeza, el run PAUSA y consulta al socio — jamas skip silencioso"
+    },
+    {
+      "id": "profundidad",
+      "kind": "det",
+      "run": "triage.depth_plan",
+      "produces": ["depth_plan"],
+      "on_fail": "stop",
+      "note": "P2 #5 (ex AD-HOC): low->lint · medium->review · high->ultra+verificar+socio; riesgo desconocido se trata como high (conservador)"
+    }
+  ]
+}

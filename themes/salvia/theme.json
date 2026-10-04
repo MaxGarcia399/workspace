@@ -1,0 +1,95 @@
+{
+  "id": "salvia",
+  "label": "Salvia",
+  "emoji": "❧",
+  "swatches": [
+    "#a9c5a4",
+    "#8fbfae"
+  ],
+  "web": {
+    "tokens": {
+      "bg": "#131713",
+      "surface": "#191e19",
+      "surface2": "#1f2620",
+      "surface3": "#273028",
+      "border": "#2c362d",
+      "border-hi": "#3d4a3e",
+      "text": "#e2e8df",
+      "dim": "#a0ad9d",
+      "faint": "#6c7a6a",
+      "accent": "#a9c5a4",
+      "accent-hi": "#c9ddc5",
+      "accent-soft": "rgba(169,197,164,.12)",
+      "accent-line": "rgba(169,197,164,.35)",
+      "accent-2": "#8fbfae",
+      "red": "#d97e73",
+      "amber": "#d6bb82",
+      "blue": "#8fb8c9",
+      "green": "#8fc9a0",
+      "grey": "#6c7a6a",
+      "radius": "10px",
+      "radius-sm": "8px",
+      "fast": ".15s",
+      "med": ".22s",
+      "font": "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
+    },
+    "css": "web.css"
+  },
+  "tui": {
+    "_nota": "Salvia — línea rosé en clave botánica: verde salvia apagado + eucalipto sobre carbón verdoso. Sereno, de invernadero en penumbra.",
+    "roles": {
+      "text": "#e2e8df",
+      "hi": "#c9ddc5",
+      "accent": "#a9c5a4",
+      "mid": "#8fbfae",
+      "dim": "#a0ad9d",
+      "dark": "#3d4a3e",
+      "grey": "#6c7a6a",
+      "inactive": "#a0ad9d",
+      "inactive_alt": "#2c362d",
+      "err": "#d97e73",
+      "ok": "#8fc9a0",
+      "bad": "#d97e73"
+    },
+    "stars": {
+      "dim": [
+        "#1f2620",
+        "#273028",
+        "#2c362d",
+        "#232c24"
+      ],
+      "mid": [
+        "#3d4a3e",
+        "#526451"
+      ],
+      "hi": "#c9ddc5"
+    },
+    "fire": [
+      "#131713",
+      "#19211a",
+      "#202c21",
+      "#2a3a2b",
+      "#355036",
+      "#466646",
+      "#5d8459",
+      "#7da376",
+      "#a9c5a4",
+      "#bcd3b7",
+      "#d0e1cc",
+      "#e4efe1"
+    ],
+    "ember": [
+      "#2a3a2b",
+      "#355036",
+      "#466646",
+      "#5d8459"
+    ],
+    "off": "#6c7a6a",
+    "osc": {
+      "bg": "#131713",
+      "fg": "#e2e8df",
+      "cursor": "#a9c5a4"
+    }
+  },
+  "_nota": "Salvia — hermana botánica de rose (pedido del socio 2026-10-02: más temas sutiles en esa línea). Carbón verdoso por elevación, texto verde-marfil (#e2e8df), acento salvia apagado (#a9c5a4) + eucalipto de apoyo (#8fbfae). Distinto de `bosque`: salvia es pastel y tenue, no saturado. Semánticos suaves, radios redondos (10/8). Contraste AA verificado (text/bg ~13:1, dim/bg ~6:1, accent/bg ~8:1)."
+}

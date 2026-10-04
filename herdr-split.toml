@@ -1,0 +1,19 @@
+# Config de herdr SOLO para las sesiones split de WORKSPACE (workspace-split-*).
+# Se aplica vía HERDR_CONFIG_PATH (multiplexer._session_env) — NO toca el
+# config global del socio (~/.config/herdr/config.toml queda intacto, su
+# sesión herdr default se comporta normal).
+#
+# mouse_capture = false → herdr no captura el mouse en el split: la rueda/
+# trackpad pasa a la app del pane (Claude Code hace su propio scroll) y ya no
+# scrollea el pane de herdr hacia el historial "cortando" la ventana partida.
+# (mouse_scroll_lines = 0 no sirve: herdr exige un entero > 0.)
+# Pedido del socio (2026-07-05); reproducible en cualquier máquina.
+[ui]
+mouse_capture = false
+
+# scrollback_limit_bytes = 0 → los panes del split NO retienen historial de
+# scroll: pantalla FIJA, sin barra de scroll (pedido del socio 2026-07-06).
+# La barra que veía era de Terminal.app (Apple_Terminal), que la muestra cuando
+# hay scrollback; sin scrollback no aparece. El chat (Claude Code) redibuja su
+# vista, no depende del scrollback de la terminal.
+scrollback_limit_bytes = 0

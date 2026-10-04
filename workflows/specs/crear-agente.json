@@ -1,0 +1,141 @@
+{
+  "workflow": "crear-agente",
+  "version": 2,
+  "map": "workflows/MAPA.md · P8 (crear-agente) — el protocolo de creación de agentes HECHO harness. Protocolo del autor: protocols/agent-creation/.",
+  "note": "Crea un agente NUEVO a nivel harness, guiado y verificado — el 'crear personaje de videojuego' del socio. La ESPINA que sirve para cualquier agente: intake (la forma) → gate de fit → crear (scaffold del cerebro desde el template) → identidad (llenar SOUL/BOOT) → verificar-cerebro (quality bar estructural) → aprobar (launch gate). El protocolo completo que el agente-autor lee vive en protocols/agent-creation/ (00-INTAKE la forma, 01-PROTOCOL las fases, 02-BRAIN-FORMAT la estructura, 03-QUALITY-BAR el gate). La fase pesada de research de dominio (FASE 1, para agentes de dominio profundo) es opcional aguas arriba — un agente simple no la necesita. Sin driver, los pasos agent son STUB honesto: el workflow es un CHECKLIST GUIADO donde el autor (socio/Zenith) llena el intake y la identidad, y el runner verifica con oráculo (agent.create scaffolda, agent.verify_brain chequea la estructura). Con driver real (la 'IA conectada' del socio), el agente autora solo. Config por artefacto `agent_config` (del intake) o por `--param` (name/display/tagline/owner/color/scope/soul/skills). Crear un agente es N3 (identidad/estructura) — el gate `aprobar` lo cubre.",
+  "inputs": [
+    "agent_config"
+  ],
+  "triggers": [
+    "crear agente",
+    "nuevo agente",
+    "crear personaje",
+    "agente nuevo",
+    "construir agente",
+    "crear-agente"
+  ],
+  "steps": [
+    {
+      "id": "intake",
+      "kind": "agent",
+      "role": "autor",
+      "artifact": "agent_config",
+      "produces": [
+        "agent_config"
+      ],
+      "output_schema": {
+        "type": "object",
+        "required": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "optional": {
+          "display": {
+            "type": "string"
+          },
+          "tagline": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "color": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "soul": {
+            "type": "string"
+          },
+          "skills": {
+            "type": "string"
+          }
+        }
+      },
+      "verify": "evidence.artifact_exists",
+      "on_fail": "stop",
+      "contract": {
+        "objetivo": "levantar los requisitos del agente (protocols/agent-creation/00-INTAKE.md) desde la descripción/formulario del socio o cliente",
+        "formato": "objeto agent_config {name(slug, req), display, tagline, owner, color, scope, soul(semilla de personalidad), skills} — lo que no se sepa se marca GAP, nunca se inventa",
+        "tools": "lectura de 00-INTAKE.md + la descripción del socio",
+        "limites": "acota 1-2 trabajos concretos, no 'que sepa de todo'; el slug es minúsculas sin espacios"
+      },
+      "note": "STUB v1: el intake lo llena el autor (socio/Zenith) leyendo 00-INTAKE. Con --param se puede pasar directo. Es la 'forma' del crear-personaje"
+    },
+    {
+      "id": "gate-de-fit",
+      "kind": "human",
+      "present": "lavish",
+      "on_fail": "stop",
+      "note": "GATE de fit (00-INTAKE §A, las 4 preguntas): ¿hay un 'done' verificable? ¿requiere juicio contextual? ¿son 1-2 trabajos concretos? ¿justifica el costo vs una skill simple? Si alguna es NO → no se construye. El socio decide"
+    },
+    {
+      "id": "crear",
+      "kind": "det",
+      "run": "agent.create",
+      "reads": [
+        "agent_config"
+      ],
+      "produces": [
+        "agent_name",
+        "agent_brain"
+      ],
+      "on_fail": "stop",
+      "note": "agent_admin.create — scaffold del cerebro desde el template (placeholders renderizados) + agent.json + registro per-máquina. Config del artefacto agent_config (intake) o de --param. Idempotente: si ya existe, no-op. No sobrescribe carpetas"
+    },
+    {
+      "id": "banner",
+      "kind": "det",
+      "run": "agent.brand",
+      "reads": [
+        "agent_brain",
+        "agent_config"
+      ],
+      "produces": [
+        "banner_path"
+      ],
+      "on_fail": "stop",
+      "note": "el agente nace con su PROPIO banner (no el genérico compartido): renderiza agent-banner.py a <brain>/brand/<name>-banner.py con sus datos (auto-contenido) y repunta agent.json. Idempotente. Queda listo para meterle un emblema diseñado — parte del 'crear personaje'"
+    },
+    {
+      "id": "identidad",
+      "kind": "agent",
+      "role": "autor",
+      "produces": [],
+      "verify": "agent.verify_brain",
+      "on_fail": "retry",
+      "max_iter": 3,
+      "contract": {
+        "objetivo": "escribir la IDENTIDAD del agente en el cerebro recién scaffoldeado: BOOT/00-SOUL (quién es, carácter), 01-IDENTITY (nombre/emoji/color/rol), y afinar CLAUDE.md — siguiendo protocols/agent-creation/02-BRAIN-FORMAT.md",
+        "formato": "los archivos del cerebro editados desde los placeholders del template — sin ningún {{...}} sin renderizar",
+        "tools": "editor sobre <agent_brain>/BOOT/*.md + CLAUDE.md; lectura de 02-BRAIN-FORMAT.md y el agent_config",
+        "limites": "disposiciones amplias (curiosidad, rigor, calidez), no opiniones rígidas; el carácter contra los pain points reales del intake"
+      },
+      "note": "STUB v1: la identidad la escribe el autor (socio/Zenith) siguiendo el protocolo; el verify (agent.verify_brain) confirma que el cerebro quedó completo y sin placeholders"
+    },
+    {
+      "id": "verificar-cerebro",
+      "kind": "det",
+      "run": "agent.verify_brain",
+      "reads": [
+        "agent_brain"
+      ],
+      "produces": [
+        "brain_ok",
+        "brain_gaps"
+      ],
+      "on_fail": "retry",
+      "max_iter": 2,
+      "note": "quality bar ESTRUCTURAL (03-QUALITY-BAR, la parte determinista): el cerebro tiene la estructura mínima (BOOT/, CLAUDE.md, agent.json, STATE/) y CERO placeholders sin renderizar. brain_gaps lista lo que falta. La calidad SEMÁNTICA (¿es bueno el agente?) va en el launch gate humano"
+    },
+    {
+      "id": "aprobar",
+      "kind": "human",
+      "present": "lavish",
+      "on_fail": "stop",
+      "note": "LAUNCH GATE (01-PROTOCOL FASE 5, N3 = crear un agente toca identidad/estructura): el oráculo honesto de '¿el agente quedó bien / hace lo que debe / es seguro?'. No hay oráculo de máquina para eso — lo decide el socio. Aprobar = el agente queda listo para usar/cablear"
+    }
+  ]
+}
