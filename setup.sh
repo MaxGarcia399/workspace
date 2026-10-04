@@ -1,19 +1,17 @@
 #!/usr/bin/env bash
-# WORKSPACE · bootstrap de DISTRIBUCIÓN — instala el harness (vacío) en UNA máquina, de un comando.
-# (Este es el setup.sh que vive en el repo de distribución `workspace-harness`, NO el del equipo.)
+# Workspace · bootstrap — instala el harness en UNA máquina, de un comando.
 #
-# Uso — repo PÚBLICO (one-liner limpio, sin token):
-#   curl -fsSL https://raw.githubusercontent.com/<tu-org>/workspace-harness/main/setup.sh | bash -s -- --socio TU-NOMBRE
+# Uso (one-liner):
+#   curl -fsSL https://raw.githubusercontent.com/MaxGarcia399/workspace/main/setup.sh | bash
 #
-# Uso — repo PRIVADO (con token de lectura):
-#   WORKSPACE_TOKEN=ghp_xxx bash -c "$(curl -fsSL https://TU-NOMBRE:$WORKSPACE_TOKEN@raw.githubusercontent.com/<tu-org>/workspace-harness/main/setup.sh)" -- --socio TU-NOMBRE
-#   (o simplemente: git clone con tu acceso + python3 WORKSPACE/install.py --socio TU-NOMBRE)
+# O manual:  git clone https://github.com/MaxGarcia399/workspace.git ~/Desktop/Workspace
+#            python3 ~/Desktop/Workspace/install.py
 #
-# El repo de distribución se configura con WORKSPACE_REPO (org/repo de tu instalación).
+# Overrides: WORKSPACE_DIR (destino) · WORKSPACE_REPO (org/repo) · WORKSPACE_TOKEN (fork privado).
 set -euo pipefail
 
-DEST="${WORKSPACE_DIR:-$HOME/Desktop/WORKSPACE}"
-REPO="${WORKSPACE_REPO:-github.com/<tu-org>/workspace-harness.git}"
+DEST="${WORKSPACE_DIR:-$HOME/Desktop/Workspace}"
+REPO="${WORKSPACE_REPO:-github.com/MaxGarcia399/workspace.git}"
 
 command -v git >/dev/null 2>&1 || { echo "✖ git no está instalado. Instálalo y reintenta."; exit 1; }
 PY="$(command -v python3 || command -v python || true)"
