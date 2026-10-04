@@ -934,7 +934,7 @@ WIN_GREETER_BLOCK = (
     'Write-Host -NoNewline "$([char]27)]110$([char]7)$([char]27)]111$([char]7)$([char]27)]112$([char]7)" }')
 
 GREETER_MARK = "WORKSPACE · menú al abrir terminal"
-GREETER_MARK_V1 = "WORKSPACE · menú al abrir terminal"   # bloque pre-rename (se reemplaza)
+GREETER_MARK_V1 = "WORKSPACE · menú al abrir terminal (v1)"   # bloque pre-rename (se reemplaza)
 GREETER_BLOCK = """
 # ── WORKSPACE · menú al abrir terminal (elige agente o terminal normal) ────────
 # Desactivar: borra este bloque, o corre  export WORKSPACE_NO_GREETER=1
