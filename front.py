@@ -5064,21 +5064,33 @@ def cmd_split(args):
     return multiplexer.open_split(args)
 
 
+# ── Comandos de DEV/EQUIPO: NO son de producto (flujo de ramas, release/publish,
+#    panel de developer, tablero, paridad). Solo viajan/aplican en una build de
+#    DEV; en la build de CLIENTE se OCULTAN del --help y se gatean en el dispatch
+#    (mensaje limpio + salida ≠0, nunca traceback). ÚNICA fuente de «qué es dev»
+#    para el ruteo — alias incluidos. El gate build-dev-vs-cliente es _has_dev_panel(). ──
+_DEV_CMDS = {
+    "dev",
+    "board", "tablero",
+    "feature", "integrate", "promote", "release", "publish",
+    "worktree", "wt",
+    "parity-check", "parity", "paridad",
+}
+
+
 def _usage():
-    """Uso CLI de `workspace` (sin abrir la TUI). Un renglón por comando."""
-    return (
+    """Uso CLI de `workspace` (sin abrir la TUI). Un renglón por comando.
+    Los comandos de DEV/EQUIPO (flujo de ramas, release, dev panel, paridad) solo
+    se listan en una build de DEV (_has_dev_panel); el cliente ve solo producto."""
+    product = (
         "uso: workspace [comando]\n"
         "\n"
         "  (sin comando)       abre el recinto (menú interactivo de agentes)\n"
         "  doctor [--check]    diagnóstico / reparación del harness\n"
         "  update              actualiza el harness (pull + doctor)\n"
         "  repair              re-renderiza los hooks de cada cerebro\n"
-        "  dev                 panel de developer (versiones / ramas)\n"
         "  proyectos [stop]    app «Proyectos»: mapa de todos tus proyectos + agente\n"
-        "  board               tablero del dev panel (agentes-first)\n"
         "  eval <agente>       corre el golden set del agente\n"
-        "  feature | integrate | promote | release | publish   flujo de ramas\n"
-        "  worktree | wt       worktrees con dueño (list · rm · pool · prune)\n"
         "  wf                  workflows declarativos (new · list · run · status · resume · stats)\n"
         "  split [agente]      terminal partida (tmux o herdr): chat | wf board (opt-in;\n"
         "                      para TODO chat del hub: settings set ui.split on;\n"
@@ -5089,10 +5101,17 @@ def _usage():
         "  onboarding          flujo guiado de primer uso (motores · apariencia · agente)\n"
         "  calendario          editor de agenda (mes + alta/edicion/baja)\n"
         "  mail                enviar correo (SMTP per-máquina; default --dry-run)\n"
-        "  parity-check        checklist de paridad Mac/Windows\n"
-        "  uninstall           desinstala WORKSPACE de esta máquina\n"
+        "  uninstall           desinstala WORKSPACE de esta máquina\n")
+    dev = (
+        "  dev                 panel de developer (versiones / ramas)\n"
+        "  board               tablero del dev panel (agentes-first)\n"
+        "  feature | integrate | promote | release | publish   flujo de ramas\n"
+        "  worktree | wt       worktrees con dueño (list · rm · pool · prune)\n"
+        "  parity-check        checklist de paridad Mac/Windows\n")
+    meta = (
         "  --banner            imprime banner + menú estático (no interactivo)\n"
         "  -h, --help          este uso\n")
+    return product + (dev if _has_dev_panel() else "") + meta
 
 
 def _tty_out():
@@ -5140,6 +5159,17 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help", "help", "ayuda"):
         print(_usage())
         sys.exit(0)
+    # ── Build de CLIENTE: gate de la superficie DEV/EQUIPO ──
+    # Los comandos de _DEV_CMDS (flujo de ramas, release/publish, dev panel,
+    # tablero, paridad) dependen de archivos que NO viajan a la distro (p.ej.
+    # cmd_dev busca dashboard-dev.html) → en una build sin dev panel tronarían.
+    # Si un cliente los invoca: mensaje limpio + salida ≠0, NUNCA un traceback.
+    # En build de DEV (_has_dev_panel) pasan tal cual, sin cambio de conducta.
+    if (len(sys.argv) > 1 and sys.argv[1] in _DEV_CMDS and not _has_dev_panel()):
+        sys.stderr.write(
+            f"WORKSPACE: '{sys.argv[1]}' es un comando de desarrollo, "
+            f"no disponible en esta instalación.\n\n" + _usage())
+        sys.exit(2)
     if len(sys.argv) > 1 and sys.argv[1] in ("parity-check", "parity", "paridad"):
         sys.exit(cmd_parity_check(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] in ("update", "--update", "up"):
