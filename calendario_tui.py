@@ -13,8 +13,11 @@ Teclas
     ◄ ► ↑ ↓   moverse por los días        n / p   mes siguiente / anterior
     t         volver a hoy                Tab     cambiar de evento del día
     Enter     DETALLE del evento marcado  a       agregar en ese día
-    e         editar (título + descr.)    x / espacio  hecha ↔ pendiente
-    f         prioridad alta ↔ normal     d       borrarlo (archiva)
+    e         editar idea + prompt        x / espacio  hecha ↔ pendiente
+    l         lista ↔ borrador             v       cola de tareas listas
+    f         prioridad alta ↔ normal     d       papelera (15 días)
+    b         abre la papelera             r       restaura dentro de ella
+    m         elige otro día con flechas; Enter mueve, Esc cancela
     Esc       cancelar / volver           q       volver al menú
 
 Al escribir, una hora al principio se guarda como hora:
@@ -22,11 +25,13 @@ Al escribir, una hora al principio se guarda como hora:
 
 La rejilla muestra en cada día CUÁNTAS tareas faltan (número encendido;
 rojo si el día ya pasó = atrasadas); un día con todo hecho lleva ✓.
-Cada evento tiene una DESCRIPCIÓN larga: Enter la abre entera (vista
-detalle), el panel DÍA la asoma bajo el evento marcado, y `e` la edita
-en un campo multilínea rotulado (Tab cambia de campo, Enter en la
-descripción = nueva línea). Las hechas se tachan con `x` y se destachan
-igual — `d` sigue siendo borrar, aparte.
+Cada ficha tiene IDEA / DESCRIPCIÓN y PROMPT PARA EL AGENTE, de hasta
+30 000 caracteres cada uno. Alta, edición y detalle mantienen
+el mes siempre visible y dos campos compactos (apilados en vertical).
+Ctrl+G alterna entre calendario y escritura. Tab cambia entre
+título, idea y prompt; Enter crea saltos en texto; Ctrl+S guarda desde
+cualquier campo. Las nuevas ideas son BORRADOR: l las marca LISTA para
+agentes. La prioridad alta es independiente del estado de preparación.
 
 El modelo (store atómico, validación) vive en `personal.py`. Los drivers de
 teclado son los mismos dos patrones de siempre (termios+select · msvcrt).
@@ -51,6 +56,39 @@ MESES = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
 DIAS = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado",
         "domingo")
 SEMANA = ("lu", "ma", "mi", "ju", "vi", "sá", "do")
+
+# UNA fuente de verdad de los atajos: la cabecera enseña los 3 clave + salir
+# (HL.top_hints los recorta) y el pie la lista COMPLETA (HL.foot_hints).
+PARES = (("◄►↑↓", "día"), ("Enter", "detalle"), ("a", "agrega"),
+         ("l", "lista"), ("v", "cola"), ("n/p", "mes"), ("t", "hoy"),
+         ("m", "mueve"), ("b", "papelera"), ("q", "menú"))
+
+
+STATUS_LABELS = {"draft": "BORRADOR", "ready": "LISTA", "in_progress": "EN CURSO",
+                 "blocked": "BLOQUEADA", "done": "TERMINADA"}
+
+
+def _task_tag(K, event):
+    if event.get("google"):
+        return ""
+    status = P.task_status(event)
+    role = {"draft": "DK", "ready": "OK", "in_progress": "C", "blocked": "BAD", "done": "DK"}[status]
+    return "%s[%s]%s " % (K[role], STATUS_LABELS[status], K["R"])
+
+
+def _toggle_ready(S, event):
+    if event.get("google"):
+        S["msg"] = "evento de Google — solo lectura"
+        return
+    current = next((e for e in P.events() if e["id"] == event["id"]), None)
+    if current is None:
+        S["msg"] = "la tarea ya no está disponible"
+        return
+    status = "draft" if P.task_status(current) == "ready" else "ready"
+    if P.set_task_status(event["id"], status):
+        S["msg"] = "LISTA para tomar por un agente" if status == "ready" else "BORRADOR — fuera de la cola"
+    else:
+        S["msg"] = "no se cambió: tarea en curso o error al guardar"
 
 
 def _g_events():
@@ -280,14 +318,8 @@ def _lineas(val, w):
     (mismo gesto que `_val_lineas` de add_agent_tui). [""] si está vacío."""
     out = []
     for par in str(val or "").split("\n"):
-        out.extend(HL._wrap(par, w, 99) if par.strip() else [""])
+        out.extend(HL._wrap(par, w, max(99, len(par) + 1)) if par.strip() else [""])
     return out or [""]
-
-
-#: líneas visibles del editor de notas — contrato de altura ACOTADA: por más
-#: que crezca el texto el campo no pasa de esto (cola visible: siempre ves
-#: dónde escribes; «…» marca que hay más arriba). Patrón de add_agent_tui.
-_NOTAS_VIS = 4
 
 
 def _campo_etq(K, nombre, activo, inner):
@@ -298,65 +330,6 @@ def _campo_etq(K, nombre, activo, inner):
         ("%s %s" % (K["PTR"], nombre)) if activo else ("  " + nombre),
         K["R"], K["DK"],
         K["SEP"] * max(1, inner - HL.vis(nombre) - 4), K["R"]), inner)
-
-
-def _editor(S, K, inner):
-    """El alta/edición dentro de la caja DÍA: UN solo editor de DOS campos
-    ROTULADOS — «título» y «descripción» (multilínea, texto largo de
-    verdad para tareas y proyectos) — tanto para `a` (nuevo) como para `e`
-    (editar); antes el alta no dejaba poner descripción (bug del socio
-    2026-10-02). Cursor ❯ en el campo activo y placeholder cuando la
-    descripción está vacía: nada queda invisible. Tab cambia de campo;
-    Enter en la descripción = nueva línea; Enter en el título guarda TODO."""
-    alta = (S["modo"] == "add")
-    out = ["%s%s%s" % (K["DIM"], "nuevo evento" if alta else "editando",
-                       K["R"])]
-    caret = "%s█%s" % (K["C"] + K["BO"], K["R"])
-    en_desc = (S.get("campo") == 1)
-    # cola visible al escribir: con un título largo siempre ves dónde vas
-    vtxt, vw = S["buf"], max(10, inner - 6)
-    if not en_desc and len(vtxt) > vw:
-        vtxt = "…" + vtxt[-(vw - 1):]
-    # ── campo TÍTULO (una línea, rotulado) ──
-    out.append(_campo_etq(K, "título", not en_desc, inner))
-    if not vtxt and not en_desc and alta:
-        # placeholder del alta: el formato se dice solo
-        out.append(HL.clip("   %s18:00 Junta con Miguel%s%s" % (
-            K["DK"], K["R"], caret), inner))
-    else:
-        out.append(HL.clip("   %s%s%s%s" % (
-            K["WH"] if not en_desc else K["GREY"], vtxt, K["R"],
-            "" if en_desc else caret), inner))
-    # ── campo DESCRIPCIÓN (multilínea, cola visible, altura acotada) ──
-    out.append(_campo_etq(K, "descripción", en_desc, inner))
-    nbuf = S.get("nbuf") or ""
-    if not nbuf and not en_desc:
-        # placeholder: el campo vacío SE VE y dice cómo entrarle
-        out.append(HL.clip("   %svacía — Tab para escribir el detalle%s"
-                           % (K["DIM"], K["R"]), inner))
-    else:
-        lineas = _lineas(nbuf, max(10, inner - 4))
-        vis = lineas[-_NOTAS_VIS:]
-        if len(lineas) > _NOTAS_VIS:
-            vis[0] = "…" + (vis[0][1:] if vis[0] else "")
-        for i, ln in enumerate(vis):
-            tail = caret if (en_desc and i == len(vis) - 1) else ""
-            col = K["WH"] if en_desc else K["GREY"]
-            out.append(HL.clip("   %s%s%s%s" % (col, ln, K["R"], tail),
-                               inner))
-    out.append("")
-    if en_desc:
-        out += _hints(K, inner, (("Enter", "nueva línea"),
-                                 ("Tab", "al título (ahí se guarda)"),
-                                 ("Esc", "cancela")))
-    else:
-        out += _hints(K, inner, (("Enter", "guarda todo"),
-                                 ("Tab", "a la descripción"),
-                                 ("Esc", "cancela")))
-        if alta:
-            out.append(HL.clip("%s18:00 al inicio pone la hora%s"
-                               % (K["DK"], K["R"]), inner))
-    return out
 
 
 def _tachada(K, txt):
@@ -386,58 +359,6 @@ def _hints(K, inner, items):
     return [HL.clip(x, inner) for x in out[:3]]
 
 
-def _detalle(S, K, inner, alto):
-    """La vista DETALLE del evento marcado (se abre con Enter): título
-    completo, estado y la DESCRIPCIÓN entera, legible — lo que hace OBVIA
-    la descripción larga (feedback del socio 2026-10-02: escondida tras
-    e+Tab «parecía que ni estaba»). Desde aquí `e` cae DIRECTO al campo
-    de descripción del editor."""
-    evs = S.get("evs") or []
-    e = evs[S["ev"] % len(evs)]
-    tl = _lineas(e.get("title") or "", max(10, inner - 9))
-    out = [HL.clip(" %s%s%s  %s%s%s%s%s" % (
-        K["B2"] + K["BO"], e.get("time") or "todo el día", K["R"],
-        _prio_tag(K, e), K["WH"] + K["BO"], tl[0], K["R"],
-        _g_tag(K) if e.get("google") else ""), inner)]
-    for ln in tl[1:3]:
-        out.append(HL.clip("        %s%s%s%s" % (K["WH"], K["BO"], ln,
-                                                 K["R"]), inner))
-    est = ("%s✓ hecha%s" % (K["DK"], K["R"]) if e.get("done")
-           else "%s○ pendiente%s" % (K["DIM"], K["R"]))
-    if e.get("prio") == "alta":
-        est += "   %s%s! prioridad alta%s" % (K["C"], K["BO"], K["R"])
-    out.append(" " + est)
-    out.append("")
-    etq = "descripción"
-    out.append(HL.clip("%s%s%s%s %s%s%s" % (
-        K["B"], K["BO"], etq, K["R"], K["DK"],
-        K["SEP"] * max(1, inner - HL.vis(etq) - 2), K["R"]), inner))
-    notas = (e.get("notes") or "").strip()
-    # el pie (aire + hints) se presupuesta ANTES: la descripción recibe lo
-    # que queda y los atajos JAMÁS se recortan por una nota larga
-    pie = [""] + _hints(K, inner, (("e", "editar descripción"),
-                                   ("x", "hecha"), ("f", "prio"),
-                                   ("Esc", "volver")))
-    cupo = max(1, alto - len(out) - len(pie) - 1)
-    if notas:
-        nl = _lineas(notas, max(10, inner - 3))
-        for ln in nl[:cupo]:
-            out.append(HL.clip("  %s%s%s" % (K["GREY"], ln, K["R"]), inner))
-        if len(nl) > cupo:
-            out.append(HL.clip("  %s… %d línea(s) más — e para leerla "
-                               "entera y editarla%s"
-                               % (K["DK"], len(nl) - cupo, K["R"]), inner))
-    elif e.get("google"):
-        out.append(HL.clip("  %ssin descripción (evento de Google, solo "
-                           "lectura)%s" % (K["DK"], K["R"]), inner))
-    else:
-        out.append(HL.clip("  %ssin descripción — pulsa %s%se%s%s para "
-                           "escribirla%s" % (K["DIM"], K["R"],
-                                             K["C"] + K["BO"], K["R"],
-                                             K["DIM"], K["R"]), inner))
-    return out + pie
-
-
 def _dia_body(S, K, inner, alto=0):
     """Lo que hay en el día seleccionado + el campo de alta/edición. Con alto
     de sobra (que casi siempre lo hay: la rejilla manda), el resto de la caja
@@ -459,10 +380,12 @@ def _dia_body(S, K, inner, alto=0):
                                     "%s · hoy%s" % (K["DIM"], K["R"])
                                     if f == hoy else ""),
            "%s%s%s" % (K["DK"], K["SEP"] * max(3, inner - 2), K["R"])]
-    if S["modo"] in ("add", "edit"):
-        return out + _editor(S, K, inner)
-    if S["modo"] == "ver" and evs:
-        return out + _detalle(S, K, inner, (alto or 14) - len(out))
+    if S["modo"] == "move":
+        e = S["moving"]
+        return out + [HL.clip("Mover: " + e["title"], inner), "",
+                      HL.clip("Destino: " + f.isoformat(), inner), "",
+                      HL.clip("Flechas: día · n/p: mes · t: hoy", inner),
+                      HL.clip("Enter mueve · Esc cancela", inner)]
     if not evs:
         out.append("%ssin eventos este día%s" % (K["DK"], K["R"]))
         out.append("%sa%s%s agrega uno aquí%s" % (K["C"] + K["BO"], K["R"],
@@ -477,7 +400,7 @@ def _dia_body(S, K, inner, alto=0):
             cuerpo = "%s%s%s  %s%s%s%s" % (
                 K["B2"] + K["BO"], hora, K["R"], _prio_tag(K, e),
                 (K["WH"] + K["BO"]) if sel else K["GREY"],
-                e.get("title") or "", K["R"])
+                _task_tag(K, e) + (e.get("title") or ""), K["R"])
         out.append(HL.clip("%s %s%s" % (
             (K["C"] + K["BO"] + K["PTR"] + K["R"]) if sel else " ", cuerpo,
             _g_tag(K) if e.get("google") else ""), inner))
@@ -498,7 +421,7 @@ def _dia_body(S, K, inner, alto=0):
         out.append("")
         out += _hints(K, inner, (("Enter", "detalle"), ("Tab", "cambia"),
                                  ("e", "edita"), ("x", "hecha"),
-                                 ("f", "prio"), ("d", "borra")))
+                                 ("l", "lista/borrador"), ("m", "mueve"), ("d", "borra")))
     quedan = (alto or 14) - len(out)
     atr = _atrasadas(S, K, inner, min(quedan, 6))
     out += atr
@@ -508,18 +431,14 @@ def _dia_body(S, K, inner, alto=0):
 
 def render(S, w, h):
     K = _K()
-    L = [""]
-    # mismo wordmark del hub (centrado), para que esto NO se sienta otra app
-    bt = HL.big_title(K, w, h, indent=" ", compact=(h < 30), center=True)
-    L += bt
-    if len(bt) > 1:
-        L += HL.title_reflection(K, w, indent=" ", center=True)
-    sub = "calendario"
-    L.append(" " * max(0, ((w - 1) - HL.vis(sub)) // 2)
-             + "%s%s%s" % (K["DIM"], sub, K["R"]))
-    L.append("%s%s%s%s%s" % (K["B2"], K["BOX"][5] * 3, K["DK"],
-                             K["BOX"][5] * max(1, w - 5), K["R"]))
-    L.append("")
+    if S["modo"] in ("add", "edit", "ver"):
+        return _task_form_render(S, K, w, h)
+    if S["modo"] == "queue":
+        return _queue_render(S, K, w, h)
+    if S["modo"] == "trash":
+        return _trash_render(S, K, w, h)
+    # cabecera COMPARTIDA (wordmark + subtítulo + atajos clave + regla)
+    L = HL.screen_header(K, w, h, "calendario", hints=PARES)
     top = len(L)
     # dos cajas, mismas proporciones que el hub: MES ancho, DÍA a la derecha
     if _responsive.vertical(w, h):
@@ -530,7 +449,7 @@ def render(S, w, h):
         dia = _dia_body(S, K, pw - 4, alto=available - 2)
         L += [' ' + x for x in first]
         L += [' ' + x for x in HL.full_box('DÍA', dia, K, pw, available - 2, False)]
-        L += ['', HL.clip(' ◄►↑↓ día · n/p mes · Enter detalle · a agrega · e edita · q vuelve', w - 1)]
+        L += ['', HL.clip(HL.foot_hints(K, PARES, w), w - 1)]
         return [HL.clip(x, w - 1) for x in L[:h - 1]] + [''] * max(0, h - 1 - len(L))
     lw = max(32, min(48, (w - 6) * 55 // 100))
     # la fila es " " + izq(lw) + "  " + der  ->  3 columnas fijas de marco
@@ -557,9 +476,7 @@ def render(S, w, h):
         L.append(" %s%s%s" % (K["B2"], S["msg"], K["R"]))
     else:
         L.append("")
-    hint = ("◄►↑↓ día · n/p mes · t hoy · Enter detalle · a agrega · "
-            "e edita · x hecha · f prio · d borra · q menú")
-    L.append(" %s%s%s" % (K["DK"], hint, K["R"]))
+    L.append(HL.foot_hints(K, PARES, w))
     # contrato de altura: SIEMPRE h-1 líneas exactas (pad con ""). Las
     # vistas (mes/día/detalle/editor/alta) cambian de alto entre sí y el
     # redraw es H + \033[K por línea: sin el pad, el pie de una vista alta
@@ -595,6 +512,11 @@ def _abrir_edicion(S, e, campo=0):
     S["buf"] = ("%s %s" % (e.get("time") or "",
                            e.get("title") or "")).strip()
     S["campo"], S["nbuf"] = campo, e.get("notes") or ""
+    S["pbuf"], S["edit_event"] = e.get("prompt") or "", dict(e)
+    S["text_cursor"], S["text_scroll"] = {}, {}
+    S["form_date"] = datetime.date.fromisoformat(e["date"])
+    S["form_event"], S["form_focus"] = e["id"], "editor"
+    S["calendar_ev"] = next((i for i, event in enumerate(_calendar_events(S)) if event["id"] == e["id"]), 0)
 
 
 def _toggle_hecha(S, e):
@@ -620,18 +542,378 @@ def _borrar_sel(S, e):
     if e.get("google"):
         S["msg"] = "evento de Google — solo lectura (bórralo allá)"
         return
-    S["msg"] = ("borrado: %s" % e.get("title", "")[:40]
+    S["msg"] = ("en papelera 15 días: %s" % e.get("title", "")[:40]
                 if P.remove_event(e["id"]) else "no pude borrarlo")
     S["ev"] = 0
 
 
+def _abrir_mover(S, e):
+    if e.get("google"):
+        S["msg"] = "evento de Google — solo lectura (muévelo allá)"
+        return
+    S["moving"] = dict(e)
+    S["move_origin"] = S["sel"]
+    S["modo"] = "move"
+
+
+def _trash_render(S, K, w, h):
+    rows = P.trash_events()
+    S["trash_rows"] = rows
+    idx = min(S.get("trash_idx", 0), max(0, len(rows) - 1))
+    S["trash_idx"] = idx
+    cap = max(1, h - 10)
+    start = max(0, min(idx - cap // 2, len(rows) - cap))
+    body = ["Los borrados se pueden recuperar durante 15 días.", ""]
+    for i, e in enumerate(rows[start:start + cap], start):
+        remaining = P.TRASH_DAYS
+        try:
+            deleted = datetime.datetime.fromisoformat(e["deleted_at"]).astimezone()
+            seconds = (deleted + datetime.timedelta(days=P.TRASH_DAYS) - datetime.datetime.now().astimezone()).total_seconds()
+            remaining = max(1, int((seconds + 86399) // 86400))
+        except (KeyError, ValueError):
+            pass
+        text = "%s %s · %s · %dd" % (">" if i == idx else " ", e["date"], e["title"], remaining)
+        body.append(HL.clip((K["C"] + K["BO"] if i == idx else K["GREY"]) + text + K["R"], w - 8))
+    if not rows:
+        body.append("Papelera vacía")
+    body += ["", S.get("msg") or "",
+             HL.keyline(K, (("↑↓", "elige"), ("r / Enter", "restaura"),
+                            ("Esc / q", "vuelve")), max(10, w - 8))]
+    lines = [""] + [" " + x for x in HL.full_box("PAPELERA · %d eventos" % len(rows), body, K, w - 3, len(body), True)]
+    return [HL.clip(x, w - 1) for x in lines[:h - 1]] + [""] * max(0, h - 1 - len(lines))
+
+
+def _text_panel(S, K, key, title, width, height, active, readonly=False):
+    text = S.get(key) or ""
+    iw = max(8, width - 4)
+    cursor = S.setdefault("text_cursor", {}).get(key, len(text))
+    lines = _lineas(text[:cursor], iw - 2)
+    cursor_line = len(lines) - 1
+    if active and not readonly:
+        display = text[:cursor] + "▏" + text[cursor:]
+    else:
+        display = text
+    rows = _lineas(display, iw - 2)
+    capacity = max(1, height - 2)
+    scroll = S.setdefault("text_scroll", {}).get(key, max(0, cursor_line - capacity + 1) if active and not readonly else 0)
+    scroll = min(max(0, scroll), max(0, len(rows) - capacity))
+    S["text_scroll"][key] = scroll
+    body = [K["GREY"] + row + K["R"] for row in rows[scroll:scroll + capacity]]
+    if not text and not active:
+        body = [K["DIM"] + ("Describe qué quieres lograr y el contexto." if key == "nbuf" else "Indica cómo debe trabajar el agente.") + K["R"]]
+    label = title + " · %d/%d" % (scroll + 1, len(rows))
+    return HL.full_box(label, body, K, width, capacity, active, border=K["C"] if active else K["B2"])
+
+
+def _calendar_events(S):
+    return sorted(P.events_on(S["sel"].isoformat()) + _g_on(S["sel"].isoformat()),
+                  key=lambda e: (bool(e.get("done")), e.get("prio") != "alta",
+                                 e.get("time") or "99:99", e.get("title") or ""))
+
+
+def _calendar_context(S, K, width, height, focused):
+    inner = width - 4
+    body = _mes_body(S, K, inner)
+    rows = _calendar_events(S)
+    idx = min(S.get("calendar_ev", 0), max(0, len(rows) - 1))
+    S["calendar_ev"] = idx
+    body += ["", K["B2"] + "DÍA · " + S["sel"].isoformat() + K["R"]]
+    capacity = max(1, min(4, height - 2 - len(body)))
+    start = max(0, min(idx - capacity // 2, len(rows) - capacity))
+    for i, e in enumerate(rows[start:start + capacity], start):
+        label = (K["C"] + K["PTR"] + K["R"] + " " if i == idx else "  ")
+        body.append(HL.clip(label + _task_tag(K, e) + e["title"], inner))
+    if not rows:
+        body.append(K["DIM"] + "Sin fichas; a crea una aquí" + K["R"])
+    title = "MES · %s %d" % (MESES[S["sel"].month - 1], S["sel"].year)
+    return HL.full_box(title, body, K, width, height - 2, focused,
+                       border=K["C"] if focused else K["B2"])
+
+
+def _new_form(S):
+    S.update(modo="add", buf="", nbuf="", pbuf="", editando=None,
+             edit_event=None, form_event=None, form_date=S["sel"], campo=0,
+             form_focus="editor", calendar_ev=0, text_cursor={}, text_scroll={})
+
+
+def _open_detail(S, event):
+    S.update(modo="ver", evs=[event], ev=0, campo=1,
+             form_event=event["id"], form_date=datetime.date.fromisoformat(event["date"]),
+             form_focus="editor", text_cursor={}, text_scroll={})
+    S["calendar_ev"] = next((i for i, e in enumerate(_calendar_events(S)) if e["id"] == event["id"]), 0)
+
+
+def _persist_form(S, close=True):
+    hora, title = _parse_hora(S.get("buf") or "")
+    if not title:
+        if not close and not (S.get("nbuf") or S.get("pbuf")) and not S.get("editando"):
+            return True
+        S["msg"] = "escribe un título; el contenido sigue aquí"
+        return False
+    form_date = S.get("form_date") or S["sel"]
+    notes, prompt = S.get("nbuf") or "", S.get("pbuf") or ""
+    if S.get("editando"):
+        eid = S["editando"]
+        ok = P.update_event(eid, title=title, time_s=hora, notes=notes, prompt=prompt)
+    else:
+        eid = P.add_event(form_date.isoformat(), title, hora, notes=notes, prompt=prompt)
+        ok = bool(eid)
+    if not ok:
+        S["msg"] = "no se guardó; tus campos siguen aquí"
+        return False
+    S["editando"], S["form_event"] = eid, eid
+    S["edit_event"] = next((e for e in P.events() if e["id"] == eid), None)
+    S["modo"] = "nav" if close else "edit"
+    if close:
+        S["sel"] = form_date
+        S["ev"] = next((i for i, e in enumerate(_calendar_events(S)) if e["id"] == eid), 0)
+        S["form_focus"] = "editor"
+    S["msg"] = "guardado; l marca LISTA para un agente"
+    return True
+
+
+def _calendar_form_key(S, key):
+    if key in ("\x1b", "\x07"):
+        S["form_focus"] = "editor"
+    elif key in ("left", "right", "up", "down"):
+        S["sel"] += datetime.timedelta(days={"left": -1, "right": 1, "up": -7, "down": 7}[key])
+        S["calendar_ev"] = 0
+    elif key.lower() in ("n", "p"):
+        S["sel"] = _mes_mov(S["sel"], 1 if key.lower() == "n" else -1)
+        S["calendar_ev"] = 0
+    elif key.lower() == "t":
+        S["sel"], S["calendar_ev"] = datetime.date.today(), 0
+    elif key in ("tab", "right_tab"):
+        rows = _calendar_events(S)
+        S["calendar_ev"] = (S.get("calendar_ev", 0) + (1 if key == "tab" else -1)) % max(1, len(rows))
+    elif key in ("\r", "\n", "a", "A", "e", "E"):
+        rows = _calendar_events(S)
+        event = rows[S.get("calendar_ev", 0) % len(rows)] if rows else None
+        if key in ("e", "E") and event and event.get("google"):
+            S["msg"] = "evento de Google — solo lectura"
+            return True
+        if S["modo"] != "ver" and not _persist_form(S, close=False):
+            return True
+        # The save may have updated the selected event: fetch its current fields.
+        if event:
+            event = next((e for e in _calendar_events(S) if e["id"] == event["id"]), None)
+        if key in ("a", "A") or not event:
+            _new_form(S)
+        elif key in ("e", "E"):
+            _abrir_edicion(S, event, campo=1)
+        else:
+            _open_detail(S, event)
+    elif key in ("l", "L"):
+        rows = _calendar_events(S)
+        if rows:
+            event = rows[S.get("calendar_ev", 0) % len(rows)]
+            if event["id"] == S.get("editando") and S["modo"] != "ver":
+                if not _persist_form(S, close=False):
+                    return True
+            _toggle_ready(S, event)
+    elif key == "\x13" and S["modo"] != "ver":
+        _persist_form(S, close=False)
+    return True
+
+
+def _task_form_render(S, K, w, h):
+    readonly = S["modo"] == "ver"
+    form_date = S.setdefault("form_date", S["sel"])
+    focus = S.get("form_focus", "editor")
+    if readonly:
+        existing = _sel_ev(S)
+        eid = S.get("form_event") or (existing or {}).get("id")
+        evs = P.events_on(form_date.isoformat()) + _g_on(form_date.isoformat())
+        e = next((e for e in evs if e["id"] == eid), None)
+        if not e:
+            S["modo"] = "nav"
+            return render(S, w, h)
+        S["form_event"] = e["id"]
+        S["evs"], S["ev"] = [e], 0
+        S["buf"], S["nbuf"], S["pbuf"] = e["title"], e.get("notes") or "", e.get("prompt") or ""
+    else:
+        e = next((e for e in P.events() if e["id"] == S.get("editando")), None) or S.get("edit_event") or {"task_status": "draft"}
+    field = S.get("campo", 1 if readonly else 0)
+    title = "FICHA · %s · %s" % (form_date.isoformat(), "detalle" if readonly else "nueva" if S["modo"] == "add" else "edición")
+    top = ["", " " + K["C"] + K["BO"] + title + K["R"],
+           " " + _task_tag(K, e) + "%d listas para agentes" % len(P.task_queue()),
+           " " + _campo_etq(K, "título · hora opcional al inicio", field == 0 and focus == "editor" and not readonly, w - 4),
+           "   " + HL.clip((S.get("buf") or "") + ("▏" if field == 0 and focus == "editor" and not readonly else ""), w - 5), ""]
+    if focus == "calendar":
+        hints = (("Ctrl+G / Esc", "texto"), ("↑↓◄►", "día"), ("n/p", "mes"),
+                 ("Tab", "ficha"), ("Enter/e", "abre"), ("a", "nueva"))
+    else:
+        hints = (("Ctrl+G", "calendario"), ("Tab", "campo"),
+                 ("Ctrl+B/F", "desplaza"), ("e", "edita"), ("l", "lista"), ("Esc", "vuelve")) if readonly else (
+                 ("Ctrl+G", "calendario"), ("Tab", "campo"), ("Ctrl+S", "guarda"), ("Enter", "salto"), ("Esc", "cancela"))
+    footer = [" " + HL.clip("Resultado: " + e["result"], w - 3) if readonly and e.get("result") else "",
+              " " + HL.clip(S.get("msg") or "", w - 3),
+              HL.clip(" " + HL.keyline(K, hints, max(10, w - 4)), w - 1)]
+    available = min(h - 1 - len(top) - len(footer), 28 if w >= 100 else 40)
+    if w >= 100:
+        lw = max(38, min(46, (w - 4) * 40 // 100))
+        rw = w - 4 - lw
+        left = _calendar_context(S, K, lw, available, focus == "calendar")
+        first = available // 2
+        right = _text_panel(S, K, "nbuf", "IDEA / DESCRIPCIÓN", rw, first, field == 1 and focus == "editor", readonly)
+        right += _text_panel(S, K, "pbuf", "PROMPT PARA EL AGENTE", rw, available - first, field == 2 and focus == "editor", readonly)
+        body = [" " + HL.pad(a, lw) + " " + b for a, b in zip(left, right)]
+    else:
+        calendar_h = min(len(_mes_body(S, K, w - 7)) + 6, available - 14)
+        body = [" " + row for row in _calendar_context(S, K, w - 3, calendar_h, focus == "calendar")]
+        text_h = available - calendar_h
+        first = text_h // 2
+        body += [" " + row for row in _text_panel(S, K, "nbuf", "IDEA / DESCRIPCIÓN", w - 3, first, field == 1 and focus == "editor", readonly)]
+        body += [" " + row for row in _text_panel(S, K, "pbuf", "PROMPT PARA EL AGENTE", w - 3, text_h - first, field == 2 and focus == "editor", readonly)]
+    result = top + body + footer
+    return [HL.clip(row, w - 1) for row in result[:h - 1]] + [""] * max(0, h - 1 - len(result))
+
+
+def _queue_render(S, K, w, h):
+    rows = P.task_queue()
+    S["queue_rows"] = rows
+    idx = min(S.get("queue_idx", 0), max(0, len(rows) - 1))
+    S["queue_idx"] = idx
+    cap = max(1, h - 10)
+    start = max(0, min(idx - cap // 2, len(rows) - cap))
+    body = ["Solo tareas marcadas LISTA; prioridad alta, luego fecha.", ""]
+    for i, e in enumerate(rows[start:start + cap], start):
+        body.append(HL.clip((K["C"] + K["BO"] if i == idx else K["GREY"]) +
+                           ("> " if i == idx else "  ") + e["date"] + " · " +
+                           ("! " if e.get("prio") == "alta" else "") + e["title"] + K["R"], w - 8))
+    if not rows:
+        body.append("Sin tareas listas; l cambia borrador a lista.")
+    body += ["", S.get("msg") or "",
+             HL.keyline(K, (("↑↓", "elige"), ("Enter", "detalle"),
+                            ("l", "devuelve a borrador"),
+                            ("Esc", "vuelve")), max(10, w - 8))]
+    lines = [""] + [" " + row for row in HL.full_box("COLA DE AGENTES · %d listas" % len(rows), body, K, w - 3, len(body), True)]
+    return [HL.clip(row, w - 1) for row in lines[:h - 1]] + [""] * max(0, h - 1 - len(lines))
+
+
+def _edit_key(S, key):
+    field = S.get("campo", 0)
+    name = ("buf", "nbuf", "pbuf")[field]
+    limit = (126, P.NOTES_MAX, P.PROMPT_MAX)[field]
+    text = S.get(name) or ""
+    cursors = S.setdefault("text_cursor", {})
+    pos = min(cursors.get(name, len(text)), len(text))
+    if key == "\x1b":
+        S["modo"], S["msg"] = "nav", "cancelado"
+        return True
+    if key in ("tab", "right_tab"):
+        S["campo"] = (field + (1 if key == "tab" else -1)) % 3
+        return True
+    if key == "\x13" or (key in ("\r", "\n") and field == 0):
+        _persist_form(S)
+        return True
+    if key in ("\x02", "\x06", "pageup", "pagedown"):
+        offsets = S.setdefault("text_scroll", {})
+        offsets[name] = max(0, offsets.get(name, 0) + (-5 if key in ("\x02", "pageup") else 5))
+        return True
+    if key in ("left", "right", "home", "end", "up", "down"):
+        if key == "left": pos = max(0, pos - 1)
+        elif key == "right": pos = min(len(text), pos + 1)
+        elif key == "home": pos = text.rfind("\n", 0, pos) + 1
+        elif key == "end":
+            end = text.find("\n", pos)
+            pos = len(text) if end < 0 else end
+        elif key == "up":
+            start = text.rfind("\n", 0, pos) + 1
+            if start:
+                before = text.rfind("\n", 0, start - 1) + 1
+                pos = min(start - 1, before + pos - start)
+        elif key == "down":
+            start = text.rfind("\n", 0, pos) + 1
+            end = text.find("\n", pos)
+            if end >= 0:
+                after = text.find("\n", end + 1)
+                pos = min(len(text) if after < 0 else after, end + 1 + pos - start)
+    elif key in ("\x7f", "\b", "\x08"):
+        if pos:
+            text, pos = text[:pos - 1] + text[pos:], pos - 1
+    elif key == "delete":
+        text = text[:pos] + text[pos + 1:]
+    elif key in ("\r", "\n") or (len(key) == 1 and key.isprintable()):
+        addition = "\n" if key in ("\r", "\n") else key
+        if len(text) >= limit:
+            S["msg"] = "límite de %d caracteres; guarda o reduce el texto" % limit
+            return True
+        text, pos = text[:pos] + addition + text[pos:], pos + 1
+    S[name], cursors[name] = text, pos
+    S.setdefault("text_scroll", {}).pop(name, None)
+    return True
+
+
 def _accion(S, key):
     S["msg"] = ""
+    if S["modo"] in ("add", "edit", "ver"):
+        S.setdefault("form_date", S["sel"])
+        if key == "\x07":
+            S["form_focus"] = "editor" if S.get("form_focus") == "calendar" else "calendar"
+            return True
+        if S.get("form_focus") == "calendar":
+            return _calendar_form_key(S, key)
+    if S["modo"] == "queue":
+        rows = P.task_queue()
+        idx = min(S.get("queue_idx", 0), max(0, len(rows) - 1))
+        if key in ("q", "\x1b", "v"):
+            S["modo"] = "nav"
+        elif key in ("up", "down", "tab"):
+            S["queue_idx"] = (idx + (-1 if key == "up" else 1)) % max(1, len(rows))
+        elif key in ("\r", "\n") and rows:
+            e = rows[idx]
+            S["sel"] = datetime.date.fromisoformat(e["date"])
+            _open_detail(S, e)
+        elif key in ("l", "L") and rows:
+            _toggle_ready(S, rows[idx])
+        return True
+    if S["modo"] == "trash":
+        rows = P.trash_events()
+        idx = min(S.get("trash_idx", 0), max(0, len(rows) - 1))
+        if key in ("q", "Q", "\x1b", "b", "B"):
+            S["modo"] = "nav"
+        elif key in ("up", "down", "tab"):
+            S["trash_idx"] = (idx + (-1 if key == "up" else 1)) % max(1, len(rows))
+        elif key in ("r", "R", "\r", "\n") and rows:
+            e = rows[idx]
+            S["msg"] = "restaurado: " + e["title"] if P.restore_event(e["id"]) else "no pude restaurarlo"
+            S["trash_idx"] = min(idx, max(0, len(P.trash_events()) - 1))
+        return True
+    if S["modo"] == "move":
+        if key in ("\x1b", "q", "Q"):
+            S["sel"], S["modo"] = S["move_origin"], "nav"
+            S["msg"] = "movimiento cancelado"
+        elif key in ("\r", "\n"):
+            e = S["moving"]
+            if P.move_event(e["id"], S["sel"].isoformat()):
+                S["modo"], S["ev"] = "nav", 0
+                S["msg"] = "movido a " + S["sel"].isoformat()
+            else:
+                S["msg"] = "no pude moverlo; el evento conserva su fecha"
+        elif key in ("left", "right", "up", "down"):
+            S["sel"] += datetime.timedelta(days={"left": -1, "right": 1, "up": -7, "down": 7}[key])
+        elif key.lower() in ("n", "p"):
+            S["sel"] = _mes_mov(S["sel"], 1 if key.lower() == "n" else -1)
+        elif key.lower() == "t":
+            S["sel"] = datetime.date.today()
+        return True
     if S["modo"] == "ver":
         # vista DETALLE: leer la descripción y actuar sobre ESE evento
         e = _sel_ev(S)
         if key in ("\x1b", "\r", "\n", "q", "Q") or e is None:
             S["modo"] = "nav"
+            return True
+        if key in ("l", "L"):
+            _toggle_ready(S, e)
+            return True
+        if key in ("\x02", "\x06", "pageup", "pagedown"):
+            name = "pbuf" if S.get("campo") == 2 else "nbuf"
+            offsets = S.setdefault("text_scroll", {})
+            offsets[name] = max(0, offsets.get(name, 0) + (-5 if key in ("\x02", "pageup") else 5))
+            return True
+        if key in ("m", "M"):
+            _abrir_mover(S, e)
             return True
         if key in ("e", "E"):
             _abrir_edicion(S, e, campo=1)      # directo a la descripción
@@ -646,54 +928,31 @@ def _accion(S, key):
             _borrar_sel(S, e)
             S["modo"] = "nav"
             return True
-        if key == "tab" and S.get("evs"):      # siguiente evento, sin salir
-            S["ev"] = (S["ev"] + 1) % len(S["evs"])
+        if key == "tab":
+            S["campo"] = 1 if S.get("campo") == 2 else 2
         return True
     if S["modo"] in ("add", "edit"):
-        # un solo editor de dos campos para alta Y edición (el alta sin
-        # descripción era el bug): campo 0 = título, campo 1 = descripción
-        en_notas = (S.get("campo") == 1)
-        if key == "\x1b":
-            S["modo"], S["buf"], S["msg"] = "nav", "", "cancelado"
-            S["campo"], S["nbuf"] = 0, ""
-            return True
-        if key == "tab":
-            S["campo"] = 0 if en_notas else 1
-            return True
-        if key in ("\r", "\n"):
-            if en_notas:                   # Enter en notas = nueva línea
-                if len(S.get("nbuf") or "") < P.NOTES_MAX:
-                    S["nbuf"] = (S.get("nbuf") or "") + "\n"
-                return True
-            hora, titulo = _parse_hora(S["buf"])
-            S["modo"], S["buf"] = "nav", ""
-            notas, S["campo"], S["nbuf"] = S.get("nbuf") or "", 0, ""
-            if not titulo:
-                return True
-            if S.get("editando"):
-                ok = P.update_event(S["editando"], S["sel"].isoformat(),
-                                    titulo, hora, notes=notas.strip("\n"))
-                S["editando"] = None
-                S["msg"] = "editado" if ok else "no pude guardarlo"
-            else:
-                ok = P.add_event(S["sel"].isoformat(), titulo, hora,
-                                 notes=notas.strip("\n"))
-                S["msg"] = "guardado" if ok else "no pude guardarlo"
-            return True
-        if key in ("\x7f", "\b", "\x08"):
-            campo = "nbuf" if en_notas else "buf"
-            S[campo] = (S.get(campo) or "")[:-1]
-            return True
-        if key and len(key) == 1 and key.isprintable():
-            if en_notas:
-                if len(S.get("nbuf") or "") < P.NOTES_MAX:
-                    S["nbuf"] = (S.get("nbuf") or "") + key
-            elif len(S["buf"]) < 80:
-                S["buf"] += key
-        return True
+        return _edit_key(S, key)
     if key in ("q", "Q", "\x03"):
         return False
-    if key == "left":
+    if key in ("l", "L"):
+        e = _sel_ev(S)
+        if e:
+            _toggle_ready(S, e)
+        else:
+            S["msg"] = "no hay tarea que marcar"
+    elif key in ("v", "V"):
+        S["modo"], S["queue_idx"] = "queue", 0
+    elif key in ("b", "B"):
+        S["modo"], S["trash_idx"] = "trash", 0
+        P.trash_events()
+    elif key in ("m", "M"):
+        e = _sel_ev(S)
+        if e:
+            _abrir_mover(S, e)
+        else:
+            S["msg"] = "no hay evento que mover aquí"
+    elif key == "left":
         S["sel"] -= datetime.timedelta(days=1)
     elif key == "right":
         S["sel"] += datetime.timedelta(days=1)
@@ -714,13 +973,11 @@ def _accion(S, key):
         # Enter: con eventos en el día abre el DETALLE del marcado (la
         # descripción entera, legible); en un día vacío, el alta directa
         if S.get("evs"):
-            S["modo"] = "ver"
+            _open_detail(S, _sel_ev(S))
         else:
-            S["modo"], S["buf"], S["editando"] = "add", "", None
-            S["campo"], S["nbuf"] = 0, ""
+            _new_form(S)
     elif key in ("a", "A"):
-        S["modo"], S["buf"], S["editando"] = "add", "", None
-        S["campo"], S["nbuf"] = 0, ""
+        _new_form(S)
     elif key in ("e", "E"):
         e = _sel_ev(S)
         if e:
@@ -763,6 +1020,8 @@ def _run_unix(S):
     import select
     import termios
     import tty
+    import codecs
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
     try:
         fd = os.open("/dev/tty", os.O_RDWR)
         tout = open("/dev/tty", "w")
@@ -777,13 +1036,23 @@ def _run_unix(S):
             if not select.select([fd], [], [], 0.5)[0]:
                 _draw(tout, S)
                 continue
-            ch = os.read(fd, 1).decode("utf-8", "replace")
+            ch = decoder.decode(os.read(fd, 1))
+            if not ch:
+                continue
             key = ch
             if ch == "\x1b":
                 if select.select([fd], [], [], 0.05)[0]:
-                    seq = os.read(fd, 2).decode("utf-8", "replace")
+                    seq = ""
+                    while select.select([fd], [], [], 0.02)[0]:
+                        seq += os.read(fd, 1).decode("ascii", "ignore")
+                        if len(seq) >= 2 and (seq[-1].isalpha() or seq[-1] == "~"):
+                            break
+                        if len(seq) >= 16:
+                            break
                     key = {"[A": "up", "[B": "down", "[C": "right",
-                           "[D": "left"}.get(seq, "\x1b")
+                           "[D": "left", "[H": "home", "[F": "end", "[Z": "right_tab",
+                           "[1~": "home", "[4~": "end", "[3~": "delete",
+                           "[5~": "pageup", "[6~": "pagedown"}.get(seq, "")
                 else:
                     key = "\x1b"
             elif ch == "\t":
@@ -817,7 +1086,8 @@ def _run_windows(S):
             if ch in ("\x00", "\xe0"):
                 a = msvcrt.getwch()
                 key = {"H": "up", "P": "down", "M": "right",
-                       "K": "left"}.get(a, "")
+                       "K": "left", "G": "home", "O": "end",
+                       "S": "delete", "I": "pageup", "Q": "pagedown"}.get(a, "")
             elif ch == "\t":
                 key = "tab"
             else:

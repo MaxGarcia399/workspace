@@ -1800,20 +1800,35 @@ _TITULOS.update({"motor": ("ELIGE EL MOTOR", "DISPONIBILIDAD"),
                  "brain": ("TU CEREBRO", "ARCHIVOS QUE SE CREAN"),
                  "skill_receipt": ("RESULTADOS DE SKILLS", "MOTIVOS Y AVISOS")})
 
-_HINTS = {"menu": "↑↓ elige · Enter entra · 1-3 directo · q vuelve al menú",
-          "crear": "↑↓/Tab campo · escribe · Enter avanza (campo largo con "
-                   "texto: nueva línea) · Esc vuelve",
-          "skills": "↑↓ selecciona · Enter aplica · Espacio marca · Esc vuelve",
-          "plan": "↑↓ elige · Enter aplica · ←→ lee más · p IA · s skills · k revisa · Esc",
-          "run": "q cancela (cooperativo) · Esc vuelve al recinto — "
-                 "la creación sigue en 2º plano",
-          "done": "↓ revisión de skills · Enter/q continúa",
-          "stale": "l limpia · r limpia y reintenta · Enter/q después",
-          "cargar": "escribe la ruta · Enter conecta · Esc vuelve",
-          "descubrir": "↑↓ elige · Enter conecta · a los nuevos · "
-                       "r re-escanea · Esc vuelve",
-          "lrun": "Esc vuelve — la conexión sigue y avisa al terminar",
-          "listo": "Enter/q — volver"}
+# Atajos POR VISTA como pares (tecla, acción): UNA fuente de verdad — la
+# cabecera enseña los clave + salir (HL.top_hints recorta a 4) y el pie la
+# lista COMPLETA (HL.foot_hints; en angosto cede pares, jamás recorta a
+# media palabra).
+_HINTS = {
+    "menu": (("↑↓", "elige"), ("Enter", "entra"), ("1-3", "directo"),
+             ("q", "vuelve al menú")),
+    "crear": (("↑↓/Tab", "campo"), ("escribe", "edita"),
+              ("Enter", "avanza (campo largo con texto: nueva línea)"),
+              ("Esc", "vuelve")),
+    "skills": (("↑↓", "selecciona"), ("Enter", "aplica"),
+               ("Espacio", "marca"), ("Esc", "vuelve")),
+    "plan": (("↑↓", "elige"), ("Enter", "aplica"), ("←→", "lee más"),
+             ("p", "IA"), ("s", "skills"), ("k", "revisa"),
+             ("Esc", "vuelve")),
+    "run": (("q", "cancela (cooperativo)"),
+            ("Esc", "vuelve al recinto — la creación sigue en 2º plano")),
+    "done": (("↓", "revisión de skills"), ("Enter/q", "continúa")),
+    "stale": (("l", "limpia"), ("r", "limpia y reintenta"),
+              ("Enter/q", "después")),
+    "cargar": (("escribe", "la ruta"), ("Enter", "conecta"),
+               ("Esc", "vuelve")),
+    "descubrir": (("↑↓", "elige"), ("Enter", "conecta"),
+                  ("a", "los nuevos"), ("r", "re-escanea"),
+                  ("Esc", "vuelve")),
+    "lrun": (("Esc", "vuelve — la conexión sigue y avisa al terminar"),),
+    "listo": (("Enter/q", "volver"),)}
+_HINTS_DEF = (("↑↓", "elige"), ("Enter", "aplica"), ("←→", "lee más"),
+              ("Esc", "vuelve"))
 
 _SUBS = {"plan": "agregar agente — el plan, antes de tocar el disco",
          "run": "agregar agente — creando en vivo",
@@ -1834,18 +1849,12 @@ def _solo_w(w, apilado):
 
 def render(S, w, h):
     K = _K()
-    L = [""]
-    bt = HL.big_title(K, w, h, indent=" ", compact=(h < 30), center=True)
-    L += bt
-    if len(bt) > 1:
-        L += HL.title_reflection(K, w, indent=" ", center=True)
     sub = _SUBS.get(S["view"], "agregar agente — " + _TITULOS[S["view"]][0].lower()) if S["view"] in agent_create_ui.VIEWS else _SUBS.get(S["view"],
                     "agregar agente — crear · cargar · descubrir")
-    L.append(" " * max(0, ((w - 1) - HL.vis(sub)) // 2)
-             + "%s%s%s" % (K["DIM"], sub, K["R"]))
-    L.append("%s%s%s%s%s" % (K["B2"], K["BOX"][5] * 3, K["DK"],
-                             K["BOX"][5] * max(1, w - 5), K["R"]))
-    L.append("")
+    # cabecera COMPARTIDA (wordmark + subtítulo + atajos clave + regla);
+    # los atajos de arriba siguen la VISTA — nunca mienten
+    L = HL.screen_header(K, w, h, sub,
+                         hints=_HINTS.get(S["view"], _HINTS_DEF))
     top = len(L)
     apilado = w < 100
     lw = (w - 1) if apilado else max(36, min(52, (w - 6) * 48 // 100))
@@ -1946,7 +1955,7 @@ def _finish_frame(S, K, L, w, h):
     L.append("")
     L.append((" %s%s%s" % (K["B2"], S["msg"], K["R"]))
              if S.get("msg") else "")
-    L.append(" %s%s%s" % (K["DK"], _HINTS.get(v, "↑↓ elige · Enter aplica · ←→ lee más · Esc vuelve"), K["R"]))
+    L.append(HL.foot_hints(K, _HINTS.get(v, _HINTS_DEF), w))
     L = L[:h - 1]
     L += [""] * max(0, (h - 1) - len(L))
     return [HL.clip(x, w - 1) for x in L]

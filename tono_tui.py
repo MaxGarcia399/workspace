@@ -53,6 +53,12 @@ ORDEN = tuple(_BY[k] for _, claves in GRUPOS for k in claves)
 
 NEUTRO_TXT = "como siempre — este dial no envía nada"
 
+# UNA fuente de verdad de los atajos: la cabecera enseña los 3 clave + salir
+# (HL.top_hints los recorta) y el pie la lista COMPLETA (HL.foot_hints).
+PARES = (("↑↓", "dial"), ("◄►", "nivel"), ("Tab", "agente"),
+         ("1-5", "directo"), ("p", "modo"), ("r", "neutro"),
+         ("q", "vuelve al menú"))
+
 
 def _K():
     """La paleta del TEMA activo, igual que el hub. Sin tuitheme, el
@@ -265,18 +271,9 @@ def render(S, w, h):
     K = _K()
     dests = S["dests"]
     dest = dests[S["di"] % len(dests)]
-    L = [""]
-    # mismo wordmark del hub (centrado), para que esto NO se sienta otra app
-    bt = HL.big_title(K, w, h, indent=" ", compact=(h < 30), center=True)
-    L += bt
-    if len(bt) > 1:
-        L += HL.title_reflection(K, w, indent=" ", center=True)
-    sub = "tono — cómo te hablan tus agentes"
-    L.append(" " * max(0, ((w - 1) - HL.vis(sub)) // 2)
-             + "%s%s%s" % (K["DIM"], sub, K["R"]))
-    L.append("%s%s%s%s%s" % (K["B2"], K["BOX"][5] * 3, K["DK"],
-                             K["BOX"][5] * max(1, w - 5), K["R"]))
-    L.append("")
+    # cabecera COMPARTIDA (wordmark + subtítulo + atajos clave + regla)
+    L = HL.screen_header(K, w, h, "tono — cómo te hablan tus agentes",
+                         hints=PARES)
     L.append(_fila_destinos(S, K, w))
     L.append("")
     top = len(L)
@@ -325,9 +322,7 @@ def render(S, w, h):
         L.append(" %s%s%s" % (K["B2"], S["msg"], K["R"]))
     else:
         L.append("")
-    hint = ("↑↓ dial · ◄► nivel · 1-5 directo · Tab agente · p modo · "
-            "r neutro · q vuelve al menú")
-    L.append(" %s%s%s" % (K["DK"], hint, K["R"]))
+    L.append(HL.foot_hints(K, PARES, w))
     return [HL.clip(x, w - 1) for x in L[:h - 1]]
 
 

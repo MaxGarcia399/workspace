@@ -185,6 +185,9 @@ def vertical_hub(agents, menu, pins, w, h, focus, agent_idx, menu_idx, pin_idx):
                 for i, value in enumerate(values) if start <= i < start + cap]
         body += [''] * max(0, cap - len(body))
         lines += box(label, body, pw, focus == key) + ['']
-    lines += [HL.clip('↑↓ sección · ◄► elige · Enter entra · m motor · i información · q terminal', pw),
+    lines += [HL.clip(HL.keyline(K, (('↑↓', 'sección'), ('◄►', 'elige'),
+                                     ('Enter', 'entra'), ('m', 'motor'),
+                                     ('i', 'información'), ('q', 'terminal')),
+                                 pw), pw),
               HL.clip('Pantalla completa: experiencia completa', pw)]
     return centered(lines, w, h)

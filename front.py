@@ -144,6 +144,50 @@ def _has_proyectos():
             and os.path.isfile(os.path.join(ROOT, "proyectos.py")))
 
 
+def menu_entries():
+    """Registro CANÓNICO del MENÚ del hub: [(token, etiqueta, tagline)] en el
+    orden del recinto, gates incluidos (Dev solo dueño/dev). ÚNICA fuente:
+    `_menu_machinery` arma sus opts de aquí, `items()` toma de aquí su
+    porción del picker estático y keybinds deriva de aquí la sección «menú»
+    de la pantalla «Atajos» — una sección nueva del hub aparece SOLA en los
+    tres lugares (y gana tecla re-mapeable) sin tocar nada más."""
+    out = []
+    # «GitHub» (ex-«Ramas», 2026-10-04): la sección creció — conserva el mapa
+    # local de ramas/worktrees (git_tui, tecla m) y suma la capa GitHub
+    # multi-repo vía el CLI gh (github_tui, gated por `gh auth status`).
+    # Ya NO es dev-only: es producto. El token __ramas__ se conserva
+    # (keybinds y ruteo estables).
+    out.append(("__ramas__", "GitHub",
+                "tus repos: ramas locales + PRs, issues y releases"))
+    # «Dev» (sección del hub, 2026-10-04): transparencia del proceso de
+    # desarrollo — referencia de comandos + mapa del detrás (pipeline, repos,
+    # qué sube, versión, estado). SOLO el dueño/dev: gate por-archivos (igual
+    # que «Ramas») + dev_tui.is_dev() (canal main / marker per-máquina).
+    # Falla-suave ABSOLUTA: sin dev_tui, el menú queda exactamente como antes.
+    try:
+        import dev_tui as _dtui
+        if _has_dev_panel() and _dtui.is_dev():
+            out.append(("__devmap__", "Dev",
+                        "el detrás de workspace — comandos + mapa"))
+    except Exception:
+        pass
+    # «Actualizaciones» (ex-«Doctor», renombre user-facing 2026-10-02): mismo
+    # token __doctor__ y mismos comandos (workspace doctor/update) por debajo.
+    out += [("__cal__", "Calendario",
+             "tu agenda del día, editable a pantalla completa"),
+            ("__tono__", "Tono",
+             "los diales de personalidad de tus agentes"),
+            ("__keybinds__", "Atajos",
+             "re-mapea las teclas rápidas del hub"),
+            ("__doctor__", "Actualizaciones",
+             "revisar · reparar · actualizar"),
+            ("__add_agent__", "Agregar agente",
+             "crear o cargar un agente"),
+            ("__shell__", "Terminal normal",
+             "tu shell de siempre · tecla q")]
+    return out
+
+
 def items():
     """(name, display, tagline, selectable). Activos primero, planeados en gris."""
     reg = registry()
@@ -166,19 +210,16 @@ def items():
     # vía `workspace dev` (cmd_dev + ruteo de __dev__ intactos) — solo dejó
     # de ocupar un lugar en el hub. Re-exponerlo = re-agregar la entrada aquí
     # y en opts de _menu_machinery (gate: _has_dev_panel()).
-    # «Ramas» se queda — DEV-ONLY: mismo gate por-archivos (dash/dev se
-    # excluye de la distro → un cliente no la ve).
-    if _has_dev_panel():
-        out.append(("__ramas__", "Ramas", "ramas y worktrees del harness", True))
     # «Proyectos» salió del MENÚ (pedido del socio 2026-10-02): la app sigue viva
     # vía `workspace proyectos` (cmd_proyectos + ruteo de __proyectos__ intactos)
     # — solo dejó de ocupar un lugar en el hub. Re-exponerla = re-agregar la
-    # entrada aquí y en opts de _menu_machinery (gate: _has_proyectos()).
-    # «Actualizaciones» (ex-«Doctor», renombre user-facing 2026-10-02): mismo
-    # token __doctor__ y mismos comandos (workspace doctor/update) por debajo.
-    out.append(("__doctor__", "Actualizaciones", "revisar · reparar · actualizar", True))
-    out.append(("__add_agent__", "Agregar agente", "crear o cargar un agente", True))
-    out.append(("__shell__", "Terminal normal", "tu shell de siempre · tecla q", True))
+    # entrada en menu_entries() (gate: _has_proyectos()).
+    # El MENÚ sale del registro canónico (menu_entries — gates incluidos);
+    # el picker estático solo lista SU porción: cal/tono/atajos son pantallas
+    # del recinto animado y no entran aquí (decisión previa, intacta).
+    _solo_hub = ("__cal__", "__tono__", "__keybinds__")
+    out += [(tok, lbl, tag, True) for tok, lbl, tag in menu_entries()
+            if tok not in _solo_hub]
     return out
 
 
@@ -263,9 +304,10 @@ def _step(idx, d, it):
 # Defaults DUROS del mapa de salto (paridad si keybinds.py faltara): mismo
 # contenido que keybinds.defaults(). La fuente de verdad en runtime es el
 # REGISTRO per-máquina (keybinds.py — pantalla «Atajos» del MENÚ).
-_JUMP_FALLBACK = {"menu.__ramas__": "r", "menu.__cal__": "c",
-                  "menu.__tono__": "o", "menu.__keybinds__": "k",
-                  "menu.__doctor__": "u", "menu.__add_agent__": "g",
+_JUMP_FALLBACK = {"menu.__ramas__": "r", "menu.__devmap__": "v",
+                  "menu.__cal__": "c", "menu.__tono__": "o",
+                  "menu.__keybinds__": "k", "menu.__doctor__": "u",
+                  "menu.__add_agent__": "g",
                   "accion.motor": "m", "accion.info": "i"}
 
 
@@ -1256,20 +1298,13 @@ def _menu_machinery(tout):
     NA = len(agents)
     # «Config» fuera del MENÚ (el socio 2026-10-02) — se rehace después; el
     # subsistema (config_tui) sigue vivo, solo no se lista. Ver items().
-    opts = []
     # «Dev» fuera del MENÚ (el socio 2026-10-02) — el panel vive en `workspace
-    # dev` (ruteo de __dev__ intacto); ver items(). «Ramas» se queda.
-    if _has_dev_panel():                               # dev-only: ver _has_dev_panel
-        opts.append(("__ramas__", "Ramas"))
-    # «Proyectos» fuera del MENÚ (el socio 2026-10-02) — la app vive en
-    # `workspace proyectos`; ver items(). «Doctor» ahora se muestra
-    # «Actualizaciones» (mismo token/comandos — solo la etiqueta).
-    opts += [("__cal__", "Calendario"),
-             ("__tono__", "Tono"),
-             ("__keybinds__", "Atajos"),
-             ("__doctor__", "Actualizaciones"),
-             ("__add_agent__", "Agregar agente"),
-             ("__shell__", "Terminal normal")]
+    # dev` (ruteo de __dev__ intacto). «Proyectos» fuera del MENÚ (el socio
+    # 2026-10-02) — la app vive en `workspace proyectos`. Las opciones salen
+    # del registro CANÓNICO (menu_entries: GitHub siempre, «Dev» gated al
+    # dueño/dev, Calendario/Tono/Atajos/Actualizaciones/Agregar/Terminal) —
+    # misma fuente que items() y que la sección «menú» de keybinds.
+    opts = [(tok, lbl) for tok, lbl, _tag in menu_entries()]
     # TECLAS RÁPIDAS (registro keybinds, re-mapeable en «Atajos»): mapa
     # tecla→ítem + display por sección + acciones (motor/info). Lo consumen
     # jump()/quick() (drivers) y lo PINTAN los layouts junto a cada opción.
@@ -1680,7 +1715,10 @@ def _menu_machinery(tout):
         render._TH, render._INACTIVE, render._GL = p, p.INACTIVE, p.GLYPHS
         render._EMBER_REST = p.EMBER
         import theme
-        theme.apply_colors(p.OSC)
+        if p.OSC:
+            theme.apply_colors(p.OSC)
+        else:
+            theme.apply("workspace")
         return True
 
     def full_draw(first=False):
@@ -1694,10 +1732,21 @@ def _menu_machinery(tout):
         if _laybox["lay"]:
             return _lay_full_draw(first)
         _ac = JKEYS.get("acciones") or {}
-        _hx = "".join(f" · {_ac[n]} {n}" for n in ("motor", "info")
-                      if _ac.get(n))
-        hdr = _ctr(f"{DIM}↑↓ menú · ◄► elige · Enter entra · "
-                   f"tecla apunta/abre{_hx} · q terminal{R}")
+        # atajos clave BAJO el wordmark, legibles (tecla en acento, acción
+        # en gris — hublayout.keyline, el lenguaje de hints de todo el hub);
+        # sin hublayout cae a la línea DIM de siempre (falla-suave)
+        _pares = ([("↑↓", "menú"), ("◄►", "elige"), ("Enter", "entra"),
+                   ("tecla", "apunta/abre")]
+                  + [(_ac[n], n) for n in ("motor", "info") if _ac.get(n)]
+                  + [("q", "terminal")])
+        if _hl:
+            hdr = _ctr(_hl.keyline(_hl.cols(TH), _pares,
+                                   max(20, S["term_w"] - 4)))
+        else:
+            _hx = "".join(f" · {_ac[n]} {n}" for n in ("motor", "info")
+                          if _ac.get(n))
+            hdr = _ctr(f"{DIM}↑↓ menú · ◄► elige · Enter entra · "
+                       f"tecla apunta/abre{_hx} · q terminal{R}")
         upper = (list(render.wordmark_plain()) + _wordmark_reflection() + [""]
                  + _franja(agents) + ["", hdr, ""])      # cielo + banner (+ reflejo ░ en grises)
         lower = block_lines()                            # bloque interactivo: lo repinta redraw()
@@ -5037,6 +5086,7 @@ def _usage():
         "  foco [texto]        el foco del día (lo pinta la caja HOY del layout dia)\n"
         "  agenda [add|rm]     tu agenda local (eventos con fecha/hora)\n"
         "  tono                pantalla del TONO de los agentes (diales 1-5)\n"
+        "  onboarding          flujo guiado de primer uso (motores · apariencia · agente)\n"
         "  calendario          editor de agenda (mes + alta/edicion/baja)\n"
         "  mail                enviar correo (SMTP per-máquina; default --dry-run)\n"
         "  parity-check        checklist de paridad Mac/Windows\n"
@@ -5130,11 +5180,19 @@ def main():
     # HOY del layout `dia`. Local a esta máquina (personal.py).
     if len(sys.argv) > 1 and sys.argv[1] in ("foco", "focus"):
         sys.exit(cmd_personal("foco", sys.argv[2:]))
-    if len(sys.argv) > 1 and sys.argv[1] in ("agenda", "calendario"):
+    if len(sys.argv) > 1 and sys.argv[1] == "agenda":
         sys.exit(cmd_personal("agenda", sys.argv[2:]))
     # Niveles de personalidad de los agentes (tono.*) — ver personalidad.py.
     if len(sys.argv) > 1 and sys.argv[1] in ("tono", "personalidad"):
         sys.exit(cmd_tono(sys.argv[2:]))
+    # Onboarding de primer uso, re-ejecutable a mano (onboarding_tui.py).
+    if len(sys.argv) > 1 and sys.argv[1] in ("onboarding", "bienvenida"):
+        try:
+            import onboarding_tui
+            sys.exit(onboarding_tui.run(force=True))
+        except Exception as e:
+            print(f"onboarding no disponible ({type(e).__name__}: {e})")
+            sys.exit(0)
     if len(sys.argv) > 1 and sys.argv[1] in ("calendario", "cal"):
         sys.exit(cmd_calendario(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] in ("uninstall", "--uninstall", "remove"):
@@ -5189,6 +5247,20 @@ def main():
     # («hub»). Solo aplica cuando nos invocó el greeter (WORKSPACE_GREETER).
     if "--banner" not in sys.argv and _greeter_preview_skip():
         return
+    # ── ONBOARDING de primer uso (repo público): sin flag, sin agentes y con
+    #    TTY → flujo guiado ANTES del hub (onboarding_tui.maybe_run decide con
+    #    sus propias guardas — subcomando/--banner, env, flag, adopción); si
+    #    corrió, re-exec para que el recinto arranque ya con el tema y los
+    #    agentes recién elegidos (la paleta de este proceso se fijó al
+    #    importar). Fail-soft total: cualquier problema → el hub normal.
+    try:
+        import onboarding_tui
+        if onboarding_tui.maybe_run():
+            os.execv(sys.executable,
+                     [sys.executable, os.path.abspath(__file__)]
+                     + sys.argv[1:])
+    except Exception:
+        pass
     # El harness arranca VACÍO de agentes: es un producto que se distribuye a clientes
     # y ellos conectan sus PROPIOS cerebros explícitamente ("Agregar agente → cargar
     # ruta"). NO auto-descubrimos cerebros del disco al bootear (eso metía un agente
@@ -5262,7 +5334,8 @@ def main():
         # vivo (jamás crashea el boot). El recinto se reconstruye al re-entrar
         # al loop → relee el registry (un agente recién agregado ya aparece).
         loopback = {"__config__": ("config", "config_tui"),
-                    "__ramas__": ("ramas", "git_tui"),
+                    "__ramas__": ("github", "github_tui"),
+                    "__devmap__": ("dev", "dev_tui"),
                     "__keybinds__": ("atajos", "keybinds_tui"),
                     "__add_agent__": ("agregar agente", "add_agent_tui")}
         if name not in loopback:

@@ -889,6 +889,8 @@ def build_sections():
                       choices=[t[0] for t in themes])
     th_it["themes"] = tuple(themes)
     ui_items = [th_it,
+                _item_for("ui.background"),
+                _item_for("ui.background_custom"),
                 _item_for("ui.stars", env="WORKSPACE_NO_STARS"),
                 _item_for("ui.anim", env="WORKSPACE_NO_ANIM")]
     # el sub muestra el tema EFECTIVO (env WORKSPACE_THEME > store > olympo)
@@ -2354,7 +2356,32 @@ def render_lines(S, w, h):
     rw = w - lw - 3                                  # ║ + lw + ┃ + rw + ║
     rows = h - 6                                     # top+hsep+2 ayuda+bottom
     title = "═ CONFIG "
-    top = (B + "╔" + title + "═" * max(0, w - 2 - len(title)) + "╗" + R)
+    # Atajos CLAVE en el borde superior, junto al nombre de la pantalla
+    # (pedido del socio 2026-10-04): la primera fila del HELP del modo
+    # actual, tecla en acento+bold y acción en B2, cediendo pares del final
+    # si no caben. La barra COMPLETA de 2 filas sigue abajo, en el marco.
+    mode = S.get("mode")
+    pairs = list(HELP.get(mode if mode in ("edit", "pick", "connect",
+                                           "agent") else "nav",
+                          HELP["nav"])[0])
+    inner = w - 2
+    hint, hint_w = "", 0
+    while pairs:
+        plain = " " + " · ".join("%s %s" % kv for kv in pairs) + " "
+        if _pw(plain) <= inner - len(title) - 8:
+            segs = []
+            for k, (key, label) in enumerate(pairs):
+                if k:
+                    segs.append(DK + " · " + R)
+                segs.append(C + BO + key + R + " " + B2 + label + R)
+            hint, hint_w = " " + "".join(segs) + " ", _pw(plain)
+            break
+        pairs.pop()
+    if hint:
+        top = (B + "╔" + title + "═" * 4 + R + hint + B
+               + "═" * max(0, inner - len(title) - 4 - hint_w) + "╗" + R)
+    else:
+        top = (B + "╔" + title + "═" * max(0, inner - len(title)) + "╗" + R)
     left = _left_lines(S, rows, lw)
     right = _right_lines(S, rw, rows)
     lines = [top]

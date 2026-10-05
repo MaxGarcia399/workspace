@@ -303,11 +303,15 @@ def palette(theme_id=None):
     except Exception:
         tid = DEFAULT_ID
     mode = color_mode()
-    key = (tid, mode)
+    import theme
+    bg = theme.background_color()
+    key = (tid, mode, bg)
     if key in _memo:
         return _memo[key]
     spec = _merged(_tui_block(tid))
     mono = (mode == "mono")
+    if bg and not mono:
+        spec["osc"] = dict(spec["osc"] or {}, bg=bg)
 
     def s(v):
         return _seq(v, mode)

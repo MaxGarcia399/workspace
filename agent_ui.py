@@ -72,8 +72,16 @@ def picker_frame(items, selected, width, height, box_w=None, left=None):
         body.append('↓ más sesiones')
     if left is None or not box_w or pw != int(box_w):
         left = max(0, (width - 1 - pw) // 2)     # centrada a la terminal
-    return [' '*left+x for x in UI.box('SESIONES · ↑↓ elige · Enter abre',
-                                       body,pw,True,title_align='center')]
+    rows = [' '*left+x for x in UI.box('SESIONES', body, pw, True,
+                                       title_align='center')]
+    # los atajos salen del título y bajan AQUÍ, legibles (tecla en acento,
+    # acción en gris — H.keyline, el mismo lenguaje de hints de todo el hub)
+    hint = H.keyline(H.cols(tuitheme.palette()),
+                     (('↑↓', 'elige'), ('Enter', 'abre'), ('1-9', 'directo'),
+                      ('Ctrl+C', 'sale')), max(10, pw - 2))
+    if hint:
+        rows.append(' '*(left + max(0, (pw - H.vis(hint)) // 2)) + hint)
+    return rows
 
 def draw_picker(out, items, selected, state):
     try:

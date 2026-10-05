@@ -416,6 +416,15 @@ SETTINGS_SCHEMA = (
      "type": "bool", "default": True,
      "help": "Menú animado del recinto y banner animado (sin esto: estático + picker).",
      "applies": "front.py + banner/render.py; env WORKSPACE_NO_ANIM=1 gana."},
+    {"key": "ui.background", "group": "ui", "label": "Fondo independiente",
+     "type": "enum", "default": "tema",
+     "choices": ("tema", "negro", "grafito", "azul", "verde", "violeta", "personalizado"),
+     "help": "Cambia solo el fondo; tema recupera el fondo del tema activo.",
+     "applies": "tuitheme.palette() y theme.apply_colors()."},
+    {"key": "ui.background_custom", "group": "ui", "label": "Color de fondo propio",
+     "type": "str", "default": "#101018",
+     "help": "Color #RRGGBB; elige personalizado en Fondo independiente.",
+     "applies": "tuitheme.palette() y theme.apply_colors()."},
     {"key": "ui.theme", "group": "ui", "label": "Tema del hub",
      "type": "enum", "default": "rose",   # 2026-10 (socio): la familia rosé es la insignia; default CON color
      # SOLO temas TUI-ready (_TUI_THEMES: mono + cyberpunk + la familia rosé)
@@ -501,7 +510,7 @@ SETTINGS_SCHEMA = (
      # llama ahora PERSONALIZACIÓN y es para tema/colores/customizables.
      # Layout y latido siguen vivos (settings/config TUI/CLI) — quien los
      # quiera de vuelta en el hub puede re-anclarlos desde la Config.
-     "type": "list", "default": ["ui.theme"],
+     "type": "list", "default": ["ui.theme", "ui.background"],
      "max_items": 5, "member_ok": lambda k: _hub_pin_ok(k),
      "help": "Lista de settings (keys del schema) que el hub muestra en su "
              "sección PERSONALIZACIÓN para acceso rápido — label + valor "
@@ -778,6 +787,11 @@ def validate(key, value):
                          % (key, "/".join(choices), value))
     if t == "str":
         if isinstance(value, str):
+            if key == "ui.background_custom":
+                v = value.strip().lower()
+                if not re.fullmatch(r"#[0-9a-f]{6}", v):
+                    raise ValueError("color inválido: usa #RRGGBB (ej. #101018)")
+                return v
             if key == "latido.quiet_hours":
                 v = value.strip()
                 if v and not _QUIET_RX.match(v):
@@ -935,6 +949,9 @@ def hub_pins_resolved():
         keys = get("ui.hub_pins", [])
         if not isinstance(keys, (list, tuple)):
             return []
+        keys = list(keys)
+        if keys and "ui.background" not in keys:
+            keys.append("ui.background")
         for k in keys:
             spec = _BY_KEY.get(k)
             if not spec:

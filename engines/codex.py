@@ -576,13 +576,29 @@ def _vendor_session_after(brain, t0, root=None, limit=16):
 # Reglas de convivencia (falla-suave SIEMPRE, jamás rompe el launch):
 #   · AGENTS.md no existe            → se crea (marcado GENERADO).
 #   · existe CON la marca WORKSPACE    → se re-sincroniza si el texto cambió.
-#   · existe SIN la marca (del socio)→ NO SE TOCA — su archivo gana.
+#   · existe con la marca LEGACY (pre-rename OLYMPUS) → es NUESTRO: se
+#     re-sincroniza (migración automática a la marca nueva).
+#   · existe SIN marca (del socio)   → su CONTENIDO no se toca; el bloque de
+#     sesión va ANEXADO al final, marcado y efímero (strip al cerrar +
+#     strip-antes-de-anexar en cada launch) — fix 2026-10-04: antes la
+#     memoria de la pestaña caía al primer prompt VISIBLE.
 #   · no hay doc de identidad        → no se genera nada (un puntero a la
 #     nada confunde más que un codex genérico honesto).
 
 #: Primera línea EXACTA de un AGENTS.md generado — es el detector de "es
 #: nuestro, se puede re-sincronizar". No cambiar sin migración.
 _GEN_MARK = "<!-- WORKSPACE:GENERATED inject_context v1 -->"
+#: Marca pre-rename (OLYMPUS→Workspace 2026-10): los cerebros existentes aún
+#: la traen; sin reconocerla el doc generado parecía "del socio" y la memoria
+#: caía al primer prompt visible. Solo se LEE (detección); se escribe siempre
+#: la nueva.
+_GEN_MARK_LEGACY = "<!-- OLYMPUS:GENERATED inject_context v1 -->"
+
+
+def _is_generated(text):
+    """¿El AGENTS.md es NUESTRO (marca actual o legacy pre-rename)?"""
+    head = (text or "").lstrip()
+    return head.startswith(_GEN_MARK) or head.startswith(_GEN_MARK_LEGACY)
 
 #: Doc de identidad por default (convención de los cerebros). Override por
 #: agente: "identity_doc" en agent.json.
@@ -637,6 +653,52 @@ AL INICIAR LA SESIÓN, ANTES DE CUALQUIER OTRA COSA:
 #: launch sin pestaña también lo elimina (re-sync al texto base).
 _SESSION_START = "<!-- WORKSPACE:SESSION start — contexto de la pestaña activa; se regenera en cada launch -->"
 _SESSION_END = "<!-- WORKSPACE:SESSION end -->"
+#: Marcas pre-rename (solo LECTURA: un bloque viejo de una corrida OLYMPUS
+#: también debe poder limpiarse — había huérfanos reales en los cerebros).
+_SESSION_STARTS = (_SESSION_START,
+                   "<!-- OLYMPUS:SESSION start — contexto de la pestaña activa; se regenera en cada launch -->")
+_SESSION_ENDS = (_SESSION_END, "<!-- OLYMPUS:SESSION end -->")
+
+
+def _split_session_block(text):
+    """(texto_sin_bloque, había_bloque). Corta por LÍNEAS completas entre las
+    marcas (actuales o legacy) — contenido con `-->` adentro no rompe el
+    corte, y el resto del archivo queda byte-a-byte intacto."""
+    out, skip, found = [], False, False
+    for ln in (text or "").splitlines(True):
+        s = ln.strip()
+        if not skip and s in _SESSION_STARTS:
+            skip, found = True, True
+            continue
+        if skip:
+            if s in _SESSION_ENDS:
+                skip = False
+            continue
+        out.append(ln)
+    return "".join(out), found
+
+
+def _strip_session_block(brain):
+    """Quita el bloque de sesión del AGENTS.md — generado O del socio (solo
+    corta entre nuestras marcas; el contenido del socio queda intacto).
+    Limpieza al cerrar: el contexto de la pestaña era de ESTA corrida.
+    Idempotente y falla-suave (False si no había bloque o ante error)."""
+    try:
+        p = os.path.join(brain or "", "AGENTS.md")
+        if not brain or not os.path.isfile(p):
+            return False
+        with open(p, encoding="utf-8", errors="replace") as fh:
+            txt = fh.read()
+        base, found = _split_session_block(txt)
+        if not found:
+            return False
+        tmp = p + ".workspace-tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(base.rstrip() + "\n")
+        os.replace(tmp, p)
+        return True
+    except Exception:
+        return False
 
 
 def inject_context(cfg, session_context=""):
@@ -644,8 +706,12 @@ def inject_context(cfg, session_context=""):
     entiende (contrato §3): AGENTS.md puntero en la raíz del cerebro.
     `session_context` (opcional) agrega el bloque de la pestaña activa —
     inyección SILENCIOSA: codex lo lee como project doc, no como mensaje.
+    AGENTS.md del socio → su contenido se respeta y el bloque va ANEXADO
+    al final (marcado, strip-antes-de-anexar, se limpia al cerrar).
     Devuelve {'ok', 'action': created|synced|kept|custom|skipped, 'path',
-    'detail'}. Falla-suave: errores → skipped con detail, jamás levanta."""
+    'detail'} + 'session': 'appended' cuando el bloque quedó anexado a un
+    doc del socio (el caller sabe que NO hace falta el fallback visible).
+    Falla-suave: errores → skipped con detail, jamás levanta."""
     brain = (cfg or {}).get("_brain", "")
     out = {"ok": False, "action": "skipped", "path": "", "detail": ""}
     try:
@@ -666,10 +732,45 @@ def inject_context(cfg, session_context=""):
             except OSError as e:
                 out["detail"] = "AGENTS.md ilegible: %s" % e
                 return out
-            if not cur.lstrip().startswith(_GEN_MARK):
-                # AGENTS.md PROPIO del socio → se respeta tal cual.
-                out.update(ok=True, action="custom",
-                           detail="AGENTS.md del socio (sin marca) — intacto")
+            if not _is_generated(cur):
+                # AGENTS.md PROPIO del socio → su contenido se respeta; el
+                # bloque de sesión va ANEXADO (marcado, efímero) para que la
+                # memoria llegue INVISIBLE igual que con el doc generado.
+                # strip-antes-de-anexar: un bloque huérfano (crash de una
+                # corrida previa) se auto-limpia aquí mismo.
+                try:
+                    base, had = _split_session_block(cur)
+                    if session_context:
+                        body = (base.rstrip() + "\n\n%s\n%s\n%s\n"
+                                % (_SESSION_START, session_context,
+                                   _SESSION_END))
+                        tmp = path + ".workspace-tmp"
+                        with open(tmp, "w", encoding="utf-8") as fh:
+                            fh.write(body)
+                        os.replace(tmp, path)
+                        out.update(ok=True, action="custom",
+                                   session="appended",
+                                   detail="AGENTS.md del socio — bloque de "
+                                          "sesión anexado (marcado; se "
+                                          "limpia al cerrar)")
+                    elif had:
+                        tmp = path + ".workspace-tmp"
+                        with open(tmp, "w", encoding="utf-8") as fh:
+                            fh.write(base.rstrip() + "\n")
+                        os.replace(tmp, path)
+                        out.update(ok=True, action="custom",
+                                   detail="AGENTS.md del socio — bloque de "
+                                          "sesión viejo limpiado")
+                    else:
+                        out.update(ok=True, action="custom",
+                                   detail="AGENTS.md del socio (sin marca) "
+                                          "— intacto")
+                except Exception as e:
+                    # No se pudo anexar (disco/permiso): el doc del socio
+                    # queda como estaba y el caller cae al camino visible.
+                    out.update(ok=True, action="custom",
+                               detail="AGENTS.md del socio — anexo falló "
+                                      "(%s: %s)" % (type(e).__name__, e))
                 return out
             if cur == want:
                 out.update(ok=True, action="kept")
@@ -882,18 +983,22 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
         tab, resume_sid, session_blk = None, "", ""
 
     # inject_context (contrato §3): identidad + bloque de la PESTAÑA ACTIVA
-    # en el AGENTS.md generado — inyección INVISIBLE (project doc, no un
-    # mensaje en el chat). Si el AGENTS.md es PROPIO del socio no se toca:
-    # la memoria cae al primer prompt (visible — único camino honesto ahí).
+    # — inyección INVISIBLE (project doc, no un mensaje en el chat). Doc
+    # GENERADO → bloque adentro; doc PROPIO del socio → bloque ANEXADO al
+    # final (marcado, se limpia al cerrar). Solo si ni el anexo se pudo
+    # escribir, la memoria cae al primer prompt (visible — último recurso).
     first_prompt = ""
     inj = inject_context(cfg, session_context=session_blk)
     if not inj.get("ok") and inj.get("detail"):
         print("WORKSPACE: identidad NO inyectada (%s) — codex arrancará "
               "genérico." % inj["detail"])
-    if tab and inj.get("action") == "custom" and not resume_sid:
+    if tab and inj.get("action") == "custom" and not inj.get("session") \
+            and not resume_sid:
         try:
             import sessions_registry as _reg
             first_prompt = _reg.first_prompt_context(brain, tab[1])
+            print("WORKSPACE: no pude anexar la memoria al AGENTS.md del "
+                  "socio — irá en el primer mensaje (visible).")
         except Exception:
             first_prompt = ""
     # auto-trust del cerebro (comodidad: salta el prompt "do you trust this
@@ -923,15 +1028,17 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
 
     def _ctx_sink(ctx):
         # El contexto neutral de arranque también va INVISIBLE al AGENTS.md
-        # (antes el wrapper lo IMPRIMÍA en la terminal). AGENTS.md del socio
-        # → se imprime como siempre (único canal honesto ahí). Jamás levanta.
+        # (antes el wrapper lo IMPRIMÍA en la terminal). Doc del socio → el
+        # bloque va ANEXADO (marcado, se limpia al cerrar); solo si ni eso
+        # se pudo escribir, se imprime (último canal honesto). Jamás levanta.
         try:
             merged = "\n\n".join(p for p in (session_blk,
                                              (ctx or "").strip()) if p)
             if not merged:
                 return
             r = inject_context(cfg, session_context=merged)
-            if r.get("ok") and r.get("action") != "custom":
+            if r.get("ok") and (r.get("action") != "custom"
+                                or r.get("session") == "appended"):
                 _doc_dirty.append(True)
             elif (ctx or "").strip():
                 print("[WORKSPACE · contexto de arranque]\n%s\n" % ctx.strip())
@@ -949,10 +1056,11 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
         print("WORKSPACE: no pude lanzar codex interactivo (%s: %s)"
               % (type(e).__name__, e))
         sys.exit(1)
-    # Limpieza: el bloque de sesión/contexto del AGENTS.md era de ESTA
-    # corrida — se restaura el puntero base (sin bloque) para no dejar
-    # contexto viejo en el cerebro. Best-effort; el siguiente launch lo
-    # regeneraría igual.
+    # Limpieza (session_end): el bloque de sesión/contexto del AGENTS.md era
+    # de ESTA corrida — doc generado → se restaura el puntero base (sin
+    # bloque); doc del socio → se le quita el bloque anexado (strip) y queda
+    # byte-a-byte como era. Best-effort; un crash deja un bloque huérfano que
+    # el strip-antes-de-anexar del siguiente launch auto-limpia.
     if session_blk or _doc_dirty:
         try:
             inject_context(cfg)

@@ -491,9 +491,11 @@ def interactive_cli_status(cli):
 def run_official_cli_interactive(cli, brain=None, argv=None, behaviors=None,
                                  exe_override=None, runner=None, context_sink=None):
     """Lanza un CLI oficial en modo INTERACTIVO envuelto en el ciclo de vida
-    neutral: on_session_start (el contexto se IMPRIME al socio — un TUI ajeno
-    no acepta inyección externa; limitación documentada) → el binario corre
-    con la tty → on_session_end al salir. Devuelve el returncode.
+    neutral: on_session_start → el binario corre con la tty → on_session_end
+    al salir. Devuelve el returncode. El contexto de arranque va al
+    `context_sink` del motor (codex/antigravity lo inyectan INVISIBLE en su
+    doc de proyecto — AGENTS.md/GEMINI.md, generado o anexado marcado); el
+    print de abajo es SOLO el último recurso para callers sin sink.
 
     ⚠ A-VERIFICAR: los argv de codex/gemini vienen de docs públicas; esta
     función queda probada SOLO contra un binario falso en la suite (jamás se

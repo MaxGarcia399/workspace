@@ -482,19 +482,18 @@ def _progreso(K, hechos, total, ancho):
                                K["DK"], "─" * (ancho - v), K["R"])
 
 
-def _marco(S, K, w, h, sub):
-    """Wordmark + reflejo + subtítulo + regla — el encabezado común."""
-    L = [""]
-    bt = HL.big_title(K, w, h, indent=" ", compact=(h < 30), center=True)
-    L += bt
-    if len(bt) > 1:
-        L += HL.title_reflection(K, w, indent=" ", center=True)
-    L.append(" " * max(0, ((w - 1) - HL.vis(sub)) // 2)
-             + "%s%s%s" % (K["DIM"], sub, K["R"]))
-    L.append("%s%s%s%s%s" % (K["B2"], K["BOX"][5] * 3, K["DK"],
-                             K["BOX"][5] * max(1, w - 5), K["R"]))
-    L.append("")
-    return L
+# UNA fuente de verdad de los atajos POR VISTA: la cabecera enseña los
+# clave + salir (HL.top_hints recorta) y el pie la lista completa.
+PARES_MENU = (("↑↓", "acción"), ("Enter", "ejecuta"), ("1-3", "directo"),
+              ("q", "vuelve al menú"))
+PARES_RUN = (("q", "cancela al terminar el paso en curso"),)
+PARES_DONE = (("↑↓", "desplaza pendientes"), ("Enter o q", "vuelve al menú"))
+
+
+def _marco(S, K, w, h, sub, hints=None):
+    """Wordmark + reflejo + subtítulo + atajos clave + regla — el
+    encabezado común (HL.screen_header, compartido con todo el hub)."""
+    return HL.screen_header(K, w, h, sub, hints=hints)
 
 
 def _linea_chk(S, K, iw):
@@ -574,7 +573,8 @@ def _cuerpo_detalle(S, K, iw, full=True):
 
 
 def _render_menu(S, K, w, h):
-    L = _marco(S, K, w, h, "actualizaciones — revisar · reparar · actualizar")
+    L = _marco(S, K, w, h, "actualizaciones — revisar · reparar · actualizar",
+               hints=PARES_MENU)
     top = len(L)
     apilado = w < 100
     lw = (w - 1) if apilado else max(34, min(44, (w - 6) * 42 // 100))
@@ -617,8 +617,7 @@ def _render_menu(S, K, w, h):
     L.append("")
     L.append(" %s%s%s" % (K["B2"], S.get("msg") or "", K["R"])
              if S.get("msg") else "")
-    hint = "↑↓ acción · Enter ejecuta · 1-3 directo · q vuelve al menú"
-    L.append(" %s%s%s" % (K["DK"], hint, K["R"]))
+    L.append(HL.foot_hints(K, PARES_MENU, w))
     return L
 
 
@@ -700,7 +699,8 @@ def _cuerpo_vivo(S, K, iw, ih):
 
 def _render_run(S, K, w, h):
     job = S["job"]
-    L = _marco(S, K, w, h, "actualizaciones — %s · en curso" % job["label"])
+    L = _marco(S, K, w, h, "actualizaciones — %s · en curso" % job["label"],
+               hints=PARES_RUN)
     top = len(L)
     apilado = w < 100
     lw = (w - 1) if apilado else max(36, min(52, (w - 6) * 46 // 100))
@@ -736,8 +736,9 @@ def _render_run(S, K, w, h):
     estado = "%s⏱ %s%s" % (K["GREY"], el, K["R"]) \
         + (("   %s%s%s" % (K["B"], msg, K["R"])) if msg else "")
     L.append(" " + estado)
-    hint = "los pasos corren solos · q cancela al terminar el paso en curso"
-    L.append(" %s%s%s" % (K["DK"], hint, K["R"]))
+    L.append(HL.clip(" %slos pasos corren solos%s %s·%s "
+                     % (K["DIM"], K["R"], K["DK"], K["R"])
+                     + HL.keyline(K, PARES_RUN, max(10, w - 30)), w - 1))
     return L
 
 
@@ -868,7 +869,8 @@ def _lineas_pendientes(job, K, iw):
 def _render_done(S, K, w, h):
     job = S["job"]
     L = _marco(S, K, w, h,
-               "actualizaciones — %s · resultado" % job["label"])
+               "actualizaciones — %s · resultado" % job["label"],
+               hints=PARES_DONE)
     top = len(L)
     apilado = w < 100
     lw = (w - 1) if apilado else max(36, min(52, (w - 6) * 46 // 100))
@@ -909,8 +911,7 @@ def _render_done(S, K, w, h):
     L.append("")
     L.append(" %s%s%s" % (K["B2"], S.get("msg") or "", K["R"])
              if S.get("msg") else "")
-    hint = "↑↓ desplaza pendientes · Enter o q vuelve al menú"
-    L.append(" %s%s%s" % (K["DK"], hint, K["R"]))
+    L.append(HL.foot_hints(K, PARES_DONE, w))
     return L
 
 

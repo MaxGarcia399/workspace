@@ -9,6 +9,12 @@ archivo vacío/ausente = defaults puros). La pantalla «Atajos»
 (keybinds_tui, MENÚ del hub) edita este registro; front._jump_map y los
 drivers lo consumen. Falla-suave ABSOLUTA: archivo roto/ilegible → defaults.
 
+La sección «menú» ya NO se lista a mano (2026-10-04): se DERIVA del menú
+real del hub (front.menu_entries — gates incluidos, p. ej. «Dev» solo el
+dueño/dev). Una sección nueva aparece aquí sola, con su tecla default
+conocida (_MENU_DEFAULTS) o auto-derivada de su etiqueta, y es re-mapeable
+como cualquier otra. Sin front.py → _MENU_BASE (paridad de siempre).
+
 Contrato:
   · una ACCIÓN = id estable (`agente.3` · `menu.__cal__` · `accion.motor`)
     con etiqueta, descripción y tecla default. El id es el ancla: re-mapear
@@ -35,9 +41,26 @@ _AGENTES = tuple(
      "Enter); la misma tecla otra vez — o Enter — lo lanza" % n)
     for n in range(1, 10))
 
-_MENU = (
-    ("menu.__ramas__", "r", "Ramas",
-     "abre la pantalla de ramas y worktrees del harness"),
+# Teclas que JAMÁS se asignan: q (salir — contrato del recinto), espacio
+# (cicla pins), y las letras apartadas por otras pantallas/convenciones del
+# equipo (t a e x f d n p). Enter/Esc/Tab/flechas no son "un carácter
+# imprimible", así que el validador ya las rechaza solo.
+RESERVADAS = frozenset("q taexfdnp".replace(" ", "")) | frozenset((" ",))
+
+# ── sección «menú»: DERIVADA del menú REAL del hub (front.menu_entries) ───
+# Una sección nueva del MENÚ (Dev, GitHub, futuras) aparece aquí SOLA —
+# con tecla default estable si es conocida, o auto-derivada de su etiqueta
+# — y queda re-mapeable en «Atajos» sin tocar este archivo.
+#
+# _MENU_BASE = PARIDAD/fallback (sin front.py o roto → exactamente el
+# registro de siempre) + la fuente de las teclas default CONOCIDAS y de las
+# descripciones curadas por token. El orden/la presencia los manda el hub.
+_MENU_BASE = (
+    ("menu.__ramas__", "r", "GitHub",
+     "abre tus repos: mapa local de ramas + PRs/issues/releases vía gh"),
+    ("menu.__devmap__", "v", "Dev",
+     "abre el detrás de workspace: referencia de comandos + mapa del "
+     "pipeline (solo el dueño/dev la ve)"),
     ("menu.__cal__", "c", "Calendario",
      "abre el editor de agenda a pantalla completa"),
     ("menu.__tono__", "o", "Tono",
@@ -49,6 +72,8 @@ _MENU = (
     ("menu.__add_agent__", "g", "Agregar agente",
      "crear o cargar un agente nuevo"),
 )
+_MENU_DEFAULTS = {a[0]: a[1] for a in _MENU_BASE}
+_MENU_DESCS = {a[0]: a[3] for a in _MENU_BASE}
 
 _ACCIONES = (
     ("accion.motor", "m", "ciclar motor",
@@ -59,21 +84,79 @@ _ACCIONES = (
      "origen), dónde vive su cerebro y su tarea viva — sin lanzarlo"),
 )
 
-REGISTRO = _AGENTES + _MENU + _ACCIONES
 
-# grupos para la pantalla (título → ids, en orden)
+def _menu_real():
+    """[(token, etiqueta, tagline)] del MENÚ REAL del hub, gates incluidos
+    (front.menu_entries — la MISMA lista que pinta el recinto). __shell__
+    no entra: su tecla es `q`, contrato del recinto. Falla-suave ABSOLUTA:
+    sin front / error → None (se usa _MENU_BASE, paridad de siempre)."""
+    try:
+        import front as _front
+        ent = [(str(t), str(l), str(g)) for t, l, g in _front.menu_entries()
+               if t != "__shell__"]
+        return ent or None
+    except Exception:
+        return None
+
+
+def _tecla_auto(label, usadas):
+    """Default auto para un token SIN tecla conocida: la primera letra/cifra
+    de su etiqueta que no esté reservada ni tomada; si ninguna sirve, la
+    primera libre del alfabeto; si nada queda, '' (sin tecla — la pantalla
+    lo muestra y se re-mapea con Enter, jamás ambigua)."""
+    import string
+    for ch in str(label).lower() + string.ascii_lowercase + string.digits:
+        if (ch.isalnum() and ch not in RESERVADAS and ch not in usadas):
+            return ch
+    return ""
+
+
+def _armar_menu():
+    """La sección «menú» del registro, derivada del hub real (o _MENU_BASE
+    en fallback): [(id, tecla_default, etiqueta, descripción)]. Teclas
+    conocidas primero (estables entre versiones); tokens nuevos reciben
+    auto-default sin colisionar con agentes (1-9) ni acciones (m/i)."""
+    real = _menu_real()
+    if real is None:
+        return _MENU_BASE
+    usadas = {a[1] for a in _AGENTES} | {a[1] for a in _ACCIONES}
+    usadas |= {_MENU_DEFAULTS[("menu." + t)] for t, _l, _g in real
+               if ("menu." + t) in _MENU_DEFAULTS}
+    menu = []
+    for tok, lbl, tag in real:
+        aid = "menu." + tok
+        k = _MENU_DEFAULTS.get(aid)
+        if k is None:
+            k = _tecla_auto(lbl, usadas)
+            if k:
+                usadas.add(k)
+        desc = _MENU_DESCS.get(aid) or ("abre «%s» — %s" % (lbl, tag)
+                                        if tag else "abre «%s»" % lbl)
+        menu.append((aid, k, lbl, desc))
+    return tuple(menu)
+
+
+# El registro vivo (módulo-level por compatibilidad). refresh() lo re-arma
+# — p. ej. si el gate de una sección cambió dentro del mismo proceso.
+_MENU = _armar_menu()
+REGISTRO = _AGENTES + _MENU + _ACCIONES
 GRUPOS = (("agentes", tuple(a[0] for a in _AGENTES)),
           ("menú", tuple(a[0] for a in _MENU)),
           ("acciones rápidas", tuple(a[0] for a in _ACCIONES)))
-
 _BY_ID = {a[0]: a for a in REGISTRO}
 
-# Teclas que JAMÁS se asignan: q (salir — contrato del recinto), espacio
-# (cicla pins), y las letras apartadas por otras pantallas/convenciones del
-# equipo (t a e x f d n p). Enter/Esc/Tab/flechas no son "un carácter
-# imprimible", así que el validador ya las rechaza solo.
-RESERVADAS = frozenset("q taexfdnp".replace(" ", "")) | frozenset((" ",))
 
+def refresh():
+    """Re-deriva la sección «menú» del hub real (gates re-evaluados) y
+    re-arma el registro. Para pantallas de vida larga y tests."""
+    global _MENU, REGISTRO, GRUPOS, _BY_ID
+    _MENU = _armar_menu()
+    REGISTRO = _AGENTES + _MENU + _ACCIONES
+    GRUPOS = (("agentes", tuple(a[0] for a in _AGENTES)),
+              ("menú", tuple(a[0] for a in _MENU)),
+              ("acciones rápidas", tuple(a[0] for a in _ACCIONES)))
+    _BY_ID = {a[0]: a for a in REGISTRO}
+    return GRUPOS
 
 def _path():
     """keybinds.json junto al settings store (respeta HOME parchado en

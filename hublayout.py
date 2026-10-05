@@ -563,6 +563,90 @@ def action_rows(data, view, K, w, indent="  ", gap="   "):
 
 
 HINT = "↑↓ sección · ◄► elige · Enter entra · q terminal"
+HINT_PAIRS = (("↑↓", "sección"), ("◄►", "elige"), ("Enter", "entra"),
+              ("q", "terminal"))
+
+
+# ── HINTS DE TECLADO COMPARTIDOS (cabecera + pie de cada pantalla) ──────────
+# Pedido del socio 2026-10-04: los atajos no pueden vivir SOLO en una línea
+# tenue al pie. Arriba, junto al nombre de la pantalla, van los 3-4 CLAVE
+# (tecla en acento, acción legible) y el pie conserva la lista completa con
+# el mismo lenguaje visual. UNA fuente de verdad por pantalla: la MISMA
+# tupla de pares ((tecla, acción), …) alimenta cabecera (recortada a lo
+# esencial) y pie (completa) — una pantalla nueva hereda el patrón llamando
+# screen_header()/foot_hints(), no copiando render.
+
+def keyline(K, items, w, txt_col=None):
+    """`tecla acción · tecla acción` en UNA línea que SIEMPRE cabe en w:
+    tecla en acento+bold, acción en texto tenue, separador `·` apagado.
+    Si no cabe entera cede pares del final conservando el PRIMERO (cómo
+    moverse) y el ÚLTIMO (cómo salir) — un atajo recortado a media palabra
+    no enseña nada. "" si ni un par cabe. `items` = ((tecla, acción), …)."""
+    K = cols(K)
+    tc = txt_col if txt_col is not None else K["DIM"]
+    sep = " %s·%s " % (K["DK"], K["R"])
+    pares = [(str(a), str(b)) for a, b in items]
+    while pares:
+        line = sep.join("%s%s%s%s%s%s" % (K["C"] + K["BO"], a, K["R"],
+                                          (" " + tc) if b else "", b,
+                                          K["R"] if b else "")
+                        for a, b in pares)
+        if vis(line) <= w:
+            return line
+        pares.pop(len(pares) - 2 if len(pares) > 1 else 0)
+    return ""
+
+
+def top_hints(K, items, w, h=0, max_pairs=4, min_h=30):
+    """La zona de atajos CLAVE de la CABECERA — centrada bajo el subtítulo
+    de la pantalla, tecla en acento y acción en gris LEGIBLE (no DIM: esta
+    línea nació para VERSE al instante). Recorta a los primeros pares + el
+    último (salir). [] cuando debe ceder (alto < min_h o ancho sin sitio):
+    es redundancia del pie — cede ANTES que el contenido esencial; el pie
+    completo queda siempre."""
+    K = cols(K)
+    if h and h < min_h:
+        return []
+    pares = list(items)
+    if max_pairs and len(pares) > max_pairs:
+        pares = pares[:max_pairs - 1] + [pares[-1]]
+    line = keyline(K, pares, max(10, w - 3), txt_col=K["GREY"])
+    if not line:
+        return []
+    return [" " * max(0, ((w - 1) - vis(line)) // 2) + line]
+
+
+def foot_hints(K, items, w):
+    """El pie de atajos COMPLETO — UNA línea (altura estable, el pie jamás
+    crece), mismo lenguaje que la cabecera pero con la lista entera y la
+    acción tenue. Reemplaza a la vieja línea DK plana."""
+    return " " + keyline(cols(K), items, max(10, w - 3))
+
+
+def screen_header(K, w, h, sub, hints=None, compact_h=30, refl_min_h=0,
+                  hints_min_h=None):
+    """Cabecera COMPARTIDA de las pantallas-sección del hub (tono /
+    calendario / atajos / github / dev / …): wordmark centrado + reflejo +
+    subtítulo + atajos clave (top_hints) + regla + aire. `refl_min_h` > 0
+    cede el reflejo bajo ese alto (pantallas densas); `hints_min_h` idem
+    para la fila de atajos (default: el mismo umbral del wordmark
+    compacto). Devuelve las líneas iniciales del render."""
+    K = cols(K)
+    L = [""]
+    bt = big_title(K, w, h, indent=" ", compact=(h < compact_h), center=True)
+    L += bt
+    if len(bt) > 1 and h >= refl_min_h:
+        L += title_reflection(K, w, indent=" ", center=True)
+    L.append(" " * max(0, ((w - 1) - vis(sub)) // 2)
+             + "%s%s%s" % (K["DIM"], sub, K["R"]))
+    if hints:
+        L += top_hints(K, hints, w, h,
+                       min_h=(hints_min_h if hints_min_h is not None
+                              else compact_h))
+    L.append("%s%s%s%s%s" % (K["B2"], K["BOX"][5] * 3, K["DK"],
+                             K["BOX"][5] * max(1, w - 5), K["R"]))
+    L.append("")
+    return L
 
 
 def section_mark(txt, on, K):
@@ -1314,7 +1398,7 @@ def _hud_lines(data, view, K, w, compact=False, dense=False):
     L.append("")
     L.append(clip("%s%s %s▌%s" % (K["C"] + K["BO"], K["PTR"], K["WH"],
                                   K["R"]), w - 1))
-    L.append(clip("  %s%s%s" % (K["DK"], HINT, K["R"]), w - 1))
+    L.append(clip(" " + foot_hints(K, HINT_PAIRS, w), w - 1))
     return vfill(L, view, tail=2)
 
 
@@ -1380,13 +1464,15 @@ def bottom_statusline(data, view, K, w):
     _jk = data.get("keys") or {}
     _ac = _jk.get("acciones") or {}
     if _jk.get("agents") or _jk.get("opts"):
-        _hx = "".join("%s %s · " % (_ac[n], n) for n in ("motor", "info")
-                      if _ac.get(n))
-        hints = "%s↑↓ mueve · ◄► elige · Enter entra · tecla salta · " \
-                "%sq sale%s" % (K["DK"], _hx, K["R"])
+        pares = [("↑↓", "mueve"), ("◄►", "elige"), ("Enter", "entra"),
+                 ("tecla", "salta")]
+        pares += [(_ac[n], n) for n in ("motor", "info") if _ac.get(n)]
+        pares.append(("q", "sale"))
     else:
-        hints = "%s↑↓ mueve · ◄► elige · Enter entra · m motor · q sale%s" \
-            % (K["DK"], K["R"])
+        pares = [("↑↓", "mueve"), ("◄►", "elige"), ("Enter", "entra"),
+                 ("m", "motor"), ("q", "sale")]
+    # tecla en acento + acción tenue (keyline): el pie se LEE de un vistazo
+    hints = keyline(K, pares, w - 1)
     sep = " %s│%s " % (K["DK"], K["R"])
     while segs:
         left = "%s▐%s " % (K["DK"], K["R"]) + sep.join(segs)
@@ -1534,7 +1620,7 @@ def _split_lines(data, view, K, w, compact=False, dense=False):
         return out
 
     bar = clip(instrument_bar(data, view, K, w, indent=" "), w - 1)
-    hint = clip(" %s%s%s" % (K["DK"], HINT, K["R"]), w - 1)
+    hint = clip(foot_hints(K, HINT_PAIRS, w), w - 1)
     if w < 72:                                   # angosto: columnas APILADAS
         inner = w - 4
         L.append(" " + title("AGENTES", focus == "dioses"))
@@ -1726,7 +1812,7 @@ def _grid_lines(data, view, K, w, compact=False, dense=False):
         L.append("")
         L += latido_lines(data, view, K, w, indent=" ")
     L.append("")
-    L.append(clip(" %s%s%s" % (K["DK"], HINT, K["R"]), w - 1))
+    L.append(clip(foot_hints(K, HINT_PAIRS, w), w - 1))
     return vfill(L, view, tail=1)
 
 
@@ -2646,7 +2732,7 @@ def _dia_menu_body(data, view, K, inner, separador=True, hits=None):
 
 # Etiquetas CORTAS de los pins: el label del schema («Tema del hub», «Modo del
 # latido») se recorta a «Tema del …» en una columna de 22 y deja de informar.
-_DIA_PIN_CORTO = {"ui.theme": "tema", "ui.layout": "layout",
+_DIA_PIN_CORTO = {"ui.background": "fondo", "ui.theme": "tema", "ui.layout": "layout",
                   "latido.mode": "latido", "ui.split": "split",
                   "ui.stars": "estrellas", "ui.anim": "animación"}
 

@@ -46,9 +46,26 @@ def _tty():
         return sys.stdout
 
 
+BACKGROUND_COLORS = {"negro": "#000000", "grafito": "#181818",
+                     "azul": "#0c1424", "verde": "#0c1c16", "violeta": "#1a1024"}
+
+
+def background_color():
+    try:
+        import settings, re
+        choice = settings.get("ui.background", "tema")
+        color = (settings.get("ui.background_custom") if choice == "personalizado"
+                 else BACKGROUND_COLORS.get(choice))
+        return color if isinstance(color, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", color) else None
+    except Exception:
+        return None
+
+
 def apply(name):
     """Aplica el tema `name` (fondo/texto/cursor) vía OSC. No-op si no existe."""
-    t = _themes().get(name) or {}
+    t = dict(_themes().get(name) or {})
+    if background_color():
+        t["bg"] = background_color()
     seq = ""
     if t.get("bg"):     seq += f"\033]11;{t['bg']}\007"
     if t.get("fg"):     seq += f"\033]10;{t['fg']}\007"
@@ -66,7 +83,9 @@ def apply_colors(t):
     del TUI (tuitheme.py): un tema no-default trae su propio fondo/tinta en el
     bloque "tui.osc" de themes/<id>/theme.json. Mismo contrato que apply():
     no-op silencioso si no hay nada que aplicar o no hay tty."""
-    t = t or {}
+    t = dict(t or {})
+    if background_color():
+        t["bg"] = background_color()
     seq = ""
     if t.get("bg"):     seq += f"\033]11;{t['bg']}\007"
     if t.get("fg"):     seq += f"\033]10;{t['fg']}\007"

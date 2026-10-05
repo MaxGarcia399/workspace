@@ -37,9 +37,26 @@ if ROOT not in sys.path:
 import keybinds as KB                                          # noqa: E402
 import hublayout as HL                                         # noqa: E402
 
-# orden VISUAL (por grupo) — el que recorre ↑↓
+# orden VISUAL (por grupo) — el que recorre ↑↓. La sección «menú» del
+# registro se deriva del menú REAL del hub (keybinds.refresh re-evalúa los
+# gates): al abrir la pantalla se re-arma, por si cambió en este proceso.
 ORDEN = tuple(aid for _t, ids in KB.GRUPOS for aid in ids)
 _GRUPO_DE = {aid: t for t, ids in KB.GRUPOS for aid in ids}
+
+# UNA fuente de verdad de los atajos (cabecera = clave + salir, pie = todo)
+PARES = (("↑↓", "acción"), ("Enter", "re-mapear"), ("r", "default"),
+         ("R", "todo a default"), ("q", "vuelve al menú"))
+PARES_CAP = (("tecla nueva", "queda asignada ya"), ("Esc", "cancela"))
+
+
+def _rearmar_orden():
+    global ORDEN, _GRUPO_DE
+    try:
+        KB.refresh()
+    except Exception:
+        pass                                      # registro de import intacto
+    ORDEN = tuple(aid for _t, ids in KB.GRUPOS for aid in ids)
+    _GRUPO_DE = {aid: t for t, ids in KB.GRUPOS for aid in ids}
 
 
 def _K():
@@ -196,17 +213,10 @@ def _cuerpo_detalle(S, K, iw, full=2):
 def render(S, w, h):
     K = _K()
     S["si"] %= max(1, len(ORDEN))                # defensa: cursor en rango
-    L = [""]
-    bt = HL.big_title(K, w, h, indent=" ", compact=(h < 30), center=True)
-    L += bt
-    if len(bt) > 1:
-        L += HL.title_reflection(K, w, indent=" ", center=True)
-    sub = "atajos — tus teclas rápidas del hub"
-    L.append(" " * max(0, ((w - 1) - HL.vis(sub)) // 2)
-             + "%s%s%s" % (K["DIM"], sub, K["R"]))
-    L.append("%s%s%s%s%s" % (K["B2"], K["BOX"][5] * 3, K["DK"],
-                             K["BOX"][5] * max(1, w - 5), K["R"]))
-    L.append("")
+    # cabecera COMPARTIDA (wordmark + subtítulo + atajos clave + regla);
+    # en captura los atajos de arriba cambian con el modo — nunca mienten
+    L = HL.screen_header(K, w, h, "atajos — tus teclas rápidas del hub",
+                         hints=(PARES_CAP if S.get("cap") else PARES))
     top = len(L)
     apilado = w < 100
     lw = (w - 1) if apilado else max(32, min(40, (w - 6) * 42 // 100))
@@ -250,10 +260,7 @@ def render(S, w, h):
         L.append(" %s%s%s" % (K["B2"], S["msg"], K["R"]))
     else:
         L.append("")
-    hint = "presiona la tecla nueva · Esc cancela" if S.get("cap") else \
-        ("↑↓ acción · Enter re-mapear · r default · R todo default · "
-         "q vuelve al menú")
-    L.append(" %s%s%s" % (K["DK"], hint, K["R"]))
+    L.append(HL.foot_hints(K, PARES_CAP if S.get("cap") else PARES, w))
     return [HL.clip(x, w - 1) for x in L[:h - 1]]
 
 
@@ -387,6 +394,7 @@ def _run_windows(S):
 
 def run():
     """Abre la pantalla. Sin terminal interactiva cae al listado plano."""
+    _rearmar_orden()
     S = {"si": 0, "msg": "", "cap": False, "confirm": False}
     try:
         interactivo = sys.stdin.isatty() and sys.stdout.isatty()

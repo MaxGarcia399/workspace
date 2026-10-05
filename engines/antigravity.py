@@ -14,8 +14,11 @@ snapshot ANTES/DESPUÉS de la corrida para no bindear un id stale).
 INYECCIÓN INVISIBLE: la memoria de la pestaña activa va en el GEMINI.md
 GENERADO (doc de proyecto que agy lee como contexto) — el socio NO ve el
 bloque en el chat. El bloque se regenera por corrida y se LIMPIA al cerrar
-(_strip_session_block). Si el GEMINI.md es PROPIO del socio no se toca:
-la memoria cae al primer prompt (visible — único camino honesto ahí).
+(_strip_session_block). Si el GEMINI.md es PROPIO del socio, su CONTENIDO
+no se toca: el bloque de sesión va ANEXADO al final, marcado y efímero
+(strip al cerrar + strip-antes-de-anexar en cada launch — un huérfano por
+crash se auto-limpia). Solo si ni el anexo se puede escribir, la memoria
+cae al primer prompt (visible — último recurso honesto). Fix 2026-10-04.
 Falla-suave absoluta: nada de esto impide el launch.
 """
 import json
@@ -36,10 +39,19 @@ CAPABILITIES = {
 
 #: Primera línea EXACTA del GEMINI.md generado — detector de "es nuestro".
 _GEMINI_MARK = "<!-- WORKSPACE:GENERATED antigravity-context v1 -->"
-#: Marcas del bloque de SESIÓN (pestaña activa) dentro del GEMINI.md generado.
+#: Marca pre-rename (OLYMPUS→Workspace 2026-10): los cerebros existentes aún
+#: la traen; sin reconocerla el doc generado parecía "del socio" y la memoria
+#: caía al primer prompt visible. Solo se LEE; se escribe siempre la nueva.
+_GEMINI_MARK_LEGACY = "<!-- OLYMPUS:GENERATED antigravity-context v1 -->"
+#: Marcas del bloque de SESIÓN (pestaña activa) dentro del GEMINI.md.
 #: Se quitan por LÍNEA completa — contenido con `-->` adentro no las rompe.
 _SESSION_START = "<!-- WORKSPACE:SESSION start — contexto de la pestaña activa; se regenera en cada launch -->"
 _SESSION_END = "<!-- WORKSPACE:SESSION end -->"
+#: Variantes pre-rename (solo LECTURA: huérfanos de corridas OLYMPUS también
+#: deben poder limpiarse — había reales en los cerebros).
+_SESSION_STARTS = (_SESSION_START,
+                   "<!-- OLYMPUS:SESSION start — contexto de la pestaña activa; se regenera en cada launch -->")
+_SESSION_ENDS = (_SESSION_END, "<!-- OLYMPUS:SESSION end -->")
 
 
 def status():
@@ -159,16 +171,19 @@ def _gemini_path(brain):
 
 
 def _gemini_is_custom(brain):
-    """¿El GEMINI.md existente es PROPIO del socio (sin nuestra marca)?
-    Ese archivo jamás se toca — gana el socio."""
+    """¿El GEMINI.md existente es PROPIO del socio (sin nuestra marca, ni la
+    actual ni la legacy pre-rename)? Su CONTENIDO jamás se pisa — gana el
+    socio (el bloque de sesión solo se ANEXA/limpia, marcado)."""
     p = _gemini_path(brain)
     try:
         if not os.path.exists(p):
             return False
         with open(p, encoding="utf-8", errors="replace") as fh:
-            return not fh.read().lstrip().startswith(_GEMINI_MARK)
+            head = fh.read().lstrip()
+        return not (head.startswith(_GEMINI_MARK)
+                    or head.startswith(_GEMINI_MARK_LEGACY))
     except Exception:
-        return True          # ilegible → trátalo como del socio (no tocar)
+        return True          # ilegible → trátalo como del socio (no pisar)
 
 
 def _write_gemini(brain, ctx, session_block=""):
@@ -202,34 +217,68 @@ def _write_gemini(brain, ctx, session_block=""):
         return False
 
 
+def _split_session_block(text):
+    """(texto_sin_bloque, había_bloque). Corta por LÍNEAS completas entre las
+    marcas (actuales o legacy pre-rename) — contenido con `-->` adentro no
+    rompe el corte; el resto del archivo queda byte-a-byte intacto."""
+    out, skip, found = [], False, False
+    for ln in (text or "").splitlines(True):
+        s = ln.strip()
+        if not skip and s in _SESSION_STARTS:
+            skip, found = True, True
+            continue
+        if skip:
+            if s in _SESSION_ENDS:
+                skip = False
+            continue
+        out.append(ln)
+    return "".join(out), found
+
+
 def _strip_session_block(brain):
-    """Quita el bloque de sesión del GEMINI.md GENERADO (limpieza al cerrar:
-    el contexto de la pestaña era de ESTA corrida; no dejar basura que el
-    siguiente arranque u otro harness lea desfasada). Por LÍNEAS entre las
-    marcas — contenido raro adentro no rompe el corte. Falla-suave."""
+    """Quita el bloque de sesión del GEMINI.md — GENERADO o del socio (solo
+    corta entre nuestras marcas; el contenido del socio queda intacto).
+    Limpieza al cerrar: el contexto de la pestaña era de ESTA corrida; no
+    dejar basura que el siguiente arranque u otro harness lea desfasada.
+    Idempotente. Falla-suave."""
     try:
         p = _gemini_path(brain)
-        if _gemini_is_custom(brain) or not os.path.exists(p):
+        if not os.path.exists(p):
             return False
         with open(p, encoding="utf-8", errors="replace") as fh:
-            lines = fh.read().splitlines(True)
-        out, skip, found = [], False, False
-        for ln in lines:
-            s = ln.strip()
-            if not skip and s == _SESSION_START:
-                skip, found = True, True
-                continue
-            if skip:
-                if s == _SESSION_END:
-                    skip = False
-                continue
-            out.append(ln)
+            txt = fh.read()
+        base, found = _split_session_block(txt)
         if not found:
             return False
-        txt = "".join(out).rstrip() + "\n"
         tmp = p + ".workspace-tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
-            fh.write(txt)
+            fh.write(base.rstrip() + "\n")
+        os.replace(tmp, p)
+        return True
+    except Exception:
+        return False
+
+
+def _append_session_block(brain, block):
+    """ANEXA el bloque de sesión MARCADO al final del GEMINI.md PROPIO del
+    socio, sin tocar su contenido (fix 2026-10-04: antes la memoria caía al
+    primer prompt VISIBLE). Idempotente: strip-antes-de-anexar (un bloque
+    huérfano por crash se auto-limpia solo). El cierre lo quita
+    (_strip_session_block). Falla-suave → False (el caller decide el
+    fallback visible)."""
+    try:
+        block = (block or "").strip()
+        p = _gemini_path(brain)
+        if not block or not os.path.isfile(p):
+            return False
+        with open(p, encoding="utf-8", errors="replace") as fh:
+            txt = fh.read()
+        base, _ = _split_session_block(txt)
+        body = (base.rstrip() + "\n\n%s\n%s\n%s\n"
+                % (_SESSION_START, block, _SESSION_END))
+        tmp = p + ".workspace-tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(body)
         os.replace(tmp, p)
         return True
     except Exception:
@@ -298,16 +347,22 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
     except Exception:
         tab, resume_cid, session_blk = None, "", ""
 
-    # Inyección INVISIBLE por doc de proyecto. GEMINI.md propio del socio →
-    # no se toca; la memoria cae al primer prompt (visible, honesto).
+    # Inyección INVISIBLE por doc de proyecto. GEMINI.md PROPIO del socio →
+    # su contenido no se pisa: el bloque de sesión va ANEXADO al final
+    # (marcado, strip-antes-de-anexar, se limpia al cerrar). Solo si ni el
+    # anexo se pudo escribir, la memoria cae al primer prompt (visible —
+    # último recurso honesto).
     first_prompt = ""
     doc_ok = not _gemini_is_custom(brain)
-    if tab and not doc_ok and not resume_cid:
+    appended = bool(not doc_ok and session_blk
+                    and _append_session_block(brain, session_blk))
+    if tab and not doc_ok and not appended and not resume_cid:
         try:
             import sessions_registry as _reg
             first_prompt = _reg.first_prompt_context(brain, tab[1])
-            print("WORKSPACE: GEMINI.md propio del socio — la memoria de la "
-                  "pestaña irá en el primer mensaje (visible).")
+            print("WORKSPACE: GEMINI.md propio del socio y no pude anexar — "
+                  "la memoria de la pestaña irá en el primer mensaje "
+                  "(visible).")
         except Exception:
             first_prompt = ""
 
@@ -318,12 +373,26 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
     import antigravity_usage
     antigravity_usage.ensure_statusline()
 
+    _appended_ctx = []     # ¿quedó un bloque anexado al doc del socio?
+
     def save_context(ctx):
         # NUNCA levanta: un GEMINI.md del socio o un disco lleno no deben
         # tumbar el launch (bug cazado en el doble-check: el RuntimeError
         # anterior escapaba por el wrapper y abortaba el arranque).
-        if not _write_gemini(brain, ctx, session_block=session_blk) \
-                and (ctx or "").strip():
+        # Doc del socio → el contexto va ANEXADO (bloque marcado, invisible,
+        # junto con la memoria de la pestaña); solo si tampoco se pudo
+        # escribir, se imprime (último canal honesto).
+        if _write_gemini(brain, ctx, session_block=session_blk):
+            return
+        try:
+            merged = "\n\n".join(p for p in (session_blk,
+                                             (ctx or "").strip()) if p)
+            if merged and _append_session_block(brain, merged):
+                _appended_ctx.append(True)
+                return
+        except Exception:
+            pass
+        if (ctx or "").strip():
             try:
                 print("[WORKSPACE · contexto de arranque]\n%s\n" % ctx.strip())
             except Exception:
@@ -333,8 +402,11 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
     rc = interactive.run_official_cli_interactive(
         "antigravity", brain=brain, argv=args, context_sink=save_context)
 
-    # Limpieza: el bloque de sesión era de ESTA corrida.
-    if session_blk:
+    # Limpieza (session_end): el bloque de sesión era de ESTA corrida —
+    # generado O anexado al doc del socio, se quita igual (strip). Un crash
+    # deja un huérfano que el strip-antes-de-anexar del siguiente launch
+    # auto-limpia.
+    if session_blk or appended or _appended_ctx:
         _strip_session_block(brain)
     # Binding POST-HOC: solo si el cache CAMBIÓ durante esta corrida (un id
     # stale de una corrida vieja del mismo cerebro NO se bindea a esta
