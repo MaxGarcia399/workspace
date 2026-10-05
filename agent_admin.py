@@ -619,6 +619,12 @@ def inspect_brain(folder):
             return info
         info["has_def"] = agentsreg.has_definition(fab)
         d = agentsreg.load_definition(fab) if info["has_def"] else {}
+        # LEGACY OLYMPUS: sin `.workspace/` pero con `.olympus/agent.json` → lee
+        # su identidad real para la radiografía (al conectar se migra sola).
+        info["legacy_olympus"] = False
+        if not d and agentsreg.has_olympus_definition(fab):
+            d = agentsreg._read_json(agentsreg.olympus_json_path(fab)) or {}
+            info["legacy_olympus"] = bool(d)
         info["name"] = (str(d.get("name") or "").strip().lower()
                         or _name_from_folder(fab))
         info["display"] = str(d.get("display") or "")
@@ -654,6 +660,18 @@ def load(folder, name=None, out=print, progress=None):
     if not os.path.isdir(folder):
         _prog(progress, "validar", "fail", "la carpeta no existe")
         return False, "la carpeta no existe: %s" % folder
+    # LEGACY OLYMPUS: cerebro con SOLO `.olympus/agent.json` → migra a
+    # `.workspace/agent.json` antes de seguir (así se respeta su identidad real
+    # en vez de sembrar una def mínima). Falla-suave; NO borra el `.olympus/`
+    # (doctor Fase 5d lo hace cuando ya existe el `.workspace/`).
+    try:
+        if not agentsreg.has_definition(folder) and agentsreg.has_olympus_definition(folder):
+            mok, mres = agentsreg.migrate_olympus(folder)
+            if mok:
+                out("AGENT: MIGRATE:%s — .olympus/agent.json → .workspace/agent.json "
+                    "(venía de OLYMPUS)" % mres)
+    except Exception:
+        pass
     # nombre INTENCIONADO (antes de escribir nada) para chequear colisión
     if agentsreg.has_definition(folder):
         intended = (name or agentsreg.load_definition(folder).get("name")

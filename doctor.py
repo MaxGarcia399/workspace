@@ -1542,6 +1542,115 @@ def phase_brand(ctx, fix):
 
 
 # ══════════════════════════════════════════════════════════════════════════
+#  FASE 5d · Residuos del rename OLYMPUS→WORKSPACE (anti-recurrencia)
+# ══════════════════════════════════════════════════════════════════════════
+# Tras el rename OLYMPUS→WORKSPACE quedaron vestigios PER-MÁQUINA que rompen el
+# brand de un agente sin tocar el distro: (a) scripts de marca brain-resident de
+# generación vieja que resuelven la raíz con OLYMPUS_ROOT / ~/Desktop/OLYMPUS /
+# ~/.claude/olympus (env/rutas muertas → menú/statusline truenan y filtran
+# "OLYMPUS"); (b) entradas en agents.local.json con `brain` bajo ~/.claude/olympus
+# (puntero stale); (c) carpetas `.olympus/` sobrantes en los cerebros (el harness
+# lee SOLO `.workspace/` → config_engine). Reparación conservadora:
+#   · (b) es config del HARNESS per-máquina → auto-repara en --fix (repunta a la
+#     ruta equivalente bajo ~/.claude/workspace si existe; si no, WARN).
+#   · (c) es metadata MUERTA del harness en el cerebro → auto-borra en --fix SOLO
+#     si `.workspace/agent.json` ya existe (la fuente viva); si no, WARN.
+#   · (a) toca scripts que PORTAN identidad (paleta/scope) → SOLO detecta+WARN;
+#     regenerarlos desde templates/agent/workspace/brand/ es trabajo de dev, no
+#     algo que el doctor deba inventar. Fail-soft total: jamás tumba el doctor.
+_OLYMPUS_DEAD_REFS = ("OLYMPUS_ROOT", "OLYMPUS_BRAIN", "~/Desktop/OLYMPUS",
+                      "Desktop/OLYMPUS", ".claude/olympus")
+
+
+def _scan_brand_olympus(brain):
+    """[nombres] de scripts en {brain}/brand/*.py que referencian env/rutas muertas
+    de OLYMPUS (las que rompen la resolución de raíz). Solo lectura, fail-soft."""
+    bdir = os.path.join(brain or "", "brand")
+    hits = []
+    try:
+        names = sorted(n for n in os.listdir(bdir) if n.endswith(".py"))
+    except OSError:
+        return hits
+    for n in names:
+        try:
+            with open(os.path.join(bdir, n), encoding="utf-8", errors="replace") as fh:
+                txt = fh.read()
+        except OSError:
+            continue
+        if any(ref in txt for ref in _OLYMPUS_DEAD_REFS):
+            hits.append(n)
+    return hits
+
+
+def phase_olympus_residue(ctx, fix):
+    out = []
+    # (b) agents.local.json: punteros bajo ~/.claude/olympus (config del harness)
+    dead = os.path.join(os.path.expanduser("~"), ".claude", "olympus") + os.sep
+    live_root = os.path.join(os.path.expanduser("~"), ".claude", "workspace")
+    try:
+        import agentsreg
+        data = agentsreg.read_local()
+        entries = data.get("agents", [])
+        stale = [a for a in entries if isinstance(a, dict)
+                 and str(a.get("brain", "")).startswith(dead)]
+        if stale:
+            repaired, unresolved = [], []
+            for a in stale:
+                old = str(a["brain"])
+                cand = os.path.join(live_root, os.path.relpath(old, dead.rstrip(os.sep)))
+                if fix and os.path.isdir(cand):
+                    a["brain"] = cand
+                    repaired.append("%s→%s" % (a.get("name", "?"), cand))
+                else:
+                    unresolved.append("%s (%s)" % (a.get("name", "?"), old))
+            if repaired and agentsreg._write_local(data):
+                out.append(f(FIXED, "agents.local.json repuntado fuera de ~/.claude/olympus",
+                             " · ".join(repaired)))
+            for u in unresolved:
+                out.append(f(WARN, "agents.local.json apunta bajo ~/.claude/olympus", u,
+                             "repunta `brain` a la ubicación real bajo ~/.claude/workspace "
+                             "(o quita la entrada si ese agente ya no existe)"))
+        else:
+            out.append(f(OK, "agents.local.json sin punteros a ~/.claude/olympus",
+                         "ninguna entrada bajo la ruta vieja"))
+    except Exception as e:
+        out.append(f(OK, "agents.local.json no evaluable",
+                     "%s: %s — señal omitida (fail-soft)" % (type(e).__name__, e)))
+    # (a)/(c) por cerebro resuelto
+    for name, brain in _resolved_brains(ctx):
+        hits = _scan_brand_olympus(brain)
+        if hits:
+            out.append(f(WARN, "[%s] marca brain-resident con refs muertas de OLYMPUS" % name,
+                         "brand/: " + ", ".join(hits),
+                         "regenera desde templates/agent/workspace/brand/ (usan "
+                         "WORKSPACE_ROOT y degradan con gracia); sustituye "
+                         "OLYMPUS_ROOT/OLYMPUS_BRAIN/~/Desktop/OLYMPUS/~/.claude/olympus"))
+        legacy = os.path.join(brain, ".olympus")
+        if os.path.isdir(legacy):
+            has_ws = os.path.isfile(os.path.join(brain, ".workspace", "agent.json"))
+            if fix and has_ws:
+                try:
+                    shutil.rmtree(legacy)
+                    out.append(f(FIXED, "[%s] .olympus/ sobrante eliminado" % name,
+                                 "el harness lee solo .workspace/ (metadata muerta)"))
+                except OSError as e:
+                    out.append(f(WARN, "[%s] no se pudo borrar .olympus/" % name, str(e),
+                                 "bórralo a mano: rm -rf \"%s\"" % legacy))
+            elif has_ws:
+                out.append(f(WARN, "[%s] .olympus/ sobrante en el cerebro" % name,
+                             "el harness lee solo .workspace/ (está muerto)",
+                             "workspace doctor --fix lo borra (o: rm -rf \"%s\")" % legacy))
+            else:
+                out.append(f(WARN, "[%s] .olympus/ sin .workspace/agent.json" % name,
+                             "NO borrar aún — puede tener la única definición",
+                             "migra .olympus/agent.json a .workspace/agent.json y luego borra .olympus/"))
+        if not hits and not os.path.isdir(legacy):
+            out.append(f(OK, "[%s] sin residuos de OLYMPUS" % name,
+                         "marca brain-resident limpia · sin .olympus/"))
+    return out
+
+
+# ══════════════════════════════════════════════════════════════════════════
 #  FASE 11 · Liveness (estado colgante · SOLO DETECCIÓN)
 # ══════════════════════════════════════════════════════════════════════════
 def phase_liveness(ctx, fix):
@@ -1660,6 +1769,7 @@ PHASES = [
     ("5 · Hooks por cerebro (contrato de eventos N9 · events.py)", phase_hooks),
     ("5b · Brand por-agente (banner/dashboard/statusline resueltos y existentes)", phase_brand),
     ("5c · MCPs por cerebro (materialización · connectors.PORTABILITY)", phase_mcps),
+    ("5d · Residuos del rename OLYMPUS→WORKSPACE (anti-recurrencia)", phase_olympus_residue),
     ("6 · Launchers (workspace + agentes)", phase_launchers),
     ("7 · Greeter · socio · tema · retención", phase_extras),
     ("8 · Cerebro: presupuesto de boot + identidad (BOOT/)", phase_brain_budget),

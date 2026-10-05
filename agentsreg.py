@@ -29,6 +29,7 @@ import re
 
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")   # slug de agente válido
 WORKSPACE_SUBDIR = ".workspace"                            # carpeta auto-descriptiva en el cerebro
+OLYMPUS_SUBDIR = ".olympus"                                # layout LEGACY (pre-rename OLYMPUS→WORKSPACE)
 
 
 # ── rutas (funciones, no constantes: respetan HOME parchado en tests) ────────
@@ -117,6 +118,64 @@ def has_definition(brain):
     return os.path.isfile(agent_json_path(brain))
 
 
+# ── legacy OLYMPUS (<brain>/.olympus/agent.json) ─────────────────────────────
+# Cerebros que vienen del harness viejo traen su manifiesto en `.olympus/` y
+# NUNCA se migraron a `.workspace/`. Quien actualiza desde OLYMPUS no vería sus
+# agentes si discover() exigiera `.workspace/`. Se detectan aquí y se MIGRAN al
+# conectarlos. NO se borra el `.olympus/` — de eso se encarga `workspace doctor`
+# (Fase 5d), que solo lo elimina cuando ya existe el `.workspace/agent.json`.
+def olympus_json_path(brain):
+    """Ruta del manifiesto LEGACY de un cerebro OLYMPUS."""
+    return os.path.join(os.path.expanduser(brain or ""), OLYMPUS_SUBDIR, "agent.json")
+
+
+def has_olympus_definition(brain):
+    return os.path.isfile(olympus_json_path(brain))
+
+
+def _normalize_definition(d):
+    """Normaliza una def legacy OLYMPUS al schema `.workspace` actual. Hoy el
+    schema es idéntico (mismo `agent.json`), así que es un passthrough que
+    PRESERVA toda clave desconocida (forward-compat) — punto único donde
+    re-mapear si algún día divergen. Falla-suave → {}."""
+    if not isinstance(d, dict):
+        return {}
+    return dict(d)
+
+
+def migrate_olympus(brain):
+    """Si `<brain>` trae SOLO `.olympus/agent.json` (legacy) y NO
+    `.workspace/agent.json`, escribe el `.workspace/agent.json` a partir de él
+    (normalizado). NO borra el `.olympus/` (doctor Fase 5d lo hace cuando ya hay
+    `.workspace/`). Idempotente, atómico, falla-suave. Devuelve
+    (migrado: bool, name|error|"")."""
+    base = os.path.abspath(os.path.expanduser(brain or ""))
+    canonical = os.path.join(base, WORKSPACE_SUBDIR, "agent.json")
+    legacy = os.path.join(base, OLYMPUS_SUBDIR, "agent.json")
+    if os.path.isfile(canonical):
+        return False, ""                       # ya está en el schema nuevo — `.workspace/` gana
+    if not os.path.isfile(legacy):
+        return False, ""                       # nada legacy que migrar
+    defn = _normalize_definition(_read_json(legacy))
+    if not defn:
+        return False, "%s ilegible o vacío" % legacy
+    defn.setdefault("_migrated_from", OLYMPUS_SUBDIR + "/agent.json")
+    tmp = canonical + ".tmp-%d" % os.getpid()
+    try:
+        os.makedirs(os.path.dirname(canonical), exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(defn, fh, ensure_ascii=False, indent=2)
+            fh.write("\n")
+        os.replace(tmp, canonical)
+    except Exception as e:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        return False, str(e)
+    return True, str(defn.get("name", "")).strip().lower()
+
+
 # ── escritura (atómica + idempotente) ───────────────────────────────────────
 def _write_local(data):
     os.makedirs(_workspace_dir(), exist_ok=True)
@@ -203,10 +262,14 @@ def _scan_parents():
 
 
 def discover(extra_roots=None):
-    """Devuelve [{name, brain}] de cerebros con `<brain>/.workspace/agent.json` en
+    """Devuelve [{name, brain, legacy_olympus}] de cerebros auto-descriptivos en
     ubicaciones conocidas (vaults de Obsidian + hijos de Desktop/Documents/…).
-    NO registra; solo descubre. Dedup por nombre (primero encontrado gana) y por
-    carpeta (realpath). Falla-suave SIEMPRE → en el peor caso []."""
+    Marcador canónico = `<brain>/.workspace/agent.json`; FALLBACK legacy =
+    `<brain>/.olympus/agent.json` SOLO si no existe el `.workspace/` (cerebros
+    de OLYMPUS nunca migrados — se marcan `legacy_olympus=True` para que el
+    caller los migre al conectar). NO registra; solo descubre. Dedup por nombre
+    (primero encontrado gana) y por carpeta (realpath). Falla-suave SIEMPRE →
+    en el peor caso []."""
     direct = list(_obsidian_vault_paths())
     children = []
     for par in (_scan_parents() + list(extra_roots or [])):
@@ -224,9 +287,14 @@ def discover(extra_roots=None):
             if rp in seen:
                 continue
             seen.add(rp)
+            legacy_olympus = False
             defpath = os.path.join(cand, WORKSPACE_SUBDIR, "agent.json")
-            if not os.path.isfile(defpath):
-                continue
+            if not os.path.isfile(defpath):                 # fallback: cerebro OLYMPUS legacy
+                legacy = os.path.join(cand, OLYMPUS_SUBDIR, "agent.json")
+                if os.path.isfile(legacy):
+                    defpath, legacy_olympus = legacy, True
+                else:
+                    continue
             name = str(_read_json(defpath).get("name", "")).strip().lower()
             if not NAME_RE.match(name):
                 continue
@@ -238,7 +306,8 @@ def discover(extra_roots=None):
                         "(renombra uno o cárgalo explícito)\n"
                         % (name, found[name]["brain"], os.path.abspath(cand)))
                 continue
-            found[name] = {"name": name, "brain": os.path.abspath(cand)}
+            found[name] = {"name": name, "brain": os.path.abspath(cand),
+                           "legacy_olympus": legacy_olympus}
         except Exception:
             continue
     return list(found.values())
@@ -252,6 +321,8 @@ def discover_and_register(extra_roots=None):
     for a in discover(extra_roots):
         if a["name"] in have:
             continue
+        if a.get("legacy_olympus"):                # OLYMPUS legacy → migra antes de registrar
+            migrate_olympus(a["brain"])            # falla-suave: queda igual si no se pudo
         ok, _ = add(a["name"], a["brain"])
         if ok:
             added.append(a["name"])

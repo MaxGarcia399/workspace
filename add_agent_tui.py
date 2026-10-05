@@ -1598,11 +1598,12 @@ def _b_descubrir(S, K, iw):
         sel = (i == S["di"])
         cur = "%s%s%s" % (K["C"] + K["BO"], K["PTR"], K["R"]) if sel else " "
         est = S["estados"].get(a["name"], "")
-        out.append(HL.clip(" %s %s %s%s%s  %s%s%s" % (
+        tag = (" %s◆olympus%s" % (K["B"], K["R"])) if a.get("legacy_olympus") else ""
+        out.append(HL.clip(" %s %s %s%s%s  %s%s%s%s" % (
             cur, _desc_mark(K, est),
             (K["WH"] + K["BO"]) if sel else K["GREY"],
             HL.pad(a["name"], 10), K["R"],
-            K["DK"], _ruta_corta(a.get("brain", "")), K["R"]), iw))
+            K["DK"], _ruta_corta(a.get("brain", "")), K["R"], tag), iw))
     nuevos = sum(1 for a in found
                  if S["estados"].get(a["name"]) == "nuevo")
     out.append("")
@@ -1652,6 +1653,9 @@ def _b_descubrir_det(S, K, iw, full=2):
     if d is None:
         try:
             d = agentsreg.load_definition(a["brain"]) or {}
+            if not d and a.get("legacy_olympus"):     # cerebro OLYMPUS legacy: lee su def real
+                d = agentsreg._read_json(
+                    agentsreg.olympus_json_path(a["brain"])) or {}
         except Exception:
             d = {}
         S["defs"][a["brain"]] = d
@@ -1662,6 +1666,9 @@ def _b_descubrir_det(S, K, iw, full=2):
     if d.get("tagline"):
         for sub in _wrap(d["tagline"], max(8, iw - 3))[:2]:
             out.append(HL.clip(" %s%s%s" % (K["DIM"], sub, K["R"]), iw))
+    if a.get("legacy_olympus"):
+        out.append(HL.clip(" %s◆ venía de OLYMPUS → se migra a .workspace/ al "
+                           "conectar%s" % (K["B"], K["R"]), iw))
     out.append("")
     out.append(HL.clip(" %scarpeta:%s %s%s%s"
                        % (K["DK"], K["R"], K["GREY"],
