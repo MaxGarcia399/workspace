@@ -24,8 +24,8 @@ SCOPE = "{{SCOPE}}"
 COLOR = "{{COLOR}}"
 
 # ── identidad SOURCED del cerebro ────────────────────────────────────────────
-# Este stub vive en WORKSPACE y se referencia SIN sustituir (agentes cargados como
-# Turing): los {{...}} de arriba quedan literales. Por eso la identidad real se
+# Este stub vive en WORKSPACE y se referencia SIN sustituir (agentes de equipo
+# cargados en vivo): los {{...}} de arriba quedan literales. Por eso la identidad real se
 # lee del cerebro (BOOT/01-IDENTITY.md + .workspace/agent.json) vía agent_brand —
 # así el banner SIGUE al socio entre máquinas. El cerebro llega por
 # $WORKSPACE_BRAIN (lo exporta el motor) o --brain. Falla-suave: si no se puede
@@ -79,6 +79,25 @@ try:
     _EMOJI = _ident["emoji"]
 except Exception:
     _EMOJI = ""
+
+# ── i18n (falla-suave) — las cadenas ESTÁTICAS siguen el idioma del socio
+# (i18n.lang(): WORKSPACE_LANG > settings ui.lang > "es"). El template corre
+# brain-resident; i18n vive en la raíz de WORKSPACE, ya insertada en sys.path
+# arriba (_root). Si no se resuelve (cerebro sin harness), _t cae al ES inline
+# → el banner JAMÁS truena ni muestra una clave cruda. Ver lang/README.md.
+try:
+    import i18n as _i18n  # noqa: E402
+except Exception:
+    _i18n = None
+
+def _t(key, es, **kw):
+    if _i18n is None:
+        return es.format(**kw) if kw else es
+    try:
+        s = _i18n.t(key, **kw)
+        return s if s != key else (es.format(**kw) if kw else es)
+    except Exception:
+        return es.format(**kw) if kw else es
 
 def fg(n): return f"\033[38;5;{n}m"
 R = "\033[0m"; BO = "\033[1m"
@@ -140,7 +159,7 @@ else:
     ROWCOL = None                   # se arma abajo, con la paleta ya resuelta
 
 # ── fuente ANSI-Shadow (6 filas/glifo) — el MISMO estilo grabado 3D de los
-# banners de equipo (argus/zenith/atlas/turing), pero renderizando CUALQUIER
+# banners de equipo, pero renderizando CUALQUIER
 # nombre dinámicamente. Antes era una 5x5 plana → un agente nuevo nacía con un
 # título pobre. Ahora iguala al equipo por default. A-Z · 0-9 · guion · espacio.
 FONT = {
@@ -246,20 +265,24 @@ def info_rows():
     """Filas de la columna de info (der): Skills · Sistema · Dominio — de la
     config del agente. ('##', titulo) = subtítulo; (label, desc) = fila."""
     cats, seen = [], set()
-    for c in f"{SKILL_CATS} · investigación · meta".split(" · "):
+    _defcats = _t("banner.cats.default", "investigación · meta")
+    for c in f"{SKILL_CATS} · {_defcats}".split(" · "):
         c = c.strip()
         if c and c.lower() not in seen:
             seen.add(c.lower()); cats.append(c)
-    rows = [("##", "Skills")]
-    rows += _field("categorías", " · ".join(cats))
-    rows += _field("base", "skill-creator · skill-improver · skill-curator · reload-brain")
-    rows += _field("", "deep-research · research-session")
-    rows += [("", ""), ("##", "Sistema")]
-    rows += _field("memoria", "tiers caliente/tibia/fría · core blocks · Dreaming→DESTILADO")
-    rows += _field("loop", "skill loop SIEMPRE activo · bloque 🧠 obligatorio")
+    rows = [("##", _t("banner.sec.skills", "Skills"))]
+    rows += _field(_t("banner.lbl.categories", "categorías"), " · ".join(cats))
+    rows += _field(_t("banner.lbl.base", "base"),
+                   _t("banner.base.row1", "skill-creator · skill-improver · skill-curator · reload-brain"))
+    rows += _field("", _t("banner.base.row2", "deep-research · research-session"))
+    rows += [("", ""), ("##", _t("banner.sec.system", "Sistema"))]
+    rows += _field(_t("banner.lbl.memory", "memoria"),
+                   _t("banner.sys.memory", "tiers caliente/tibia/fría · core blocks · Dreaming→DESTILADO"))
+    rows += _field(_t("banner.lbl.loop", "loop"),
+                   _t("banner.sys.loop", "skill loop SIEMPRE activo · bloque 🧠 obligatorio"))
     if (SCOPE or "").strip():
-        rows += [("", ""), ("##", "Dominio")]
-        rows += _field("alcance", SCOPE)
+        rows += [("", ""), ("##", _t("banner.sec.domain", "Dominio"))]
+        rows += _field(_t("banner.lbl.scope", "alcance"), SCOPE)
     return rows
 
 def main():
@@ -293,7 +316,7 @@ def main():
             iseg = " " * ICOL
         out.append(f"  {B}│{R} {iseg} {B}│{R}")
 
-    foot = " nacido del template de WORKSPACE "
+    foot = f" {_t('banner.foot', 'nacido del template de WORKSPACE')} "
     fside = max(0, (W - len(foot)) // 2)
     out.append(f"  {B}╰{'─'*fside}{R}{DIM}{foot}{R}{B}{'─'*(W-fside-len(foot))}╯{R}")
     out.append("")

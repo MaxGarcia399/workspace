@@ -56,6 +56,35 @@ import hublayout as HL                                          # noqa: E402
 import git_ops as O                                             # noqa: E402
 import git_tui as GT                                            # noqa: E402
 
+# i18n (lado cliente): esta pantalla la ve el cliente. Falla-suave — sin el
+# módulo, _t() devuelve el español inline (paridad exacta con el flujo de hoy).
+try:
+    import i18n                                                  # noqa: E402
+except Exception:
+    i18n = None
+
+
+def _t(key, es, **kw):
+    """Cadena traducida de `key`; cae al español `es` si i18n no está o la
+    clave falta. Con **kw aplica .format(**kw) (falla-suave). JAMÁS levanta."""
+    s = es
+    if i18n is not None:
+        try:
+            v = i18n.t(key)
+            if v != key:
+                s = v
+        except Exception:
+            s = es
+    if kw:
+        try:
+            return s.format(**kw)
+        except Exception:
+            try:
+                return es.format(**kw)
+            except Exception:
+                return es
+    return s
+
 # owner/nombre estricto (también es la anti-inyección: jamás llega un flag
 # ni un `;` a la línea de gh) · URL https/ssh de github.com
 _SLUG_RE = re.compile(r"^[A-Za-z0-9][\w.-]*/[\w.-]+$")
@@ -130,24 +159,28 @@ def parse_target(text):
     La carpeta local se resuelve a su origin (y se recuerda como copia)."""
     t = (text or "").strip().strip('"').strip("'")
     if not t:
-        return "", "", "cancelado — sin repo no hay conexión"
+        return "", "", _t("github.msg.cancel_norepo",
+                          "cancelado — sin repo no hay conexión")
     p = os.path.expanduser(t)
     if os.path.isdir(p):
         local = O.top(p)
         if not local:
-            return "", "", "esa carpeta no es un repositorio git"
+            return "", "", _t("github.msg.not_git",
+                              "esa carpeta no es un repositorio git")
         slug = O.github_repo(local)
         if not slug:
-            return "", "", ("ese repo no tiene origin de github.com — "
-                            "conéctalo con owner/nombre")
+            return "", "", _t("github.msg.no_origin",
+                              "ese repo no tiene origin de github.com — "
+                              "conéctalo con owner/nombre")
         return slug, local, ""
     m = _URL_RE.match(t)
     if m:
         return m.group(1), "", ""
     if _SLUG_RE.match(t):
         return t, "", ""
-    return "", "", ("no entendí el repo: usa owner/nombre, una URL de "
-                    "github.com o una carpeta local clonada")
+    return "", "", _t("github.msg.unparsed",
+                      "no entendí el repo: usa owner/nombre, una URL de "
+                      "github.com o una carpeta local clonada")
 
 
 def connect(text):
@@ -161,13 +194,17 @@ def connect(text):
             if local and not r.get("local"):
                 r["local"] = local
                 _cfg_write(rows)
-                return slug, ("%s ya estaba conectado — registré su copia "
-                              "local ✓" % slug)
-            return slug, "%s ya está conectado" % slug
+                return slug, _t("github.msg.already_local",
+                                "{slug} ya estaba conectado — registré su "
+                                "copia local ✓", slug=slug)
+            return slug, _t("github.msg.already",
+                            "{slug} ya está conectado", slug=slug)
     rows.append({"repo": slug, "local": local})
     if not _cfg_write(rows):
-        return "", "no pude escribir github-repos.json — nada cambió"
-    return slug, "%s conectado ✓ — f consulta su estado" % slug
+        return "", _t("github.msg.write_fail",
+                      "no pude escribir github-repos.json — nada cambió")
+    return slug, _t("github.msg.connected",
+                    "{slug} conectado ✓ — f consulta su estado", slug=slug)
 
 
 def disconnect(slug):
@@ -175,8 +212,11 @@ def disconnect(slug):
     ni de GitHub (por eso no es una acción destructiva)."""
     rows = [r for r in _cfg_repos() if r["repo"].lower() != slug.lower()]
     if not _cfg_write(rows):
-        return "no pude escribir github-repos.json — nada cambió"
-    return "%s desconectado ✓ — solo salió de tu lista; nada se borró" % slug
+        return _t("github.msg.write_fail",
+                  "no pude escribir github-repos.json — nada cambió")
+    return _t("github.msg.disconnected",
+              "{slug} desconectado ✓ — solo salió de tu lista; nada se "
+              "borró", slug=slug)
 
 
 # ── descubrir repos git locales (SOLO disco: cero subprocess, cero red) ────
@@ -353,14 +393,16 @@ def auth_check():
     ok=True no se lanza ninguna consulta de red."""
     if not shutil.which("gh"):
         return {"ok": False, "account": "",
-                "msg": ("GitHub CLI (gh) no está instalado — la nube queda "
-                        "apagada; lo local sigue completo")}
+                "msg": _t("github.auth.no_gh",
+                          "GitHub CLI (gh) no está instalado — la nube queda "
+                          "apagada; lo local sigue completo")}
     rc, out, err = O.run(["gh", "auth", "status", "--hostname", "github.com"],
                          os.path.expanduser("~"), timeout=12)
     if rc != 0:
         return {"ok": False, "account": "",
-                "msg": ("sin sesión de GitHub — conéctate: gh auth login "
-                        "(r re-verifica al volver)")}
+                "msg": _t("github.auth.no_session",
+                          "sin sesión de GitHub — conéctate: gh auth login "
+                          "(r re-verifica al volver)")}
     cur = acct = ""
     for ln in ((out or "") + "\n" + (err or "")).splitlines():
         m = re.search(r"account (\S+)", ln)
@@ -414,13 +456,13 @@ def _gh_json(args, timeout=25):
     rc, out, err = O.run(["gh"] + list(args), os.path.expanduser("~"),
                          timeout=timeout)
     if rc != 0:
-        msg = (err or out or "consulta fallida").strip()
-        return None, O.clean_text(msg.splitlines()[0][:120] if msg else
-                                  "consulta fallida")
+        qf = _t("github.msg.query_failed", "consulta fallida")
+        msg = (err or out or qf).strip()
+        return None, O.clean_text(msg.splitlines()[0][:120] if msg else qf)
     try:
         return json.loads(out), ""
     except ValueError:
-        return None, "respuesta no válida"
+        return None, _t("github.msg.bad_response", "respuesta no válida")
 
 
 def _checks(p):
@@ -470,11 +512,12 @@ def fetch(slug):
         t.start()
     for t in hilos:
         t.join(35)
+    noresp = _t("github.msg.no_response", "sin respuesta")
     for key in jobs:
-        val, err = res.get(key) or (None, "sin respuesta")
+        val, err = res.get(key) or (None, noresp)
         if err or val is None:
             data[key] = {} if key == "view" else []
-            data["errors"].append("%s: %s" % (key, err or "sin respuesta"))
+            data["errors"].append("%s: %s" % (key, err or noresp))
         else:
             data[key] = val
     # adelgazar lo crudo de la API a lo que la pantalla usa
@@ -516,7 +559,8 @@ class _Fetch(threading.Thread):
             self.data = fetch(self.slug)
         except Exception as e:                   # jamás tumbar la pantalla
             self.data = {"stamped": time.time(),
-                         "errors": ["consulta: " + O.clean_text(str(e))]}
+                         "errors": [_t("github.msg.query_prefix",
+                                       "consulta: ") + O.clean_text(str(e))]}
         self.done = True
 
 
@@ -534,9 +578,10 @@ class _Cmd(threading.Thread):
             rc, out, err = O.run(argv, cwd, timeout=120)
             if rc != 0:
                 detalle = (err or out or "").strip()
-                self.msg = "falló `%s`: %s" % (
-                    " ".join(argv[:3]),
-                    detalle.splitlines()[0][:80] if detalle else "?")
+                self.msg = _t(
+                    "github.msg.cmd_fail", "falló `{cmd}`: {detail}",
+                    cmd=" ".join(argv[:3]),
+                    detail=detalle.splitlines()[0][:80] if detalle else "?")
                 self.done = True
                 return
         self.msg = self.okmsg
@@ -548,12 +593,15 @@ def _abrir(url):
     """Abre una URL en el navegador — SOLO github.com (nada de URLs de datos
     remotos sin revisar). Falla-suave."""
     if not str(url).startswith("https://github.com/"):
-        return "solo abro URLs de github.com — esta no lo es"
+        return _t("github.msg.only_github",
+                  "solo abro URLs de github.com — esta no lo es")
     try:
         webbrowser.open(url)
-        return "abierto en el navegador ✓ — %s" % url
+        return _t("github.msg.opened",
+                  "abierto en el navegador ✓ — {url}", url=url)
     except Exception as e:
-        return "no pude abrir el navegador: %s" % e
+        return _t("github.msg.open_fail",
+                  "no pude abrir el navegador: {err}", err=e)
 
 
 def _item_url(slug, kind, obj):
@@ -576,27 +624,38 @@ def _checkout(S, r, branch, remote=True):
     `remote=False` = rama que ya existe local: switch directo, sin fetch."""
     local = r.get("local")
     if not branch:
-        return "esa fila no es una rama"
+        return _t("github.msg.not_branch", "esa fila no es una rama")
     if not local or not os.path.isdir(local):
-        return ("sin copia local — Enter la abre en el navegador; clónala "
-                "para poder cambiarte de rama")
+        return _t("github.msg.no_local_clone",
+                  "sin copia local — Enter la abre en el navegador; clónala "
+                  "para poder cambiarte de rama")
     if S.get("job"):
-        return "hay un cambio de rama en curso — espera a que termine"
+        return _t("github.msg.job_running",
+                  "hay un cambio de rama en curso — espera a que termine")
     rc, out, _ = O.run(["git", "status", "--porcelain"], local, timeout=15)
     if rc != 0:
-        return "no pude confirmar si el árbol local está limpio — no lo toco"
+        return _t("github.msg.cant_confirm_clean",
+                  "no pude confirmar si el árbol local está limpio — no lo "
+                  "toco")
     n = len([l for l in out.splitlines() if l.strip()])
     if n:
-        return ("la copia local tiene %d cambio%s sin commitear — commit o "
-                "stash antes de cambiar de rama" % (n, "" if n == 1 else "s"))
+        return _t("github.msg.dirty_one" if n == 1 else "github.msg.dirty_many",
+                  "la copia local tiene {n} cambio sin commitear — commit o "
+                  "stash antes de cambiar de rama" if n == 1 else
+                  "la copia local tiene {n} cambios sin commitear — commit o "
+                  "stash antes de cambiar de rama", n=n)
     if O.value(local, "branch", "--show-current") == branch:
-        return "la copia local ya está en %s" % branch
+        return _t("github.msg.already_on",
+                  "la copia local ya está en {branch}", branch=branch)
     pasos = ([(["git", "fetch", "origin", branch], local)] if remote else [])
     pasos.append((["git", "switch", branch], local))
-    S["job"] = _Cmd(pasos, "la copia local ahora está en %s ✓" % branch)
+    S["job"] = _Cmd(pasos, _t("github.msg.now_on",
+                              "la copia local ahora está en {branch} ✓",
+                              branch=branch))
     S["job"].start()
-    return ("cambiando a %s… (%s en segundo plano)"
-            % (branch, "fetch + switch" if remote else "switch"))
+    return _t("github.msg.switching",
+              "cambiando a {branch}… ({mode} en segundo plano)",
+              branch=branch, mode="fetch + switch" if remote else "switch")
 
 
 # ── estado de la pantalla ───────────────────────────────────────────────────
@@ -620,10 +679,17 @@ def _poll(S):
                 cache[slug] = th.data
                 _save(_cache_path(), cache)
                 n = len(th.data.get("errors") or [])
-                S["msg"] = ("%s consultado ✓" % slug if not n else
-                            "%s consultado — %d consulta%s fallida%s (ver "
-                            "detalle)" % (slug, n, "" if n == 1 else "s",
-                                          "" if n == 1 else "s"))
+                if not n:
+                    S["msg"] = _t("github.msg.queried_ok",
+                                  "{slug} consultado ✓", slug=slug)
+                elif n == 1:
+                    S["msg"] = _t("github.msg.queried_fail_one",
+                                  "{slug} consultado — {n} consulta fallida "
+                                  "(ver detalle)", slug=slug, n=n)
+                else:
+                    S["msg"] = _t("github.msg.queried_fail_many",
+                                  "{slug} consultado — {n} consultas "
+                                  "fallidas (ver detalle)", slug=slug, n=n)
             moved = True
     if S.get("job") and S["job"].done:
         S["msg"] = S["job"].msg
@@ -676,12 +742,12 @@ def _ago(ts):
     except Exception:
         return ""
     if s < 90:
-        return "hace %ds" % int(s)
+        return _t("common.ago.sec", "hace {n}s", n=int(s))
     if s < 90 * 60:
-        return "hace %dm" % int(s // 60)
+        return _t("common.ago.min", "hace {n}m", n=int(s // 60))
     if s < 36 * 3600:
-        return "hace %dh" % int(s // 3600)
-    return "hace %dd" % int(s // 86400)
+        return _t("common.ago.hour", "hace {n}h", n=int(s // 3600))
+    return _t("common.ago.day", "hace {n}d", n=int(s // 86400))
 
 
 def _iso_ago(iso):
@@ -713,12 +779,12 @@ def _vent(K, lineas, tags, marca, ih, iw):
         start = max(0, end - ih)
     out, tgs = list(lineas[start:end]), list(tags[start:end])
     if start > 0:
-        out[0] = HL.clip(" %s↑ %d más arriba%s" % (K["DK"], start, K["R"]),
-                         iw)
+        out[0] = HL.clip(" %s%s%s" % (K["DK"], _t("github.more_up",
+                         "↑ {n} más arriba", n=start), K["R"]), iw)
         tgs[0] = None
     if end < n:
-        out[-1] = HL.clip(" %s↓ %d más abajo%s" % (K["DK"], n - end, K["R"]),
-                          iw)
+        out[-1] = HL.clip(" %s%s%s" % (K["DK"], _t("github.more_down",
+                          "↓ {n} más abajo", n=n - end), K["R"]), iw)
         tgs[-1] = None
     return out, tgs
 
@@ -726,28 +792,37 @@ def _vent(K, lineas, tags, marca, ih, iw):
 def _fila_estado(S, K, w):
     """La línea de contexto: la PUERTA de la sesión, siempre visible."""
     a = S["auth"]
+    nrep = len(S["repos"])
     if a["ok"]:
-        trozos = ["%s%s gh: %s%s" % (K["OK"], K["CHECK"],
-                                     a["account"] or "sesión activa",
-                                     K["R"]),
-                  "%s%d repo%s%s" % (K["GREY"], len(S["repos"]),
-                                     "" if len(S["repos"]) == 1 else "s",
-                                     K["R"]),
-                  "%snube solo con f — nada corre solo%s" % (K["DK"],
-                                                             K["R"])]
+        acct = a["account"] or _t("github.state.session_active",
+                                  "sesión activa")
+        trozos = ["%s%s %s%s" % (K["OK"], K["CHECK"],
+                                 _t("github.state.gh", "gh: {acct}",
+                                    acct=acct), K["R"]),
+                  "%s%s%s" % (K["GREY"], _t(
+                      "github.state.repos_one" if nrep == 1
+                      else "github.state.repos_many",
+                      "{n} repo" if nrep == 1 else "{n} repos", n=nrep),
+                      K["R"]),
+                  "%s%s%s" % (K["DK"], _t("github.state.cloud_hint",
+                              "nube solo con f — nada corre solo"), K["R"])]
         if S["fetching"]:
-            trozos.append("%sconsultando %s…%s"
-                          % (K["C"], " ".join(sorted(S["fetching"])),
-                             K["R"]))
+            trozos.append("%s%s%s" % (K["C"], _t(
+                "github.state.querying", "consultando {repos}…",
+                repos=" ".join(sorted(S["fetching"]))), K["R"]))
     else:
-        trozos = ["%s✗ sin sesión de GitHub%s" % (K["BAD"] + K["BO"],
-                                                  K["R"]),
-                  "%sconéctate: gh auth login%s" % (K["WH"] + K["BO"],
-                                                    K["R"]),
-                  "%slo local sigue: m abre el mapa de ramas%s"
-                  % (K["GREY"], K["R"])]
+        trozos = ["%s%s%s" % (K["BAD"] + K["BO"], _t(
+                      "github.state.no_session", "✗ sin sesión de GitHub"),
+                      K["R"]),
+                  "%s%s%s" % (K["WH"] + K["BO"], _t(
+                      "github.state.connect_cta",
+                      "conéctate: gh auth login"), K["R"]),
+                  "%s%s%s" % (K["GREY"], _t(
+                      "github.state.local_still",
+                      "lo local sigue: m abre el mapa de ramas"), K["R"])]
     fila = " " + (" %s·%s " % (K["DK"], K["R"])).join(trozos)
-    leg = "%sr re-verifica%s" % (K["DK"], K["R"])
+    leg = "%s%s%s" % (K["DK"], _t("github.state.reverify", "r re-verifica"),
+                      K["R"])
     hueco = (w - 1) - HL.vis(fila) - HL.vis(leg) - 1
     if hueco > 1:
         fila += " " * hueco + leg
@@ -773,19 +848,26 @@ def _fila_repo(S, K, r, i, iw):
            "%s%s%s" % (K["DK"], K["PTR"], K["R"]) if sel else " ")
     glyph = ("%s⌂%s" % (K["B2"], K["R"]) if r["harness"]
              else "%s◦%s" % (K["DK"], K["R"]))
-    nombre = r["slug"] or (r["name"] + " (sin github)")
+    nombre = r["slug"] or _t("github.repo.no_github", "{name} (sin github)",
+                             name=r["name"])
     nw = max(14, min(26, iw - 19))               # deja aire al resumen
     ncol = (K["WH"] + K["BO"]) if sel else K["GREY"]
     d = S["cloud"].get(r["slug"]) or {}
     if r["slug"] in S["fetching"]:
-        info = "%sconsultando…%s" % (K["C"], K["R"])
+        info = "%s%s%s" % (K["C"], _t("github.repo.querying",
+                                      "consultando…"), K["R"])
     elif d.get("stamped"):
-        info = "%s%dPR·%diss%s" % (K["B2"], len(d.get("prs") or []),
-                                   len(d.get("issues") or []), K["R"])
+        info = "%s%s%s" % (K["B2"], _t("github.repo.pr_iss",
+                                       "{pr}PR·{iss}iss",
+                                       pr=len(d.get("prs") or []),
+                                       iss=len(d.get("issues") or [])),
+                           K["R"])
     elif not r["slug"]:
-        info = "%ssolo local%s" % (K["DK"], K["R"])
+        info = "%s%s%s" % (K["DK"], _t("github.repo.only_local",
+                                       "solo local"), K["R"])
     else:
-        info = "%ssin consultar%s" % (K["DK"], K["R"])
+        info = "%s%s%s" % (K["DK"], _t("github.repo.not_queried",
+                                       "sin consultar"), K["R"])
     ago = ("%s%s%s" % (K["DK"], _ago(d["stamped"]), K["R"])
            if d.get("stamped") else "")
     ln = " %s %s %s%s%s %s" % (cur, glyph, ncol, HL.pad(nombre, nw),
@@ -804,24 +886,32 @@ def _cuerpo_repos(S, K, iw):
         out.append(ln)
         tags.append(tag)
 
-    add(GT._divisor(K, "este harness", iw, tono=0))
+    add(GT._divisor(K, _t("github.div.this_harness", "este harness"), iw,
+                    tono=0))
     for i, r in enumerate(S["repos"]):
         if i == 1:
             add("")
-            add(GT._divisor(K, "conectados", iw, tono=2))
+            add(GT._divisor(K, _t("github.div.connected", "conectados"), iw,
+                            tono=2))
         if i == S["si"]:
             marca = len(out)
         add(_fila_repo(S, K, r, i, iw), ("repo", i))
     if len(S["repos"]) == 1:                     # primer uso: guía de 1 paso
         add("")
-        add(GT._divisor(K, "conectados", iw, tono=2))
-        add(HL.clip(" %sninguno todavía — es 1 paso:%s"
-                    % (K["DIM"], K["R"]), iw))
-        add(HL.clip(" %s%s a%s %selige un repo local detectado%s"
+        add(GT._divisor(K, _t("github.div.connected", "conectados"), iw,
+                        tono=2))
+        add(HL.clip(" %s%s%s"
+                    % (K["DIM"], _t("github.repos.none_yet",
+                       "ninguno todavía — es 1 paso:"), K["R"]), iw))
+        add(HL.clip(" %s%s a%s %s%s%s"
                     % (K["C"] + K["BO"], K["PTR"], K["R"], K["GREY"],
+                       _t("github.repos.pick_detected",
+                          "elige un repo local detectado"),
                        K["R"]), iw), ("add", 0))
-        add(HL.clip("   %s(o pega owner/nombre · también con click aquí)%s"
-                    % (K["DK"], K["R"]), iw), ("add", 0))
+        add(HL.clip("   %s%s%s"
+                    % (K["DK"], _t("github.repos.or_paste",
+                       "(o pega owner/nombre · también con click aquí)"),
+                       K["R"]), iw), ("add", 0))
     return out, tags, marca
 
 
@@ -845,17 +935,21 @@ def _cuerpo_conectar(S, K, iw):
     for rr in S["repos"]:
         if rr.get("slug"):
             con.add(rr["slug"].lower())
-    add(HL.clip(" %sconectar un repo — elige uno local o escríbelo%s"
-                % (K["DIM"], K["R"]), iw))
+    add(HL.clip(" %s%s%s"
+                % (K["DIM"], _t("github.connect.title",
+                   "conectar un repo — elige uno local o escríbelo"),
+                   K["R"]), iw))
     add("")
-    add(GT._divisor(K, "repos locales detectados"
+    add(GT._divisor(K, _t("github.div.detected", "repos locales detectados")
                     + (" · %d" % len(opts) if opts else ""), iw, tono=0))
     if S.get("scan"):
-        add(HL.clip(" %sbuscando repos en tu disco… (solo lectura local, "
-                    "cero red)%s" % (K["C"], K["R"]), iw))
+        add(HL.clip(" %s%s%s" % (K["C"], _t("github.connect.scanning",
+                    "buscando repos en tu disco… (solo lectura local, "
+                    "cero red)"), K["R"]), iw))
     elif not opts:
-        add(HL.clip(" %sno encontré repos git en las carpetas comunes — "
-                    "escríbelo abajo%s" % (K["DK"], K["R"]), iw))
+        add(HL.clip(" %s%s%s" % (K["DK"], _t("github.connect.none_found",
+                    "no encontré repos git en las carpetas comunes — "
+                    "escríbelo abajo"), K["R"]), iw))
     for i, opt in enumerate(opts):
         sel = (i == S.get("ai", 0))
         if sel:
@@ -868,9 +962,12 @@ def _cuerpo_conectar(S, K, iw):
         if slug:
             etiq = "%s%s%s" % (K["B2"], slug, K["R"])
             if slug.lower() in con:
-                etiq += " %s%s ya%s" % (K["OK"], K["CHECK"], K["R"])
+                etiq += " %s%s %s%s" % (K["OK"], K["CHECK"],
+                                        _t("github.connect.already", "ya"),
+                                        K["R"])
         else:
-            etiq = "%ssin origin github%s" % (K["DK"], K["R"])
+            etiq = "%s%s%s" % (K["DK"], _t("github.connect.no_origin",
+                                           "sin origin github"), K["R"])
         ruta = ("%s%s%s" % (K["DK"],
                             opt["path"].replace(os.path.expanduser("~"),
                                                 "~"), K["R"]))
@@ -882,22 +979,28 @@ def _cuerpo_conectar(S, K, iw):
             ln += " " * hueco + ruta
         add(HL.clip(ln, iw), ("pick", i))
     add("")
-    add(GT._divisor(K, "a mano", iw, tono=2))
+    add(GT._divisor(K, _t("github.div.manual", "a mano"), iw, tono=2))
     sel = (S.get("ai", 0) >= len(opts))
     if sel:
         marca = len(out)
     cur = ("%s%s%s" % (K["C"] + K["BO"], K["PTR"], K["R"]) if sel else " ")
-    add(HL.clip(" %s %sescribir owner/nombre · URL de github.com · o una "
-                "carpeta%s" % (cur, (K["WH"] + K["BO"]) if sel
-                               else K["GREY"], K["R"]), iw),
+    add(HL.clip(" %s %s%s%s" % (cur, (K["WH"] + K["BO"]) if sel
+                                else K["GREY"],
+                                _t("github.connect.manual_row",
+                                   "escribir owner/nombre · URL de "
+                                   "github.com · o una carpeta"), K["R"]),
+                iw),
         ("manual", 0))
     add("")
-    for ln in ("Enter conecta lo elegido — solo se apunta en tu lista "
-               "per-máquina (github-repos.json)",
-               "no clona, no toca la red, no guarda tokens — la sesión "
-               "la maneja gh",
-               "escribe cualquier letra y pasas directo al campo de "
-               "texto · Esc cancela"):
+    for ln in (_t("github.connect.bullet1",
+                  "Enter conecta lo elegido — solo se apunta en tu lista "
+                  "per-máquina (github-repos.json)"),
+               _t("github.note.no_clone",
+                  "no clona, no toca la red, no guarda tokens — la sesión "
+                  "la maneja gh"),
+               _t("github.connect.bullet3",
+                  "escribe cualquier letra y pasas directo al campo de "
+                  "texto · Esc cancela")):
         for sub in _bullet(K, ln, iw):
             add(sub)
     return out, tags, marca
@@ -905,19 +1008,24 @@ def _cuerpo_conectar(S, K, iw):
 
 def _cuerpo_escribir(S, K, iw):
     """Caja derecha en modo A MANO: el campo + qué pasará exactamente."""
-    out = [HL.clip(" %sconectar un repo de GitHub — a mano%s"
-                   % (K["DIM"], K["R"]), iw),
+    out = [HL.clip(" %s%s%s"
+                   % (K["DIM"], _t("github.write.title",
+                      "conectar un repo de GitHub — a mano"), K["R"]), iw),
            HL.clip(" %s%s%s %s%s%s█%s" % (K["C"] + K["BO"], K["PTR"],
                                           K["R"], K["WH"], S["buf"],
                                           K["C"] + K["BO"], K["R"]), iw),
            ""]
-    for ln in ("owner/nombre · URL de github.com · o una carpeta local "
-               "clonada",
-               "solo se apunta en tu lista per-máquina "
-               "(~/.claude/workspace/github-repos.json)",
-               "no clona, no toca la red, no guarda tokens — la sesión "
-               "la maneja gh",
-               "Enter conecta · Esc vuelve al selector"):
+    for ln in (_t("github.write.bullet1",
+                  "owner/nombre · URL de github.com · o una carpeta local "
+                  "clonada"),
+               _t("github.write.bullet2",
+                  "solo se apunta en tu lista per-máquina "
+                  "(~/.claude/workspace/github-repos.json)"),
+               _t("github.note.no_clone",
+                  "no clona, no toca la red, no guarda tokens — la sesión "
+                  "la maneja gh"),
+               _t("github.write.bullet4",
+                  "Enter conecta · Esc vuelve al selector")):
         out += _bullet(K, ln, iw)
     return out
 
@@ -942,7 +1050,8 @@ def _fila_item(S, K, kind, obj, idx, iw):
             str(obj.get("title", ""))[:60], K["R"])
         right = "%s%s→%s%s%s" % (K["DK"], obj.get("headRefName", "")[:18],
                                  obj.get("baseRefName", ""),
-                                 " ·borrador" if obj.get("isDraft") else "",
+                                 _t("github.item.draft_suffix", " ·borrador")
+                                 if obj.get("isDraft") else "",
                                  K["R"])
     elif kind == "issue":
         left = " %s %s◌%s %s#%s%s %s%s%s" % (
@@ -955,16 +1064,19 @@ def _fila_item(S, K, kind, obj, idx, iw):
                  else "%s○%s" % (K["DK"], K["R"]))
         left = " %s %s %s%s%s" % (cur, glifo, ncol,
                                   str(obj.get("name", ""))[:40], K["R"])
-        right = ("%saquí está tu copia%s" % (K["DK"], K["R"])
+        right = ("%s%s%s" % (K["DK"], _t("github.item.here_copy",
+                             "aquí está tu copia"), K["R"])
                  if obj.get("current") else
-                 ("%sEnter cambia a esta rama%s" % (K["C"], K["R"])
+                 ("%s%s%s" % (K["C"], _t("github.item.enter_switch",
+                              "Enter cambia a esta rama"), K["R"])
                   if sel else ""))
     elif kind == "branch":
         left = " %s %s%s%s %s%s%s" % (cur, K["C"], K["BRANCH"], K["R"],
                                       ncol, str(obj.get("name", ""))[:40],
                                       K["R"])
         if obj.get("protected"):
-            right = "%sprotegida%s" % (K["DK"], K["R"])
+            right = "%s%s%s" % (K["DK"], _t("github.item.protected",
+                                            "protegida"), K["R"])
     elif kind == "commit":
         left = " %s %s%s%s %s%s%s" % (cur, K["B2"], obj.get("short", "?"),
                                       K["R"], ncol,
@@ -974,8 +1086,10 @@ def _fila_item(S, K, kind, obj, idx, iw):
         left = " %s %s◆%s %s%s%s" % (cur, K["B"] + K["BO"], K["R"], ncol,
                                      str(obj.get("tagName", ""))[:30],
                                      K["R"])
-        right = "%s%s%s" % (K["DK"], "borrador" if obj.get("isDraft")
-                            else "publicado", K["R"])
+        right = "%s%s%s" % (K["DK"], _t("github.item.draft", "borrador")
+                            if obj.get("isDraft")
+                            else _t("github.item.published", "publicado"),
+                            K["R"])
     elif kind == "run":
         st = ("ok" if (obj.get("conclusion") or "").lower() == "success"
               else "fail" if (obj.get("conclusion") or "").lower() in
@@ -1003,14 +1117,15 @@ def _det_body(S, K, iw):
 
     r = _sel_repo(S)
     if not r:
-        add(HL.clip(" %ssin repos%s" % (K["DK"], K["R"]), iw))
+        add(HL.clip(" %s%s%s" % (K["DK"], _t("github.det.no_repos",
+                                             "sin repos"), K["R"]), iw))
         return out, tags, 0
     slug = r["slug"]
     d = (S["cloud"].get(slug) or {}) if slug else {}
     v = d.get("view") or {}
     # encabezado: qué repo es y de cuándo son los datos
-    priv = ("privado" if v.get("isPrivate") else
-            "público" if v else "")
+    priv = (_t("github.det.private", "privado") if v.get("isPrivate") else
+            _t("github.det.public", "público") if v else "")
     add(HL.clip(" %s%s%s%s" % (K["C"] + K["BO"], slug or r["name"], K["R"],
                                ("  %s%s%s" % (K["DK"], priv, K["R"]))
                                if priv else ""), iw))
@@ -1020,23 +1135,27 @@ def _det_body(S, K, iw):
             add(HL.clip(" %s%s%s" % (K["DIM"], ln, K["R"]), iw))
     if slug:
         if slug in S["fetching"]:
-            est = "%sconsultando GitHub…%s" % (K["C"], K["R"])
+            est = "%s%s%s" % (K["C"], _t("github.det.querying",
+                                         "consultando GitHub…"), K["R"])
         elif d.get("stamped"):
-            est = "%sconsultado %s — f refresca%s" % (K["DK"],
-                                                      _ago(d["stamped"]),
-                                                      K["R"])
+            est = "%s%s%s" % (K["DK"], _t("github.det.queried",
+                              "consultado {ago} — f refresca",
+                              ago=_ago(d["stamped"])), K["R"])
         elif S["auth"]["ok"]:
-            est = ("%ssin consultar — f trae PRs, issues, ramas, commits y "
-                   "releases%s" % (K["DK"], K["R"]))
+            est = "%s%s%s" % (K["DK"], _t("github.det.not_queried_full",
+                              "sin consultar — f trae PRs, issues, ramas, "
+                              "commits y releases"), K["R"])
         else:
-            est = "%ssin consultar%s" % (K["DK"], K["R"])
+            est = "%s%s%s" % (K["DK"], _t("github.det.not_queried",
+                                          "sin consultar"), K["R"])
         add(HL.clip(" " + est, iw))
     local = r.get("local") or ""
-    add(HL.clip(" %s%s%s" % (
-        K["DK"],
-        ("copia local · " + local.replace(os.path.expanduser("~"), "~"))
-        if local and os.path.isdir(local)
-        else "sin copia local — todo se abre en el navegador", K["R"]), iw))
+    local_txt = (_t("github.det.local_copy", "copia local · {path}",
+                    path=local.replace(os.path.expanduser("~"), "~"))
+                 if local and os.path.isdir(local)
+                 else _t("github.det.no_local",
+                         "sin copia local — todo se abre en el navegador"))
+    add(HL.clip(" %s%s%s" % (K["DK"], local_txt, K["R"]), iw))
     # ramas de la copia local — visibles AL INSTANTE, sin consultar la nube
     its = _det_items(S)
     lfilas = [(k, o) for k, o in its if k == "lbranch"]
@@ -1044,37 +1163,50 @@ def _det_body(S, K, iw):
     if lfilas:
         tot_l = len(r.get("lbranches") or [])
         add("")
-        add(GT._divisor(K, "ramas · copia local · %d" % tot_l, iw, tono=0))
+        add(GT._divisor(K, _t("github.det.local_branches",
+                              "ramas · copia local · {n}", n=tot_l), iw,
+                        tono=0))
         for k, o in lfilas:
             if S["focus"] == "detalle" and idx == S["ci"]:
                 marca = len(out)
             add(_fila_item(S, K, k, o, idx, iw), ("det", idx))
             idx += 1
         if tot_l > len(lfilas):
-            add(HL.clip("  %s… y %d más — m abre el mapa completo%s"
-                        % (K["DK"], tot_l - len(lfilas), K["R"]), iw))
+            add(HL.clip("  %s%s%s"
+                        % (K["DK"], _t("github.det.more_branches",
+                           "… y {n} más — m abre el mapa completo",
+                           n=tot_l - len(lfilas)), K["R"]), iw))
     # la puerta, explicada en su lugar
     if not S["auth"]["ok"]:
         add("")
-        add(GT._divisor(K, "github desconectado", iw, tono=1))
+        add(GT._divisor(K, _t("github.div.disconnected",
+                              "github desconectado"), iw, tono=1))
         for ln in GT._wrap(S["auth"]["msg"], max(8, iw - 4)):
             add(HL.clip(" %s%s%s" % (K["BAD"], ln, K["R"]), iw))
-        for ln in ("sin sesión NO se toca la red: cero consultas desde aquí",
-                   "gh guarda tu sesión en el keyring del sistema — esta "
-                   "pantalla nunca ve tokens",
-                   "lo local sigue completo: m abre el mapa de ramas y "
-                   "worktrees"):
+        for ln in (_t("github.det.off_bullet1",
+                      "sin sesión NO se toca la red: cero consultas desde "
+                      "aquí"),
+                   _t("github.det.off_bullet2",
+                      "gh guarda tu sesión en el keyring del sistema — esta "
+                      "pantalla nunca ve tokens"),
+                   _t("github.det.off_bullet3",
+                      "lo local sigue completo: m abre el mapa de ramas y "
+                      "worktrees")):
             for sub in _bullet(K, ln, iw):
                 add(sub)
     if not slug:
         add("")
-        add(GT._divisor(K, "sin github", iw, tono=3))
-        avisos = ["este repo no tiene origin de github.com — la nube no "
-                  "aplica",
-                  "m abre su mapa local de ramas y worktrees"]
+        add(GT._divisor(K, _t("github.div.no_github", "sin github"), iw,
+                        tono=3))
+        avisos = [_t("github.det.nogh1",
+                     "este repo no tiene origin de github.com — la nube no "
+                     "aplica"),
+                  _t("github.det.nogh2",
+                     "m abre su mapa local de ramas y worktrees")]
         if lfilas:
-            avisos.insert(1, "Enter o c en una rama de arriba cambia la "
-                             "copia local (árbol limpio)")
+            avisos.insert(1, _t("github.det.nogh_switch",
+                                "Enter o c en una rama de arriba cambia la "
+                                "copia local (árbol limpio)"))
         for ln in avisos:
             for sub in _bullet(K, ln, iw):
                 add(sub)
@@ -1082,23 +1214,30 @@ def _det_body(S, K, iw):
     # secciones con datos (del cache — cero red aquí)
     if not d.get("stamped"):
         add("")
-        add(GT._divisor(K, "qué verás al consultar", iw, tono=3))
-        for ln in ("PRs abiertos con el estado de sus checks (✓ × ●)",
-                   "issues abiertos · ramas remotas · commits recientes",
-                   "releases y corridas de Actions",
-                   "nada corre solo: f consulta, con tu sesión gh"):
+        add(GT._divisor(K, _t("github.div.will_see",
+                              "qué verás al consultar"), iw, tono=3))
+        for ln in (_t("github.det.preview1",
+                      "PRs abiertos con el estado de sus checks (✓ × ●)"),
+                   _t("github.det.preview2",
+                      "issues abiertos · ramas remotas · commits recientes"),
+                   _t("github.det.preview3",
+                      "releases y corridas de Actions"),
+                   _t("github.det.preview4",
+                      "nada corre solo: f consulta, con tu sesión gh")):
             for sub in _bullet(K, ln, iw):
                 add(sub)
     else:
+        _defbr = ((v.get("defaultBranchRef") or {}).get("name")
+                  or _t("github.det.default_branch", "default"))
         secciones = (
-            ("prs", "revisiones abiertas · PR", 1),
-            ("issues", "issues abiertos", 2),
-            ("branches", "ramas remotas", 3),
-            ("commits", "commits recientes · %s"
-             % ((v.get("defaultBranchRef") or {}).get("name") or "default"),
+            ("prs", _t("github.div.prs", "revisiones abiertas · PR"), 1),
+            ("issues", _t("github.div.issues", "issues abiertos"), 2),
+            ("branches", _t("github.div.branches", "ramas remotas"), 3),
+            ("commits", _t("github.div.commits",
+                           "commits recientes · {branch}", branch=_defbr),
              4),
-            ("releases", "releases", 5),
-            ("runs", "actions", 0),
+            ("releases", _t("github.div.releases", "releases"), 5),
+            ("runs", _t("github.div.runs", "actions"), 0),
         )
         for key, titulo, tono in secciones:
             total = len(d.get(key) or [])
@@ -1110,35 +1249,44 @@ def _det_body(S, K, iw):
             add(GT._divisor(K, "%s%s" % (titulo, " · %d" % total
                                          if total else ""), iw, tono=tono))
             if not filas:
-                add(HL.clip(" %sninguno%s" % (K["DK"], K["R"]), iw))
+                add(HL.clip(" %s%s%s" % (K["DK"], _t("github.det.none",
+                                         "ninguno"), K["R"]), iw))
             for k, o in filas:
                 if S["focus"] == "detalle" and idx == S["ci"]:
                     marca = len(out)
                 add(_fila_item(S, K, k, o, idx, iw), ("det", idx))
                 idx += 1
             if total > len(filas):
-                add(HL.clip("  %s… y %d más — Enter/o abre el repo en el "
-                            "navegador%s" % (K["DK"], total - len(filas),
-                                             K["R"]), iw))
+                add(HL.clip("  %s%s%s"
+                            % (K["DK"], _t("github.det.more_open",
+                               "… y {n} más — Enter/o abre el repo en el "
+                               "navegador", n=total - len(filas)),
+                               K["R"]), iw))
     if d.get("errors"):
         add("")
-        add(GT._divisor(K, "consultas fallidas", iw))
+        add(GT._divisor(K, _t("github.div.failed_queries",
+                              "consultas fallidas"), iw))
         for e in d["errors"][:4]:
             add(HL.clip(" %s%s%s" % (K["DK"], str(e)[:iw - 2], K["R"]), iw))
     # qué hace cada tecla AQUÍ (se dice antes de tocar)
     add("")
-    add(GT._divisor(K, "acciones", iw))
-    acc = [("Enter abre lo elegido en tu navegador — y en «ramas · copia "
-            "local» cambia a esa rama") if lfilas else
-           "Enter abre lo elegido en tu navegador — nunca modifica nada"]
+    add(GT._divisor(K, _t("github.div.actions", "acciones"), iw))
+    acc = [_t("github.det.act_enter_branch",
+              "Enter abre lo elegido en tu navegador — y en «ramas · copia "
+              "local» cambia a esa rama") if lfilas else
+           _t("github.det.act_enter",
+              "Enter abre lo elegido en tu navegador — nunca modifica nada")]
     if local and os.path.isdir(local):
-        acc.append("c cambia la copia local a la rama elegida (árbol "
-                   "limpio, jamás --force) · m abre su mapa de ramas")
+        acc.append(_t("github.det.act_checkout",
+                      "c cambia la copia local a la rama elegida (árbol "
+                      "limpio, jamás --force) · m abre su mapa de ramas"))
     if S["auth"]["ok"]:
-        acc.append("f consulta GitHub otra vez · x desconecta (solo tu "
-                   "lista)")
+        acc.append(_t("github.det.act_query",
+                      "f consulta GitHub otra vez · x desconecta (solo tu "
+                      "lista)"))
     else:
-        acc.append("f está apagada sin sesión — gh auth login y r")
+        acc.append(_t("github.det.act_off",
+                      "f está apagada sin sesión — gh auth login y r"))
     for ln in acc:
         for sub in _bullet(K, ln, iw):
             add(sub)
@@ -1148,19 +1296,36 @@ def _det_body(S, K, iw):
 # UNA fuente de verdad de los atajos POR MODO: la cabecera enseña los
 # clave + salir (HL.top_hints recorta a 4) y el pie la lista COMPLETA
 # (HL.foot_hints cede pares del final en angosto — adiós variante w<90).
-_PARES_NAV = (("↑↓", "elige"), ("Tab/◄►", "foco"), ("Enter", "abre"),
-              ("f", "consulta GitHub"), ("a", "conecta"),
-              ("x", "desconecta"), ("c", "rama"), ("m", "mapa local"),
-              ("q", "vuelve"))
-_PARES_ADD = (("↑↓/click", "elige"), ("Enter", "conecta"),
-              ("escribe", "para teclear a mano"), ("Esc", "cancela"))
-_PARES_WRITE = (("escribe", "owner/nombre, URL o carpeta"),
-                ("Enter", "conecta"), ("Esc", "vuelve al selector"))
+def _pares_nav():
+    return (("↑↓", _t("common.hint.pick", "elige")),
+            ("Tab/◄►", _t("github.hint.focus", "foco")),
+            ("Enter", _t("github.hint.open", "abre")),
+            ("f", _t("github.hint.query", "consulta GitHub")),
+            ("a", _t("github.hint.connect", "conecta")),
+            ("x", _t("github.hint.disconnect", "desconecta")),
+            ("c", _t("github.hint.branch", "rama")),
+            ("m", _t("github.hint.map", "mapa local")),
+            ("q", _t("github.hint.back", "vuelve")))
+
+
+def _pares_add():
+    return (("↑↓/click", _t("common.hint.pick", "elige")),
+            ("Enter", _t("github.hint.connect", "conecta")),
+            (_t("github.key.type", "escribe"),
+             _t("github.hint.type_manual", "para teclear a mano")),
+            ("Esc", _t("github.hint.cancel", "cancela")))
+
+
+def _pares_write():
+    return ((_t("github.key.type", "escribe"),
+             _t("github.hint.write_target", "owner/nombre, URL o carpeta")),
+            ("Enter", _t("github.hint.connect", "conecta")),
+            ("Esc", _t("github.hint.back_selector", "vuelve al selector")))
 
 
 def _pares_modo(S):
-    return {"add": _PARES_ADD,
-            "add_write": _PARES_WRITE}.get(S["modo"], _PARES_NAV)
+    return {"add": _pares_add(),
+            "add_write": _pares_write()}.get(S["modo"], _pares_nav())
 
 
 def render(S, w, h):
@@ -1169,8 +1334,8 @@ def render(S, w, h):
     # cabecera COMPARTIDA (wordmark + subtítulo + atajos clave + regla);
     # los atajos de arriba siguen el MODO (nav / conectar / teclear)
     L = HL.screen_header(
-        K, w, h, "github — tus repos: ramas locales + PRs · issues · "
-        "releases", hints=_pares_modo(S))
+        K, w, h, _t("github.subtitle", "github — tus repos: ramas locales "
+                    "+ PRs · issues · releases"), hints=_pares_modo(S))
     L.append(_fila_estado(S, K, w))
     L.append("")
     top = len(L)
@@ -1183,15 +1348,16 @@ def render(S, w, h):
     r = _sel_repo(S)
     if S["modo"] == "add":
         bd, td, md = _cuerpo_conectar(S, K, rw - 4)
-        t_der = "CONECTAR"
+        t_der = _t("github.box.connect", "CONECTAR")
     elif S["modo"] == "add_write":
         bd = _cuerpo_escribir(S, K, rw - 4)
         td, md = [None] * len(bd), 0
-        t_der = "CONECTAR"
+        t_der = _t("github.box.connect", "CONECTAR")
     else:
         bd, td, md = _det_body(S, K, rw - 4)
-        t_der = "DETALLE · %s" % ((r["slug"] or r["name"]) if r else "—")
-    t_izq = "REPOS"
+        t_der = _t("github.box.detail", "DETALLE · {name}",
+                   name=(r["slug"] or r["name"]) if r else "—")
+    t_izq = _t("github.box.repos", "REPOS")
     foc_l = S["focus"] == "repos" and S["modo"] == "nav"
 
     def _caja(titulo, cuerpo, pw, ih, focused):
@@ -1235,9 +1401,11 @@ def render(S, w, h):
                 S["hits"].append((base + 1 + j, tg[0], tg[1]))
     L.append("")
     if S["modo"] == "confirm" and S.get("pend"):
-        L.append(" %s⚠ desconectar %s — Enter confirma · Esc cancela (solo "
-                 "sale de tu lista; nada se borra)%s"
-                 % (K["BAD"] + K["BO"], S["pend"], K["R"]))
+        L.append(" %s%s%s"
+                 % (K["BAD"] + K["BO"], _t("github.confirm.disconnect",
+                    "⚠ desconectar {slug} — Enter confirma · Esc cancela "
+                    "(solo sale de tu lista; nada se borra)",
+                    slug=S["pend"]), K["R"]))
     elif S.get("msg"):
         L.append(" %s%s%s" % (K["B2"], S["msg"], K["R"]))
     else:
@@ -1295,7 +1463,7 @@ def _activar_item(S):
             return _abrir(_item_url(r["slug"], k, o))
     if r["slug"]:
         return _abrir("https://github.com/" + r["slug"])
-    return "este repo no tiene página de GitHub"
+    return _t("github.msg.no_page", "este repo no tiene página de GitHub")
 
 
 def _click(S, y):
@@ -1343,7 +1511,8 @@ def _action(S, key):
         opts = _add_opts(S)
         n = len(opts) + 1                        # +1: la fila «a mano»
         if key == "\x1b":
-            S["modo"], S["msg"] = "nav", "cancelado"
+            S["modo"], S["msg"] = "nav", _t("github.msg.cancelled",
+                                            "cancelado")
         elif key == "up":
             S["ai"] = (S.get("ai", 0) - 1) % n
         elif key in ("down", "tab"):
@@ -1381,12 +1550,14 @@ def _action(S, key):
         if key in ("\r", "\n"):
             slug = S.get("pend")
             S["modo"], S["pend"] = "nav", None
-            S["msg"] = disconnect(slug) if slug else "nada que desconectar"
+            S["msg"] = disconnect(slug) if slug else _t(
+                "github.msg.nothing_disconnect", "nada que desconectar")
             S["repos"] = repos_list()
             S["si"] = min(S["si"], len(S["repos"]) - 1)
         elif key not in ("", None):
             S["modo"], S["pend"] = "nav", None
-            S["msg"] = "cancelado — el repo sigue en tu lista"
+            S["msg"] = _t("github.msg.cancel_kept",
+                          "cancelado — el repo sigue en tu lista")
         return True
 
     if key in ("q", "Q", "\x03"):
@@ -1426,30 +1597,37 @@ def _action(S, key):
                 if r["slug"] and not its:
                     S["msg"] = _abrir("https://github.com/" + r["slug"])
             else:
-                S["msg"] = ("este repo no tiene GitHub — m abre su mapa "
-                            "local de ramas")
+                S["msg"] = _t("github.msg.no_github_map",
+                              "este repo no tiene GitHub — m abre su mapa "
+                              "local de ramas")
         else:
             S["msg"] = _activar_item(S)
     elif key in ("f", "F"):
         if not S["auth"]["ok"]:
-            S["msg"] = ("sin sesión de GitHub no consulto nada — corre "
-                        "gh auth login y luego r")
+            S["msg"] = _t("github.msg.no_session_query",
+                          "sin sesión de GitHub no consulto nada — corre "
+                          "gh auth login y luego r")
         elif not (r and r["slug"]):
-            S["msg"] = "este repo no tiene GitHub que consultar"
+            S["msg"] = _t("github.msg.nothing_to_query",
+                          "este repo no tiene GitHub que consultar")
         elif r["slug"] in S["fetching"]:
-            S["msg"] = "ya estoy consultando %s — un momento" % r["slug"]
+            S["msg"] = _t("github.msg.already_querying",
+                          "ya estoy consultando {slug} — un momento",
+                          slug=r["slug"])
         else:
             th = _Fetch(r["slug"])
             S["fetching"][r["slug"]] = th
             th.start()
-            S["msg"] = ("consultando %s en segundo plano — la pantalla "
-                        "sigue viva" % r["slug"])
+            S["msg"] = _t("github.msg.querying_bg",
+                          "consultando {slug} en segundo plano — la "
+                          "pantalla sigue viva", slug=r["slug"])
     elif key in ("a", "A"):
         _open_add(S)
     elif key in ("x", "X"):
         if not r or r["harness"]:
-            S["msg"] = ("el harness no se desconecta — es la base de esta "
-                        "pantalla")
+            S["msg"] = _t("github.msg.harness_no_disconnect",
+                          "el harness no se desconecta — es la base de esta "
+                          "pantalla")
         else:
             S["modo"], S["pend"] = "confirm", r["slug"]
     elif key in ("m", "M"):
@@ -1457,13 +1635,15 @@ def _action(S, key):
         if local and os.path.isdir(local):
             S["open_map"] = local
         else:
-            S["msg"] = ("sin copia local no hay mapa — a abre el selector "
-                        "de repos locales (o pega su carpeta)")
+            S["msg"] = _t("github.msg.no_map",
+                          "sin copia local no hay mapa — a abre el selector "
+                          "de repos locales (o pega su carpeta)")
     elif key in ("o", "O"):
         if r and r["slug"]:
             S["msg"] = _abrir("https://github.com/" + r["slug"])
         else:
-            S["msg"] = "este repo no tiene página de GitHub"
+            S["msg"] = _t("github.msg.no_page",
+                          "este repo no tiene página de GitHub")
     elif key in ("c", "C"):
         if (S["focus"] == "detalle" and its and S["ci"] < len(its)
                 and its[S["ci"]][0] in ("branch", "lbranch")):
@@ -1471,17 +1651,22 @@ def _action(S, key):
             S["msg"] = _checkout(S, r, o.get("name", ""),
                                  remote=(k == "branch"))
         else:
-            S["msg"] = ("c cambia la copia local a una RAMA — elige una en "
-                        "«ramas» (Tab + ↑↓ o click)")
+            S["msg"] = _t("github.msg.checkout_hint",
+                          "c cambia la copia local a una RAMA — elige una "
+                          "en «ramas» (Tab + ↑↓ o click)")
     elif key in ("r", "R"):
         S["auth"] = auth_check()
         S["repos"] = repos_list()
         S["cloud"] = _load(_cache_path(), {})
         S["si"] = min(S["si"], len(S["repos"]) - 1)
-        S["msg"] = ("sesión y lista releídas ✓ — gh: %s"
-                    % (S["auth"]["account"] or "sin sesión")
+        S["msg"] = (_t("github.msg.reloaded_ok",
+                       "sesión y lista releídas ✓ — gh: {acct}",
+                       acct=(S["auth"]["account"]
+                             or _t("github.msg.no_session_word",
+                                   "sin sesión")))
                     if S["auth"]["ok"] else
-                    "lista releída — sigue sin sesión de GitHub")
+                    _t("github.msg.reloaded_no",
+                       "lista releída — sigue sin sesión de GitHub"))
     return True
 
 
@@ -1676,17 +1861,23 @@ def _listado(S=None):
     """Sin terminal interactiva: el estado plano (auth + repos + cache)."""
     S = S or _state()
     a = S["auth"]
-    print("github: %s" % ("sesión gh %s ✓" % (a["account"] or "activa")
-                          if a["ok"] else a["msg"]))
+    status = (_t("github.list.session", "sesión gh {acct} ✓",
+                 acct=(a["account"] or _t("github.list.active", "activa")))
+              if a["ok"] else a["msg"])
+    print(_t("github.list.prefix", "github: {status}", status=status))
     for r in S["repos"]:
         d = S["cloud"].get(r["slug"]) or {}
         extra = ""
         if d.get("stamped"):
-            extra = " · %d PR · %d issues · %s" % (
-                len(d.get("prs") or []), len(d.get("issues") or []),
-                _ago(d["stamped"]))
+            extra = _t("github.list.extra",
+                       " · {pr} PR · {iss} issues · {ago}",
+                       pr=len(d.get("prs") or []),
+                       iss=len(d.get("issues") or []),
+                       ago=_ago(d["stamped"]))
         print(" %s %-36s%s" % ("⌂" if r["harness"] else "·",
-                               r["slug"] or (r["name"] + " (sin github)"),
+                               r["slug"] or _t("github.repo.no_github",
+                                               "{name} (sin github)",
+                                               name=r["name"]),
                                extra))
     return 0
 

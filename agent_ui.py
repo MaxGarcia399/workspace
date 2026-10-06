@@ -16,6 +16,25 @@ import hublayout as H
 import responsive_ui as UI
 import tuitheme
 
+# i18n (lado cliente): el greeter lo ven los clientes. Import guardado — este
+# módulo lo delegan dashboards que corren desde el brand/ del cerebro, donde
+# el root del harness podría no estar en sys.path; sin i18n, _t() devuelve el
+# español inline (paridad EXACTA con el greeter de siempre).
+try:
+    import i18n
+except Exception:
+    i18n = None
+
+
+def _t(key, es):
+    if i18n is None:
+        return es
+    try:
+        s = i18n.t(key)
+        return s if s != key else es
+    except Exception:
+        return es
+
 @functools.lru_cache(maxsize=1)
 def font():
     tree = ast.parse((Path(__file__).parent / 'templates/agent/workspace/brand/agent-banner.py').read_text())
@@ -67,18 +86,21 @@ def picker_frame(items, selected, width, height, box_w=None, left=None):
             gap = max(2, inner - H.vis(row) - H.vis(sub_c))
             body.append(row + ' ' * gap + sub_c)   # estado pegado al borde →
     if start:
-        body.insert(0,'↑ más sesiones')
+        body.insert(0, _t('greeter.sessions.more_up', '↑ más sesiones'))
     if start+cap < len(items):
-        body.append('↓ más sesiones')
+        body.append(_t('greeter.sessions.more_down', '↓ más sesiones'))
     if left is None or not box_w or pw != int(box_w):
         left = max(0, (width - 1 - pw) // 2)     # centrada a la terminal
-    rows = [' '*left+x for x in UI.box('SESIONES', body, pw, True,
-                                       title_align='center')]
+    rows = [' '*left+x for x in UI.box(_t('greeter.sessions.title', 'SESIONES'),
+                                       body, pw, True, title_align='center')]
     # los atajos salen del título y bajan AQUÍ, legibles (tecla en acento,
     # acción en gris — H.keyline, el mismo lenguaje de hints de todo el hub)
     hint = H.keyline(H.cols(tuitheme.palette()),
-                     (('↑↓', 'elige'), ('Enter', 'abre'), ('1-9', 'directo'),
-                      ('Ctrl+C', 'sale')), max(10, pw - 2))
+                     (('↑↓', _t('greeter.hint.choose', 'elige')),
+                      ('Enter', _t('greeter.hint.open', 'abre')),
+                      ('1-9', _t('greeter.hint.direct', 'directo')),
+                      ('Ctrl+C', _t('greeter.hint.quit', 'sale'))),
+                     max(10, pw - 2))
     if hint:
         rows.append(' '*(left + max(0, (pw - H.vis(hint)) // 2)) + hint)
     return rows

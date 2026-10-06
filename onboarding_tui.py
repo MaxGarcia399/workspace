@@ -50,6 +50,22 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 import hublayout as HL                                          # noqa: E402
+# i18n (lado cliente): el onboarding lo ve el cliente. Falla-suave — sin el
+# módulo, _t() devuelve el español inline (paridad exacta con el flujo de hoy).
+try:
+    import i18n                                                  # noqa: E402
+except Exception:
+    i18n = None
+
+
+def _t(key, es):
+    if i18n is None:
+        return es
+    try:
+        s = i18n.t(key)
+        return s if s != key else es
+    except Exception:
+        return es
 
 #: Harnesses OFRECIDOS en el onboarding — los soportados de verdad hoy.
 #: harnesses.py puede listar más engines instalados; aquí solo estos tres.
@@ -226,35 +242,53 @@ def _probe_start(S):
         S["probing"] = False
 
 
+def _motor_info(eid):
+    """Copy traducible por motor: (qué es, cómo se entra, qué cambia). El
+    fallback es el literal español de _MOTOR_INFO (paridad exacta)."""
+    base = _MOTOR_INFO.get(eid, ("", "", ""))
+    return (_t("onboarding.motor.%s.what" % eid, base[0]),
+            _t("onboarding.motor.%s.login" % eid, base[1]),
+            _t("onboarding.motor.%s.changes" % eid, base[2]))
+
+
 def _estado_motor(K, S, eid):
     """(texto, color, elegible) — el estado HONESTO de un motor: binario,
     y sesión solo cuando el probe ya respondió. Nada inventado."""
     d = S["harn"].get(eid) or {}
     if not d.get("installed"):
-        return ("no disponible en esta instalación", K["DK"], False)
+        return (_t("onboarding.motores.st.unavailable",
+                   "no disponible en esta instalación"), K["DK"], False)
     if not d.get("binaries_ok"):
-        falta = ", ".join("`%s`" % b for b in (d.get("needs") or [])) or "CLI"
-        return ("no instalado — falta %s en PATH" % falta, K["DK"], False)
+        falta = ", ".join("`%s`" % b for b in (d.get("needs") or [])) \
+            or _t("onboarding.motores.st.cli", "CLI")
+        return (_t("onboarding.motores.st.not_installed",
+                   "no instalado — falta {falta} en PATH").format(falta=falta),
+                K["DK"], False)
     p = S["probe"].get(eid)
     if p is None:
-        return ("binario ✓ · checando sesión…", K["DIM"], True)
+        return (_t("onboarding.motores.st.checking",
+                   "binario ✓ · checando sesión…"), K["DIM"], True)
     if p.get("ready"):
-        return ("binario ✓ · sesión activa ✓", K["OK"], True)
-    det = p.get("detail") or "sin sesión"
-    return ("binario ✓ · falta login — %s" % det, K["B"], True)
+        return (_t("onboarding.motores.st.session_ok",
+                   "binario ✓ · sesión activa ✓"), K["OK"], True)
+    det = p.get("detail") or _t("onboarding.motores.st.no_session",
+                                "sin sesión")
+    return (_t("onboarding.motores.st.login_needed",
+               "binario ✓ · falta login — {det}").format(det=det), K["B"], True)
 
 
 def _estado_corto(K, S, eid):
     """Versión compacta del estado (para el resumen): jamás se trunca."""
     d = S["harn"].get(eid) or {}
     if not d.get("binaries_ok"):
-        return ("no instalado", K["DK"])
+        return (_t("onboarding.motores.short.not_installed", "no instalado"),
+                K["DK"])
     p = S["probe"].get(eid)
     if p is None:
-        return ("binario ✓", K["DIM"])
+        return (_t("onboarding.motores.short.binary", "binario ✓"), K["DIM"])
     if p.get("ready"):
-        return ("sesión ✓", K["OK"])
-    return ("falta login", K["B"])
+        return (_t("onboarding.motores.short.session", "sesión ✓"), K["OK"])
+    return (_t("onboarding.motores.short.login", "falta login"), K["B"])
 
 
 def _temas():
@@ -347,44 +381,87 @@ def _fila_etapas(S, K, w):
     (hechas ✓ · actual encendida · pendientes tenues), no el cursor."""
     partes = []
     for n, et in enumerate(_ETAPAS):
+        lbl = _t("onboarding.etapa.%s" % et, et)
         if et in S["hechos"]:
-            partes.append("%s✓ %s%s" % (K["OK"], et, K["R"]))
+            partes.append("%s✓ %s%s" % (K["OK"], lbl, K["R"]))
         elif S["view"] == et:
             partes.append("%s%s %d %s%s" % (K["C"] + K["BO"], K["PTR"],
-                                            n + 1, et, K["R"]))
+                                            n + 1, lbl, K["R"]))
         else:
-            partes.append("%s%d %s%s" % (K["DK"], n + 1, et, K["R"]))
+            partes.append("%s%d %s%s" % (K["DK"], n + 1, lbl, K["R"]))
     fila = (" %s%s%s " % (K["DK"], K["SEP"] * 2, K["R"])).join(partes)
     pad = max(0, ((w - 1) - HL.vis(fila)) // 2)
     return HL.clip(" " * pad + fila, w - 1)
 
 
+def _b_idioma(S, K, iw, full=2):
+    """Paso 0: elegir el idioma de la interfaz del cliente. Las opciones se
+    muestran con su nombre NATIVO (Español / English) sea cual sea el idioma
+    activo; al elegir, set_lang persiste y el resto del flujo ya sale en ese
+    idioma."""
+    opts = i18n.available() if i18n else [("es", "Español"), ("en", "English")]
+    izq = []
+    izq.append(_divisor(K, _t("onboarding.idioma.divisor", "idioma"), iw,
+                        tono=2))
+    izq += _parrafo(K, (_t("onboarding.idioma.heading",
+                           "Elige el idioma de Workspace."),), iw,
+                    color=K["WH"])
+    izq.append("")
+    for i, (code, name) in enumerate(opts):
+        sel = (i == S.get("li", 0))
+        cur = "%s%s%s" % (K["C"] + K["BO"], K["PTR"], K["R"]) if sel else " "
+        marca = ("%s●%s" % (K["C"], K["R"])) if sel else \
+            ("%s○%s" % (K["GREY"], K["R"]))
+        lab = "%s%s%s  %s(%s)%s" % ((K["WH"] + K["BO"]) if sel else K["GREY"],
+                                    name, K["R"], K["DK"], code, K["R"])
+        izq.append(HL.clip(" %s %s %s" % (cur, marca, lab), iw))
+    der = []
+    if full >= 1:
+        der.append(_divisor(K, "workspace", iw, tono=1))
+        der += _parrafo(K, (_t("onboarding.idioma.body",
+                              "Puedes cambiarlo cuando quieras desde el menú "
+                              "del recinto («Idioma») o en Config."),), iw)
+    return izq, der
+
+
 def _b_bienvenida(S, K, iw, full=2):
     izq = _parrafo(K, (
-        "Workspace es un hub local para tus agentes de IA: cada agente vive "
-        "en su propio cerebro (una carpeta de archivos tuya) y corre sobre "
-        "un motor CLI que ya tengas instalado — Claude Code, Codex o "
-        "Antigravity.",
-        "Todo pasa en tu máquina: cero dependencias, sin cuentas nuevas, y "
-        "Workspace nunca ve ni guarda tus credenciales (el login es de cada "
-        "CLI)."), iw)
+        _t("onboarding.welcome.p1",
+           "Workspace es un hub local para tus agentes de IA: cada agente vive "
+           "en su propio cerebro (una carpeta de archivos tuya) y corre sobre "
+           "un motor CLI que ya tengas instalado — Claude Code, Codex o "
+           "Antigravity."),
+        _t("onboarding.welcome.p2",
+           "Todo pasa en tu máquina: cero dependencias, sin cuentas nuevas, y "
+           "Workspace nunca ve ni guarda tus credenciales (el login es de cada "
+           "CLI).")), iw)
     der = []
-    der.append(_divisor(K, "qué viene ahora", iw, tono=2))
-    pasos = (("1 motores", "detecto qué CLIs tienes y eliges cuáles usar"),
-             ("2 apariencia", "tema y fondo del hub — se ven al instante"),
-             ("3 agente", "crear uno nuevo, cargar uno existente o buscar "
-                          "en tu disco (y afinar su tono)"))
+    der.append(_divisor(K, _t("onboarding.welcome.plan_title",
+                              "qué viene ahora"), iw, tono=2))
+    pasos = (
+        (_t("onboarding.welcome.step1_t", "1 motores"),
+         _t("onboarding.welcome.step1_d",
+            "detecto qué CLIs tienes y eliges cuáles usar")),
+        (_t("onboarding.welcome.step2_t", "2 apariencia"),
+         _t("onboarding.welcome.step2_d",
+            "tema y fondo del hub — se ven al instante")),
+        (_t("onboarding.welcome.step3_t", "3 agente"),
+         _t("onboarding.welcome.step3_d",
+            "crear uno nuevo, cargar uno existente o buscar "
+            "en tu disco (y afinar su tono)")))
     for tit, txt in pasos:
         der.append(HL.clip(" %s%s%s" % (K["WH"] + K["BO"], tit, K["R"]), iw))
         for sub in _wrap(txt, max(8, iw - 4)):
             der.append(HL.clip("    %s%s%s" % (K["DIM"], sub, K["R"]), iw))
     if full >= 1:
         der.append("")
-        der.append(_divisor(K, "transparencia", iw))
+        der.append(_divisor(K, _t("onboarding.welcome.transparency_title",
+                                  "transparencia"), iw))
         der += _parrafo(K, (
-            "Al final: un resumen de lo elegido y dónde quedó guardado. "
-            "Puedes saltarte esto con q y repetirlo cuando quieras con "
-            "`workspace onboarding`.",), iw, bullet=False)
+            _t("onboarding.welcome.transparency_p",
+               "Al final: un resumen de lo elegido y dónde quedó guardado. "
+               "Puedes saltarte esto con q y repetirlo cuando quieras con "
+               "`workspace onboarding`."),), iw, bullet=False)
     return izq, der
 
 
@@ -405,53 +482,65 @@ def _b_motores(S, K, iw, full=2):
         for sub in _wrap(txt, max(8, iw - 6)):
             izq.append(HL.clip("      %s%s%s" % (col, sub, K["R"]), iw))
         izq.append("")
-    izq.append(_divisor(K, "listo", iw))
+    izq.append(_divisor(K, _t("onboarding.motores.div_listo", "listo"), iw))
     selc = (S["mi"] == len(SOPORTADOS))
     cur = "%s%s%s" % (K["C"] + K["BO"], K["PTR"], K["R"]) if selc else " "
-    izq.append(HL.clip(" %s %s✦ continuar%s   %s%d motor(es) marcados%s"
+    _cont = _t("onboarding.continuar", "✦ continuar")
+    _mk = _t("onboarding.motores.marcados",
+             "{n} motor(es) marcados").format(n=len(S["sel"]))
+    izq.append(HL.clip(" %s %s%s%s   %s%s%s"
                        % (cur, (K["C"] + K["BO"]) if selc else K["GREY"],
-                          K["R"], K["DK"], len(S["sel"]), K["R"]), iw))
+                          _cont, K["R"], K["DK"], _mk, K["R"]), iw))
 
     der = []
     if S["mi"] < len(SOPORTADOS):
         eid = SOPORTADOS[S["mi"]]
-        info = _MOTOR_INFO.get(eid, ("", "", ""))
-        der.append(_divisor(K, "tu elección", iw, tono=1))
+        info = _motor_info(eid)
+        der.append(_divisor(K, _t("onboarding.div.tu_eleccion", "tu elección"),
+                            iw, tono=1))
         der += _parrafo(K, (info[0],), iw, color=K["WH"])
         txt, col, _e = _estado_motor(K, S, eid)
-        der.append(HL.clip(" %sestado: %s%s%s" % (K["DK"], col, txt,
-                                                  K["R"]), iw))
+        der.append(HL.clip(" %s%s: %s%s%s" % (
+            K["DK"], _t("onboarding.motores.estado", "estado"), col, txt,
+            K["R"]), iw))
         if full >= 1:
             der.append("")
-            der.append(_divisor(K, "qué cambia", iw, tono=3))
+            der.append(_divisor(K, _t("onboarding.div.que_cambia",
+                                      "qué cambia"), iw, tono=3))
             der += _parrafo(K, (info[2], info[1]), iw)
     else:
-        der.append(_divisor(K, "qué cambia", iw, tono=3))
+        der.append(_divisor(K, _t("onboarding.div.que_cambia", "qué cambia"),
+                            iw, tono=3))
         if S["sel"]:
             primero = next(e for e in SOPORTADOS if e in S["sel"])
-            der += _parrafo(K, (
-                "Los motores marcados son tu set de trabajo. «%s» queda como "
-                "default (modelos.default_engine) para los agentes que no "
+            der += _parrafo(K, (_t(
+                "onboarding.motores.default_p",
+                "Los motores marcados son tu set de trabajo. «{motor}» queda "
+                "como default (modelos.default_engine) para los agentes que no "
                 "declaren el suyo — cada agente puede fijar otro después."
-                % primero,), iw)
+            ).format(motor=primero),), iw)
         else:
-            der += _parrafo(K, (
+            der += _parrafo(K, (_t(
+                "onboarding.motores.none_p",
                 "Sin ningún motor marcado no se puede lanzar agentes. Puedes "
                 "continuar igual, instalar un CLI después y repetir esto con "
-                "`workspace onboarding`.",), iw, color=K["B"])
+                "`workspace onboarding`."),), iw, color=K["B"])
     if full >= 2:
         der.append("")
-        der.append(_divisor(K, "honesto", iw))
-        der += _parrafo(K, (
+        der.append(_divisor(K, _t("onboarding.motores.div_honesto", "honesto"),
+                            iw))
+        der += _parrafo(K, (_t(
+            "onboarding.motores.honesto_p",
             "El estado de sesión se lee del propio CLI de cada motor; "
-            "Workspace no guarda ni ve credenciales.",), iw)
+            "Workspace no guarda ni ve credenciales."),), iw)
     return izq, der
 
 
 def _items_apariencia(S):
     """[(tipo, id, label)] navegables + la fila continuar al final."""
     out = [("tema", tid, lbl) for tid, lbl in S["temas"]]
-    out += [("fondo", fid, lbl) for fid, lbl in _FONDOS]
+    out += [("fondo", fid, _t("onboarding.fondo.%s" % fid, lbl))
+            for fid, lbl in _FONDOS]
     return out
 
 
@@ -464,7 +553,8 @@ def _b_apariencia(S, K, iw, full=2):
         if tipo != grupo:
             if grupo is not None:
                 izq.append("")
-            izq.append(_divisor(K, tipo, iw))
+            izq.append(_divisor(K, _t("onboarding.apariencia.group.%s" % tipo,
+                                      tipo), iw))
             grupo = tipo
         sel = (i == S["ti"])
         act = (iid == (tema_act if tipo == "tema" else fondo_act))
@@ -474,38 +564,47 @@ def _b_apariencia(S, K, iw, full=2):
         lab = "%s%s%s" % ((K["WH"] + K["BO"]) if sel
                           else (K["GREY"] if act else K["DIM"]),
                           HL.pad(lbl, 18), K["R"])
-        extra = ("%sactivo%s" % (K["OK"], K["R"])) if act else ""
+        extra = ("%s%s%s" % (K["OK"],
+                             _t("onboarding.apariencia.activo", "activo"),
+                             K["R"])) if act else ""
         izq.append(HL.clip(" %s %s %s %s" % (cur, marca, lab, extra), iw))
     izq.append("")
     selc = (S["ti"] == len(items))
     cur = "%s%s%s" % (K["C"] + K["BO"], K["PTR"], K["R"]) if selc else " "
-    izq.append(HL.clip(" %s %s✦ continuar%s" % (
-        cur, (K["C"] + K["BO"]) if selc else K["GREY"], K["R"]), iw))
+    izq.append(HL.clip(" %s %s%s%s" % (
+        cur, (K["C"] + K["BO"]) if selc else K["GREY"],
+        _t("onboarding.continuar", "✦ continuar"), K["R"]), iw))
 
     der = []
-    der.append(_divisor(K, "tu elección", iw, tono=1))
-    der.append(HL.clip(" %stema%s  %s%s%s" % (K["DK"], K["R"],
-                                              K["WH"] + K["BO"],
-                                              tema_act, K["R"]), iw))
-    der.append(HL.clip(" %sfondo%s %s%s%s" % (K["DK"], K["R"],
-                                              K["WH"] + K["BO"],
-                                              fondo_act, K["R"]), iw))
+    der.append(_divisor(K, _t("onboarding.div.tu_eleccion", "tu elección"),
+                        iw, tono=1))
+    der.append(HL.clip(" %s%s%s  %s%s%s" % (
+        K["DK"], _t("onboarding.apariencia.group.tema", "tema"), K["R"],
+        K["WH"] + K["BO"], tema_act, K["R"]), iw))
+    der.append(HL.clip(" %s%s%s %s%s%s" % (
+        K["DK"], _t("onboarding.apariencia.group.fondo", "fondo"), K["R"],
+        K["WH"] + K["BO"], fondo_act, K["R"]), iw))
     if full >= 1:
         der.append("")
-        der.append(_divisor(K, "qué cambia", iw, tono=3))
+        der.append(_divisor(K, _t("onboarding.div.que_cambia", "qué cambia"),
+                            iw, tono=3))
         der += _parrafo(K, (
-            "El tema pinta todo el hub — wordmark, cajas, sliders — y se "
-            "guarda al instante: esta pantalla YA está pintada con él; eso "
-            "es la vista previa.",
-            "El fondo es un eje independiente: cambia solo el color de fondo "
-            "de la terminal y combina con cualquier tema.",), iw)
+            _t("onboarding.apariencia.changes_p1",
+               "El tema pinta todo el hub — wordmark, cajas, sliders — y se "
+               "guarda al instante: esta pantalla YA está pintada con él; eso "
+               "es la vista previa."),
+            _t("onboarding.apariencia.changes_p2",
+               "El fondo es un eje independiente: cambia solo el color de "
+               "fondo de la terminal y combina con cualquier tema."),), iw)
     if full >= 2:
         der.append("")
-        der.append(_divisor(K, "dónde queda", iw))
-        der += _parrafo(K, (
+        der.append(_divisor(K, _t("onboarding.apariencia.div_donde",
+                                  "dónde queda"), iw))
+        der += _parrafo(K, (_t(
+            "onboarding.apariencia.donde_p",
             "ui.theme y ui.background en ~/.claude/workspace/settings.json. "
             "Más opciones (color propio #RRGGBB, animaciones, estrellas) en "
-            "Config → TEMA.",), iw)
+            "Config → TEMA."),), iw)
     return izq, der
 
 
@@ -515,50 +614,64 @@ def _b_agente(S, K, iw, full=2):
     for i, (tok, lbl, _desc) in enumerate(ops):
         sel = (i == S["ai"])
         cur = "%s%s%s" % (K["C"] + K["BO"], K["PTR"], K["R"]) if sel else " "
-        lab = "%s%s%s" % ((K["WH"] + K["BO"]) if sel else K["GREY"], lbl,
-                          K["R"])
+        lab = "%s%s%s" % ((K["WH"] + K["BO"]) if sel else K["GREY"],
+                          _t("onboarding.agente.%s.label" % tok, lbl), K["R"])
         izq.append(HL.clip(" %s %s%d%s  %s" % (cur, K["DK"], i + 1, K["R"],
                                                lab), iw))
         izq.append("")
     der = []
     tok, lbl, desc = ops[S["ai"] % len(ops)]
-    der.append(_divisor(K, "tu elección", iw, tono=1))
-    der += _parrafo(K, (lbl,), iw, color=K["WH"] + K["BO"])
+    der.append(_divisor(K, _t("onboarding.div.tu_eleccion", "tu elección"),
+                        iw, tono=1))
+    der += _parrafo(K, (_t("onboarding.agente.%s.label" % tok, lbl),), iw,
+                    color=K["WH"] + K["BO"])
     if full >= 1:
         der.append("")
-        der.append(_divisor(K, "qué pasa", iw, tono=3))
-        der += _parrafo(K, tuple(desc), iw)
+        der.append(_divisor(K, _t("onboarding.agente.div_que_pasa", "qué pasa"),
+                            iw, tono=3))
+        der += _parrafo(K, tuple(
+            _t("onboarding.agente.%s.desc" % tok, d) for d in desc), iw)
     if full >= 2 and tok != "ninguno":
         der.append("")
-        der.append(_divisor(K, "siguiente paso", iw))
-        der += _parrafo(K, (
+        der.append(_divisor(K, _t("onboarding.agente.div_siguiente",
+                                  "siguiente paso"), iw))
+        der += _parrafo(K, (_t(
+            "onboarding.agente.siguiente_p",
             "Se abre la pantalla real del hub («Agregar agente») en ese "
             "camino. Si queda un agente nuevo conectado, al volver podrás "
-            "afinar su TONO; después, el resumen.",), iw)
+            "afinar su TONO; después, el resumen."),), iw)
     return izq, der
 
 
 def _b_resumen(S, K, iw, full=2):
     izq = []
-    izq.append(_divisor(K, "motores", iw, tono=1))
+    izq.append(_divisor(K, _t("onboarding.resumen.div_motores", "motores"),
+                        iw, tono=1))
     if S["sel"]:
         for eid in (e for e in SOPORTADOS if e in S["sel"]):
             txt, col = _estado_corto(K, S, eid)
             izq.append(HL.clip(" %s●%s %s  %s%s%s" % (
                 K["C"], K["R"], HL.pad(eid, 12), col, txt, K["R"]), iw))
-        izq.append(HL.clip(" %sdefault: %s%s" % (
-            K["DK"], S.get("def_engine") or "sin cambio", K["R"]), iw))
+        izq.append(HL.clip(" %s%s%s" % (
+            K["DK"], _t("onboarding.resumen.default", "default: {engine}")
+            .format(engine=S.get("def_engine") or _t(
+                "onboarding.resumen.sin_cambio", "sin cambio")), K["R"]), iw))
     else:
-        izq.append(HL.clip(" %sninguno marcado — instala un CLI y repite "
-                           "con `workspace onboarding`%s" % (K["DIM"],
-                                                             K["R"]), iw))
+        izq.append(HL.clip(" %s%s%s" % (K["DIM"], _t(
+            "onboarding.resumen.ninguno_marcado",
+            "ninguno marcado — instala un CLI y repite con "
+            "`workspace onboarding`"), K["R"]), iw))
     izq.append("")
-    izq.append(_divisor(K, "apariencia", iw, tono=2))
-    izq.append(HL.clip(" tema %s%s%s · fondo %s%s%s" % (
+    izq.append(_divisor(K, _t("onboarding.resumen.div_apariencia",
+                              "apariencia"), iw, tono=2))
+    izq.append(HL.clip(" %s %s%s%s · %s %s%s%s" % (
+        _t("onboarding.apariencia.group.tema", "tema"),
         K["WH"] + K["BO"], _setting("ui.theme", "rose"), K["R"],
+        _t("onboarding.apariencia.group.fondo", "fondo"),
         K["WH"] + K["BO"], _setting("ui.background", "tema"), K["R"]), iw))
     izq.append("")
-    izq.append(_divisor(K, "agentes", iw, tono=3))
+    izq.append(_divisor(K, _t("onboarding.resumen.div_agentes", "agentes"),
+                        iw, tono=3))
     ags = _agentes()
     if ags:
         for a in ags[:4]:
@@ -567,18 +680,22 @@ def _b_resumen(S, K, iw, full=2):
                 K["WH"] + K["BO"] if nuevo else K["GREY"], a["name"], K["R"],
                 K["DK"], a.get("brain", ""), K["R"]), iw))
         if len(ags) > 4:
-            izq.append(HL.clip(" %s… y %d más%s" % (K["DK"], len(ags) - 4,
-                                                    K["R"]), iw))
+            izq.append(HL.clip(" %s%s%s" % (K["DK"], _t(
+                "onboarding.resumen.y_mas", "… y {n} más").format(
+                    n=len(ags) - 4), K["R"]), iw))
     else:
-        izq.append(HL.clip(" %ssin agentes aún — «Agregar agente» en el "
-                           "recinto cuando quieras%s" % (K["DIM"], K["R"]),
-                           iw))
+        izq.append(HL.clip(" %s%s%s" % (K["DIM"], _t(
+            "onboarding.resumen.sin_agentes",
+            "sin agentes aún — «Agregar agente» en el recinto cuando quieras"),
+            K["R"]), iw))
     if S.get("tono"):
-        izq.append(HL.clip(" %stono ajustado para %s ✓%s" % (
-            K["OK"], S["tono"], K["R"]), iw))
+        izq.append(HL.clip(" %s%s%s" % (K["OK"], _t(
+            "onboarding.resumen.tono_ok", "tono ajustado para {agente} ✓")
+            .format(agente=S["tono"]), K["R"]), iw))
 
     der = []
-    der.append(_divisor(K, "dónde quedó", iw, tono=4))
+    der.append(_divisor(K, _t("onboarding.resumen.div_donde", "dónde quedó"),
+                        iw, tono=4))
     try:
         import settings as _st
         sp = _st.store_path()
@@ -589,29 +706,60 @@ def _b_resumen(S, K, iw, full=2):
         ap = _ar.local_path()
     except Exception:
         ap = "~/.claude/workspace/agents.local.json"
-    filas = (("config (tema, fondo, motor)", sp),
-             ("agentes registrados", ap),
-             ("este onboarding", flag_path()))
+    filas = ((_t("onboarding.resumen.fila_config",
+                 "config (tema, fondo, motor)"), sp),
+             (_t("onboarding.resumen.fila_agentes", "agentes registrados"),
+              ap),
+             (_t("onboarding.resumen.fila_onboarding", "este onboarding"),
+              flag_path()))
     for lbl, ruta in filas:
         der.append(HL.clip(" %s%s%s" % (K["GREY"], lbl, K["R"]), iw))
         der.append(HL.clip("   %s%s%s" % (K["DK"], ruta, K["R"]), iw))
     if full >= 1:
         der.append("")
-        der.append(_divisor(K, "de aquí en adelante", iw))
+        der.append(_divisor(K, _t("onboarding.resumen.div_adelante",
+                                  "de aquí en adelante"), iw))
         der += _parrafo(K, (
-            "Enter te deja en el recinto: ahí lanzas agentes, entras a "
-            "Config, Tono y «Agregar agente».",
-            "Repetir este flujo: `workspace onboarding`.",), iw)
+            _t("onboarding.resumen.adelante_p1",
+               "Enter te deja en el recinto: ahí lanzas agentes, entras a "
+               "Config, Tono y «Agregar agente»."),
+            _t("onboarding.resumen.adelante_p2",
+               "Repetir este flujo: `workspace onboarding`."),), iw)
     return izq, der
 
 
-_VISTAS = {"bienvenida": (_b_bienvenida, "QUÉ ES WORKSPACE", "EL PLAN"),
+_VISTAS = {"idioma": (_b_idioma, "IDIOMA · LANGUAGE", "WORKSPACE"),
+           "bienvenida": (_b_bienvenida, "QUÉ ES WORKSPACE", "EL PLAN"),
            "motores": (_b_motores, "MOTORES DETECTADOS", "EL MOTOR"),
            "apariencia": (_b_apariencia, "TEMA Y FONDO", "LA APARIENCIA"),
            "agente": (_b_agente, "TU PRIMER AGENTE", "EL CAMINO"),
            "resumen": (_b_resumen, "LO QUE QUEDÓ", "DÓNDE Y QUÉ SIGUE")}
 
+#: Claves i18n del TÍTULO de cada caja, por vista (izq, der). Solo las vistas
+#: ya traducidas aparecen aquí; las demás usan el literal de _VISTAS (español,
+#: paridad). Las fases 1+ agregan su vista = una línea aquí. `idioma` no entra:
+#: su título es bilingüe fijo (el idioma aún no se elige).
+_TITLE_KEYS = {
+    "bienvenida": ("onboarding.welcome.title_l", "onboarding.welcome.title_r"),
+    "motores": ("onboarding.motores.title_l", "onboarding.motores.title_r"),
+    "apariencia": ("onboarding.apariencia.title_l",
+                   "onboarding.apariencia.title_r"),
+    "agente": ("onboarding.agente.title_l", "onboarding.agente.title_r"),
+    "resumen": ("onboarding.resumen.title_l", "onboarding.resumen.title_r"),
+}
+
+#: Claves i18n del HINT del pie, por vista. Mismo criterio que _TITLE_KEYS.
+_HINT_KEYS = {
+    "idioma": "onboarding.hints.idioma",
+    "bienvenida": "onboarding.hints.welcome",
+    "motores": "onboarding.hints.motores",
+    "apariencia": "onboarding.hints.apariencia",
+    "agente": "onboarding.hints.agente",
+    "resumen": "onboarding.hints.resumen",
+}
+
 _HINTS = {
+    "idioma": "↑↓ idioma · Enter elige · Esc/q salta",
     "bienvenida": "Enter empieza · q al hub (vuelve con `workspace onboarding`)",
     "motores": "↑↓ motor · espacio marca/quita · Enter continúa · Esc atrás · q salta",
     "apariencia": "↑↓ opción · Enter/espacio aplica (guarda ya) · Esc atrás · q salta",
@@ -627,7 +775,8 @@ def render(S, w, h):
     L += bt
     if len(bt) > 1:
         L += HL.title_reflection(K, w, indent=" ", center=True)
-    sub = "primer arranque — deja tu Workspace listo en 3 pasos"
+    sub = _t("onboarding.subtitle",
+             "primer arranque — deja tu Workspace listo en 3 pasos")
     L.append(" " * max(0, ((w - 1) - HL.vis(sub)) // 2)
              + "%s%s%s" % (K["DIM"], sub, K["R"]))
     L.append("%s%s%s%s%s" % (K["B2"], K["BOX"][5] * 3, K["DK"],
@@ -637,6 +786,10 @@ def render(S, w, h):
     L.append("")
     top = len(L)
     builder, t_izq, t_der = _VISTAS[S["view"]]
+    tk = _TITLE_KEYS.get(S["view"])              # título traducido (fallback: literal)
+    if tk:
+        t_izq = _t(tk[0], t_izq)
+        t_der = _t(tk[1], t_der)
     apilado = w < 100
     lw = (w - 1) if apilado else max(36, min(46, (w - 6) * 46 // 100))
     rw = (w - 1) if apilado else (w - 1) - lw - 3
@@ -673,7 +826,9 @@ def render(S, w, h):
     L.append("")
     L.append((" %s%s%s" % (K["B2"], S["msg"], K["R"])) if S.get("msg")
              else "")
-    L.append(" %s%s%s" % (K["DK"], _HINTS[S["view"]], K["R"]))
+    _hk = _HINT_KEYS.get(S["view"])
+    _hint = _t(_hk, _HINTS[S["view"]]) if _hk else _HINTS[S["view"]]
+    L.append(" %s%s%s" % (K["DK"], _hint, K["R"]))
     L = [HL.clip(x, w - 1) for x in L[:h - 1]]
     return L + [""] * max(0, (h - 1) - len(L))    # altura SIEMPRE estable
 
@@ -690,9 +845,13 @@ def _persistir_motores(S):
     ok, err = _guardar("modelos.default_engine", primero)
     if ok:
         S["def_engine"] = primero
-        S["msg"] = "motor default: %s · guardado ✓" % primero
+        S["msg"] = _t("onboarding.msg.default_saved",
+                      "motor default: {motor} · guardado ✓").format(
+                          motor=primero)
     else:
-        S["msg"] = "no pude guardar el default (%s) — sigue igual" % err
+        S["msg"] = _t("onboarding.msg.default_fail",
+                      "no pude guardar el default ({err}) — sigue igual"
+                      ).format(err=err)
 
 
 def _accion(S, key):
@@ -706,12 +865,35 @@ def _accion(S, key):
         S["salir"] = "quit"
         return False
 
+    if v == "idioma":
+        opts = i18n.available() if i18n else [("es", "Español"),
+                                              ("en", "English")]
+        n = len(opts)
+        if key == "up":
+            S["li"] = (S.get("li", 0) - 1) % n
+        elif key in ("down", "tab"):
+            S["li"] = (S.get("li", 0) + 1) % n
+        elif key == "\x1b":                      # Esc en el paso 0 = salta
+            S["salir"] = "quit"
+            return False
+        elif key in tuple("12")[:n]:
+            S["li"] = int(key) - 1
+            key = "\r"                            # cae a elegir
+        if key in ("\r", "\n"):
+            code = opts[S.get("li", 0)][0]
+            if i18n:
+                try:
+                    i18n.set_lang(code)           # persiste ui.lang + invalida cache
+                except Exception:
+                    pass
+            S["view"] = "bienvenida"              # el resto ya sale en ese idioma
+        return True
+
     if v == "bienvenida":
         if key in ("\r", "\n"):
             S["view"] = "motores"
-        elif key == "\x1b":
-            S["salir"] = "quit"
-            return False
+        elif key == "\x1b":                      # Esc = atrás al paso 0 (idioma)
+            S["view"] = "idioma"
         return True
 
     if v == "motores":
@@ -729,7 +911,9 @@ def _accion(S, key):
             eid = SOPORTADOS[S["mi"]]
             _txt, _c, elegible = _estado_motor(_K(), S, eid)
             if not elegible:
-                S["msg"] = "%s no está instalado — no se puede marcar" % eid
+                S["msg"] = _t("onboarding.msg.not_installable",
+                              "{eid} no está instalado — no se puede marcar"
+                              ).format(eid=eid)
             elif eid in S["sel"]:
                 S["sel"].discard(eid)
             else:
@@ -761,11 +945,16 @@ def _accion(S, key):
             tipo, iid, lbl = items[S["ti"]]
             skey = "ui.theme" if tipo == "tema" else "ui.background"
             ok, err = _guardar(skey, iid)
+            _tipo = _t("onboarding.apariencia.group.%s" % tipo, tipo)
             if ok:
                 _aplicar_osc()                   # preview real, al instante
-                S["msg"] = "%s «%s» · guardado ✓" % (tipo, lbl)
+                S["msg"] = _t("onboarding.msg.applied",
+                              "{tipo} «{lbl}» · guardado ✓").format(
+                                  tipo=_tipo, lbl=lbl)
             else:
-                S["msg"] = "no se pudo aplicar %s (%s)" % (tipo, err)
+                S["msg"] = _t("onboarding.msg.apply_fail",
+                              "no se pudo aplicar {tipo} ({err})").format(
+                                  tipo=_tipo, err=err)
         return True
 
     if v == "agente":
@@ -937,7 +1126,7 @@ def _tono_para(agente):
 def _estado_inicial():
     harn = _descriptores()
     sel = {e for e in SOPORTADOS if (harn.get(e) or {}).get("binaries_ok")}
-    return {"view": "bienvenida", "mi": 0, "ti": 0, "ai": 0, "msg": "",
+    return {"view": "idioma", "li": 0, "mi": 0, "ti": 0, "ai": 0, "msg": "",
             "harn": harn, "probe": {}, "probing": False, "sel": sel,
             "temas": _temas(), "hechos": set(), "nuevos": [], "tono": "",
             "def_engine": "", "salir": None}

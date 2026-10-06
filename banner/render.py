@@ -18,6 +18,25 @@ except Exception:
     pass
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# i18n (lado cliente): la caja del banner la ve el cliente. El root del harness
+# (padre de banner/) trae i18n.py; import guardado + red de seguridad inline.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    import i18n as _i18n
+except Exception:
+    _i18n = None
+
+
+def _t(key, es):
+    if _i18n is None:
+        return es
+    try:
+        v = _i18n.t(key)
+        return v if v != key else es
+    except Exception:
+        return es
+
+
 from preview import make_temple, CX, CY, DOTS, BAYER, _seg, _tri, _spark, _leaf, _disk   # diseño 88×100
 
 
@@ -377,7 +396,7 @@ def _box_lines(rows):
     """La caja: head + arte (templo) izquierda + panel info derecha + pie."""
     art = render_art()
     out = []
-    head = " WORKSPACE · OS de agentes · harness propio del equipo "
+    head = " " + _t("hub.banner.head", "WORKSPACE · OS de agentes") + " "
     side = (W - len(head)) // 2
     out.append(f"  {B}{_BTL}{_BH*side}{R}{BO}{C}{head}{R}{B}{_BH*(W-side-len(head))}{_BTR}{R}")
     for i in range(AH):
@@ -390,7 +409,9 @@ def _box_lines(rows):
         else:
             iseg = " " * ICOL
         out.append(f"  {B}{_BV}{R} {aseg}  {iseg} {B}{_BV}{R}")
-    foot = " escribe el nombre de un agente para entrar directo · workspace para este menú "
+    foot = " " + _t("hub.banner.foot",
+                    "escribe el nombre de un agente para entrar directo · "
+                    "workspace para este menú") + " "
     fside = (W - len(foot)) // 2
     out.append(f"  {B}{_BBL}{_BH*fside}{R}{DIM}{foot}{R}{B}{_BH*(W-fside-len(foot))}{_BBR}{R}")
     return out
@@ -451,7 +472,7 @@ def wordmark_plain():
 def info_box(rows):
     """Caja de info SOLO texto (sin el arte del templo)."""
     out = []
-    head = " WORKSPACE · OS de agentes · harness del equipo "
+    head = " " + _t("hub.banner.head", "WORKSPACE · OS de agentes") + " "
     side = (W - len(head)) // 2
     out.append(f"  {B}{_BTL}{_BH*side}{R}{BO}{C}{head}{R}{B}{_BH*(W-side-len(head))}{_BTR}{R}")
     for lab, desc in rows:

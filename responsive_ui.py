@@ -119,7 +119,7 @@ def hub_frame(lines, w, h, focus=0, title='WORKSPACE', hint='↑↓ sección · 
     start = max(0, min(focus - cap // 2, len(lines) - cap))
     body = [row(plain(text), text.lstrip().startswith('>')) for text in lines[start:start + cap]]
     body += [row('')] * (cap - len(body))
-    return [top, row('Pantalla completa recomendada')] + body + [row(hint), accent + '╰' + '─' * (width - 2) + '╯' + reset]
+    return [top, row(HL._t('hub.fullscreen_rec', 'Pantalla completa recomendada'))] + body + [row(hint), accent + '╰' + '─' * (width - 2) + '╯' + reset]
 
 def box(title, body, w, focused=False, title_align='left'):
     import tuitheme
@@ -166,28 +166,49 @@ def size_notice(title, w, h):
         body = body[:max(0, h - 3)]
     return centered(box(title, body, pw, True), w, h)
 
-def vertical_hub(agents, menu, pins, w, h, focus, agent_idx, menu_idx, pin_idx):
+def vertical_hub(agents, menu, pins, w, h, focus, agent_idx, menu_idx, pin_idx,
+                 langs=None, lang_idx=0):
+    """Hub de ventana ALTA/ANGOSTA. `langs` (opcional): filas del cuadro
+    IDIOMA ya formateadas (nombre + marca del activo) — se pinta como una
+    sección navegable más (focus == 'idioma'), bajo «TEMAS Y AJUSTES», para
+    que el control de idioma NO falte en la ventana doble (regla dura del
+    estilo TUI). Sin `langs` la pantalla es la de siempre."""
     import tuitheme
     p = tuitheme.palette()
     pw = w - 5
     K = HL.cols(p)
     lines = ['', ''] + HL.big_title(K, pw + 1, h, center=True)
     lines += HL.title_reflection(K, pw + 1, center=True) + ['']
-    available = max(3, h - 1 - len(lines) - 12)
+    # La 4ª sección (IDIOMA) es chica (2 opciones): le reservamos un cap fijo
+    # pequeño y el resto se reparte entre las tres grandes, como antes.
+    lang_rows = list(langs or ())
+    lang_cap = len(lang_rows) if lang_rows else 0
+    available = max(3, h - 1 - len(lines) - 12 - (lang_cap + 3 if lang_cap else 0))
     caps = [max(1, available * 45 // 100), max(1, available * 40 // 100)]
     caps.append(max(1, available - sum(caps)))
-    groups = [('AGENTES', agents, agent_idx, 'dioses'),
-              ('MENÚ', menu, menu_idx, 'tools'),
-              ('TEMAS Y AJUSTES', pins, pin_idx, 'latido')]
+    groups = [(HL._t('hub.section.agents', 'AGENTES'), agents, agent_idx, 'dioses'),
+              (HL._t('hub.section.menu', 'MENÚ'), menu, menu_idx, 'tools'),
+              (HL._t('hub.section.settings', 'TEMAS Y AJUSTES'), pins, pin_idx,
+               'latido')]
     for (label, values, selected, key), cap in zip(groups, caps):
         start = max(0, min(selected - cap // 2, len(values) - cap))
         body = [('> ' if i == selected and focus == key else '  ') + value
                 for i, value in enumerate(values) if start <= i < start + cap]
         body += [''] * max(0, cap - len(body))
         lines += box(label, body, pw, focus == key) + ['']
-    lines += [HL.clip(HL.keyline(K, (('↑↓', 'sección'), ('◄►', 'elige'),
-                                     ('Enter', 'entra'), ('m', 'motor'),
-                                     ('i', 'información'), ('q', 'terminal')),
+    if lang_rows:                                   # CUADRO IDIOMA · navegable
+        body = [('> ' if i == lang_idx and focus == 'idioma' else '  ') + v
+                for i, v in enumerate(lang_rows)]
+        lines += box(HL._t('hub.section.lang', 'IDIOMA · LANGUAGE'), body, pw,
+                     focus == 'idioma') + ['']
+    lines += [HL.clip(HL.keyline(K, (
+                  ('↑↓', HL._t('common.hint.section', 'sección')),
+                  ('◄►', HL._t('common.hint.pick', 'elige')),
+                  ('Enter', HL._t('common.hint.enter', 'entra')),
+                  ('m', HL._t('common.hint.engine', 'motor')),
+                  ('i', HL._t('common.hint.info', 'información')),
+                  ('q', HL._t('common.hint.terminal', 'terminal'))),
                                  pw), pw),
-              HL.clip('Pantalla completa: experiencia completa', pw)]
+              HL.clip(HL._t('hub.fullscreen_notice',
+                            'Pantalla completa: experiencia completa'), pw)]
     return centered(lines, w, h)

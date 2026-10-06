@@ -4,7 +4,7 @@
 El MISMO concepto de tema que el motor web (hubtheme.py): un tema vive en
 themes/<id>/ y su theme.json puede declarar un bloque "tui"; este módulo lo
 convierte en una PALETA ANSI lista para pintar. La selección es idéntica al
-web — env WORKSPACE_THEME > settings ui.theme > olympo — vía hubtheme.resolve_id()
+web — env WORKSPACE_THEME > settings ui.theme > bruma — vía hubtheme.resolve_id()
 (con la misma precedencia re-implementada aquí como falla-suave si hubtheme
 no está). UN solo concepto de tema en todo el harness.
 
@@ -30,7 +30,13 @@ import types
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 THEMES_DIR = os.path.join(ROOT, "themes")
-DEFAULT_ID = "olympo"
+DEFAULT_ID = "bruma"
+# `olympo` es la PALETA EMBEBIDA (_OLYMPO): el recinto dorado de paridad y el
+# fallback por-clave de todo tema. NO vive en themes/ (fue borrado del disco),
+# así que resolve_id debe reconocerlo como siempre-resolvible, igual que antes
+# hacía el default. Se mantiene separado de DEFAULT_ID: el default (lo que
+# arranca una instalación) es bruma; olympo solo se pinta si se pide explícito.
+_EMBEDDED_ID = "olympo"
 # contrato de ids de tema — la fuente es hubtheme (mismo regex en ambos
 # motores; fallback identico si hubtheme esta amputado)
 try:
@@ -179,9 +185,10 @@ def _seq(v, mode):
 def _settings_theme():
     """ui.theme del store. Un id GUARDADO que ya no está instalado (tema
     borrado de themes/ — p.ej. la poda 2026-10-02: olympo/papel/slate/bosque)
-    cae a `rose` (el default del hub), no al dorado embebido: el socio quitó
-    ese tema a propósito. env/explicit NO pasan por aquí (conservan la
-    falla-suave clásica → olympo embebido)."""
+    cae a `bruma` (el branding del sitio web), no al dorado embebido: el tema
+    guardado se quitó a propósito y bruma mantiene el branding consistente.
+    env/explicit NO pasan por aquí (conservan la falla-suave clásica → olympo
+    embebido)."""
     try:
         import settings
         v = settings.get("ui.theme", DEFAULT_ID)
@@ -190,15 +197,15 @@ def _settings_theme():
         vv = v.strip().lower()
         if (_ID_RX.match(vv)
                 and not os.path.isfile(os.path.join(THEMES_DIR, vv, "theme.json"))
-                and os.path.isfile(os.path.join(THEMES_DIR, "rose", "theme.json"))):
-            return "rose"
+                and os.path.isfile(os.path.join(THEMES_DIR, "bruma", "theme.json"))):
+            return "bruma"
         return v
     except Exception:
         return DEFAULT_ID
 
 
 def resolve_id(explicit=None):
-    """Id del tema del HUB/TUI: explicit > env WORKSPACE_THEME > ui.theme > olympo.
+    """Id del tema del HUB/TUI: explicit > env WORKSPACE_THEME > ui.theme > bruma.
     LEE ui.theme (el tema del HUB), NO ui.web_theme (ese es del dev panel, vía
     hubtheme). Antes delegaba a hubtheme.resolve_id() → terminaba leyendo
     ui.web_theme y el hub salía con el tema del web (bug 'son los mismos'). Valida
@@ -207,8 +214,8 @@ def resolve_id(explicit=None):
         cand = (cand or "").strip().lower()
         if not cand or not _ID_RX.match(cand):
             continue
-        if cand == DEFAULT_ID:
-            return cand
+        if cand == DEFAULT_ID or cand == _EMBEDDED_ID:
+            return cand           # default + paleta embebida: siempre resolvibles
         if os.path.isfile(os.path.join(THEMES_DIR, cand, "theme.json")):
             return cand
     return DEFAULT_ID

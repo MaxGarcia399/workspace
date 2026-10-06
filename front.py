@@ -22,6 +22,32 @@ sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "banner"))
 import render  # noqa: E402
 import dispatch  # noqa: E402  (registry merge: committeado + agentes cargados per-máquina)
+# i18n (lado cliente): traduce las cadenas que ve el cliente. Falla-suave
+# ABSOLUTA — sin el módulo, _t() devuelve el español inline (paridad exacta).
+try:
+    import i18n  # noqa: E402
+except Exception:
+    i18n = None
+
+
+def _t(key, es, **kw):
+    """Cadena traducida de `key`, con el español inline `es` como red de
+    seguridad: sin i18n o con clave faltante → `es` (idéntico a hoy). Con
+    **kw aplica .format(**kw) (falla-suave: si el format truena, cruda)."""
+    if i18n is None:
+        s = es
+    else:
+        try:
+            v = i18n.t(key)
+            s = v if v != key else es
+        except Exception:
+            s = es
+    if kw:
+        try:
+            return s.format(**kw)
+        except Exception:
+            return s
+    return s
 
 
 def fg(n):
@@ -157,8 +183,9 @@ def menu_entries():
     # multi-repo vía el CLI gh (github_tui, gated por `gh auth status`).
     # Ya NO es dev-only: es producto. El token __ramas__ se conserva
     # (keybinds y ruteo estables).
-    out.append(("__ramas__", "GitHub",
-                "tus repos: ramas locales + PRs, issues y releases"))
+    out.append(("__ramas__", _t("menu.github.label", "GitHub"),
+                _t("menu.github.tag",
+                   "tus repos: ramas locales + PRs, issues y releases")))
     # «Dev» (sección del hub, 2026-10-04): transparencia del proceso de
     # desarrollo — referencia de comandos + mapa del detrás (pipeline, repos,
     # qué sube, versión, estado). SOLO el dueño/dev: gate por-archivos (igual
@@ -173,18 +200,23 @@ def menu_entries():
         pass
     # «Actualizaciones» (ex-«Doctor», renombre user-facing 2026-10-02): mismo
     # token __doctor__ y mismos comandos (workspace doctor/update) por debajo.
-    out += [("__cal__", "Calendario",
-             "tu agenda del día, editable a pantalla completa"),
-            ("__tono__", "Tono",
-             "los diales de personalidad de tus agentes"),
-            ("__keybinds__", "Atajos",
-             "re-mapea las teclas rápidas del hub"),
-            ("__doctor__", "Actualizaciones",
-             "revisar · reparar · actualizar"),
-            ("__add_agent__", "Agregar agente",
-             "crear o cargar un agente"),
-            ("__shell__", "Terminal normal",
-             "tu shell de siempre · tecla q")]
+    out += [("__cal__", _t("menu.cal.label", "Calendario"),
+             _t("menu.cal.tag",
+                "tu agenda del día, editable a pantalla completa")),
+            ("__tono__", _t("menu.tono.label", "Tono"),
+             _t("menu.tono.tag",
+                "los diales de personalidad de tus agentes")),
+            ("__keybinds__", _t("menu.keybinds.label", "Atajos"),
+             _t("menu.keybinds.tag", "re-mapea las teclas rápidas del hub")),
+            ("__doctor__", _t("menu.updates.label", "Actualizaciones"),
+             _t("menu.updates.tag", "revisar · reparar · actualizar")),
+            ("__add_agent__", _t("menu.add_agent.label", "Agregar agente"),
+             _t("menu.add_agent.tag", "crear o cargar un agente")),
+            # El control de IDIOMA ya NO vive en el MENÚ: es un CUADRO propio
+            # del hub (layout `dia`), bajo PERSONALIZACIÓN — navegable+Enter,
+            # como tema/fondo. Ver groups "idioma" + hublayout._dia_idioma_body.
+            ("__shell__", _t("menu.shell.label", "Terminal normal"),
+             _t("menu.shell.tag", "tu shell de siempre · tecla q"))]
     return out
 
 
@@ -227,10 +259,13 @@ def build_info_rows():
     reg = registry()
     active = [a["name"] for a in reg.get("agents", [])]
     planned = reg.get("planned", [])
-    ag = " · ".join(active) + (f" · {'/'.join(planned)} (pronto)" if planned else "")
+    ag = " · ".join(active) + (
+        (" · " + '/'.join(planned) + " "
+         + _t("hub.hero.soon_paren", "(pronto)")) if planned else "")
     # motor: binding EFECTIVO (harness-os) — antes iba fijo 'claude-code'.
     # Falla-suave: sin harnesses.py, el texto de siempre.
-    motor_txt = "claude-code · Anthropic (sin API key)"
+    motor_txt = _t("hub.hero.engine_default",
+                   "claude-code · Anthropic (sin API key)")
     try:
         import harnesses as _h
         engs = sorted({_h.binding(a.get("name", ""),
@@ -241,15 +276,17 @@ def build_info_rows():
         elif len(engs) == 1:
             motor_txt = engs[0]
         elif engs:
-            motor_txt = " · ".join(engs) + "  (por agente — tecla m)"
+            motor_txt = " · ".join(engs) + _t("hub.hero.engine_per_agent",
+                                              "  (por agente — tecla m)")
     except Exception:
         pass
     # cerebros: derivada del registry real (no literal) — un cliente NO debe ver
     # nombres internos del equipo. Vacío → genérico.
     cerebros = (" · ".join(f"{a.upper()}-BRAIN" for a in active) + " · sync"
-                if active else "configura tu primer agente")
+                if active else _t("hub.hero.v.config_first",
+                                  "configura tu primer agente"))
     user = os.environ.get("USER") or os.environ.get("USERNAME", "")   # USER no existe en Windows
-    try:                                              # socio real per-máquina (lo escribe install)
+    try:                                              # usuario real per-máquina (lo escribe install)
         sloc = open(os.path.join(os.path.expanduser("~"), ".claude", "workspace",
                                  "socio.local"), encoding="utf-8").read().strip()
     except Exception:
@@ -257,21 +294,28 @@ def build_info_rows():
     socio = sloc or user or "—"
     socio = (socio[:1].upper() + socio[1:]) if socio != "—" else socio
     mach = "Mac" if sys.platform == "darwin" else ("Windows" if os.name == "nt" else "Linux")
+    # «directo»: un cliente NO debe ver un nombre interno del equipo. Si ya hay
+    # agentes cargados, el ejemplo usa el primero REAL; sin agentes, genérico.
+    agente_ej = active[0] if active else _t("hub.hero.agent_generic", "tu-agente")
     return [
-        ("##", "El harness"),
-        ("agentes", ag),
-        ("motor", motor_txt),
-        ("cerebros", cerebros),
-        ("cierre auto", "captura de sesión activa"),
+        ("##", _t("hub.hero.h.harness", "El harness")),
+        (_t("hub.hero.k.agents", "agentes"), ag),
+        (_t("hub.hero.k.engine", "motor"), motor_txt),
+        (_t("hub.hero.k.brains", "cerebros"), cerebros),
+        (_t("hub.hero.k.autoclose", "cierre auto"),
+         _t("hub.hero.v.capture", "captura de sesión activa")),
         ("", ""),
-        ("##", "Tu setup"),
-        ("socio", socio),
-        ("máquina", mach),
-        ("base", "instalador + workspace doctor ✓"),
+        ("##", _t("hub.hero.h.setup", "Tu setup")),
+        (_t("hub.hero.k.user", "usuario"), socio),
+        (_t("hub.hero.k.machine", "máquina"), mach),
+        (_t("hub.hero.k.base", "base"),
+         _t("hub.hero.v.base", "instalador + workspace doctor ✓")),
         ("", ""),
-        ("##", "Cómo entrar"),
-        ("menú", "elige un agente abajo ↓"),
-        ("directo", "escribe su nombre: zenith"),
+        ("##", _t("hub.hero.h.howto", "Cómo entrar")),
+        (_t("hub.hero.k.menu", "menú"),
+         _t("hub.hero.v.menu", "elige un agente abajo ↓")),
+        (_t("hub.hero.k.direct", "directo"),
+         _t("hub.hero.v.direct", "escribe su nombre: {name}", name=agente_ej)),
         ("", ""), ("", ""), ("", ""),
     ]
 
@@ -900,7 +944,8 @@ def cmd_update(args=None):
 
 
 def _menu_header():
-    return f"  {C}◆ ¿A dónde entras?{R}   {DIM}↑↓ · Enter · q = terminal normal{R}"
+    return (f"  {C}{_t('hub.menu_header.title', '◆ ¿A dónde entras?')}{R}"
+            f"   {DIM}{_t('hub.menu_header.hint', '↑↓ · Enter · q = terminal normal')}{R}")
 
 
 AGENT_COLORS = {"zenith": "blue", "atlas": "red", "argus": "green",
@@ -1067,17 +1112,20 @@ def _hub_version_text():
             ver = "v" + short if oks and short else branch
             if has_origin and _count("HEAD..origin/main") > 0:
                 update = True
-                return (ver + " · update disponible", True)
-            return (ver + " · al día", False)
+                return (ver + " · " + _t("hub.ver.update_available",
+                                         "update disponible"), True)
+            return (ver + " · " + _t("hub.ver.uptodate", "al día"), False)
         # Equipo: rama + sync vs origin/main (si la rama es main) o solo la rama.
         if branch == "main" and has_origin:
             ahead = _count("origin/main..main")
             behind = _count("main..origin/main")
             if behind > 0:
-                return ("main · ↓%d update" % behind, True)
+                return ("main · " + _t("hub.ver.behind_update", "↓{n} update",
+                                       n=behind), True)
             if ahead > 0:
-                return ("main · ↑%d sin publicar" % ahead, False)
-            return ("main · al día", False)
+                return ("main · " + _t("hub.ver.ahead_unpushed",
+                                       "↑{n} sin publicar", n=ahead), False)
+            return ("main · " + _t("hub.ver.uptodate", "al día"), False)
         return (branch, False)
     except Exception:
         return ("", False)
@@ -1209,7 +1257,7 @@ def _motor_summary(agents):
         if len(engs) == 1:
             return engs[0]
         if engs:
-            return "%d motores" % len(engs)
+            return _t("hub.franja.engines_n", "{n} motores", n=len(engs))
     except Exception:
         pass
     return "claude-code"
@@ -1222,12 +1270,13 @@ def _franja(agents):
         _v = open(os.path.join(ROOT, "VERSION"), encoding="utf-8").read().strip()
     except Exception:
         _v = ""
-    tag = f"{DIM}WORKSPACE · OS de agentes{(' · v' + _v) if _v else ''}{R}"
+    tag = f"{DIM}{_t('hub.franja.tag', 'WORKSPACE · OS de agentes')}{(' · v' + _v) if _v else ''}{R}"
     # Sin listas de nombres (agentes/cerebros) aquí: cada agente ya se rotula bajo
     # su fuego. Solo el estado compacto del harness para no saturar ni desbordar.
     # El motor ya NO va fijo: es el binding EFECTIVO (harnesses.binding) — con
     # motores mezclados dice `N motores` y el detalle vive en la caja AGENTES.
-    l2 = f"{DIM}motor  {C}{_motor_summary(agents)}{DIM} · sin API key · sync{R}"
+    l2 = (f"{DIM}{_t('hub.franja.engine', 'motor')}  {C}{_motor_summary(agents)}"
+          f"{DIM}{_t('hub.franja.engine_suffix', ' · sin API key · sync')}{R}")
     out = [_ctr(orn), "", _ctr(tag), "", _ctr(l2)]
     hb = _heartbeat_line()
     if hb:
@@ -1323,11 +1372,28 @@ def _menu_machinery(tout):
             return _st.hub_pins_resolved()
         except Exception:
             return []
+
+    def _lang_opts():
+        """Opciones del cuadro IDIOMA → [(code, nombre_nativo, es_activo)].
+        Falla-suave TOTAL: sin i18n → [] (el cuadro se OMITE, jamás levanta)."""
+        try:
+            import i18n as _i18n
+            active = _i18n.lang()
+            return [(c, n, c == active) for c, n in _i18n.available()]
+        except Exception:
+            return []
     groups = ["dioses", "tools"] + (["latido"] if _pins_now() else [])
     # CALENDARIO: sección navegable propia, y solo si el LAYOUT activo la
     # dibuja (hublayout marca `"cal": True` en su entrada del registro). Así
     # `clasico` y `centro` no ganan una sección fantasma que no pintan.
     # (`_laybox` se arma más abajo; aquí se resuelve el layout directo.)
+    # «idioma»: sección navegable PROPIA (cuadro bajo PERSONALIZACIÓN) — dos
+    # opciones ES/EN visibles, ◄► mueve el cursor y Enter aplica (i18n.set_lang)
+    # con flip EN VIVO. UNIVERSAL: va en TODOS los layouts (clasico/centro/dia)
+    # y en la ventana alta/doble, no solo en pantalla completa (regla dura del
+    # estilo TUI, 2026-10-05). Cada layout dibuja el cuadro bajo su caja de
+    # personalización/«TEMAS Y AJUSTES». Va ANTES de "cal" en el orden de ↑↓.
+    groups.append("idioma")
     try:                        # import local: `_hl` se importa mas abajo
         import hublayout as _hl0
         if (_hl0.active() or {}).get("cal"):
@@ -1345,9 +1411,16 @@ def _menu_machinery(tout):
     # con 0 agentes (harness recién separado / descargado) arrancamos en
     # HERRAMIENTAS, no en el altar vacío — ahí está "Agregar agente".
     _g0 = 0 if NA else (groups.index("tools") if "tools" in groups else 0)
+    # cursor del cuadro IDIOMA: arranca sobre el idioma ACTIVO.
+    try:
+        import i18n as _i18n0
+        _langs0 = [c for c, _ in _i18n0.available()]
+        _lf0 = _langs0.index(_i18n0.lang()) if _i18n0.lang() in _langs0 else 0
+    except Exception:
+        _lf0 = 0
     S = {"cal_off": 0, "cal_mode": "", "cal_buf": "", "cal_msg": "",
          "group": _g0, "gsel": 0, "asel": 0, "ph": 0, "msg": "", "hb_msg": "",
-         "hb_mode": _hb0, "cfg_focus": 0,
+         "hb_mode": _hb0, "cfg_focus": 0, "lang_focus": _lf0,
          "hb_focus": HB_MODES.index(_hb0) if _hb0 in HB_MODES else 0,
          "frame": 0, "ign_start": 0, "BH": 0, "row0": 0,
          # frame de ANIMACIÓN de layouts con anim=True (centro): avanza a
@@ -1407,7 +1480,7 @@ def _menu_machinery(tout):
         frame realmente pintado (resize/degradación incluidos)."""
         view = {"focus": gk(), "gsel": S["gsel"], "asel": S["asel"],
                 "hb_mode": S["hb_mode"], "hb_focus": S["hb_focus"],
-                "cfg_focus": S["cfg_focus"],
+                "cfg_focus": S["cfg_focus"], "lang_focus": S["lang_focus"],
                 "msg": S["msg"], "hb_msg": S["hb_msg"],
                 # ALTO real: layouts que llenan la pantalla (cockpit) lo usan;
                 # los demás lo ignoran. El resize ya re-dibuja completo.
@@ -1423,7 +1496,9 @@ def _menu_machinery(tout):
         S["hit"] = tuple(view.get("hit") or ())
         return lines
 
-    def section_title(txt, on, hint="◄ ► elegir"):
+    def section_title(txt, on, hint=None):
+        if hint is None:
+            hint = _t("hub.classic.section_hint", "◄ ► elegir")
         mark = f"{GPTR} " if on else "  "
         body = f"{C}{BO}{mark}{txt}{R}" if on else f"{DK}{mark}{txt}{R}"
         tail = f"   {DIM}{hint}{R}" if on else ""
@@ -1451,6 +1526,29 @@ def _menu_machinery(tout):
         except Exception:
             S["hb_msg"] = f"no pude cambiar «{p['label']}» — queda igual"
 
+    def apply_lang():
+        """Enter/espacio en el cuadro IDIOMA: aplica el idioma ENFOCADO
+        (i18n.set_lang, persiste ui.lang) y refresca las etiquetas del MENÚ
+        para que el hub flipee EN VIVO (el ● del cuadro se mueve solo: lee
+        i18n.lang() en cada render). Los tokens del menú NO cambian con el
+        idioma → jump/akeys/asel siguen válidos; solo se reconstruyen las
+        LABELS. Falla-suave ABSOLUTA: cualquier problema → no-op silencioso,
+        el hub sigue vivo."""
+        nonlocal opts
+        try:
+            import i18n as _i18n
+            langs = _i18n.available()
+            code = langs[S["lang_focus"] % len(langs)][0]
+            _i18n.set_lang(code)
+        except Exception:
+            return
+        try:                                     # re-pintar el MENÚ en el nuevo idioma
+            opts = [(tok, lbl) for tok, lbl, _tag in menu_entries()]
+            if _LDATA is not None:
+                _LDATA["opts"] = opts
+        except Exception:
+            pass
+
     # Divisor entre secciones con FADE de grises (toque 2026-10-02, mismo
     # juego que el reflejo del Tono): el centro apenas más claro (GREY) y los
     # extremos hundidos (DK) — la regla gana profundidad sin cambiar de ancho.
@@ -1473,7 +1571,7 @@ def _menu_machinery(tout):
         avisos — la confirmación del latido jamás se cuela bajo HERRAMIENTAS.
         Devuelve SIEMPRE el mismo nº de líneas (BH estable para el redraw)."""
         # ── DIOSES (altar de urnas) ──
-        L = [section_title("DIOSES", gk() == "dioses"), ""]
+        L = [section_title(_t("hub.section.gods", "DIOSES"), gk() == "dioses"), ""]
         t = min(1.0, max(0, S["frame"] - S["ign_start"]) / 5.0)  # encendido en ~0.16s (refresco ~30fps)
         ig = t * (2.0 - t)                              # ease-out: prende rápido y se asienta (agresivo)
         L += render.altar(agents, S["gsel"], S["ph"], ig,
@@ -1486,13 +1584,13 @@ def _menu_machinery(tout):
             _a = agents[S["gsel"]]
             _e = _a.get("engine_eff") or _a.get("engine") or "?"
             _loc = f" {C}●{R}" if _a.get("engine_src") == "local" else ""
-            L.append(_ctr(f"{DIM}motor ▸ {R}{C}{_e} ▾{R}{_loc}"
-                          f"  {DK}m cambia{R}"))
+            L.append(_ctr(f"{DIM}{_t('hub.classic.engine_prefix', 'motor ▸ ')}{R}{C}{_e} ▾{R}{_loc}"
+                          f"  {DK}{_t('hub.classic.engine_change', 'm cambia')}{R}"))
         else:
             L.append("")
         L.append(_ctr(f"{DIM}{S['msg']}{R}") if S["msg"] else "")   # aviso de DIOSES (urna no invocada)
         # ── HERRAMIENTAS ──
-        L += ["", SEP, "", section_title("MENÚ", gk() == "tools"), ""]
+        L += ["", SEP, "", section_title(_t("hub.section.menu", "MENÚ"), gk() == "tools"), ""]
         btns = []
         for j, (tok, lbl) in enumerate(opts):
             # tecla de SALTO visible dentro del botón («5 Ramas» … «q Terminal
@@ -1539,8 +1637,8 @@ def _menu_machinery(tout):
             # cambia el TEXTO del valor, no el nº de líneas).
             L += ["", SEP, ""]
             focus = gk() == "latido"
-            L.append(section_title("PERSONALIZACIÓN", focus,
-                                   hint="◄ ► elige · Enter/espacio cambia"))
+            L.append(section_title(_t("hub.section.personalization", "PERSONALIZACIÓN"), focus,
+                                   hint=_t("hub.classic.pers_hint", "◄ ► elige · Enter/espacio cambia")))
             L.append("")
             cf = S["cfg_focus"] % len(pins)
             for i, p in enumerate(pins):
@@ -1558,6 +1656,22 @@ def _menu_machinery(tout):
             L.append(_ctr(f"{DIM}{S['hb_msg']}{R}") if S["hb_msg"] else "")
             # (el hint «Config ▸ para más ajustes» se retiró con la entrada
             #  Config del MENÚ — el socio 2026-10-02; la sección se rehará)
+        # ── IDIOMA · LANGUAGE (bajo PERSONALIZACIÓN) — en TODOS los layouts ──
+        _langs = _lang_opts()
+        if _langs:
+            L += ["", SEP, "", section_title(_t("hub.section.lang", "IDIOMA · LANGUAGE"),
+                                             gk() == "idioma",
+                                             hint=_t("hub.classic.lang_hint", "◄ ► elige · Enter cambia")), ""]
+            lf = S["lang_focus"] % len(_langs)
+            for i, (code, name, act) in enumerate(_langs):
+                marca = f"{C}●{R}" if act else f"{DK}·{R}"
+                if gk() == "idioma" and i == lf:
+                    L.append(_ctr(f"{C}{BO}{GBL} {R}{marca} "
+                                  f"{_shimmer(name, S['ph'], C, WH)}"
+                                  f"{C}{BO} {GBR}{R}"))
+                else:
+                    tinta = WH if act else DIM
+                    L.append(_ctr(f"{DK}▸ {R}{marca} {tinta}{name}{R}"))
         L.append("")
         # Indicador de versión ABAJO-DERECHA: rama + estado de sync/update. Siempre
         # el mismo nº de líneas (BH estable) — si no hay git, la línea va vacía.
@@ -1632,8 +1746,11 @@ def _menu_machinery(tout):
             agent_rows = [keyed(a['display'] + ' · ' + a.get('engine_eff', '?'), str(JKEYS.get('agents', {}).get(i, ''))) for i,a in enumerate(agents)]
             menu_rows = [keyed(label, str(JKEYS.get('opts', {}).get(i, ''))) for i,(_,label) in enumerate(opts)]
             pin_rows = [str(p.get('label', p.get('key', ''))) + ' · ' + str(p.get('value', '')) for p in _pins_now()]
+            lang_rows = [('● ' if act else '· ') + name
+                         for _code, name, act in _lang_opts()]
             lines = _responsive.vertical_hub(agent_rows, menu_rows, pin_rows, w, h,
-                        gk(), S['gsel'], S['asel'], S['cfg_focus'])
+                        gk(), S['gsel'], S['asel'], S['cfg_focus'],
+                        langs=lang_rows, lang_idx=S['lang_focus'])
             _responsive.paint(tout, lines, first)
             S['BH'], S['row0'] = len(lines), 0
             return S['BH']
@@ -1644,7 +1761,9 @@ def _menu_machinery(tout):
             for i, agent in enumerate(agents):
                 mark = '> ' if i == selected else '  '
                 rows.append(mark + agent['display'] + ' · ' + agent.get('engine_eff', '?'))
-            rows += ['', 'm motor · Enter abre · i información', S.get('msg', '')]
+            rows += ['', _t('hub.narrow.agents_hint',
+                            'm motor · Enter abre · i información'),
+                     S.get('msg', '')]
         elif group == 'tools':
             selected = S['asel']
             for i, (_, label) in enumerate(opts):
@@ -1654,16 +1773,36 @@ def _menu_machinery(tout):
             for i, pin in enumerate(_pins_now()):
                 rows.append(('> ' if i == selected else '  ') + str(pin.get('label') or pin.get('key', ''))
                             + ' · ' + str(pin.get('value', '')))
-            rows += ['', 'Enter cambia · configuración disponible en el menú', S.get('hb_msg', '')]
+            rows += ['', _t('hub.narrow.cfg_hint',
+                            'Enter cambia · configuración disponible en el menú'),
+                     S.get('hb_msg', '')]
+        elif group == 'idioma':
+            selected = S['lang_focus']
+            for i, (_code, name, act) in enumerate(_lang_opts()):
+                rows.append(('> ' if i == selected else '  ')
+                            + ('● ' if act else '· ') + name)
+            rows += ['', _t('hub.narrow.lang_hint',
+                            'Enter cambia el idioma · Enter switches language')]
         else:
             import datetime as _dt
             day = _dt.date.today() + _dt.timedelta(days=S['cal_off'])
-            rows = [str(day), 'Flechas: día/semana · Enter evento',
+            rows = [str(day), _t('hub.narrow.cal_hint',
+                                 'Flechas: día/semana · Enter evento'),
                     S.get('cal_buf', ''), S.get('cal_msg', '')]
-        title = 'WORKSPACE · ' + {'dioses': 'AGENTES', 'tools': 'MENÚ',
-                               'latido': 'CONFIGS', 'cal': 'CALENDARIO'}.get(group, group)
-        rows += ['', '↑↓ sección · ◄► elige · Enter entra · q terminal']
-        lines = _responsive.hub_frame(rows, w, h, focus=selected, title=title)
+        title = 'WORKSPACE · ' + {
+            'dioses': _t('hub.section.agents', 'AGENTES'),
+            'tools': _t('hub.section.menu', 'MENÚ'),
+            'latido': _t('hub.section.configs', 'CONFIGS'),
+            'cal': _t('hub.section.calendar', 'CALENDARIO'),
+            'idioma': _t('hub.section.lang', 'IDIOMA · LANGUAGE')}.get(group, group)
+        _nav = "↑↓ %s · ◄► %s · Enter %s · q %s" % (
+            _t('common.hint.section', 'sección'),
+            _t('common.hint.pick', 'elige'),
+            _t('common.hint.enter', 'entra'),
+            _t('common.hint.terminal', 'terminal'))
+        rows += ['', _nav]
+        lines = _responsive.hub_frame(rows, w, h, focus=selected, title=title,
+                                      hint=_nav)
         _responsive.paint(tout, lines, first)
         S['BH'] = len(lines)
         S['row0'] = 0
@@ -1735,18 +1874,25 @@ def _menu_machinery(tout):
         # atajos clave BAJO el wordmark, legibles (tecla en acento, acción
         # en gris — hublayout.keyline, el lenguaje de hints de todo el hub);
         # sin hublayout cae a la línea DIM de siempre (falla-suave)
-        _pares = ([("↑↓", "menú"), ("◄►", "elige"), ("Enter", "entra"),
-                   ("tecla", "apunta/abre")]
-                  + [(_ac[n], n) for n in ("motor", "info") if _ac.get(n)]
-                  + [("q", "terminal")])
+        _act = {"motor": _t("common.hint.engine", "motor"),
+                "info": _t("common.hint.info", "información")}
+        _key = _t("common.hint.key", "tecla")
+        _pares = ([("↑↓", _t("common.hint.menu", "menú")),
+                   ("◄►", _t("common.hint.pick", "elige")),
+                   ("Enter", _t("common.hint.enter", "entra")),
+                   (_key, _t("common.hint.aim_open", "apunta/abre"))]
+                  + [(_ac[n], _act[n]) for n in ("motor", "info") if _ac.get(n)]
+                  + [("q", _t("common.hint.terminal", "terminal"))])
         if _hl:
             hdr = _ctr(_hl.keyline(_hl.cols(TH), _pares,
                                    max(20, S["term_w"] - 4)))
         else:
-            _hx = "".join(f" · {_ac[n]} {n}" for n in ("motor", "info")
+            _hx = "".join(f" · {_ac[n]} {_act[n]}" for n in ("motor", "info")
                           if _ac.get(n))
-            hdr = _ctr(f"{DIM}↑↓ menú · ◄► elige · Enter entra · "
-                       f"tecla apunta/abre{_hx} · q terminal{R}")
+            hdr = _ctr(f"{DIM}↑↓ {_pares[0][1]} · ◄► {_pares[1][1]} · "
+                       f"Enter {_pares[2][1]} · "
+                       f"{_key} {_t('common.hint.aim_open', 'apunta/abre')}"
+                       f"{_hx} · q {_t('common.hint.terminal', 'terminal')}{R}")
         upper = (list(render.wordmark_plain()) + _wordmark_reflection() + [""]
                  + _franja(agents) + ["", hdr, ""])      # cielo + banner (+ reflejo ░ en grises)
         lower = block_lines()                            # bloque interactivo: lo repinta redraw()
@@ -1864,6 +2010,13 @@ def _menu_machinery(tout):
                 pins = _pins_now()
                 if pins:                                 # cursor entre pins (evita % 0)
                     S["cfg_focus"] = (S["cfg_focus"] + step) % len(pins)
+            elif gk() == "idioma":
+                try:
+                    import i18n as _i18n
+                    n = max(1, len(_i18n.available()))
+                except Exception:
+                    n = 2
+                S["lang_focus"] = (S["lang_focus"] + step) % n
             else:
                 S["asel"] = (S["asel"] + step) % len(opts)
 
@@ -1882,6 +2035,9 @@ def _menu_machinery(tout):
             return None
         if gk() == "latido":
             cycle_pin()
+            return None
+        if gk() == "idioma":
+            apply_lang()
             return None
         if gk() == "cal":
             _cal_enter()
@@ -1943,6 +2099,8 @@ def _menu_machinery(tout):
         S["msg"] = ""
         if gk() == "latido":
             cycle_pin()
+        elif gk() == "idioma":
+            apply_lang()
 
     def cycle_engine():
         """Tecla `m` en AGENTES: cicla el HARNESS del agente seleccionado entre
@@ -2064,6 +2222,10 @@ def _menu_machinery(tout):
                 S["group"] = groups.index("latido")
                 S["cfg_focus"] = idx
                 cycle_pin()
+            if kind == "lang" and "idioma" in groups:
+                S["group"] = groups.index("idioma")
+                S["lang_focus"] = idx
+                apply_lang()
             return None
         return None
 
@@ -5310,9 +5472,14 @@ def main():
         _cols = os.get_terminal_size().columns
         if _cols < render.W + 4:
             sys.stderr.write(
-                f"\n  {B2}⚠ Tu terminal mide {_cols} columnas; el hub necesita "
-                f"≥{render.W + 4}.{R} Agranda o maximiza la ventana para que el "
-                f"diseño no se rompa.\n")
+                f"\n  {B2}"
+                + _t("hub.narrow.too_small",
+                     "⚠ Tu terminal mide {cols} columnas; el hub necesita "
+                     "≥{need}.", cols=_cols, need=render.W + 4)
+                + f"{R} "
+                + _t("hub.narrow.too_small2",
+                     "Agranda o maximiza la ventana para que el diseño no se "
+                     "rompa.") + "\n")
     except Exception:
         pass
     it = items()

@@ -56,6 +56,31 @@ from _width import ANSI as _ANSI, sane as _sane, eaw as _cw   # noqa: E402
 
 _RESET = "\x1b[0m"
 
+# i18n (lado cliente): traduce el «chrome» compartido de los layouts dia/centro.
+# Import guardado + red de seguridad inline — sin i18n (o clave faltante) _t()
+# devuelve el español `es` tal cual (paridad EXACTA con el hub de siempre).
+try:
+    import i18n as _i18n
+except Exception:
+    _i18n = None
+
+
+def _t(key, es, **kw):
+    s = es
+    if _i18n is not None:
+        try:
+            v = _i18n.t(key)
+            if v != key:
+                s = v
+        except Exception:
+            s = es
+    if kw:
+        try:
+            return s.format(**kw)
+        except Exception:
+            return s
+    return s
+
 
 # -- helpers de texto ANSI (ancho VISUAL, no len) ----------------------------
 def _plain(s):
@@ -449,9 +474,10 @@ def hb_brief(data, hb_mode=None):
         b = hb.get("budget") or {}
         pct = b.get("pct")
         uso = "?" if pct is None else "%d%%" % round(pct)
-        out = "latido %s · cola %s · uso 5h %s" % (mode, hb.get("count", 0), uso)
+        out = _t("hub.hb.brief", "latido {mode} · cola {count} · uso 5h {uso}",
+                 mode=mode, count=hb.get("count", 0), uso=uso)
         if b.get("ok") is not True:
-            out += " · presupuesto en pausa"
+            out += _t("hub.hb.budget_paused", " · presupuesto en pausa")
         return out
     except Exception:
         return ""
@@ -726,8 +752,8 @@ def hub_pins_lines(K, w, indent="  ", hint=True, view=None):
                                             K["R"])
         out.append(clip(row, w - 1))
     if hint:
-        htxt = "◄► elige · Enter/espacio cambia" if foc else \
-               "Config ▸ para editar"
+        htxt = _t("hub.cfg.pick_change", "◄► elige · Enter/espacio cambia") \
+            if foc else _t("hub.cfg.config_edit", "Config ▸ para editar")
         out.append(clip("%s%s%s%s" % (indent, K["DK"], htxt, K["R"]), w - 1))
     return out
 
@@ -886,9 +912,11 @@ def branch_widget(K):
     if g.get("behind"):
         out += " %s↓%d%s" % (K["B2"], g["behind"], K["R"])
     if g.get("dirty"):
-        out += " %s±sucio%s" % (K["B2"] + K["BO"], K["R"])
+        out += " %s%s%s" % (K["B2"] + K["BO"],
+                            _t("common.git.dirty_short", "±sucio"), K["R"])
     else:
-        out += " %s%slimpio%s" % (K["OK"], K["CHECK"], K["R"])
+        out += " %s%s%s%s" % (K["OK"], K["CHECK"],
+                              _t("common.git.clean_short", "limpio"), K["R"])
     return out
 
 
@@ -921,15 +949,19 @@ def instrument_bar(data, view, K, w, indent=" "):
             # punteado tenue, % en texto brillante, cap en warn
             fcol = (K["C"] + K["BO"]) if b.get("ok") is not False \
                 else (K["ERR"] + K["BO"])
-            seg = "%suso 5h %s▐%s▌%s%s%s %s%s%d%%%s" % (
-                K["DIM"], fcol, "█" * fill, K["DK"], "░" * (barw - fill),
+            seg = "%s%s %s▐%s▌%s%s%s %s%s%d%%%s" % (
+                K["DIM"], _t("hub.instr.usage5h", "uso 5h"), fcol, "█" * fill,
+                K["DK"], "░" * (barw - fill),
                 K["R"], K["WH"], K["BO"], round(pct), K["R"])
             if b.get("ok") is not True:
-                seg += " %sEN PAUSA%s" % (K["B2"] + K["BO"], K["R"])
+                seg += " %s%s%s" % (K["B2"] + K["BO"],
+                                    _t("hub.instr.paused", "EN PAUSA"), K["R"])
             segs.append(seg)
             if b.get("cap") is not None:
-                segs.append("%scap %s%d%%%s" % (K["DIM"], K["B2"] + K["BO"],
-                                                round(b["cap"]), K["R"]))
+                segs.append("%s%s %s%d%%%s" % (K["DIM"],
+                                               _t("hub.instr.cap", "cap"),
+                                               K["B2"] + K["BO"],
+                                               round(b["cap"]), K["R"]))
     wt = _worktrees()
     if wt:                    # 0 worktrees no es informacion: es relleno
         segs.append("%s⌥ %swt %s%s%s" % (K["B2"], K["DIM"], K["WH"], wt,
@@ -1091,7 +1123,8 @@ def activity_rows(K, w, limit=12):
     for ts, kind, m in ev[:limit]:
         when = "%s%s%s" % (K["DK"], _act_when(ts), K["R"])
         if kind == "bus":
-            pend = (" %s· pendiente%s" % (K["B2"] + K["BO"], K["R"])
+            pend = (" %s%s%s" % (K["B2"] + K["BO"],
+                                 _t("hub.act.pending", "· pendiente"), K["R"])
                     if m.get("status") == "pending" else "")
             ln = "%s  %s%s%s %s%s%s %s→%s %s%s%s  %s%s%s %s%s%s%s" % (
                 when, K["B2"] + K["BO"], K["MAIL"], K["R"],
@@ -1121,7 +1154,7 @@ def activity_section(K, pw, ih=None, focused=False, limit=12):
     n_git = len(_git_log(limit) or ())
     bits = ([("bus %d" % n_bus)] if n_bus else []) \
         + ([("git %d" % n_git)] if n_git else [])
-    title = "ACTIVIDAD" + ((" · " + " · ".join(bits)) if bits else "")
+    title = _t("hub.section.activity", "ACTIVIDAD") + ((" · " + " · ".join(bits)) if bits else "")
     if not rows:
         rows = ["%ssin actividad registrada — el log llega solo (bus/git)%s"
                 % (K["DIM"], K["R"])]
@@ -1298,12 +1331,15 @@ def monitor_body(data, K, inner, hours=12):
         gw = max(6, min(20, inner - lw - 7))
         if b.get("pct") is not None:
             warn = (K["ERR"] + K["BO"]) if b.get("ok") is False else None
-            ln = lbl("uso 5h") + gauge(K, gw, b["pct"], col=warn)
+            ln = lbl(_t("hub.instr.usage5h", "uso 5h")) \
+                + gauge(K, gw, b["pct"], col=warn)
             if b.get("ok") is not True:
-                ln += " %sEN PAUSA%s" % (K["B2"] + K["BO"], K["R"])
+                ln += " %s%s%s" % (K["B2"] + K["BO"],
+                                   _t("hub.instr.paused", "EN PAUSA"), K["R"])
             out.append(clip(ln, inner))
         if b.get("cap") is not None:                  # tope, en tono warn
-            out.append(clip(lbl("presup") + gauge(K, gw, b["cap"],
+            out.append(clip(lbl(_t("hub.monitor.budget", "presup"))
+                            + gauge(K, gw, b["cap"],
                                                   col=K["B2"] + K["BO"]),
                             inner))
     bus = _bus_pending()
@@ -1322,23 +1358,25 @@ def monitor_body(data, K, inner, hours=12):
         # la etiqueta refleja el DATO servido (el memo no cachea por
         # ventana: si otra vista pidió 12h, no rotular 24h — nada inventado)
         nh = len(gh.get("counts") or ()) or hours
-        out.append(clip("%scommits%s/%dh%s" % (K["B2"], K["DIM"], nh,
-                                               K["R"]), inner))
+        out.append(clip("%s%s%s/%dh%s" % (K["B2"],
+                                          _t("hub.monitor.commits", "commits"),
+                                          K["DIM"], nh, K["R"]), inner))
         ln = " " + sparkline(K, gh.get("counts") or ())
         if gh.get("peak"):
-            ln += " %spico %s%s%s" % (K["DIM"], K["WH"],
-                                      _act_when(gh["peak"]), K["R"])
+            ln += " %s%s %s%s%s" % (K["DIM"], _t("hub.monitor.peak", "pico"),
+                                    K["WH"], _act_when(gh["peak"]), K["R"])
         out.append(clip(ln, inner))
     tiles = []
     br = _branches()
     if br is not None:
-        tiles.append(("ramas", br))
+        tiles.append((_t("hub.monitor.tile.branches", "ramas"), br))
     wt = _worktrees()
     if wt is not None:
-        tiles.append(("wt", wt))
+        tiles.append((_t("hub.monitor.tile.wt", "wt"), wt))
     if hb:
-        tiles.append(("cola", hb.get("count", 0)))
-    tiles.append(("agentes", len(data.get("agents") or ())))
+        tiles.append((_t("hub.monitor.tile.queue", "cola"), hb.get("count", 0)))
+    tiles.append((_t("hub.monitor.tile.agents", "agentes"),
+                  len(data.get("agents") or ())))
     rows = stat_tiles(K, tiles, inner)
     if rows:
         if out:
@@ -1463,14 +1501,21 @@ def bottom_statusline(data, view, K, w):
     # data (banner/tests) el hint de siempre, byte-idéntico
     _jk = data.get("keys") or {}
     _ac = _jk.get("acciones") or {}
+    _hmove = _t("common.hint.move", "mueve")
+    _hpick = _t("common.hint.pick", "elige")
+    _henter = _t("common.hint.enter", "entra")
+    _hquit = _t("common.hint.quit", "sale")
+    _hact = {"motor": _t("common.hint.engine", "motor"),
+             "info": _t("common.hint.info", "información")}
     if _jk.get("agents") or _jk.get("opts"):
-        pares = [("↑↓", "mueve"), ("◄►", "elige"), ("Enter", "entra"),
-                 ("tecla", "salta")]
-        pares += [(_ac[n], n) for n in ("motor", "info") if _ac.get(n)]
-        pares.append(("q", "sale"))
+        pares = [("↑↓", _hmove), ("◄►", _hpick), ("Enter", _henter),
+                 (_t("common.hint.key", "tecla"),
+                  _t("common.hint.jump", "salta"))]
+        pares += [(_ac[n], _hact[n]) for n in ("motor", "info") if _ac.get(n)]
+        pares.append(("q", _hquit))
     else:
-        pares = [("↑↓", "mueve"), ("◄►", "elige"), ("Enter", "entra"),
-                 ("m", "motor"), ("q", "sale")]
+        pares = [("↑↓", _hmove), ("◄►", _hpick), ("Enter", _henter),
+                 ("m", _hact["motor"]), ("q", _hquit)]
     # tecla en acento + acción tenue (keyline): el pie se LEE de un vistazo
     hints = keyline(K, pares, w - 1)
     sep = " %s│%s " % (K["DK"], K["R"])
@@ -1523,7 +1568,8 @@ def _cockpit_lines(data, view, K, w, compact=False, dense=False):
     top_n = len(L)
     status = bottom_statusline(data, view, K, w)
     ags = list(data.get("agents") or ())
-    ag_title = "AGENTES · %d" % len(ags) if ags else "AGENTES"
+    ag_title = (_t("hub.title.agents_n", "AGENTES · {n}", n=len(ags))
+                if ags else _t("hub.section.agents", "AGENTES"))
     moff = K.get("OFF") or K["DK"]               # borde MONITOR: acento tenue
     mlabel = K["B"] + K["BO"]                    # etiqueta encendida
     # dense (alto chico): sin aire entre cajas ni antes de la statusline
@@ -1544,7 +1590,7 @@ def _cockpit_lines(data, view, K, w, compact=False, dense=False):
         mtot = max(len(left), len(mb) + 2)
         if h:
             mtot = max(len(left), (h - 1) - top_n - tail)
-        mon = full_box("MONITOR · vivo", mb, K, rw, max(1, mtot - 2),
+        mon = full_box(_t("hub.section.monitor_live", "MONITOR · vivo"), mb, K, rw, max(1, mtot - 2),
                        False, border=moff, label=mlabel)
         left += [""] * (mtot - len(left))
         for i in range(mtot):
@@ -1572,7 +1618,7 @@ def _cockpit_lines(data, view, K, w, compact=False, dense=False):
         L += full_box("SISTEMA", sb, K, pw, ihr,
                       focus in ("tools", "latido"), border=K["B2"])
         if mon_ih:
-            L += full_box("MONITOR · vivo", mb, K, pw, mon_ih, False,
+            L += full_box(_t("hub.section.monitor_live", "MONITOR · vivo"), mb, K, pw, mon_ih, False,
                           border=moff, label=mlabel)
     # ── 4) statusline inferior ──
     L += ([""] if tail == 2 else []) + [status]
@@ -2425,9 +2471,11 @@ def _centro_agent_rows(data, view, K, w, indent="", inbox_badge=True,
                            else ("●", K["OK"] + K["BO"]))
             sub = task
         elif a.get("active"):
-            glyph, gcol, sub = "○", K["DIM"], (a.get("tagline") or "idle")
+            glyph, gcol, sub = "○", K["DIM"], (a.get("tagline")
+                                               or _t("common.status.idle", "idle"))
         else:
-            glyph, gcol, sub = "·", K["DK"], (a.get("tagline") or "pronto")
+            glyph, gcol, sub = "·", K["DK"], (a.get("tagline")
+                                              or _t("common.status.soon", "pronto"))
         mark = ("%s▸ %s" % (K["B"] + K["BO"], K["R"])) if (sel and focus) \
             else "  "
         brand = (bright + K["BO"]) if a.get("active") else K["DK"]
@@ -2459,8 +2507,11 @@ def _centro_agent_rows(data, view, K, w, indent="", inbox_badge=True,
             pad(a.get("display", ""), namew), K["R"], gcol, glyph, K["R"],
             badges, tcol, sub, K["R"]), w - 1))
     if not agents:
-        out.append(clip("%s%ssin agentes — MENÚ ▸ Agregar agente%s"
-                        % (indent, K["DIM"], K["R"]), w - 1))
+        out.append(clip("%s%s%s%s"
+                        % (indent, K["DIM"],
+                           _t("hub.empty.agents",
+                              "sin agentes — MENÚ ▸ Agregar agente"), K["R"]),
+                        w - 1))
     out.append(clip("%s%s%s%s" % (indent, K["DIM"], view.get("msg") or "",
                                   K["R"]), w - 1) if view.get("msg")
                else "")                       # fila de aviso SIEMPRE reservada
@@ -2482,19 +2533,20 @@ def _centro_strip(K, w, indent=" "):
             "%s%s %s%s%s" % (K["DIM"], p, K["WH"] + K["BO"], tb.get(p, 0),
                              K["R"])
             for p in ("plan", "exec", "review", "done"))
-        segs.append("%s◧ %smisiones %s%d%s  %s" % (
-            K["B"] + K["BO"], K["DIM"], K["WH"] + K["BO"], tb["total"],
-            K["R"], fases))
+        segs.append("%s◧ %s%s %s%d%s  %s" % (
+            K["B"] + K["BO"], K["DIM"], _t("hub.strip.missions", "misiones"),
+            K["WH"] + K["BO"], tb["total"], K["R"], fases))
     cta = snap.get("cuenta")
     if isinstance(cta, dict) and cta.get("energia_pct") is not None:
-        segs.append("%senergia %s" % (K["DIM"],
-                                      gauge(K, 8, cta["energia_pct"],
-                                            col=K["OK"] + K["BO"])))
+        segs.append("%s%s %s" % (K["DIM"], _t("hub.strip.energy", "energia"),
+                                 gauge(K, 8, cta["energia_pct"],
+                                       col=K["OK"] + K["BO"])))
     warns = snap.get("warns")
     if isinstance(warns, list) and warns:
-        segs.append("%s▲ %d aviso%s%s" % (K["ERR"] + K["BO"], len(warns),
-                                          "" if len(warns) == 1 else "s",
-                                          K["R"]))
+        _w = (_t("hub.strip.warn_one", "aviso") if len(warns) == 1
+              else _t("hub.strip.warn_many", "avisos"))
+        segs.append("%s▲ %d %s%s" % (K["ERR"] + K["BO"], len(warns), _w,
+                                     K["R"]))
     if not segs:
         return []
     while segs:
@@ -2512,8 +2564,11 @@ def _detalles_body(a, K, inner):
     contenido."""
     K = cols(K)
     if a is None:
-        return [clip("%ssin agentes — MENÚ ▸ Agregar agente%s"
-                     % (K["DIM"], K["R"]), inner)]
+        return [clip("%s%s%s"
+                     % (K["DIM"],
+                        _t("hub.empty.agents",
+                           "sin agentes — MENÚ ▸ Agregar agente"), K["R"]),
+                     inner)]
     bright, _dimc = _agent_ink(a.get("color"), K)
     out = [clip("%s%s%s%s" % (K["WH"] + K["BO"], a.get("display", ""),
                               K["R"], ("  %s%s%s" % (K["DIM"],
@@ -2532,10 +2587,14 @@ def _detalles_body(a, K, inner):
         out += [clip("%s%s%s" % (K["GREY"], ln, K["R"]), inner)
                 for ln in _wrap(task, inner - 1, 3)]
     elif a.get("active"):
-        out.append(clip("%s○ idle · sin tarea publicada%s"
-                        % (K["DIM"], K["R"]), inner))
+        out.append(clip("%s%s%s"
+                        % (K["DIM"],
+                           _t("hub.det.idle_notask",
+                              "○ idle · sin tarea publicada"), K["R"]), inner))
     else:
-        out.append(clip("%s· pronto%s" % (K["DK"], K["R"]), inner))
+        out.append(clip("%s%s%s"
+                        % (K["DK"], _t("hub.det.soon", "· pronto"), K["R"]),
+                        inner))
     wts = [b for b in (a.get("_wts") or ()) if b] \
         or ([a["_wt"].strip()] if (a.get("_wt") or "").strip() else [])
     if wts:
@@ -2546,13 +2605,14 @@ def _detalles_body(a, K, inner):
                                              body, K["DIM"], extra, K["R"]),
                         inner))
     if a.get("_inbox") is not None:
-        out.append(clip("%s%s %sbus %s%s pendientes%s" % (
-            K["B2"], K["MAIL"], K["DIM"], K["WH"], a["_inbox"], K["R"]),
-            inner))
+        out.append(clip("%s%s %s%s%s" % (
+            K["B2"], K["MAIL"], K["DIM"],
+            _t("hub.det.bus_pending", "bus {n} pendientes", n=a["_inbox"]),
+            K["R"]), inner))
     mis = a.get("_mis")
     if mis:
-        out.append(clip("%smisiones %s%s%s" % (
-            K["DIM"], K["WH"],
+        out.append(clip("%s%s %s%s%s" % (
+            K["DIM"], _t("hub.det.missions", "misiones"), K["WH"],
             " · ".join("%s %s" % (p, mis.get(p, 0))
                        for p in ("plan", "exec", "review", "done")),
             K["R"]), inner))
@@ -2606,13 +2666,13 @@ def _dia_agentes_body(data, view, K, inner, aviso=True, hits=None):
             # corta, y un estado recortado no es un estado
             if est in ("busy", "ocupado", "corriendo", "running",
                        "working"):
-                palabra, pcol = "activo", K["OK"]
+                palabra, pcol = _t("common.status.active", "activo"), K["OK"]
             else:
-                palabra, pcol = "en uso", K["C"]
+                palabra, pcol = _t("common.status.in_use", "en uso"), K["C"]
         elif a.get("active"):
-            palabra, pcol = "listo", K["DIM"]
+            palabra, pcol = _t("common.status.ready", "listo"), K["DIM"]
         else:
-            palabra, pcol = "pronto", K["DK"]
+            palabra, pcol = _t("common.status.soon", "pronto"), K["DK"]
         cursor = "%s%s%s" % (K["C"] + K["BO"], K["PTR"], K["R"]) if (
             sel and foco) else " "
         # semáforo: mismo tono que la palabra; BOLD solo con vida (tarea) —
@@ -2640,8 +2700,11 @@ def _dia_agentes_body(data, view, K, inner, aviso=True, hits=None):
             cursor, marca, K["R"], nombre_txt, " " * hueco,
             pcol, palabra, K["R"]), inner))
     if not agentes:
-        out.append(clip("%ssin agentes — MENÚ ▸ Agregar agente%s"
-                        % (K["DIM"], K["R"]), inner))
+        out.append(clip("%s%s%s"
+                        % (K["DIM"],
+                           _t("hub.empty.agents",
+                              "sin agentes — MENÚ ▸ Agregar agente"), K["R"]),
+                        inner))
     else:
         # Selector de HARNESS inline (harness-os): el binding efectivo del
         # agente SELECCIONADO, valor a la derecha (mismo lenguaje que
@@ -2652,7 +2715,8 @@ def _dia_agentes_body(data, view, K, inner, aviso=True, hits=None):
         eng = (a.get("engine_eff") or a.get("engine") or "?").strip() or "?"
         loc = "%s●%s " % (K["C"], K["R"]) if a.get("engine_src") == "local" \
             else ""
-        lab = "%smotor%s" % (K["DIM"] if foco else K["DK"], K["R"])
+        lab = "%s%s%s" % (K["DIM"] if foco else K["DK"],
+                          _t("hub.hero.k.engine", "motor"), K["R"])
         val = "%s%s%s %s▾%s" % ((K["C"] + K["BO"]) if foco else K["B2"],
                                 eng, K["R"], K["DK"], K["R"])
         # adaptativo: con etiqueta si cabe; si no, solo el valor a la derecha
@@ -2735,6 +2799,11 @@ def _dia_menu_body(data, view, K, inner, separador=True, hits=None):
 _DIA_PIN_CORTO = {"ui.background": "fondo", "ui.theme": "tema", "ui.layout": "layout",
                   "latido.mode": "latido", "ui.split": "split",
                   "ui.stars": "estrellas", "ui.anim": "animación"}
+# clave i18n paralela por setting (misma palabra, traducible)
+_DIA_PIN_I18N = {"ui.background": "hub.pin.background", "ui.theme": "hub.pin.theme",
+                 "ui.layout": "hub.pin.layout", "latido.mode": "hub.pin.heartbeat",
+                 "ui.split": "hub.pin.split", "ui.stars": "hub.pin.stars",
+                 "ui.anim": "hub.pin.anim"}
 
 
 def _dia_cfg_body(data, view, K, inner, hint=True, hits=None):
@@ -2759,8 +2828,10 @@ def _dia_cfg_body(data, view, K, inner, hint=True, hits=None):
     for i, p in enumerate(pins):
         if hits is not None:
             hits.append((len(out), "pin", i))
-        lab = _DIA_PIN_CORTO.get(p.get("key", ""), "") or \
-            (p.get("label") or "").split(" ")[0].lower()
+        _pk = p.get("key", "")
+        _les = _DIA_PIN_CORTO.get(_pk, "")
+        lab = (_t(_DIA_PIN_I18N.get(_pk, _pk), _les) if _les
+               else (p.get("label") or "").split(" ")[0].lower())
         val = str(p.get("value", ""))
         sel = (i == cf)
         cursor = "%s%s%s" % (K["C"] + K["BO"], K["PTR"], K["R"]) if (
@@ -2773,7 +2844,52 @@ def _dia_cfg_body(data, view, K, inner, hint=True, hits=None):
     if view.get("hb_msg"):
         out.append(clip("%s%s%s" % (K["DIM"], view["hb_msg"], K["R"]), inner))
     elif hint:
-        out.append(clip("%sEnter cambia%s" % (K["DK"], K["R"]), inner))
+        out.append(clip("%s%s%s" % (K["DK"],
+                                    _t("hub.cfg.enter_changes", "Enter cambia"),
+                                    K["R"]), inner))
+    return out
+
+
+def _dia_idioma_body(view, K, inner, hint=True, hits=None):
+    """CUADRO IDIOMA del layout `dia` (bajo PERSONALIZACIÓN): las DOS opciones
+    de idioma SIEMPRE visibles con su nombre nativo (Español / English), la
+    ACTIVA marcada con `●` y el cursor `❯` sobre la enfocada (como el picker de
+    tema/fondo). Navegable (focus == 'idioma'): ◄► mueve el cursor, Enter
+    aplica el idioma enfocado (i18n.set_lang) y el hub flipea en vivo. `hits`
+    (opcional) recibe (fila_relativa, 'lang', i) para el click. Falla-suave
+    TOTAL: sin i18n → caja vacía (se OMITE), jamás levanta."""
+    K = cols(K)
+    try:
+        import i18n
+        opts = i18n.available()
+        active = i18n.lang()
+    except Exception:
+        return []
+    if not opts:
+        return []
+    foco = view.get("focus") == "idioma"
+    lf = view.get("lang_focus", 0) % len(opts)
+    out = []
+    for i, (code, name) in enumerate(opts):
+        if hits is not None:
+            hits.append((len(out), "lang", i))
+        sel = (i == lf)
+        act = (code == active)
+        cursor = "%s%s%s" % (K["C"] + K["BO"], K["PTR"], K["R"]) if (
+            sel and foco) else " "
+        marca = ("%s●%s" % (K["C"], K["R"])) if act else \
+            ("%s·%s" % (K["DK"], K["R"]))
+        tinta = (K["WH"] + K["BO"]) if (sel and foco) else \
+            (K["WH"] if act else K["DIM"])
+        out.append(clip("%s %s %s%s%s" % (cursor, marca, tinta, name, K["R"]),
+                        inner))
+    if hint:
+        try:
+            import i18n as _i
+            htxt = _i.t("hub.idioma.hint")
+        except Exception:
+            htxt = "Enter cambia"
+        out.append(clip("%s%s%s" % (K["DK"], htxt, K["R"]), inner))
     return out
 
 
@@ -2854,7 +2970,7 @@ def _centro_lines(data, view, K, w, compact=False, dense=False):
     if len(bt) > 1:
         L += title_reflection(K, w, indent=" ")
     build = " · ".join(p for p in (
-        "centro de control",
+        _t("hub.build.control_center", "centro de control"),
         ("v" + data["version"]) if data.get("version") else "",
         data.get("version_text") or "", data.get("motor") or "") if p)
     L.append(clip(" %s%s%s" % (K["DIM"], build, K["R"]), w - 1))
@@ -2866,7 +2982,8 @@ def _centro_lines(data, view, K, w, compact=False, dense=False):
     top_n = len(L)
     status = bottom_statusline(data, view, K, w)
     gap1, tail = (0, 1) if dense else (1, 2)
-    ag_title = "AGENTES · %d" % len(ags) if ags else "AGENTES"
+    ag_title = (_t("hub.title.agents_n", "AGENTES · {n}", n=len(ags))
+                if ags else _t("hub.section.agents", "AGENTES"))
     doff = K.get("OFF") or K["DK"]
     dlabel = K["B"] + K["BO"]
     if w - 1 >= 85:                              # ── TRES COLUMNAS ──
@@ -2878,12 +2995,17 @@ def _centro_lines(data, view, K, w, compact=False, dense=False):
         left = full_box(ag_title, ab, K, lw, len(ab), focus == "dioses",
                         border=K["C"])
         left += [""] * gap1
-        left += full_box("MENÚ", menu, K, lw, len(menu),
+        left += full_box(_t("hub.section.menu", "MENÚ"), menu, K, lw, len(menu),
                          focus == "tools", border=K["B2"])
         if cfg:
             left += [""] * gap1
-            left += full_box("PERSONALIZACIÓN", cfg, K, lw, len(cfg),
+            left += full_box(_t("hub.section.personalization", "PERSONALIZACIÓN"), cfg, K, lw, len(cfg),
                              focus == "latido", border=K["B2"])
+        idi = _dia_idioma_body(view, K, lw - 4)      # CUADRO IDIOMA · universal
+        if idi:
+            left += [""] * gap1
+            left += full_box(_t("hub.section.lang", "IDIOMA · LANGUAGE"), idi, K, lw, len(idi),
+                             focus == "idioma", border=K["B2"])
         # workstations: GRID de CUBÍCULOS espaciados (rediseño 2026-07-08 —
         # cuadritos con aire, sin jerarquía ni aristas); std → mini según alto
         size_fit = "mini" if dense else "std"
@@ -2897,7 +3019,7 @@ def _centro_lines(data, view, K, w, compact=False, dense=False):
         n_git = len(_git_log(12) or ())
         act_bits = (["bus %d" % n_bus] if n_bus else []) \
             + (["git %d" % n_git] if n_git else [])
-        act_t = "ACTIVIDAD" + ((" · " + " · ".join(act_bits)) if act_bits
+        act_t = _t("hub.section.activity", "ACTIVIDAD") + ((" · " + " · ".join(act_bits)) if act_bits
                                else "")
         # DETALLES se AJUSTA al contenido del seleccionado (feedback: el
         # hueco vacío cuando el agente trae poco) — piso 7, techo 13;
@@ -2920,7 +3042,7 @@ def _centro_lines(data, view, K, w, compact=False, dense=False):
         if not (act and rest_r >= 3):
             det_ih = max(1, ch - 2)              # sin lugar → DETALLES llena
         dborder = _agent_ink(dsel.get("color"), K)[1] if dsel else doff
-        right = full_box("DETALLES", det_body, K,
+        right = full_box(_t("hub.section.details", "DETALLES"), det_body, K,
                          rw, det_ih, False, border=dborder, label=dlabel)
         if act and rest_r >= 3:
             right += [""] * gap1
@@ -2930,7 +3052,7 @@ def _centro_lines(data, view, K, w, compact=False, dense=False):
         rest_l = ch - len(left) - gap1 - 2
         if mb and rest_l >= 3:
             left += [""] * gap1
-            left += full_box("MONITOR · vivo", mb, K, lw, rest_l, False,
+            left += full_box(_t("hub.section.monitor_live", "MONITOR · vivo"), mb, K, lw, rest_l, False,
                              border=doff, label=dlabel)
         left += [""] * max(0, ch - len(left))
         ws += [""] * max(0, ch - len(ws))
@@ -2947,16 +3069,20 @@ def _centro_lines(data, view, K, w, compact=False, dense=False):
                             size="mini" if dense else "std")
         db = _detalles_body(dsel, K, pw - 4)
         ihd = 6 if dense else 8
-        L += full_box("DETALLES", db, K, pw, ihd, False, border=doff,
+        L += full_box(_t("hub.section.details", "DETALLES"), db, K, pw, ihd, False, border=doff,
                       label=dlabel)
         # 3 SECCIONES iguales que en clásico: AGENTES (arriba) · MENÚ · CONFIGS
         menu = _centro_menu_body(data, view, K, pw - 4)
-        L += full_box("MENÚ", menu, K, pw, len(menu),
+        L += full_box(_t("hub.section.menu", "MENÚ"), menu, K, pw, len(menu),
                       focus == "tools", border=K["B2"])
         cfg = _centro_cfg_body(data, view, K, pw - 4, dense=dense)
         if cfg:
-            L += full_box("PERSONALIZACIÓN", cfg, K, pw, len(cfg),
+            L += full_box(_t("hub.section.personalization", "PERSONALIZACIÓN"), cfg, K, pw, len(cfg),
                           focus == "latido", border=K["B2"])
+        idi = _dia_idioma_body(view, K, pw - 4)      # CUADRO IDIOMA · universal
+        if idi:
+            L += full_box(_t("hub.section.lang", "IDIOMA · LANGUAGE"), idi, K, pw, len(idi),
+                          focus == "idioma", border=K["B2"])
     L += ([""] if tail == 2 else []) + [status]
     return vfill(L, view, tail=tail)
 
@@ -3375,7 +3501,7 @@ def _dia_tabs_rows(K, inner, limit=6, rico=False):
         glifo, palabra, rol = _DIA_TAB_EST.get(est, ("○", est, "DK"))
         gcol = K[rol] + (K["BO"] if rol != "DK" else "")
         nombre = t["ws"] or t["agente"] or t["sid"][:8]
-        edad = _dia_hace(time.time() - t["edad"]).replace("hace ", "")
+        edad = _dia_hace(time.time() - t["edad"], corto=True)
         if not rico:
             cola = "%s %s" % (t["tool"], edad) if (est == "trabajando"
                                                    and t["tool"]) else edad
@@ -3421,10 +3547,10 @@ def _dia_ramas_rows(K, inner, maxb=4):
     #     en verde o «± N» en acento bold (N archivos sin commitear)
     if g.get("dirty"):
         nch = g.get("changes")
-        est_p = ("± %d" % nch) if nch else "± sucio"
+        est_p = ("± %d" % nch) if nch else _t("common.git.dirty_mark", "± sucio")
         est_c = K["B2"] + K["BO"]
     else:
-        est_p = "%s limpio" % K["CHECK"]
+        est_p = "%s %s" % (K["CHECK"], _t("common.git.clean", "limpio"))
         est_c = K["OK"]
     room = max(4, inner - 3 - vis(est_p))
     out.append(clip("%s%s%s %s%s%s %s%s%s" % (
@@ -3440,16 +3566,20 @@ def _dia_ramas_rows(K, inner, maxb=4):
             seg += "%s↑%d%s " % (K["B"] + K["BO"], ah, K["R"])
         if bh:
             seg += "%s↓%d%s " % (K["B2"], bh, K["R"])
-        out.append(clip("  %s%svs origin%s" % (seg, K["DK"], K["R"]), inner))
+        out.append(clip("  %s%s%s%s" % (seg, K["DK"],
+                                        _t("common.git.vs_origin", "vs origin"),
+                                        K["R"]), inner))
     elif g.get("upstream"):
-        out.append(clip("  %sal día con origin%s" % (K["DK"], K["R"]),
-                        inner))
+        out.append(clip("  %s%s%s"
+                        % (K["DK"],
+                           _t("common.git.uptodate", "al día con origin"),
+                           K["R"]), inner))
     now = time.time()
     # 3 · último commit: hash + hace cuánto, y el asunto debajo
     log = _git_log(12) or ()
     if log:
         c = log[0]
-        edad = _dia_hace(c.get("ts"), now).replace("hace ", "") \
+        edad = _dia_hace(c.get("ts"), now, corto=True) \
             if c.get("ts") else ""
         hueco = max(1, inner - vis(c.get("h") or "") - vis(edad))
         out.append("")
@@ -3472,7 +3602,7 @@ def _dia_ramas_rows(K, inner, maxb=4):
         if b.get("behind"):
             cp.append("↓%d" % b["behind"])
             cc.append("%s↓%d%s" % (K["B2"], b["behind"], K["R"]))
-        edad = _dia_hace(b.get("ts"), now).replace("hace ", "") \
+        edad = _dia_hace(b.get("ts"), now, corto=True) \
             if b.get("ts") else ""
         if edad:
             cp.append(edad)
@@ -3494,19 +3624,27 @@ def _dia_ramas_rows(K, inner, maxb=4):
     return out
 
 
-def _dia_hace(ts, now=None):
-    """«hace 2m» / «hace 3h» / «ayer» — corto y honesto. '' sin ts."""
+def _dia_hace(ts, now=None, corto=False):
+    """«hace 2m» / «hace 3h» — corto y honesto. '' sin ts. `corto=True`
+    devuelve la magnitud pelada («2m», «3h») neutra de idioma (lo que las
+    columnas estrechas de RAMAS necesitaban — antes se lograba con un
+    .replace('hace ', ') que el inglés no podría deshacer)."""
     try:
         s = max(0, int((now or time.time()) - float(ts)))
     except (TypeError, ValueError):
         return ""
     if s < 60:
-        return "hace %ds" % s
-    if s < 3600:
-        return "hace %dm" % (s // 60)
-    if s < 86400:
-        return "hace %dh" % (s // 3600)
-    return "hace %dd" % (s // 86400)
+        n, key, es = s, "common.ago.sec", "hace {n}s"
+    elif s < 3600:
+        n, key, es = s // 60, "common.ago.min", "hace {n}m"
+    elif s < 86400:
+        n, key, es = s // 3600, "common.ago.hour", "hace {n}h"
+    else:
+        n, key, es = s // 86400, "common.ago.day", "hace {n}d"
+    if corto:
+        return "%d%s" % (n, {"common.ago.sec": "s", "common.ago.min": "m",
+                             "common.ago.hour": "h", "common.ago.day": "d"}[key])
+    return _t(key, es, n=n)
 
 
 def shadow_clock(K, w, anim=0):
@@ -3563,20 +3701,40 @@ def _dia_fecha_line(K, w):
     K = cols(K)
     now = datetime.datetime.now()
     pct = (now.hour * 60 + now.minute) * 100.0 / 1440.0
-    fecha = "%s %d %s" % (_DIA_DIAS[now.weekday()], now.day,
-                          _DIA_MESES[now.month - 1])
+    fecha = "%s %d %s" % (_dia_largo(now.weekday()), now.day,
+                          _mes_corto(now.month))
     sem = now.isocalendar()[1]
-    txt = "%s%s%s  %s·%s  semana %s%d%s" % (
-        K["WH"], fecha, K["R"], K["DK"], K["R"], K["DIM"], sem, K["R"])
+    txt = "%s%s%s  %s·%s  %s %s%d%s" % (
+        K["WH"], fecha, K["R"], K["DK"], K["R"],
+        _t("hub.date.week", "semana"), K["DIM"], sem, K["R"])
     bar = gauge(K, max(6, min(18, w - 12)), pct, col=K["B2"] + K["BO"])
     lines = []
-    for ln in (txt, "%sdía%s %s" % (K["DIM"], K["R"], bar)):
+    for ln in (txt, "%s%s%s %s" % (K["DIM"], _t("hub.date.day", "día"),
+                                   K["R"], bar)):
         pad_l = max(0, (w - vis(ln)) // 2)
         lines.append(" " * pad_l + ln)
     return lines
 
 
 _DIA_SEMANA = ("lu", "ma", "mi", "ju", "vi", "sá", "do")
+
+
+# Accesores i18n de meses/días (fuente ES = los tuples de arriba; claves
+# compartidas en common — las reusa también la pantalla Calendario de la Ola 2).
+def _mes_largo(m):
+    return _t("common.cal.month_long.%d" % m, _DIA_MESES_LARGO[m - 1])
+
+
+def _mes_corto(m):
+    return _t("common.cal.month_short.%d" % m, _DIA_MESES[m - 1])
+
+
+def _dia_largo(wd):
+    return _t("common.cal.day_long.%d" % wd, _DIA_DIAS[wd])
+
+
+def _dow(i):
+    return _t("common.cal.dow.%d" % i, _DIA_SEMANA[i])
 
 
 def _dia_deadlines_mes():
@@ -3758,7 +3916,9 @@ def _dia_bloques_fit(bloques, alto, K, w):
     while out and out[-1] == "":
         out.pop()
     if resto:
-        out.append(clip("%s+%d más%s" % (K["DK"], resto, K["R"]), w))
+        out.append(clip("%s%s%s" % (K["DK"],
+                                    _t("hub.cal.more_n", "+{n} más", n=resto),
+                                    K["R"]), w))
     return out[:alto]
 
 
@@ -3777,10 +3937,12 @@ def _dia_lado_izq(K, w, dia, alto):
     evs = (pers.get("mes") or {}).get(dia) or []
     dls = _dia_deadlines_mes().get(dia) or []
     if not evs and not dls:
-        return [clip("%s%s%s" % (K["DK"], "sin nada", K["R"]), w)][:alto]
+        return [clip("%s%s%s" % (K["DK"], _t("hub.cal.nothing", "sin nada"),
+                                 K["R"]), w)][:alto]
     bloques = []
     for t in dls:                          # lo que VENCE, primero: es lo duro
-        b = [clip("%s▪ vence%s" % (K["B"] + K["BO"], K["R"]), w)]
+        b = [clip("%s%s%s" % (K["B"] + K["BO"], _t("hub.cal.due", "▪ vence"),
+                              K["R"]), w)]
         for ln in _dia_wrap_t(t, w, 2):
             b.append(clip("%s%s%s" % (K["GREY"], ln, K["R"]), w))
         b.append("")
@@ -3788,7 +3950,7 @@ def _dia_lado_izq(K, w, dia, alto):
     for e in evs:
         # los de Google (gcal) llevan ` ◦g` — el MISMO pip hueco de la
         # rejilla, sin robar ancho: el origen se lee sin ensuciar la columna
-        hora = e.get("time") or "todo el día"
+        hora = e.get("time") or _t("hub.cal.allday", "todo el día")
         if e.get("done"):
             b = [clip("%s%s%s" % (K["DK"], hora, K["R"]), w)]
             for ln in _dia_wrap_t(e.get("title") or "", w, 2):
@@ -3824,8 +3986,9 @@ def _dia_lado_der(K, w, alto, desde_dia):
     atr = pers.get("atrasadas") or ()
     if atr:
         rojo = (K["BAD"] or K["B"]) + K["BO"]
-        cab.append(clip("%s▲ %d atrasada%s%s" % (
-            rojo, len(atr), "s" if len(atr) != 1 else "", K["R"]), w))
+        _ov = (_t("hub.cal.overdue_one", "atrasada") if len(atr) == 1
+               else _t("hub.cal.overdue_many", "atrasadas"))
+        cab.append(clip("%s▲ %d %s%s" % (rojo, len(atr), _ov, K["R"]), w))
         for ln in _dia_wrap_t(atr[0].get("title") or "", w - 2, 1):
             cab.append(clip("  %s%s%s" % (K["GREY"], ln, K["R"]), w))
         cab.append("")
@@ -3855,7 +4018,9 @@ def _dia_lado_der(K, w, alto, desde_dia):
                 b.append(clip("   %s%s%s" % (K["GREY"], ln, K["R"]), w))
             bloques.append(b)
     if not cab and not bloques:
-        return [clip("%snada más%s" % (K["DK"], K["R"]), w)][:alto]
+        return [clip("%s%s%s" % (K["DK"],
+                                 _t("hub.cal.nothing_more", "nada más"),
+                                 K["R"]), w)][:alto]
     return (cab + _dia_bloques_fit(bloques, max(0, alto - len(cab)),
                                    K, w))[:alto]
 
@@ -3929,12 +4094,11 @@ def _dia_calendario(K, w, alto=0, sel=0, focus=False, modo="", buf="",
     out = []
     # Cabecera: versalita del mes sobre regla tenue (mismo gesto que la
     # etiqueta de una caja) y debajo los dias de la semana.
-    out.append(_dia_titulo_col(K, _DIA_MESES_LARGO[hoy.month - 1] if lados
-                               else "%s %d" % (
-                                   _DIA_MESES_LARGO[hoy.month - 1],
-                                   hoy.year), rej_w, 2))
-    out.append("".join(cel(d, K["DK"], i)
-                       for i, d in enumerate(_DIA_SEMANA)))
+    out.append(_dia_titulo_col(K, _mes_largo(hoy.month) if lados
+                               else "%s %d" % (_mes_largo(hoy.month),
+                                               hoy.year), rej_w, 2))
+    out.append("".join(cel(_dow(i), K["DK"], i)
+                       for i in range(len(_DIA_SEMANA))))
     out.append("")
     # Énfasis de celda (cursor=inverso, hoy/evento=subrayado): en modo MONO
     # NO se emite ANSI crudo (contrato "mono = cero ANSI" / NO_COLOR). El resto
@@ -4036,9 +4200,10 @@ def _dia_calendario(K, w, alto=0, sel=0, focus=False, modo="", buf="",
     # layout `split`). Sin esto las tres zonas se leian como un solo bloque
     # de texto suelto — que es justo lo que al socio no le cuadraba.
     etq_izq = _dia_titulo_col(
-        K, "%s %d" % (_DIA_DIAS[sel_fecha.weekday()][:3], sel_dia),
+        K, "%s %d" % (_dia_largo(sel_fecha.weekday())[:3], sel_dia),
         lado_w, 0)
-    etq_der = _dia_titulo_col(K, "próximos", lado_w, 4)
+    etq_der = _dia_titulo_col(K, _t("hub.section.upcoming", "próximos"),
+                              lado_w, 4)
     cuerpo = out[:]
     izq = _dia_lado_izq(K, lado_w, sel_dia, len(cuerpo) - 1)
     der = _dia_lado_der(K, lado_w, len(cuerpo) - 1, sel_dia)
@@ -4073,15 +4238,17 @@ def _dia_panel_dia(K, w, dia, focus, modo, buf, aviso, maxl):
     dls = _dia_deadlines_mes().get(dia) or []
     # MISMA versalita sobre regla que las columnas de arriba: sin esto el
     # panel de abajo parecia texto suelto colgando de la rejilla.
-    etq = "%s %d" % (_DIA_DIAS[f.weekday()], dia)
+    etq = "%s %d" % (_dia_largo(f.weekday()), dia)
     out = ["", _dia_titulo_col(K, etq, w, 0 if focus else 3)]
     if modo == "add":
         out.append(clip(" %s▸%s %s%s%s█%s" % (
             K["B"] + K["BO"], K["R"], K["WH"], buf, K["C"] + K["BO"],
             K["R"]), w))
-        out.append(clip("   %sempieza con 18:00 para ponerle hora  ·  "
-                        "Enter guarda  ·  Esc cancela%s"
-                        % (K["DK"], K["R"]), w))
+        out.append(clip("   %s%s%s"
+                        % (K["DK"],
+                           _t("hub.cal.add_hint",
+                              "empieza con 18:00 para ponerle hora  ·  "
+                              "Enter guarda  ·  Esc cancela"), K["R"]), w))
         return out[:maxl]
     cupo = max(1, maxl - 3)
     for e in evs[:cupo]:
@@ -4097,18 +4264,25 @@ def _dia_panel_dia(K, w, dia, focus, modo, buf, aviso, maxl):
                 " %s◦%s%sg%s" % (K["B2"], K["R"], K["DIM"], K["R"])
                 if e.get("g") else ""), w))
     if len(evs) > cupo:
-        out.append(clip("  %s+%d más%s" % (K["DK"], len(evs) - cupo,
-                                           K["R"]), w))
+        out.append(clip("  %s%s%s"
+                        % (K["DK"],
+                           _t("hub.cal.more_n", "+{n} más", n=len(evs) - cupo),
+                           K["R"]), w))
     for t in dls[:2]:
         out.append(clip("  %s▪%s %s%s%s" % (
             K["B"] + K["BO"], K["R"], K["GREY"], t, K["R"]), w))
     if not evs and not dls:
-        out.append(clip("  %ssin nada este día%s" % (K["DK"], K["R"]), w))
+        out.append(clip("  %s%s%s"
+                        % (K["DK"],
+                           _t("hub.cal.nothing_today", "sin nada este día"),
+                           K["R"]), w))
     if aviso:
         out.append(clip("  %s%s%s" % (K["B2"], aviso, K["R"]), w))
     elif focus:
-        out.append(clip("  %sEnter agrega un evento aquí%s"
-                        % (K["DK"], K["R"]), w))
+        out.append(clip("  %s%s%s"
+                        % (K["DK"],
+                           _t("hub.cal.enter_add", "Enter agrega un evento aquí"),
+                           K["R"]), w))
     return out[:maxl]
 
 
@@ -4135,6 +4309,9 @@ _DIA_TONO_GRUPOS = (("trato", ("amabilidad", "franqueza", "sarcasmo",
                     ("forma", ("longitud", "formalidad", "tecnicismo",
                                "emojis")),
                     ("trabajo", ("didactica", "iniciativa")))
+_TONO_GRUPO_I18N = {"trato": "hub.tono.group.manner",
+                    "forma": "hub.tono.group.form",
+                    "trabajo": "hub.tono.group.work"}
 
 
 def _dia_slider(K, v, i, ancho=5):
@@ -4186,6 +4363,7 @@ def _dia_tono_box(agente, K, inner, alto=0):
         for n, (titulo, claves) in enumerate(_DIA_TONO_GRUPOS):
             if n:
                 out.append("")
+            titulo = _t(_TONO_GRUPO_I18N.get(titulo, titulo), titulo)
             regla = K["SEP"] * max(1, inner - vis(titulo) - 3)
             out.append("%s%s %s%s%s" % (K["DK"], titulo, K["DK"], regla,
                                         K["R"]))
@@ -4357,7 +4535,8 @@ def _dia_lines(data, view, K, w, compact=False, dense=False):
     top_n = len(L)
     status = bottom_statusline(data, view, K, w)
     gap1, tail = (0, 1) if dense else (1, 2)
-    ag_title = "AGENTES · %d" % len(ags) if ags else "AGENTES"
+    ag_title = (_t("hub.title.agents_n", "AGENTES · {n}", n=len(ags))
+                if ags else _t("hub.section.agents", "AGENTES"))
     doff = K.get("OFF") or K["DK"]
     dlabel = K["B"] + K["BO"]
     if w - 1 >= 85:                              # ── TRES COLUMNAS ──
@@ -4380,31 +4559,39 @@ def _dia_lines(data, view, K, w, compact=False, dense=False):
             cada cuerpo reporta sus filas y aqui se les suma el offset de su
             caja (+1 por el borde superior)."""
             aire = (modo == "full")
-            ha, hm, hc = [], [], []
+            ha, hm, hc, hi = [], [], [], []
             ab = _dia_agentes_body(ldata, view, K, lw - 4, aviso=aire,
                                    hits=ha)
             menu = _dia_menu_body(data, view, K, lw - 4,
                                   separador=(modo != "denso"), hits=hm)
             cfg = _dia_cfg_body(data, view, K, lw - 4, hint=aire, hits=hc)
+            idi = _dia_idioma_body(view, K, lw - 4, hint=aire, hits=hi)
             # Los titulos de las tres cajas toman tonos SUCESIVOS del
             # gradiente del wordmark (K.WCOL): la columna se lee como una
             # sola pieza degradada, igual que el titulo de arriba.
-            out = full_box(_dia_caps(K, "agentes", 0, str(len(ags)), w=lw - 7), ab,
+            out = full_box(_dia_caps(K, _t("hub.section.agents", "agentes"), 0, str(len(ags)), w=lw - 7), ab,
                            K, lw, len(ab), focus == "dioses",
                            border=K["C"], label=K["R"])
             lh = [(1 + r, kk, ii) for (r, kk, ii) in ha]
             out += [""] * gap1
             base = len(out)
-            out += full_box(_dia_caps(K, "menú", 2, w=lw - 7), menu, K, lw, len(menu),
+            out += full_box(_dia_caps(K, _t("hub.section.menu", "menú"), 2, w=lw - 7), menu, K, lw, len(menu),
                             focus == "tools", border=K["B2"], label=K["R"])
             lh += [(base + 1 + r, kk, ii) for (r, kk, ii) in hm]
             if cfg:
                 out += [""] * gap1
                 base = len(out)
-                out += full_box(_dia_caps(K, "personalización", 4, w=lw - 7), cfg, K, lw,
+                out += full_box(_dia_caps(K, _t("hub.section.personalization", "personalización"), 4, w=lw - 7), cfg, K, lw,
                                 len(cfg), focus == "latido",
                                 border=K["B2"], label=K["R"])
                 lh += [(base + 1 + r, kk, ii) for (r, kk, ii) in hc]
+            if idi:                                  # CUADRO IDIOMA · bajo PERSONALIZACIÓN
+                out += [""] * gap1
+                base = len(out)
+                out += full_box(_dia_caps(K, _t("hub.section.lang", "idioma · language"), 5, w=lw - 7),
+                                idi, K, lw, len(idi), focus == "idioma",
+                                border=K["B2"], label=K["R"])
+                lh += [(base + 1 + r, kk, ii) for (r, kk, ii) in hi]
             return out, lh
         left, lhits = _left("full")
         if h:
@@ -4416,7 +4603,7 @@ def _dia_lines(data, view, K, w, compact=False, dense=False):
                 break
             left, lhits = _left(modo)
         # CENTRO: la caja HOY llena el alto completo de la fila
-        center = full_box(_dia_caps(K, "hoy", 1, w=cw - 7),
+        center = full_box(_dia_caps(K, _t("hub.section.today", "hoy"), 1, w=cw - 7),
                           _dia_hoy_body(view, K, cw - 4, ch - 2),
                           K, cw, ch - 2, focus == "cal", border=K["B"],
                           label=K["R"])
@@ -4451,7 +4638,7 @@ def _dia_lines(data, view, K, w, compact=False, dense=False):
         right = []
         libre_r = ch
         if tono and libre_r >= len(tono) + 4:
-            titulo = _dia_caps(K, "tono", 3,
+            titulo = _dia_caps(K, _t("hub.section.tone", "tono"), 3,
                                (dsel.get("display") or dsel.get("name"))
                                if dsel else "", w=rw - 7)
             # TONO se queda con el sobrante (hasta 2 filas de aire); lo que
@@ -4465,7 +4652,7 @@ def _dia_lines(data, view, K, w, compact=False, dense=False):
         if ramas and libre_r >= 3:
             ih_p = max(1, libre_r - 2)
             nb = (_git_ramas() or {}).get("total") or _branches()
-            etq = _dia_caps(K, "ramas", 5, str(nb) if nb else "", w=rw - 7)
+            etq = _dia_caps(K, _t("hub.section.branches", "ramas"), 5, str(nb) if nb else "", w=rw - 7)
             # el borde PRENDE en acento cuando hay trabajo sin commitear —
             # el mismo gesto que PESTAÑAS hacia con una sesion trabajando
             sucio = bool((_git_info() or {}).get("dirty"))
@@ -4491,28 +4678,34 @@ def _dia_lines(data, view, K, w, compact=False, dense=False):
         # solo aparece si queda sitio. Presupuesto EXACTO: el bloque nunca
         # excede h-1 (desbordar rompe el redraw con cursor-up).
         pw = w - 1
-        ha, hm, hc = [], [], []
+        ha, hm, hc, hi = [], [], [], []
         ab = _dia_agentes_body(ldata, view, K, pw - 4, aviso=not dense,
                                hits=ha)
         menu = _dia_menu_body(data, view, K, pw - 4, separador=not dense,
                               hits=hm)
         cfg = _dia_cfg_body(data, view, K, pw - 4, hint=not dense, hits=hc)
+        idi = _dia_idioma_body(view, K, pw - 4, hint=not dense, hits=hi)
         fijos = full_box(ag_title, ab, K, pw, len(ab), focus == "dioses",
                          border=K["C"])
         fh = [(1 + r, kk, ii) for (r, kk, ii) in ha]
         basef = len(fijos)
-        fijos += full_box("MENÚ", menu, K, pw, len(menu), focus == "tools",
+        fijos += full_box(_t("hub.section.menu", "MENÚ"), menu, K, pw, len(menu), focus == "tools",
                           border=K["B2"])
         fh += [(basef + 1 + r, kk, ii) for (r, kk, ii) in hm]
         if cfg:
             basef = len(fijos)
-            fijos += full_box("PERSONALIZACIÓN", cfg, K, pw, len(cfg),
+            fijos += full_box(_t("hub.section.personalization", "PERSONALIZACIÓN"), cfg, K, pw, len(cfg),
                               focus == "latido", border=K["B2"])
             fh += [(basef + 1 + r, kk, ii) for (r, kk, ii) in hc]
+        if idi:                                      # CUADRO IDIOMA · bajo PERSONALIZACIÓN
+            basef = len(fijos)
+            fijos += full_box(_t("hub.section.lang", "IDIOMA · LANGUAGE"), idi, K, pw, len(idi),
+                              focus == "idioma", border=K["B2"])
+            fh += [(basef + 1 + r, kk, ii) for (r, kk, ii) in hi]
         libre = ((h - 1) - len(L) - len(fijos) - tail) if h else 18
         hoy_ih = max(0, min(12 if dense else 16, libre - 2))
         if hoy_ih >= 4:
-            L += full_box("HOY", _dia_hoy_body(view, K, pw - 4, hoy_ih),
+            L += full_box(_t("hub.section.today", "HOY"), _dia_hoy_body(view, K, pw - 4, hoy_ih),
                           K, pw, hoy_ih, False, border=K["B"], label=dlabel)
             libre -= hoy_ih + 2
         # hit-map ABSOLUTO (apilado: las secciones ocupan todo el ancho)
@@ -4520,14 +4713,17 @@ def _dia_lines(data, view, K, w, compact=False, dense=False):
         L += fijos
         tono = _dia_tono_box(dsel.get("name") if dsel else None, K, pw - 4)
         if tono and libre >= len(tono) + 3:
-            L += full_box("TONO · %s" % (dsel.get("display") or "")
-                          if dsel else "TONO", tono, K, pw, len(tono),
+            L += full_box(_t("hub.title.tone_named", "TONO · {name}",
+                              name=dsel.get("display") or "")
+                          if dsel else _t("hub.section.tone", "TONO"),
+                          tono, K, pw, len(tono),
                           False, border=K["B"], label=dlabel)
             libre -= len(tono) + 2
         ramas = _dia_ramas_rows(K, pw - 4)
         if ramas and libre >= 4:
             nb = (_git_ramas() or {}).get("total") or _branches()
-            L += full_box("RAMAS · %d" % nb if nb else "RAMAS", ramas,
+            L += full_box(_t("hub.title.branches_n", "RAMAS · {n}", n=nb)
+                          if nb else _t("hub.section.branches", "RAMAS"), ramas,
                           K, pw, min(len(ramas), libre - 2), False,
                           border=doff, label=dlabel)
     L += ([""] if tail == 2 else []) + [status]

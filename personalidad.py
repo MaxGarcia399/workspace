@@ -39,6 +39,43 @@ import os
 import sys
 import uuid
 
+# i18n (lado cliente): la pantalla TONO y el mini-panel del dashboard se ven en
+# el idioma activo. Falla-suave — sin el módulo, `_t()` devuelve el español
+# inline (paridad EXACTA con el flujo de hoy; ES byte-idéntico con lang=es).
+try:
+    import i18n
+except Exception:
+    i18n = None
+
+
+def _t(key, es, **kw):
+    """Traducción de `key` con el español inline `es` como red de seguridad:
+    sin i18n o con clave faltante → `es`. Con **kw aplica .format(**kw)."""
+    if i18n is None:
+        s = es
+    else:
+        try:
+            v = i18n.t(key)
+            s = v if v != key else es
+        except Exception:
+            s = es
+    if kw:
+        try:
+            return s.format(**kw)
+        except Exception:
+            return s
+    return s
+
+
+def _lang():
+    if i18n is None:
+        return "es"
+    try:
+        return i18n.lang()
+    except Exception:
+        return "es"
+
+
 SCHEMA = 2
 NEUTRO = 3
 
@@ -46,7 +83,13 @@ NEUTRO = 3
 # `niveles` guarda la INSTRUCCIÓN que leerá el agente (no una etiqueta). El 3
 # no tiene texto a propósito: es "como siempre", y por eso un setup sin tocar
 # no inyecta absolutamente nada.
-DIALS = (
+#
+# `_DIAL_SRC` es la FUENTE en español (y la red de seguridad inline de i18n).
+# `DIALS` se expone vía `__getattr__` y devuelve estos mismos diales con el
+# label/corto/polos/niveles en el IDIOMA ACTIVO — así la pantalla TONO y el
+# mini-panel del dashboard (que lee `d["corto"]`/`d["eje"]`) se traducen sin
+# tocar su código. Con lang=es es byte-idéntico a `_DIAL_SRC`.
+_DIAL_SRC = (
     {"key": "amabilidad", "label": "Amabilidad", "corto": "amab",
      "eje": ("seco", "cálido"),
      "niveles": {
@@ -132,7 +175,54 @@ DIALS = (
          4: "Usa emojis para marcar estados y secciones.",
          5: "Emojis generosos en títulos, listas y estados."}},
 )
-_BY_KEY = {d["key"]: d for d in DIALS}
+#: Las CLAVES de los diales, en orden. Son independientes del idioma: sirven
+#: para pertenencia (`_limpio`, `set_nivel`) y para el CLI sin reconstruir nada.
+_DIAL_KEYS = tuple(d["key"] for d in _DIAL_SRC)
+
+#: DIALS traducidos, memoizados por idioma. El catálogo es estático, así que
+#: cachear por código es seguro; si el idioma cambia en vivo, la clave nueva
+#: reconstruye (nunca sirve datos rancios).
+_DIALS_CACHE = {}
+
+
+def _dials():
+    """Los diales en el IDIOMA ACTIVO (label/corto/polos/niveles). Mismas
+    claves y mismo orden que `_DIAL_SRC`; solo cambian los textos visibles."""
+    code = _lang()
+    out = _DIALS_CACHE.get(code)
+    if out is not None:
+        return out
+    built = []
+    for src in _DIAL_SRC:
+        k = src["key"]
+        built.append({
+            "key": k,
+            "label": _t("tono.dial.%s.label" % k, src["label"]),
+            "corto": _t("tono.dial.%s.corto" % k, src["corto"]),
+            "eje": (_t("tono.dial.%s.pole.lo" % k, src["eje"][0]),
+                    _t("tono.dial.%s.pole.hi" % k, src["eje"][1])),
+            "niveles": {n: _t("tono.dial.%s.lvl.%d" % (k, n), txt)
+                        for n, txt in src["niveles"].items()},
+        })
+    out = tuple(built)
+    _DIALS_CACHE[code] = out
+    return out
+
+
+def _by_key():
+    """{key: dial} en el idioma activo."""
+    return {d["key"]: d for d in _dials()}
+
+
+def __getattr__(name):
+    """`personalidad.DIALS` / `._BY_KEY` se resuelven al idioma activo. (PEP
+    562: solo dispara para atributos del MÓDULO, no para nombres locales.)"""
+    if name == "DIALS":
+        return _dials()
+    if name == "_BY_KEY":
+        return _by_key()
+    raise AttributeError("module %r has no attribute %r" % (__name__, name))
+
 
 # Presets: mueven varios diales de golpe (lo que el socio llamó «modos»).
 PRESETS = {
@@ -165,7 +255,7 @@ def _limpio(d):
     """Solo diales conocidos con valor 1-5 distinto del neutro."""
     out = {}
     for k, v in (d or {}).items():
-        if k not in _BY_KEY:
+        if k not in _DIAL_KEYS:
             continue
         try:
             v = int(v)
@@ -224,7 +314,7 @@ def save(data):
 def niveles(agente=None):
     """{dial: 1-5} efectivos: agente > global > neutro."""
     data = load()
-    out = {d["key"]: NEUTRO for d in DIALS}
+    out = {k: NEUTRO for k in _DIAL_KEYS}
     out.update(data.get("global") or {})
     if agente:
         out.update((data.get("agentes") or {}).get(str(agente).lower()) or {})
@@ -241,14 +331,15 @@ def resumen(agente=None, corto=True):
     act = activos(agente)
     if not act:
         return ""
-    etq = {d["key"]: (d["corto"] if corto else d["label"]) for d in DIALS}
+    dials = _dials()
+    etq = {d["key"]: (d["corto"] if corto else d["label"]) for d in dials}
     return " · ".join("%s %d" % (etq[d["key"]], act[d["key"]])
-                      for d in DIALS if d["key"] in act)
+                      for d in dials if d["key"] in act)
 
 
 def set_nivel(dial, valor, agente=None):
     """Fija un dial (1-5). Neutro = se borra la entrada. True si guardó."""
-    if dial not in _BY_KEY:
+    if dial not in _DIAL_KEYS:
         return False
     try:
         v = int(valor)
@@ -357,13 +448,14 @@ def bloque(agente=None):
     act = activos(agente)
     if not act:
         return ""
-    out = ["## Tono de esta sesión (config del socio en esta máquina)"]
-    for d in DIALS:
+    out = [_t("tono.block.title",
+              "## Tono de esta sesión (config del socio en esta máquina)")]
+    for d in _dials():
         v = act.get(d["key"])
         txt = d["niveles"].get(v) if v else None
         if txt:
             out.append("- **%s %d/5** — %s" % (d["label"], v, txt))
-    out += ["", _LIMITE]
+    out += ["", _t("tono.limit", _LIMITE)]
     return "\n".join(out)
 
 
@@ -376,12 +468,12 @@ def linea(agente=None):
     if not act:
         return ""
     trozos = []
-    for d in DIALS:
+    for d in _dials():
         v = act.get(d["key"])
         txt = d["niveles"].get(v) if v else None
         if txt:
             trozos.append("%s %d/5: %s" % (d["label"], v, txt))
-    return "[tono activo] " + "  ".join(trozos)
+    return _t("tono.inject.prefix", "[tono activo] ") + "  ".join(trozos)
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────
@@ -399,21 +491,25 @@ def _uso():
             "  workspace tono reset [agente]\n\n"
             "diales: %s"
             % ("|".join(sorted(PRESETS)),
-               ", ".join(d["key"] for d in DIALS)))
+               ", ".join(_DIAL_KEYS)))
 
 
 def imprimir(agente=None):
     niv = niveles(agente)
-    print("Tono%s  ·  3 = como siempre\n"
-          % ("  ·  agente: " + agente if agente else "  ·  global"))
-    for d in DIALS:
+    suffix = (_t("tono.cli.agent_suffix", "  ·  agente: %s" % agente,
+                 name=agente) if agente
+              else _t("tono.cli.global_suffix", "  ·  global"))
+    print(_t("tono.cli.header", "Tono%s  ·  3 = como siempre" % suffix,
+             suffix=suffix) + "\n")
+    for d in _dials():
         v = niv[d["key"]]
-        nota = d["niveles"].get(v) or "por defecto"
+        nota = d["niveles"].get(v) or _t("tono.cli.default", "por defecto")
         print("  %-11s %s %d/5  %-11s %s"
               % (d["key"], _barra(v), v,
                  "%s→%s" % d["eje"] if v != NEUTRO else "", nota[:52]))
     if not activos(agente):
-        print("\n  (todo en neutro: no se inyecta nada)")
+        print("\n  " + _t("tono.cli.all_neutral",
+                          "(todo en neutro: no se inyecta nada)"))
     return 0
 
 
@@ -456,7 +552,7 @@ def main(argv=None):
         if not set_nivel(argv[0], argv[1], ag):
             print("dial o valor inválido — %s" % _uso(), file=sys.stderr)
             return 2
-        print("%s → %s/5%s" % (_BY_KEY[argv[0]]["label"], argv[1],
+        print("%s → %s/5%s" % (_by_key()[argv[0]]["label"], argv[1],
                                " (solo %s)" % ag if ag else " (global)"))
         print("(aplica al siguiente mensaje; el bloque completo, al abrir "
               "sesión nueva)")

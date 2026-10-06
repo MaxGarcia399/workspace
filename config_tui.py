@@ -183,6 +183,32 @@ try:
 except Exception:
     pass
 
+# ── i18n (capa de traducción cliente) — red de seguridad inline: si i18n no
+# está (config_tui puede correr sin la raíz en sys.path), _t cae al literal
+# ESPAÑOL que recibe, idéntico al catálogo `es` ⇒ doble garantía de paridad.
+# SOLO la pantalla de PERSONALIZACIÓN (tema/fondo) pasa por aquí; el resto del
+# CONFIG sigue en español hasta su ola. Ver `lang/README.md`.
+try:
+    import i18n as _i18n
+except Exception:                                    # pragma: no cover - defensa
+    _i18n = None
+
+
+def _t(key, es, **kw):
+    """Traduce `key` al idioma activo; si i18n no está o falta la clave, cae
+    al literal `es` (byte-idéntico al catálogo). Interpola con **kw."""
+    if _i18n is not None:
+        try:
+            s = _i18n.t(key, **kw)
+            if s != key:
+                return s
+        except Exception:
+            pass
+    try:
+        return es.format(**kw) if kw else es
+    except Exception:
+        return es
+
 MIN_W, MIN_H = 60, 14
 EXIT_LABEL = "‹ Salir al menú"
 EXIT = -1                            # índice de sección del pseudo-item salida
@@ -662,13 +688,16 @@ def _source(key, env=""):
 
 
 def _item_for(key, kind=None, label=None, extra_help="", env="",
-              choices=None):
+              choices=None, help_override=None):
     """Item editable a partir de un setting del schema (lectura efectiva +
-    procedencia). `kind` fuerza el tipo de edición (p. ej. 'model')."""
+    procedencia). `kind` fuerza el tipo de edición (p. ej. 'model').
+    `help_override` reemplaza la ayuda del schema (lo usa PERSONALIZACIÓN para
+    servir el texto desde el catálogo i18n sin tocar settings.py)."""
     spec = _specs().get(key) or {}
     val = _sget(key, spec.get("default"))
     env_on = bool(env and os.environ.get(env))
-    helptx = str(spec.get("help", ""))
+    helptx = str(help_override if help_override is not None
+                 else spec.get("help", ""))
     if extra_help:
         helptx = (extra_help + " " + helptx).strip()
     return {"key": key, "kind": kind or spec.get("type", "str"),
@@ -884,15 +913,47 @@ def build_sections():
     # ── 6 · TEMA (apariencia del HUB — ui.theme con PICKER + stars/anim; el
     #    tema del dev panel web es ui.web_theme, aparte) ──
     themes = _themes()
-    th_it = _item_for("ui.theme", kind="theme", label="Tema del hub",
-                      env="WORKSPACE_THEME",
-                      choices=[t[0] for t in themes])
+    th_it = _item_for(
+        "ui.theme", kind="theme",
+        label=_t("personalizacion.theme.label", "Tema del hub"),
+        env="WORKSPACE_THEME", choices=[t[0] for t in themes],
+        help_override=_t(
+            "personalizacion.theme.help",
+            "Tema visual del HUB/TUI del recinto (front.py/banner/config_tui). "
+            "Acotado a los temas TUI-ready (mono, cyberpunk, rose, durazno, "
+            "lavanda, salvia, bruma). El dev panel web tiene su propio tema "
+            "(ui.web_theme, todos disponibles). env WORKSPACE_THEME gana siempre."))
     th_it["themes"] = tuple(themes)
     ui_items = [th_it,
-                _item_for("ui.background"),
-                _item_for("ui.background_custom"),
-                _item_for("ui.stars", env="WORKSPACE_NO_STARS"),
-                _item_for("ui.anim", env="WORKSPACE_NO_ANIM")]
+                _item_for(
+                    "ui.background",
+                    label=_t("personalizacion.background.label",
+                             "Fondo independiente"),
+                    help_override=_t(
+                        "personalizacion.background.help",
+                        "Cambia solo el fondo; tema recupera el fondo del tema "
+                        "activo.")),
+                _item_for(
+                    "ui.background_custom",
+                    label=_t("personalizacion.background_custom.label",
+                             "Color de fondo propio"),
+                    help_override=_t(
+                        "personalizacion.background_custom.help",
+                        "Color #RRGGBB; elige personalizado en Fondo "
+                        "independiente.")),
+                _item_for(
+                    "ui.stars", env="WORKSPACE_NO_STARS",
+                    label=_t("personalizacion.stars.label", "Cielo estrellado"),
+                    help_override=_t(
+                        "personalizacion.stars.help",
+                        "Campo de estrellas estático del recinto (front.py).")),
+                _item_for(
+                    "ui.anim", env="WORKSPACE_NO_ANIM",
+                    label=_t("personalizacion.anim.label", "Animaciones"),
+                    help_override=_t(
+                        "personalizacion.anim.help",
+                        "Menú animado del recinto y banner animado (sin esto: "
+                        "estático + picker)."))]
     # el sub muestra el tema EFECTIVO (env WORKSPACE_THEME > store > olympo)
     eff = th_it["value"]
     try:
@@ -900,9 +961,14 @@ def build_sections():
         eff = hubtheme.resolve_id()
     except Exception:
         pass
-    secs.append({"id": "tema", "title": "TEMA",
-                 "desc": "apariencia del hub (el dev panel web usa ui.web_theme)",
-                 "sub": "activo %s" % _theme_label(themes, eff),
+    eff_label = _theme_label(themes, eff)
+    secs.append({"id": "tema",
+                 "title": _t("personalizacion.section.title", "TEMA"),
+                 "desc": _t("personalizacion.section.desc",
+                            "apariencia del hub (el dev panel web usa "
+                            "ui.web_theme)"),
+                 "sub": _t("personalizacion.section.sub_active",
+                           "activo {name}", name=eff_label),
                  "items": ui_items})
     # ── 7 · LAYOUT (estructura del hub — ui.layout con PICKER, eje
     #    INDEPENDIENTE del tema: cualquier layout combina con cualquier
@@ -1312,13 +1378,16 @@ def _set_theme(S, it, tid):
         lbl = _theme_label(opts or (_layouts() if it.get("kind") == "layout"
                                     else _themes()), v)
         if it.get("kind") == "layout":
-            S["status"] = ("guardado: layout → %s (%s) — el hub se dibuja "
-                           "así al reabrirse (workspace)" % (lbl, v)) + \
-                _env_note(it)
+            S["status"] = _t(
+                "personalizacion.saved.layout",
+                "guardado: layout → {label} ({id}) — el hub se dibuja así al "
+                "reabrirse (workspace)", label=lbl, id=v) + _env_note(it)
         else:
-            S["status"] = ("guardado: tema → %s (%s) — el recinto lo pinta "
-                           "al reabrirse; el panel web al refrescar"
-                           % (lbl, v)) + _env_note(it)
+            S["status"] = _t(
+                "personalizacion.saved.theme",
+                "guardado: tema → {label} ({id}) — el recinto lo pinta al "
+                "reabrirse; el panel web al refrescar", label=lbl, id=v) \
+                + _env_note(it)
         refresh(S)
         _mark_saved(S, it["key"])
 
@@ -1847,6 +1916,19 @@ def _agent_set_engine(S, opt):
 # Render (puro: estado + (w,h) → líneas; lo comparten Mac y Windows)
 # ═══════════════════════════════════════════════════════════════════════════
 
+def _enum_opt_label(it, c):
+    """Etiqueta MOSTRADA de una opción enum — el valor GUARDADO sigue siendo el
+    id crudo (`c`), solo cambia lo que se pinta. PERSONALIZACIÓN traduce las
+    opciones de ui.background (tema/negro/grafito/…); el resto se muestra con su
+    id tal cual, y '' = «el del agente» (los model enums). En `es` cada opción
+    cae a su id ⇒ byte-idéntico a antes."""
+    if c == "":
+        return "el del agente"
+    if it.get("key") == "ui.background":
+        return _t("personalizacion.background.opt." + str(c), str(c))
+    return c
+
+
 def _fmt_val(it):
     """(texto, color) del valor actual de un item, ya con el override por
     env aplicado a la vista (env_on en hooks/jobs ⇒ off efectivo)."""
@@ -1874,6 +1956,8 @@ def _fmt_val(it):
     if it["kind"] in ("theme", "layout"):            # nombre legible + id
         lbl = _theme_label(list(it.get("themes") or ()), v)
         return (("%s · %s" % (lbl, v)) if lbl != str(v) else str(v)), WH
+    if it["key"] == "ui.background":                 # opción traducida (PERSONAL.)
+        return _enum_opt_label(it, str(v)), WH
     if it["key"] == "budget.api_token_limit":
         return ("sin límite" if not v else str(v)), (DIM if not v else WH)
     if v == "" or v is None:
@@ -1931,7 +2015,8 @@ def _detail_lines(S, it, rw):
         vtx, _ = _fmt_val(it)
         head += [(" = ", DK), (vtx, WH)]
         if it["key"] == S.get("saved_key"):            # recién persistido:
-            head += [("  " + SAVED_MARK, GREEN + BO)]  # junto al valor, no
+            head += [("  " + _t("personalizacion.saved.mark", SAVED_MARK),
+                      GREEN + BO)]                      # junto al valor, no
         if it["kind"] not in ("account", "agent"):     # estado propio: sin
             dflt = it["default"]                        # default/origen aquí
             if isinstance(dflt, bool):
@@ -1978,7 +2063,7 @@ def _detail_lines(S, it, rw):
         segs = [("  ", None)]
         for k, c in enumerate(it["choices"]):
             sel = (c == it["value"])
-            lbl = c if c != "" else "el del agente"
+            lbl = _enum_opt_label(it, c)
             if k:
                 segs.append(("  ", None))
             segs.append((_radio(sel) + " " + lbl,
@@ -2055,7 +2140,7 @@ def _right_lines(S, rw, rows):
             # VERDE unos ticks (el env, si está, sigue ganando la columna).
             saved = (it["key"] == S.get("saved_key")
                      and not it.get("env_on"))
-            stx = SAVED_MARK if saved else src
+            stx = _t("personalizacion.saved.mark", SAVED_MARK) if saved else src
             scol = (GREEN + BO) if saved else (
                 RED if src == "env" else (C if src == "store" else DK))
             srcw = max(_pw(stx) + 2, 10)
@@ -2093,12 +2178,17 @@ def _right_lines(S, rw, rows):
         L.append(_cell([("  nuevo valor ›  ", B2), (S.get("buf", ""), WH),
                         ("▌", C), (hint, GREY)], rw))
     elif S.get("mode") == "pick":
-        what = ("layout" if (sel_it or {}).get("kind") == "layout" else "tema")
-        L.append(_cell([("  elegir %s ›  " % what, B2),
-                        ("↑↓ o 1-9 eligen · Enter aplica y guarda · "
-                         "Esc cancela", GREY)], rw))
+        what = (_t("personalizacion.pick.what_layout", "layout")
+                if (sel_it or {}).get("kind") == "layout"
+                else _t("personalizacion.pick.what_theme", "tema"))
+        L.append(_cell([(_t("personalizacion.pick.prompt",
+                            "  elegir {what} ›  ", what=what), B2),
+                        (_t("personalizacion.pick.hint",
+                            "↑↓ o 1-9 eligen · Enter aplica y guarda · "
+                            "Esc cancela"), GREY)], rw))
     elif S.get("status"):
-        ok = str(S["status"]).startswith("guardado")
+        # la marca de guardado abre con «guardado» (es) o «saved» (en)
+        ok = str(S["status"]).startswith(("guardado", "saved"))
         L.append(_cell([("  " + S["status"], GREEN if ok else B)], rw))
     else:
         L.append(_cell([("  Enter edita · Espacio toggle / cicla opciones",

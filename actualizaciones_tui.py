@@ -52,37 +52,38 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 import hublayout as HL                                          # noqa: E402
+import i18n                                                      # noqa: E402
 
-# (token, etiqueta, tag corto, qué hace (líneas), comando equivalente)
+t = i18n.t
+
+# (token, clave-etiqueta, clave-tag, claves-descripción, comando equivalente).
+# Las etiquetas/tags/descripciones son CLAVES i18n — se resuelven con t() al
+# pintar (así el hub flipea de idioma EN VIVO). El comando NO se traduce.
 ACCIONES = (
-    ("check", "revisar", "solo lectura",
-     ("Diagnóstico completo del harness: motores, cerebros registrados, "
-      "hooks, launchers y prerequisitos.",
-      "NO escribe ni cambia nada — ves cada fase correr en vivo y al final "
-      "la tabla de salud.",
-      "También consulta si hay actualización disponible."),
+    ("check", "actualizaciones.act.check.label", "actualizaciones.act.check.tag",
+     ("actualizaciones.act.check.d1", "actualizaciones.act.check.d2",
+      "actualizaciones.act.check.d3"),
      "workspace doctor --check"),
-    ("repair", "revisar y reparar", "arregla lo roto",
-     ("Las mismas fases del diagnóstico, pero REPARANDO lo que encuentre: "
-      "hooks stale, launchers, tema, settings.",
-      "Idempotente: correrlo dos veces no rompe nada.",
-      "Al final te dice si hay actualización para traer."),
+    ("repair", "actualizaciones.act.repair.label",
+     "actualizaciones.act.repair.tag",
+     ("actualizaciones.act.repair.d1", "actualizaciones.act.repair.d2",
+      "actualizaciones.act.repair.d3"),
      "workspace doctor"),
-    ("update", "actualizar todo", "recomendado",
-     ("Trae lo nuevo del harness Y de cada cerebro registrado (cada repo "
-      "en su rama actual) y repara al final.",
-      "Seguro: repo sucio / sin red → avisa y sigue con los demás.",
-      "Al final: resumen de qué llegó y qué quedó pendiente."),
+    ("update", "actualizaciones.act.update.label",
+     "actualizaciones.act.update.tag",
+     ("actualizaciones.act.update.d1", "actualizaciones.act.update.d2",
+      "actualizaciones.act.update.d3"),
      "workspace update"),
 )
 
 LETRA_CHICA = (
-    "nada se borra: solo verifica, recablea o trae commits",
-    "puedes correrlo cuando quieras — es idempotente",
-    "cada paso se ve en vivo; al final, resumen y pendientes",
+    "actualizaciones.fine.1",
+    "actualizaciones.fine.2",
+    "actualizaciones.fine.3",
 )
 
-_LBL = {t: lbl for t, lbl, _tag, _d, _c in ACCIONES}
+# tok → CLAVE i18n de la etiqueta (se resuelve con t() en el punto de uso).
+_LBL = {tok: lblk for tok, lblk, _tag, _d, _c in ACCIONES}
 
 
 def _K():
@@ -156,18 +157,19 @@ def _update_info(timeout=12):
     {ok, behind, branch, commits:[(sha, asunto)…]} o {ok:False, reason}."""
     try:
         if not os.path.isdir(os.path.join(ROOT, ".git")):
-            return {"ok": False, "reason": "no es repo git (instalación por sync)"}
+            return {"ok": False, "reason": t("actualizaciones.reason.not_git")}
         rc, remotes, _ = _gitq(ROOT, "remote", timeout=8)
         if rc != 0 or not remotes:
-            return {"ok": False, "reason": "sin remote configurado"}
+            return {"ok": False, "reason": t("actualizaciones.reason.no_remote")}
         rc, branch, _ = _gitq(ROOT, "rev-parse", "--abbrev-ref", "HEAD",
                               timeout=8)
         if rc != 0 or not branch or branch == "HEAD":
-            return {"ok": False, "reason": "rama no determinable"}
+            return {"ok": False,
+                    "reason": t("actualizaciones.reason.branch_undeterminable")}
         rc, _, err = _gitq(ROOT, "fetch", "--quiet", "origin", branch,
                            timeout=timeout)
         if rc != 0:
-            return {"ok": False, "reason": "sin conexión con origin"}
+            return {"ok": False, "reason": t("actualizaciones.reason.offline")}
         rc, cnt, _ = _gitq(ROOT, "rev-list", "--count",
                            "HEAD..origin/%s" % branch, timeout=8)
         behind = int(cnt) if rc == 0 and cnt.isdigit() else 0
@@ -231,8 +233,7 @@ def _inicia_job(S, tok):
             if install.running_from_worktree(ROOT) and \
                     os.environ.get(install.FORCE_ENV) != "1":
                 fix = False
-                aviso = ("WORKSPACE es un git worktree — reparación "
-                         "desactivada (solo diagnóstico)")
+                aviso = t("actualizaciones.aviso.worktree")
         except Exception:
             pass
         # el fix puede necesitar preguntar «¿quién eres?» (socio.local): esa
@@ -249,16 +250,16 @@ def _inicia_job(S, tok):
                     continue
                 vistos.add(key)
             plan.append(("pull", label, path, transport))
-            steps.append({"label": "traer %s" % label, "st": "pend",
-                          "note": ""})
+            steps.append({"label": t("actualizaciones.step.fetch",
+                                     label=label), "st": "pend", "note": ""})
     for titulo, fn in doctor.PHASES:
         plan.append(("fase", titulo, fn))
         steps.append({"label": _fase_corta(titulo), "st": "pend", "note": ""})
     if tok != "update":
         plan.append(("chk",))
-        steps.append({"label": "buscar actualización", "st": "pend",
-                      "note": ""})
-    job = {"modo": tok, "label": _LBL.get(tok, tok), "fix": fix,
+        steps.append({"label": t("actualizaciones.step.check_update"),
+                      "st": "pend", "note": ""})
+    job = {"modo": tok, "label": t(_LBL.get(tok, tok)), "fix": fix,
            "aviso": aviso, "plan": plan, "steps": steps, "cur": -1,
            "live": [], "findings": [], "pulled": [], "new_commits": [],
            "n_new": 0, "chk_final": None, "t0": time.monotonic(), "t1": None,
@@ -280,9 +281,11 @@ def _repos_update(ctx, dispatch):
                 tr = dispatch.brain_transport(name, brain)
             except Exception:
                 tr = "git"
-            repos.append(("cerebro %s" % name, brain, tr))
+            repos.append((t("actualizaciones.repo.brain", name=name),
+                          brain, tr))
         else:
-            repos.append(("cerebro %s" % name, None, "git"))
+            repos.append((t("actualizaciones.repo.brain", name=name),
+                          None, "git"))
     return repos
 
 
@@ -313,8 +316,8 @@ def _worker(S, ctx, doctor):
             except Exception as e:
                 job["steps"][i]["st"] = "fail"
                 job["steps"][i]["note"] = "error"
-                _live(job, "fail", "error interno del paso: %s: %s"
-                      % (type(e).__name__, e))
+                _live(job, "fail", t("actualizaciones.live.step_error",
+                                     name=type(e).__name__, msg=e))
     except Exception as e:
         job["error"] = "%s: %s" % (type(e).__name__, e)
     finally:
@@ -342,8 +345,8 @@ def _paso_fase(job, i, paso, ctx, doctor):
          for s in (doctor.OK, doctor.FIXED, doctor.WARN, doctor.FAIL)}
     nota = []
     if n[doctor.FIXED]:
-        nota.append("%d reparada%s" % (n[doctor.FIXED],
-                                       "s" if n[doctor.FIXED] != 1 else ""))
+        nota.append(t("actualizaciones.note.fixed", n=n[doctor.FIXED],
+                      s="s" if n[doctor.FIXED] != 1 else ""))
     if n[doctor.WARN]:
         nota.append("%d⚠" % n[doctor.WARN])
     if n[doctor.FAIL]:
@@ -356,8 +359,8 @@ def _paso_fase(job, i, paso, ctx, doctor):
             _live(job, stmap.get(x["status"], "ok"),
                   x["label"] + ((" — " + x["detail"]) if x["detail"] else ""))
     if worst == doctor.OK:
-        _live(job, "ok", "%s: todo bien (%d chequeos)"
-              % (_fase_corta(titulo), len(finds)))
+        _live(job, "ok", t("actualizaciones.live.phase_ok",
+                           fase=_fase_corta(titulo), n=len(finds)))
 
 
 def _paso_pull(job, i, paso):
@@ -366,20 +369,19 @@ def _paso_pull(job, i, paso):
     _, label, path, transport = paso
     st, note, txt = "ok", "", ""
     if transport == "obsidian-sync":
-        note, txt = "sync", "gestionado por Obsidian Sync (git no aplica)"
+        note, txt = t("actualizaciones.note.sync"), t("actualizaciones.pull.sync")
     elif not path:
         st, note = "warn", ""
-        txt = "cerebro no resuelto — repáralo con «revisar y reparar»"
+        txt = t("actualizaciones.pull.brain_unresolved")
     elif not os.path.isdir(os.path.join(path, ".git")):
-        st, txt = "warn", "no es repo git (instalación por sync) — sin auto-update"
+        st, txt = "warn", t("actualizaciones.pull.not_git")
     else:
         rc, remotes, _ = _gitq(path, "remote", timeout=10)
         _, dirty, _ = _gitq(path, "status", "--porcelain", timeout=15)
         if rc != 0 or not remotes:
-            st, txt = "warn", "sin remote configurado — nada que jalar"
+            st, txt = "warn", t("actualizaciones.pull.no_remote")
         elif dirty:
-            st, txt = "warn", ("cambios locales sin commitear — no jalo "
-                               "encima; commitea/guarda y reintenta")
+            st, txt = "warn", t("actualizaciones.pull.dirty")
         else:
             _, branch, _ = _gitq(path, "rev-parse", "--abbrev-ref", "HEAD",
                                  timeout=10)
@@ -390,16 +392,17 @@ def _paso_pull(job, i, paso):
             if rc != 0:
                 st = "warn"
                 if "no tracking" in low or "remote ref" in low:
-                    txt = "la rama '%s' no rastrea a origin" % (branch or "?")
+                    txt = t("actualizaciones.pull.no_tracking",
+                            branch=branch or "?")
                 elif any(k in low for k in ("could not resolve",
                                             "unable to access", "timeout",
                                             "connection")):
-                    txt = "sin conexión con origin — se queda como está"
+                    txt = t("actualizaciones.pull.offline")
                 elif "fast-forward" in low or "divergent" in low:
-                    txt = "historia divergente — resuélvelo a mano (git pull --ff-only)"
+                    txt = t("actualizaciones.pull.divergent")
                 else:
                     txt = ((err or out).splitlines()[-1][:70]
-                           if (err or out) else "el pull falló")
+                           if (err or out) else t("actualizaciones.pull.failed"))
             else:
                 _, new, _ = _gitq(path, "rev-parse", "--short", "HEAD",
                                   timeout=10)
@@ -408,8 +411,8 @@ def _paso_pull(job, i, paso):
                                         "%s..%s" % (old, new), timeout=10)
                     n = int(cnt) if rc2 == 0 and cnt.isdigit() else 0
                     st, note = "fixed", "+%d" % n
-                    txt = "actualizado: +%d commit(s) → %s (rama %s)" \
-                        % (n, new, branch or "?")
+                    txt = t("actualizaciones.pull.updated", n=n, new=new,
+                            branch=branch or "?")
                     rc3, log, _ = _gitq(path, "log", "--format=%h\x1f%s",
                                         "-15", "%s..%s" % (old, new),
                                         timeout=10)
@@ -420,7 +423,9 @@ def _paso_pull(job, i, paso):
                             for ln in log.splitlines() if "\x1f" in ln]
                         job["n_new"] = n
                 else:
-                    note, txt = "al día", "ya al día (rama %s)" % (branch or "?")
+                    note = t("actualizaciones.note.uptodate")
+                    txt = t("actualizaciones.pull.uptodate",
+                            branch=branch or "?")
     job["steps"][i]["st"] = st
     job["steps"][i]["note"] = note or ("⚠" if st == "warn" else "")
     job["pulled"].append((label, st, txt))
@@ -434,18 +439,18 @@ def _paso_chk(job, i):
     if info.get("ok") and info.get("behind", 0) > 0:
         job["steps"][i]["st"] = "warn"
         job["steps"][i]["note"] = "↓%d" % info["behind"]
-        _live(job, "warn", "hay %d actualización(es) — «actualizar todo» "
-                           "las trae" % info["behind"])
+        _live(job, "warn", t("actualizaciones.chk.available",
+                             n=info["behind"]))
     elif info.get("ok"):
         job["steps"][i]["st"] = "ok"
-        job["steps"][i]["note"] = "al día"
-        _live(job, "ok", "harness al día con origin (rama %s)"
-              % info.get("branch", "?"))
+        job["steps"][i]["note"] = t("actualizaciones.note.uptodate")
+        _live(job, "ok", t("actualizaciones.chk.harness_uptodate",
+                           branch=info.get("branch", "?")))
     else:
         job["steps"][i]["st"] = "warn"
-        job["steps"][i]["note"] = "sin red"
-        _live(job, "warn", "no pude verificar updates (%s)"
-              % info.get("reason", "?"))
+        job["steps"][i]["note"] = t("actualizaciones.note.offline")
+        _live(job, "warn", t("actualizaciones.chk.cannot_verify",
+                             reason=info.get("reason", "?")))
 
 
 def _pendientes(job):
@@ -483,11 +488,24 @@ def _progreso(K, hechos, total, ancho):
 
 
 # UNA fuente de verdad de los atajos POR VISTA: la cabecera enseña los
-# clave + salir (HL.top_hints recorta) y el pie la lista completa.
-PARES_MENU = (("↑↓", "acción"), ("Enter", "ejecuta"), ("1-3", "directo"),
-              ("q", "vuelve al menú"))
-PARES_RUN = (("q", "cancela al terminar el paso en curso"),)
-PARES_DONE = (("↑↓", "desplaza pendientes"), ("Enter o q", "vuelve al menú"))
+# clave + salir (HL.top_hints recorta) y el pie la lista completa. Son
+# FUNCIONES (no constantes) para resolver t() en cada render → el idioma
+# flipea en vivo.
+def PARES_MENU():
+    return (("↑↓", t("actualizaciones.hint.action")),
+            ("Enter", t("actualizaciones.hint.run")),
+            ("1-3", t("actualizaciones.hint.direct")),
+            ("q", t("actualizaciones.hint.back_menu")))
+
+
+def PARES_RUN():
+    return (("q", t("actualizaciones.hint.cancel_run")),)
+
+
+def PARES_DONE():
+    return (("↑↓", t("actualizaciones.hint.scroll_pending")),
+            (t("actualizaciones.hint.enter_q"),
+             t("actualizaciones.hint.back_menu")))
 
 
 def _marco(S, K, w, h, sub, hints=None):
@@ -500,20 +518,26 @@ def _linea_chk(S, K, iw):
     """El estado del chequeo de updates, para la caja de estado del menú."""
     chk = S.get("chk") or {}
     if chk.get("state") == "busy":
-        return HL.clip(" %s %sbuscando actualizaciones…%s"
-                       % (_icono(K, "run"), K["DIM"], K["R"]), iw)
+        return HL.clip(" %s %s%s%s"
+                       % (_icono(K, "run"), K["DIM"],
+                          t("actualizaciones.chk.searching"), K["R"]), iw)
     if chk.get("state") == "done" and chk.get("ok"):
         n = chk.get("behind", 0)
         if n > 0:
-            return HL.clip(" %s%s↓ %d nueva%s — «actualizar todo» las trae%s"
-                           % (K["B"], K["BO"], n, "s" if n != 1 else "",
-                              K["R"]), iw)
-        return HL.clip(" %s✓ al día con origin%s %s(rama %s)%s"
-                       % (K["OK"], K["R"], K["DK"],
-                          chk.get("branch", "?"), K["R"]), iw)
+            return HL.clip(" %s%s%s%s"
+                           % (K["B"], K["BO"],
+                              t("actualizaciones.chk.new", n=n,
+                                s="s" if n != 1 else ""), K["R"]), iw)
+        return HL.clip(" %s%s%s %s%s%s"
+                       % (K["OK"], t("actualizaciones.chk.uptodate"), K["R"],
+                          K["DK"],
+                          t("actualizaciones.chk.branch",
+                            branch=chk.get("branch", "?")), K["R"]), iw)
     if chk.get("state") == "done":
-        return HL.clip(" %ssin verificar: %s%s"
-                       % (K["DK"], chk.get("reason", "?"), K["R"]), iw)
+        return HL.clip(" %s%s%s"
+                       % (K["DK"], t("actualizaciones.chk.unverified",
+                                     reason=chk.get("reason", "?")), K["R"]),
+                       iw)
     return HL.clip(" %s—%s" % (K["DK"], K["R"]), iw)
 
 
@@ -522,23 +546,25 @@ def _cuerpo_acciones(S, K, iw):
     """Caja izquierda: las tres acciones + estado (versión y updates)."""
     wc = K["WCOL"]
     out = []
-    for i, (_tok, lbl, tag, _desc, _cmd) in enumerate(ACCIONES):
+    for i, (_tok, lblk, tagk, _desc, _cmd) in enumerate(ACCIONES):
         sel = (i == S["si"])
+        rec = (_tok == "update")          # la acción recomendada (estilo)
         cur = "%s%s%s" % (K["C"] + K["BO"], K["PTR"], K["R"]) if sel else " "
         lcol = (wc[i % len(wc)] + K["BO"]) if sel else K["INACTIVE"]
         num = "%s%d%s" % ((K["WH"] + K["BO"]) if sel else K["DK"], i + 1,
                           K["R"])
-        lab = "%s%s%s" % (lcol, HL.pad(lbl, 18), K["R"])
-        tcol = (K["B2"] if tag == "recomendado" else K["DK"]) if not sel \
-            else (K["B"] + K["BO"] if tag == "recomendado" else K["GREY"])
-        out.append(HL.clip(" %s %s %s %s%s%s" % (cur, num, lab, tcol, tag,
+        lab = "%s%s%s" % (lcol, HL.pad(t(lblk), 18), K["R"])
+        tcol = (K["B2"] if rec else K["DK"]) if not sel \
+            else (K["B"] + K["BO"] if rec else K["GREY"])
+        out.append(HL.clip(" %s %s %s %s%s%s" % (cur, num, lab, tcol, t(tagk),
                                                  K["R"]), iw))
     out.append("")
-    out.append(_divisor(K, "estado", iw))
+    out.append(_divisor(K, t("actualizaciones.sec.state"), iw))
     v = _version()
     est = " · ".join(p for p in (("v" + v) if v else "",
                                  S.get("version_text") or "") if p)
-    out.append(HL.clip(" %s%s%s" % (K["GREY"], est or "versión no disponible",
+    out.append(HL.clip(" %s%s%s" % (K["GREY"],
+                                    est or t("actualizaciones.ver.unavailable"),
                                     K["R"]), iw))
     out.append(_linea_chk(S, K, iw))
     return out
@@ -547,34 +573,36 @@ def _cuerpo_acciones(S, K, iw):
 def _cuerpo_detalle(S, K, iw, full=True):
     """Caja derecha — TRANSPARENCIA de la acción elegida: qué hace, que corre
     aquí mismo (y su equivalente de terminal) y la letra chica."""
-    _tok, lbl, _tag, desc, cmd = ACCIONES[S["si"]]
+    _tok, lblk, _tag, desc, cmd = ACCIONES[S["si"]]
     out = []
     for ln in desc:
-        for sub in _wrap(ln, max(8, iw - 3)):
+        for sub in _wrap(t(ln), max(8, iw - 3)):
             out.append(HL.clip(" %s%s%s" % (K["GREY"], sub, K["R"]), iw))
         out.append("")
     if out and not out[-1]:
         out.pop()
     out.append("")
-    out.append(_divisor(K, "al confirmar", iw, tono=3))
-    out.append(HL.clip(" %scorre aquí mismo — verás cada paso en vivo%s"
-                       % (K["WH"], K["R"]), iw))
-    out.append(HL.clip(" %sequivale en terminal: %s%s%s%s"
-                       % (K["DIM"], K["R"], K["OK"], cmd, K["R"]), iw))
+    out.append(_divisor(K, t("actualizaciones.sec.on_confirm"), iw, tono=3))
+    out.append(HL.clip(" %s%s%s"
+                       % (K["WH"], t("actualizaciones.detail.runs_here"),
+                          K["R"]), iw))
+    out.append(HL.clip(" %s%s%s%s%s%s"
+                       % (K["DIM"], t("actualizaciones.detail.equiv"), K["R"],
+                          K["OK"], cmd, K["R"]), iw))
     if not full:
         return out
     out.append("")
-    out.append(_divisor(K, "cómo funciona", iw, tono=4))
+    out.append(_divisor(K, t("actualizaciones.sec.how"), iw, tono=4))
     for ln in LETRA_CHICA:
-        for sub in _wrap(ln, max(8, iw - 4)):
+        for sub in _wrap(t(ln), max(8, iw - 4)):
             out.append(HL.clip(" %s·%s %s%s%s" % (K["DK"], K["R"], K["DIM"],
                                                   sub, K["R"]), iw))
     return out
 
 
 def _render_menu(S, K, w, h):
-    L = _marco(S, K, w, h, "actualizaciones — revisar · reparar · actualizar",
-               hints=PARES_MENU)
+    L = _marco(S, K, w, h, t("actualizaciones.sub.menu"),
+               hints=PARES_MENU())
     top = len(L)
     apilado = w < 100
     lw = (w - 1) if apilado else max(34, min(44, (w - 6) * 42 // 100))
@@ -595,8 +623,8 @@ def _render_menu(S, K, w, h):
         if need <= avail:
             break
     bd = _cuerpo_detalle(S, K, rw - 4, full=full)
-    t_izq = "ACTUALIZACIONES"
-    t_der = "QUÉ HACE · %s" % ACCIONES[S["si"]][1]
+    t_izq = t("actualizaciones.box.left")
+    t_der = t("actualizaciones.box.what", label=t(ACCIONES[S["si"]][1]))
     if apilado:
         ih_d = max(3, min(ih, avail - (len(bi) + 2) - 2))
         for ln in HL.full_box(t_izq, bi, K, lw - 1, len(bi), True,
@@ -617,7 +645,7 @@ def _render_menu(S, K, w, h):
     L.append("")
     L.append(" %s%s%s" % (K["B2"], S.get("msg") or "", K["R"])
              if S.get("msg") else "")
-    L.append(HL.foot_hints(K, PARES_MENU, w))
+    L.append(HL.foot_hints(K, PARES_MENU(), w))
     return L
 
 
@@ -639,8 +667,10 @@ def _cuerpo_pasos(S, K, iw, ih):
             fin -= 1
     out = []
     if start > 0:
-        out.append(HL.clip(" %s↑ %d paso(s) anteriores%s"
-                           % (K["DK"], start, K["R"]), iw))
+        out.append(HL.clip(" %s%s%s"
+                           % (K["DK"],
+                              t("actualizaciones.steps.before", n=start),
+                              K["R"]), iw))
     for i in range(start, min(fin, n)):
         st = steps[i]
         icon = _icono(K, st["st"])
@@ -658,8 +688,10 @@ def _cuerpo_pasos(S, K, iw, ih):
             out.append(HL.clip(" %s %s%s%s"
                                % (icon, lcol, st["label"], K["R"]), iw))
     if fin < n:
-        out.append(HL.clip(" %s↓ %d paso(s) más%s"
-                           % (K["DK"], n - fin, K["R"]), iw))
+        out.append(HL.clip(" %s%s%s"
+                           % (K["DK"],
+                              t("actualizaciones.steps.after", n=n - fin),
+                              K["R"]), iw))
     return out
 
 
@@ -670,18 +702,20 @@ def _cuerpo_vivo(S, K, iw, ih):
     hechos = sum(1 for s in job["steps"]
                  if s["st"] not in ("pend", "run"))
     cur = job["steps"][job["cur"]]["label"] if 0 <= job["cur"] < total else ""
-    out = [_divisor(K, "progreso", iw, tono=2)]
+    out = [_divisor(K, t("actualizaciones.sec.progress"), iw, tono=2)]
     out.append(HL.clip(" %s  %s%d/%d%s" % (
         _progreso(K, hechos, total, max(6, iw - 12)),
         K["WH"] + K["BO"], hechos, total, K["R"]), iw))
-    out.append(HL.clip(" %s %s%s%s" % (_icono(K, "run"), K["DIM"],
-                                       cur or "preparando…", K["R"]), iw))
+    out.append(HL.clip(" %s %s%s%s"
+                       % (_icono(K, "run"), K["DIM"],
+                          cur or t("actualizaciones.live.preparing"),
+                          K["R"]), iw))
     # degradación honesta: con alto de sobra, sección «lo último»; apretado,
     # las líneas vivas directas; sin espacio, solo el progreso
     resto = ih - len(out)
     if resto >= 3:
         out.append("")
-        out.append(_divisor(K, "lo último", iw))
+        out.append(_divisor(K, t("actualizaciones.sec.latest"), iw))
         quedan = ih - len(out)
     else:
         quedan = max(0, resto)
@@ -693,14 +727,17 @@ def _cuerpo_vivo(S, K, iw, ih):
                                % (K[col], ch, K["R"], K["DIM"], sub, K["R"]),
                                iw))
     if quedan and not vivos:
-        out.append(HL.clip(" %sarrancando…%s" % (K["DK"], K["R"]), iw))
+        out.append(HL.clip(" %s%s%s"
+                           % (K["DK"], t("actualizaciones.live.starting"),
+                              K["R"]), iw))
     return out
 
 
 def _render_run(S, K, w, h):
     job = S["job"]
-    L = _marco(S, K, w, h, "actualizaciones — %s · en curso" % job["label"],
-               hints=PARES_RUN)
+    L = _marco(S, K, w, h,
+               t("actualizaciones.sub.run", label=job["label"]),
+               hints=PARES_RUN())
     top = len(L)
     apilado = w < 100
     lw = (w - 1) if apilado else max(36, min(52, (w - 6) * 46 // 100))
@@ -713,8 +750,8 @@ def _render_run(S, K, w, h):
         ih_i = ih_d = max(4, avail - 2)
     bi = _cuerpo_pasos(S, K, lw - 4, ih_i)
     bd = _cuerpo_vivo(S, K, rw - 4, ih_d)
-    t_izq = "PASOS · %s" % job["label"]
-    t_der = "EN VIVO"
+    t_izq = t("actualizaciones.box.steps", label=job["label"])
+    t_der = t("actualizaciones.box.live")
     if apilado:
         for ln in HL.full_box(t_izq, bi, K, lw - 1, ih_i, True,
                               border=K["C"]):
@@ -736,9 +773,10 @@ def _render_run(S, K, w, h):
     estado = "%s⏱ %s%s" % (K["GREY"], el, K["R"]) \
         + (("   %s%s%s" % (K["B"], msg, K["R"])) if msg else "")
     L.append(" " + estado)
-    L.append(HL.clip(" %slos pasos corren solos%s %s·%s "
-                     % (K["DIM"], K["R"], K["DK"], K["R"])
-                     + HL.keyline(K, PARES_RUN, max(10, w - 30)), w - 1))
+    L.append(HL.clip(" %s%s%s %s·%s "
+                     % (K["DIM"], t("actualizaciones.run.steps_auto"), K["R"],
+                        K["DK"], K["R"])
+                     + HL.keyline(K, PARES_RUN(), max(10, w - 30)), w - 1))
     return L
 
 
@@ -748,15 +786,17 @@ def _veredicto(job, K):
     fails = sum(1 for _t, x in pend if x["status"] == "fail")
     warns = len(pend) - fails
     if job["error"]:
-        return (K["ERR"] + K["BO"], "✗ algo tronó: %s" % job["error"])
+        return (K["ERR"] + K["BO"],
+                t("actualizaciones.verdict.error", err=job["error"]))
     if job["cancel"]:
-        return (K["B"] + K["BO"], "— cancelado; lo corrido quedó aplicado")
+        return (K["B"] + K["BO"], t("actualizaciones.verdict.cancelled"))
     if fails:
-        return (K["ERR"] + K["BO"], "✗ %d punto(s) requieren acción" % fails)
+        return (K["ERR"] + K["BO"],
+                t("actualizaciones.verdict.fails", n=fails))
     if warns:
         return (K["B"] + K["BO"],
-                "⚠ %d aviso(s) — nada roto, revísalos cuando puedas" % warns)
-    return (K["OK"] + K["BO"], "✓ todo en orden")
+                t("actualizaciones.verdict.warns", n=warns))
+    return (K["OK"] + K["BO"], t("actualizaciones.verdict.ok"))
 
 
 def _cuerpo_resumen(S, K, iw):
@@ -765,31 +805,39 @@ def _cuerpo_resumen(S, K, iw):
     out = [HL.clip(" %s%s%s" % (col, txt, K["R"]), iw)]
     n = {s: sum(1 for st in job["steps"] if st["st"] == s)
          for s in ("ok", "fixed", "warn", "fail", "skip")}
-    linea = " %s%d ✓%s · %s%d reparados%s · %s%d ⚠%s · %s%d ✗%s" % (
-        K["OK"], n["ok"], K["R"], K["C"], n["fixed"], K["R"],
+    linea = " %s%d ✓%s · %s%d %s%s · %s%d ⚠%s · %s%d ✗%s" % (
+        K["OK"], n["ok"], K["R"], K["C"], n["fixed"],
+        t("actualizaciones.sum.fixed_word"), K["R"],
         K["B"], n["warn"], K["R"], K["ERR"], n["fail"], K["R"])
     out.append(HL.clip(linea, iw))
     dur = _mmss((job["t1"] or time.monotonic()) - job["t0"])
-    out.append(HL.clip(" %sduró %s · %d pasos%s"
-                       % (K["DK"], dur, len(job["steps"]), K["R"]), iw))
+    out.append(HL.clip(" %s%s%s"
+                       % (K["DK"],
+                          t("actualizaciones.sum.duration", dur=dur,
+                            n=len(job["steps"])), K["R"]), iw))
     out.append("")
     if job["modo"] == "update":
-        out.append(_divisor(K, "qué llegó", iw, tono=3))
+        out.append(_divisor(K, t("actualizaciones.sec.arrived"), iw, tono=3))
         if job["n_new"]:
-            out.append(HL.clip(" %sWORKSPACE: +%d commit(s) nuevos%s"
-                               % (K["WH"] + K["BO"], job["n_new"], K["R"]),
-                               iw))
+            out.append(HL.clip(" %s%s%s"
+                               % (K["WH"] + K["BO"],
+                                  t("actualizaciones.sum.ws_new",
+                                    n=job["n_new"]), K["R"]), iw))
             for sha, subj in job["new_commits"][:5]:
                 out.append(HL.clip("  %s%s%s %s%s%s"
                                    % (K["C"], sha, K["R"], K["DIM"],
                                       subj, K["R"]), iw))
             resto = job["n_new"] - min(5, len(job["new_commits"]))
             if resto > 0:
-                out.append(HL.clip("  %s… y %d más%s"
-                                   % (K["DK"], resto, K["R"]), iw))
+                out.append(HL.clip("  %s%s%s"
+                                   % (K["DK"],
+                                      t("actualizaciones.sum.more", n=resto),
+                                      K["R"]), iw))
         else:
-            out.append(HL.clip(" %snada nuevo del harness%s"
-                               % (K["GREY"], K["R"]), iw))
+            out.append(HL.clip(" %s%s%s"
+                               % (K["GREY"],
+                                  t("actualizaciones.sum.nothing_new"),
+                                  K["R"]), iw))
         otros = [(lb, st, tx) for lb, st, tx in job["pulled"]
                  if lb != "WORKSPACE"]
         for lb, st, tx in otros[:4]:
@@ -798,34 +846,39 @@ def _cuerpo_resumen(S, K, iw):
                                % (K[colb], ch, K["R"], K["DIM"], lb, tx,
                                   K["R"]), iw))
     else:
-        out.append(_divisor(K, "actualización", iw, tono=3))
+        out.append(_divisor(K, t("actualizaciones.sec.update"), iw, tono=3))
         cf = job.get("chk_final") or {}
         if cf.get("ok") and cf.get("behind", 0) > 0:
-            out.append(HL.clip(" %s%s↓ %d disponible(s) — elige «actualizar "
-                               "todo» para traerlas%s"
-                               % (K["B"], K["BO"], cf["behind"], K["R"]), iw))
+            out.append(HL.clip(" %s%s%s%s"
+                               % (K["B"], K["BO"],
+                                  t("actualizaciones.sum.available",
+                                    n=cf["behind"]), K["R"]), iw))
             for sha, subj in (cf.get("commits") or [])[:3]:
                 out.append(HL.clip("  %s%s%s %s%s%s"
                                    % (K["C"], sha, K["R"], K["DIM"], subj,
                                       K["R"]), iw))
         elif cf.get("ok"):
-            out.append(HL.clip(" %s✓ al día con origin (rama %s)%s"
-                               % (K["OK"], cf.get("branch", "?"), K["R"]),
+            out.append(HL.clip(" %s%s%s"
+                               % (K["OK"],
+                                  t("actualizaciones.sum.uptodate",
+                                    branch=cf.get("branch", "?")), K["R"]),
                                iw))
         else:
-            out.append(HL.clip(" %sno se pudo verificar (%s)%s"
-                               % (K["DK"], cf.get("reason", "sin dato"),
+            out.append(HL.clip(" %s%s%s"
+                               % (K["DK"],
+                                  t("actualizaciones.sum.cannot_verify",
+                                    reason=cf.get("reason")
+                                    or t("actualizaciones.reason.no_data")),
                                   K["R"]), iw))
     out.append("")
-    out.append(_divisor(K, "siguiente", iw))
+    out.append(_divisor(K, t("actualizaciones.sec.next"), iw))
     if _pendientes(job):
-        for sub in _wrap("cada pendiente (derecha) trae su acción sugerida; "
-                         "lo manual también se arregla conversando: corre "
-                         "`workspace doctor` en la terminal", iw - 3):
+        for sub in _wrap(t("actualizaciones.sum.next_pending"), iw - 3):
             out.append(HL.clip(" %s%s%s" % (K["DIM"], sub, K["R"]), iw))
     else:
-        out.append(HL.clip(" %snada que hacer — sigue trabajando%s"
-                           % (K["GREY"], K["R"]), iw))
+        out.append(HL.clip(" %s%s%s"
+                           % (K["GREY"], t("actualizaciones.sum.next_clear"),
+                              K["R"]), iw))
     return out
 
 
@@ -834,11 +887,13 @@ def _lineas_pendientes(job, K, iw):
     pend = _pendientes(job)
     if job["error"]:
         out = [HL.clip(" %s✗ %s%s" % (K["ERR"], job["error"], K["R"]), iw)]
-        out.append(HL.clip(" %scorre `workspace doctor` en la terminal%s"
-                           % (K["DIM"], K["R"]), iw))
+        out.append(HL.clip(" %s%s%s"
+                           % (K["DIM"], t("actualizaciones.pend.error_cmd"),
+                              K["R"]), iw))
         return out
     if not pend:
-        return [HL.clip(" %s✓ ninguno — todo verde%s" % (K["OK"], K["R"]),
+        return [HL.clip(" %s%s%s"
+                        % (K["OK"], t("actualizaciones.pend.none"), K["R"]),
                         iw)]
     out = []
     for titulo, x in pend:
@@ -869,8 +924,8 @@ def _lineas_pendientes(job, K, iw):
 def _render_done(S, K, w, h):
     job = S["job"]
     L = _marco(S, K, w, h,
-               "actualizaciones — %s · resultado" % job["label"],
-               hints=PARES_DONE)
+               t("actualizaciones.sub.done", label=job["label"]),
+               hints=PARES_DONE())
     top = len(L)
     apilado = w < 100
     lw = (w - 1) if apilado else max(36, min(52, (w - 6) * 46 // 100))
@@ -888,11 +943,14 @@ def _render_done(S, K, w, h):
     S["scroll"] = max(0, min(S.get("scroll", 0), maxs))
     vista = pend_all[S["scroll"]:S["scroll"] + ih_d]
     if maxs and S["scroll"] < maxs and vista:
-        vista[-1] = HL.clip(" %s… ↓ %d línea(s) más%s"
-                            % (K["DK"], maxs - S["scroll"], K["R"]), rw - 4)
+        vista[-1] = HL.clip(" %s%s%s"
+                            % (K["DK"],
+                               t("actualizaciones.pend.more",
+                                 n=maxs - S["scroll"]), K["R"]), rw - 4)
     npend = len(_pendientes(job))
-    t_izq = "RESUMEN · %s" % job["label"]
-    t_der = "PENDIENTES · %d" % npend if npend else "PENDIENTES"
+    t_izq = t("actualizaciones.box.summary", label=job["label"])
+    t_der = t("actualizaciones.box.pending_n", n=npend) if npend \
+        else t("actualizaciones.box.pending")
     if apilado:
         for ln in HL.full_box(t_izq, bi, K, lw - 1, ih_i, True,
                               border=K["C"]):
@@ -911,7 +969,7 @@ def _render_done(S, K, w, h):
     L.append("")
     L.append(" %s%s%s" % (K["B2"], S.get("msg") or "", K["R"])
              if S.get("msg") else "")
-    L.append(HL.foot_hints(K, PARES_DONE, w))
+    L.append(HL.foot_hints(K, PARES_DONE(), w))
     return L
 
 
@@ -962,7 +1020,7 @@ def _accion(S, key):
         if key in ("q", "Q", "\x1b"):
             if not job.get("cancel"):
                 job["cancel"] = True
-                S["msg"] = "cancelando — el paso en curso termina solo…"
+                S["msg"] = t("actualizaciones.msg.cancelling")
             return True
         if key == "\x03":                        # Ctrl-C: salida dura
             job["cancel"] = True
@@ -984,9 +1042,10 @@ def _accion(S, key):
             job = S.get("job") or {}
             npend = len(_pendientes(job)) if job else 0
             S["view"], S["job"], S["scroll"] = "menu", None, 0
-            S["msg"] = ("%s terminado — %d pendiente(s) anotados"
-                        % (job.get("label", "listo"), npend)) if npend else \
-                "%s terminado ✓" % job.get("label", "listo")
+            lbl = job.get("label", t("actualizaciones.msg.done_fallback"))
+            S["msg"] = t("actualizaciones.msg.done_pending", label=lbl,
+                         n=npend) if npend else \
+                t("actualizaciones.msg.done_ok", label=lbl)
         return True
     # — menú —
     S["msg"] = ""

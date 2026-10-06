@@ -81,7 +81,7 @@ def fmt_reset(ts):
         return None
     rem = int(ts - time.time())
     if rem <= 0:
-        return "ya"
+        return _t("banner.status.now", "ya")
     dd, hh, mm = rem // 86400, (rem % 86400) // 3600, (rem % 3600) // 60
     if dd:
         return f"{dd}d {hh}h"
@@ -173,6 +173,24 @@ try:
 except Exception:
     pass
 
+# ── i18n (falla-suave) — las etiquetas ESTÁTICAS de la statusline siguen el
+# idioma del socio (i18n.lang(): WORKSPACE_LANG > settings ui.lang > "es").
+# i18n vive en la raíz de WORKSPACE (_root, ya en sys.path arriba). Si no se
+# resuelve, _t cae al ES inline → la statusline JAMÁS truena. Ver lang/README.md.
+try:
+    import i18n as _i18n  # noqa: E402
+except Exception:
+    _i18n = None
+
+def _t(key, es, **kw):
+    if _i18n is None:
+        return es.format(**kw) if kw else es
+    try:
+        s = _i18n.t(key, **kw)
+        return s if s != key else (es.format(**kw) if kw else es)
+    except Exception:
+        return es.format(**kw) if kw else es
+
 ver = None
 try:
     import re as _re
@@ -194,9 +212,9 @@ r5, r7 = fmt_reset(rl5r), fmt_reset(rl7r)
 # ── columna izquierda: barras (etiquetas descriptivas, alineadas) ──
 LBLW = 12
 left = [
-    gauge("contexto", pct, LBLW),
-    gauge("uso sesión", rl5p, LBLW),
-    gauge("uso semanal", rl7p, LBLW),
+    gauge(_t("banner.status.context", "contexto"), pct, LBLW),
+    gauge(_t("banner.status.session_use", "uso sesión"), rl5p, LBLW),
+    gauge(_t("banner.status.weekly_use", "uso semanal"), rl7p, LBLW),
     [],                               # fila en blanco (pareja del pie de texto)
 ]
 LW = max(visw(c) for c in left)
@@ -210,13 +228,13 @@ add(r_zen, "◆ ", HEAD); add(r_zen, AGENT_NAME, HEAD); dot(r_zen); add(r_zen, m
 def reset_row(rs):
     c = []
     if rs:
-        add(c, "se reinicia en ", LBL); add(c, rs, VAL)
+        add(c, _t("banner.status.resets_in", "se reinicia en "), LBL); add(c, rs, VAL)
     else:
-        add(c, "— dato tras el 1er mensaje", EMPT)
+        add(c, _t("banner.status.no_data", "— dato tras el 1er mensaje"), EMPT)
     return c
 
 r_foot = []
-add(r_foot, "activa ", LBL); add(r_foot, sess, VAL)
+add(r_foot, _t("banner.status.active", "activa "), LBL); add(r_foot, sess, VAL)
 if ver:
     dot(r_foot); add(r_foot, "brain ", LBL); add(r_foot, f"v{ver}", VAL)
 if cost and cost > 0:

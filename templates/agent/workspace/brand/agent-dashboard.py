@@ -47,6 +47,24 @@ if _WORKSPACE not in sys.path:
 from session_paths import session_dir as _claude_session_dir  # noqa: E402
 import agent_brand  # noqa: E402
 
+# ── i18n (falla-suave) — las cadenas ESTÁTICAS del picker/greeter siguen el
+# idioma del socio (i18n.lang(): WORKSPACE_LANG > settings ui.lang > "es").
+# i18n vive en la raíz de WORKSPACE, ya insertada en sys.path arriba (_WORKSPACE).
+# Si no se resuelve, _t cae al ES inline → el picker JAMÁS truena. Ver lang/README.md.
+try:
+    import i18n as _i18n  # noqa: E402
+except Exception:
+    _i18n = None
+
+def _t(key, es, **kw):
+    if _i18n is None:
+        return es.format(**kw) if kw else es
+    try:
+        s = _i18n.t(key, **kw)
+        return s if s != key else (es.format(**kw) if kw else es)
+    except Exception:
+        return es.format(**kw) if kw else es
+
 AGENT_NAME = "{{AGENT_NAME}}"          # slug (workspaces file, comandos)
 AGENT_DISPLAY = "{{AGENT_DISPLAY}}"
 AGENT_UPPER = "{{AGENT_UPPER}}"        # env var <UPPER>_WS
@@ -72,7 +90,7 @@ BRAIN = _find_brain()
 HOME = os.path.expanduser("~")
 
 # Identidad SOURCED del cerebro: este stub se referencia SIN sustituir (agentes
-# cargados como Turing → los {{...}} quedan literales), así que nombre/upper/
+# de equipo cargados en vivo → los {{...}} quedan literales), así que nombre/upper/
 # tagline/paleta se resuelven de BOOT/01-IDENTITY.md + .workspace/agent.json. Si los
 # placeholders SÍ vienen sustituidos (agente con brand propio renderizado), ganan.
 try:
@@ -292,9 +310,11 @@ def menu_items():
     items = []
     for w in _sessions():
         wid, name = w.get("id"), w.get("name", "?")
-        sub = "continuar" if session_exists(wid) else "nueva"
+        sub = _t("banner.dash.sub_continue", "continuar") if session_exists(wid) \
+            else _t("banner.dash.sub_new", "nueva")
         items.append((name, sub, ("WS", wid, name)))
-    items.append(("+ Sesión nueva…", "crea una sesión con nombre", ("NEW", None, None)))
+    items.append((_t("banner.dash.new_label", "+ Sesión nueva…"),
+                  _t("banner.dash.new_sub", "crea una sesión con nombre"), ("NEW", None, None)))
     return items
 
 def _tty():
@@ -314,9 +334,9 @@ def header_lines():
     n = sum(1 for _ in _sessions())
     return [
         f"{HEAD}{BO}  {AGENT_UPPER}{R}{DIM} · {TAGLINE}{R}",
-        f"{MUTE}  {n} sesión(es) · elige una para continuar o crea una nueva{R}",
+        f"{MUTE}  {_t('banner.dash.sessions_count', '{n} sesión(es) · elige una para continuar o crea una nueva', n=n)}{R}",
         "",
-        f"  {HEAD}◆ ¿En qué seguimos?{R}   {MUTE}↑↓ para elegir · Enter para abrir{R}",
+        f"  {HEAD}◆ {_t('banner.dash.resume_q', '¿En qué seguimos?')}{R}   {MUTE}{_t('banner.dash.hint', '↑↓ para elegir · Enter para abrir')}{R}",
     ]
 
 def _picker_simple(items):
@@ -324,7 +344,7 @@ def _picker_simple(items):
     out.write("\n")
     for i, (lbl, sub, _) in enumerate(items, 1):
         out.write(f"    {NAME}{i}{R}  {SUB}{lbl}{R}   {MUTE}{sub}{R}\n")
-    out.write(f"\n  {MUTE}Número y Enter: {R}"); out.flush()
+    out.write(f"\n  {MUTE}{_t('banner.dash.number_enter', 'Número y Enter: ')}{R}"); out.flush()
     try:
         k = int((inp.readline() or "").strip())
         if 1 <= k <= len(items):
@@ -434,7 +454,7 @@ def list_sessions():
         wid, name = w.get("id"), w.get("name", "?")
         mark = "●" if session_exists(wid) else "○"
         out.append(f"  {mark} {name}")
-    return "\n".join(out) or "  (sin sesiones)"
+    return "\n".join(out) or ("  " + _t("banner.dash.no_sessions", "(sin sesiones)"))
 
 
 def main():
@@ -458,7 +478,7 @@ def main():
         idx = run_picker(items)
         kind = items[idx][2]
         if kind[0] == "NEW":
-            tout.write(f"\r\n  {MUTE}Nombre de la sesión: {R}"); tout.flush()
+            tout.write(f"\r\n  {MUTE}{_t('banner.dash.name_prompt', 'Nombre de la sesión: ')}{R}"); tout.flush()
             try:
                 name = (tin.readline() or "").strip()
             except Exception:
@@ -471,7 +491,7 @@ def main():
                 wid = add_workspace(name)   # → crear el workspace per-máquina
             else:
                 mark_opened(wid)         # interacción humana real (Y10)
-        tout.write(f"\r\n  {CARET}▸{R} {NAME}{name}{R}  {MUTE}— cargando…{R}\r\n\r\n"); tout.flush()
+        tout.write(f"\r\n  {CARET}▸{R} {NAME}{name}{R}  {MUTE}— {_t('banner.dash.loading', 'cargando…')}{R}\r\n\r\n"); tout.flush()
         sys.stdout.write(f"WS\t{wid}\t{name}")     # el motor lo parsea
         return
     print("\n".join(header_lines()))

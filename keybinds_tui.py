@@ -48,6 +48,95 @@ PARES = (("↑↓", "acción"), ("Enter", "re-mapear"), ("r", "default"),
          ("R", "todo a default"), ("q", "vuelve al menú"))
 PARES_CAP = (("tecla nueva", "queda asignada ya"), ("Esc", "cancela"))
 
+# i18n (lado cliente): traduce lo que ve el cliente. Falla-suave ABSOLUTA — sin
+# el módulo, _t() devuelve el español inline (paridad exacta). Las labels/descs
+# de DATOS (agente/acción/grupo) viven hardcodeadas en keybinds.py (fuente ES,
+# fuera de mi alcance de edición): se surten vía _t(key, <valor KB>), así que en
+# ES salen idénticas aunque el catálogo faltara. Las labels del MENÚ ya vienen
+# traducidas de front.menu_entries (keybinds.label) → se referencian tal cual.
+try:
+    import i18n                                                 # noqa: E402
+except Exception:
+    i18n = None
+
+
+def _t(key, es, **kw):
+    """Traducción de `key` con el español inline `es` como red de seguridad:
+    sin i18n o clave faltante → `es` (idéntico a hoy). Con **kw aplica
+    .format(**kw) (falla-suave: si el format truena, cruda)."""
+    if i18n is None:
+        s = es
+    else:
+        try:
+            v = i18n.t(key)
+            s = v if v != key else es
+        except Exception:
+            s = es
+    if kw:
+        try:
+            return s.format(**kw)
+        except Exception:
+            return s
+    return s
+
+
+# grupo (keybinds.GRUPOS) → clave; el es inline es el propio título español.
+_GRP_KEY = {"agentes": "atajos.group.agents",
+            "menú": "atajos.group.menu",
+            "acciones rápidas": "atajos.group.actions"}
+# descripción re-mapeable por id (las del MENÚ salvo Dev —dev-only, se queda en
+# español—; agente.N se arma aparte por su {n}).
+_DESC_KEY = {"accion.motor": "atajos.desc.motor",
+             "accion.info": "atajos.desc.info",
+             "menu.__ramas__": "atajos.desc.menu_github",
+             "menu.__cal__": "atajos.desc.menu_cal",
+             "menu.__tono__": "atajos.desc.menu_tono",
+             "menu.__keybinds__": "atajos.desc.menu_keys",
+             "menu.__doctor__": "atajos.desc.menu_updates",
+             "menu.__add_agent__": "atajos.desc.menu_addagent"}
+
+
+def _tr_grupo(titulo):
+    """Título de grupo traducido (es inline = el título español de keybinds)."""
+    key = _GRP_KEY.get(titulo)
+    return _t(key, titulo) if key else titulo
+
+
+def _tr_label(aid):
+    """Etiqueta traducida de una acción. Las del MENÚ ya vienen traducidas de
+    menu_entries (keybinds.label) → se referencian tal cual."""
+    if aid.startswith("agente."):
+        return _t("atajos.label.agent", KB.label(aid), n=aid.split(".", 1)[1])
+    if aid == "accion.motor":
+        return _t("atajos.label.motor", KB.label(aid))
+    if aid == "accion.info":
+        return _t("atajos.label.info", KB.label(aid))
+    return KB.label(aid)
+
+
+def _tr_desc(aid):
+    """Descripción traducida de una acción (es inline = la de keybinds.py)."""
+    if aid.startswith("agente."):
+        return _t("atajos.desc.agent", KB.desc(aid), n=aid.split(".", 1)[1])
+    key = _DESC_KEY.get(aid)
+    return _t(key, KB.desc(aid)) if key else KB.desc(aid)
+
+
+def _pares():
+    """La fila de atajos (cabecera + pie), traducida. Las teclas no cambian."""
+    return ((PARES[0][0], _t("atajos.hint.action", "acción")),
+            (PARES[1][0], _t("atajos.hint.remap", "re-mapear")),
+            (PARES[2][0], _t("atajos.hint.default", "default")),
+            (PARES[3][0], _t("atajos.hint.reset_all", "todo a default")),
+            (PARES[4][0], _t("atajos.hint.back", "vuelve al menú")))
+
+
+def _pares_cap():
+    """La fila de atajos en modo CAPTURA, traducida."""
+    return ((_t("atajos.cap.newkey", "tecla nueva"),
+             _t("atajos.cap.assigned", "queda asignada ya")),
+            (PARES_CAP[1][0], _t("atajos.cap.cancel", "cancela")))
+
 
 def _rearmar_orden():
     global ORDEN, _GRUPO_DE
@@ -113,7 +202,7 @@ def _fila(S, K, eff, idx, iw):
     k = eff.get(aid, "")
     cur = "%s%s%s" % (K["C"] + K["BO"], K["PTR"], K["R"]) if sel else " "
     lab = "%s%s%s" % ((K["WH"] + K["BO"]) if sel else K["GREY"],
-                      KB.label(aid), K["R"])
+                      _tr_label(aid), K["R"])
     dot = " %s●%s" % (K["B2"], K["R"]) if KB.es_custom(aid) else ""
     der = _tecla_txt(K, k, on=sel) + dot
     hueco = max(1, iw - 3 - HL.vis(lab) - HL.vis(der))
@@ -130,7 +219,7 @@ def _cuerpo_lista(S, K, iw, alto, grupos=True):
         for n, (titulo, ids) in enumerate(KB.GRUPOS):
             if n:
                 out.append("")
-            out.append(_divisor(K, titulo, iw, tono=n * 2))
+            out.append(_divisor(K, _tr_grupo(titulo), iw, tono=n * 2))
             for _aid in ids:
                 out.append(_fila(S, K, eff, i, iw))
                 i += 1
@@ -162,41 +251,52 @@ def _cuerpo_detalle(S, K, iw, full=2):
     out = []
     if S.get("cap"):
         out.append("")
-        out.append(HL.clip("  %s%s▸ presiona la tecla nueva…%s"
-                           % (K["C"], K["BO"], K["R"]), iw))
+        out.append(HL.clip("  %s%s▸ %s%s"
+                           % (K["C"], K["BO"],
+                              _t("atajos.cap.prompt", "presiona la tecla "
+                                 "nueva…"), K["R"]), iw))
         out.append("")
-        out.append(HL.clip("  %spara «%s» (hoy: %s)%s"
-                           % (K["DIM"], KB.label(aid), k or "—", K["R"]),
-                           iw))
+        out.append(HL.clip("  %s%s%s"
+                           % (K["DIM"], _t("atajos.cap.for",
+                                           "para «{label}» (hoy: {k})",
+                                           label=_tr_label(aid), k=k or "—"),
+                              K["R"]), iw))
         out.append("")
-        out.append(HL.clip("  %sEsc cancela · se guarda al instante%s"
-                           % (K["DK"], K["R"]), iw))
+        out.append(HL.clip("  %s%s%s"
+                           % (K["DK"], _t("atajos.cap.foot", "Esc cancela · "
+                              "se guarda al instante"), K["R"]), iw))
         return out
     # qué hace
-    for ln in _wrap(KB.desc(aid), max(8, iw - 3))[:4]:
+    for ln in _wrap(_tr_desc(aid), max(8, iw - 3))[:4]:
         out.append(HL.clip(" %s%s%s" % (K["WH"], ln, K["R"]), iw))
     out.append("")
     # tecla actual / default / estado
-    est = ("%s● personalizada%s" % (K["B2"], K["R"])) if KB.es_custom(aid) \
-        else ("%sde fábrica%s" % (K["DK"], K["R"]))
-    out.append(HL.clip(" %stecla%s  %s   %sdefault%s  %s%s%s   %s" % (
-        K["DIM"], K["R"], _tecla_txt(K, k, on=True),
-        K["DIM"], K["R"], K["GREY"], dflt, K["R"], est), iw))
+    est = ("%s%s%s" % (K["B2"], _t("atajos.det.custom", "● personalizada"),
+                       K["R"])) if KB.es_custom(aid) \
+        else ("%s%s%s" % (K["DK"], _t("atajos.det.factory", "de fábrica"),
+                          K["R"]))
+    out.append(HL.clip(" %s%s%s  %s   %s%s%s  %s%s%s   %s" % (
+        K["DIM"], _t("atajos.det.key", "tecla"), K["R"], _tecla_txt(K, k, on=True),
+        K["DIM"], _t("atajos.det.default", "default"), K["R"],
+        K["GREY"], dflt, K["R"], est), iw))
     if not k:
-        out.append(HL.clip(" %ssin tecla — su default «%s» lo tomó otra "
-                           "acción; re-mapéala con Enter%s"
-                           % (K["ERR"], dflt, K["R"]), iw))
+        out.append(HL.clip(" %s%s%s"
+                           % (K["ERR"], _t("atajos.det.notecla",
+                              "sin tecla — su default «{dflt}» lo tomó otra "
+                              "acción; re-mapéala con Enter", dflt=dflt),
+                              K["R"]), iw))
     if full < 1:
         return out
     out.append("")
-    out.append(_divisor(K, "cómo funciona", iw, tono=4))
-    for ln in ("Enter re-mapea: la siguiente tecla queda guardada YA "
-               "(per-máquina, no toca a tu equipo)",
-               "una tecla = una acción: si ya está tomada te digo quién "
-               "la tiene — nada truena",
-               "reservadas: q · espacio · Enter · Esc · flechas · Tab · "
-               "t a e x f d n p (otras pantallas)",
-               "r = default de esta acción · R dos veces = todo de fábrica"):
+    out.append(_divisor(K, _t("atajos.det.how", "cómo funciona"), iw, tono=4))
+    for ln in (_t("atajos.det.rule1", "Enter re-mapea: la siguiente tecla "
+                  "queda guardada YA (per-máquina, no toca a tu equipo)"),
+               _t("atajos.det.rule2", "una tecla = una acción: si ya está "
+                  "tomada te digo quién la tiene — nada truena"),
+               _t("atajos.det.rule3", "reservadas: q · espacio · Enter · Esc "
+                  "· flechas · Tab · t a e x f d n p (otras pantallas)"),
+               _t("atajos.det.rule4", "r = default de esta acción · R dos "
+                  "veces = todo de fábrica")):
         for nsub, sub in enumerate(_wrap(ln, max(8, iw - 4))[:3]):
             pref = "·" if nsub == 0 else " "
             out.append(HL.clip(" %s%s%s %s%s%s" % (K["DK"], pref, K["R"],
@@ -206,7 +306,8 @@ def _cuerpo_detalle(S, K, iw, full=2):
         return out
     out.append("")
     ruta = KB._path().replace(os.path.expanduser("~"), "~")
-    out.append(HL.clip(" %sse guarda en %s%s" % (K["DK"], ruta, K["R"]), iw))
+    out.append(HL.clip(" %s%s%s" % (K["DK"], _t("atajos.det.saved_in",
+                       "se guarda en {ruta}", ruta=ruta), K["R"]), iw))
     return out
 
 
@@ -215,8 +316,9 @@ def render(S, w, h):
     S["si"] %= max(1, len(ORDEN))                # defensa: cursor en rango
     # cabecera COMPARTIDA (wordmark + subtítulo + atajos clave + regla);
     # en captura los atajos de arriba cambian con el modo — nunca mienten
-    L = HL.screen_header(K, w, h, "atajos — tus teclas rápidas del hub",
-                         hints=(PARES_CAP if S.get("cap") else PARES))
+    L = HL.screen_header(K, w, h,
+                         _t("atajos.sub", "atajos — tus teclas rápidas del hub"),
+                         hints=(_pares_cap() if S.get("cap") else _pares()))
     top = len(L)
     apilado = w < 100
     lw = (w - 1) if apilado else max(32, min(40, (w - 6) * 42 // 100))
@@ -235,8 +337,9 @@ def render(S, w, h):
         if need <= avail:
             break
     aid = ORDEN[S["si"]]
-    t_izq = "ATAJOS · %s" % _GRUPO_DE.get(aid, "")
-    t_der = "LA TECLA · %s" % KB.label(aid)
+    t_izq = _t("atajos.box.left", "ATAJOS · {grp}",
+               grp=_tr_grupo(_GRUPO_DE.get(aid, "")))
+    t_der = _t("atajos.box.right", "LA TECLA · {label}", label=_tr_label(aid))
     if apilado:
         ih_d = max(3, min(len(bd), avail - (len(bi) + 2) - 2))
         for ln in HL.full_box(t_izq, bi, K, lw - 1, len(bi), not S.get("cap"),
@@ -260,7 +363,7 @@ def render(S, w, h):
         L.append(" %s%s%s" % (K["B2"], S["msg"], K["R"]))
     else:
         L.append("")
-    L.append(HL.foot_hints(K, PARES_CAP if S.get("cap") else PARES, w))
+    L.append(HL.foot_hints(K, _pares_cap() if S.get("cap") else _pares(), w))
     return [HL.clip(x, w - 1) for x in L[:h - 1]]
 
 
@@ -272,12 +375,14 @@ def _accion(S, key):
     if S.get("cap"):                              # modo CAPTURA: la tecla ES el dato
         S["cap"] = False
         if key in ("\x1b", "\x03"):
-            S["msg"] = "cancelado — %s sigue en «%s»" \
-                % (KB.label(aid), KB.effective().get(aid) or "—")
+            S["msg"] = _t("atajos.msg.cancel",
+                          "cancelado — {label} sigue en «{k}»",
+                          label=_tr_label(aid),
+                          k=KB.effective().get(aid) or "—")
         elif key in ("up", "down", "left", "right", "tab", "right_tab",
                      "\r", "\n") or not key:
-            S["msg"] = "esa no me sirve — un carácter imprimible " \
-                       "(Enter reintenta)"
+            S["msg"] = _t("atajos.msg.badkey", "esa no me sirve — un "
+                          "carácter imprimible (Enter reintenta)")
         else:
             _ok, S["msg"] = KB.set_key(aid, key)
         return True
@@ -289,7 +394,8 @@ def _accion(S, key):
             _ok, S["msg"] = KB.reset_all()
         else:
             S["confirm"] = True
-            S["msg"] = "R otra vez para restaurar TODO a defaults"
+            S["msg"] = _t("atajos.msg.reset_confirm",
+                          "R otra vez para restaurar TODO a defaults")
         return True
     S["confirm"] = False
     if key == "up":

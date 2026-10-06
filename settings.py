@@ -416,6 +416,17 @@ SETTINGS_SCHEMA = (
      "type": "bool", "default": True,
      "help": "Menú animado del recinto y banner animado (sin esto: estático + picker).",
      "applies": "front.py + banner/render.py; env WORKSPACE_NO_ANIM=1 gana."},
+    {"key": "ui.lang", "group": "ui", "label": "Idioma",
+     "type": "enum", "default": "es", "choices": ("es", "en"),
+     "help": "Idioma de la interfaz que VE EL CLIENTE (menú del hub, "
+             "onboarding, saludos de agente). Ausente = español (el default "
+             "de siempre, sin cambios para instalaciones existentes). Las "
+             "pantallas de desarrollo quedan en español por diseño. "
+             "env WORKSPACE_LANG gana. Se cambia EN VIVO desde el menú "
+             "(«Idioma») y es el paso 0 del onboarding.",
+     "applies": "i18n.lang() lo lee e i18n.t() pinta cada cadena; el toggle "
+                "«Idioma» del hub y el paso 0 del onboarding lo persisten "
+                "vía i18n.set_lang()."},
     {"key": "ui.background", "group": "ui", "label": "Fondo independiente",
      "type": "enum", "default": "tema",
      "choices": ("tema", "negro", "grafito", "azul", "verde", "violeta", "personalizado"),
@@ -426,7 +437,7 @@ SETTINGS_SCHEMA = (
      "help": "Color #RRGGBB; elige personalizado en Fondo independiente.",
      "applies": "tuitheme.palette() y theme.apply_colors()."},
     {"key": "ui.theme", "group": "ui", "label": "Tema del hub",
-     "type": "enum", "default": "rose",   # 2026-10 (socio): la familia rosé es la insignia; default CON color
+     "type": "enum", "default": "bruma",   # 2026-10 (socio): la familia rosé es la insignia; bruma (hermana neblinosa de rose) = default de instalación nueva, CON color
      # SOLO temas TUI-ready (_TUI_THEMES: mono + cyberpunk + la familia rosé)
      # — selector curado por el socio 2026-10-02; los demás temas siguen instalados
      # para el DEV PANEL (ui.web_theme). choices = snapshot al import;

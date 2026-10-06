@@ -45,6 +45,24 @@ if ROOT not in sys.path:
 import agent_admin                                              # noqa: E402
 import agent_skill_sources
 
+# i18n (lado cliente): las notas EN VIVO y los avisos de limpieza los ve el
+# socio en la pantalla «Agregar agente». Import guardado — sin i18n, _t()
+# devuelve el español inline (paridad EXACTA con lo de siempre).
+try:
+    import i18n
+except Exception:
+    i18n = None
+
+
+def _t(key, es):
+    if i18n is None:
+        return es
+    try:
+        s = i18n.t(key)
+        return s if s != key else es
+    except Exception:
+        return es
+
 # Pasada OPCIONAL de personalización con modelo (opt-in: params["personalize"]
 # truthy o env WORKSPACE_CREATE_PERSONALIZE=1; detalle en agent_personalize.py).
 # Amputable (C10): sin el módulo, crear funciona EXACTAMENTE como siempre
@@ -257,14 +275,14 @@ def _worker(job):
                         should_cancel=lambda: job["cancel"])
             except Exception as e:               # jamás tumba la creación
                 _on_step("perso-aplicar", "warn",
-                         "sin personalizar (%s) — plantilla intacta" % e)
+                         _t("addagent.job.perso_warn", "sin personalizar (%s) — plantilla intacta") % e)
         if ok and p.get("source_skills") and not job["cancel"]:
             try:
                 job["skill_sourcing"] = agent_skill_sources.run(
                     job["dest"], p, progress=_on_step,
                     should_cancel=lambda: job["cancel"])
             except Exception as e:
-                _on_step("skills-install", "warn", "skills pendientes: %s" % e)
+                _on_step("skills-install", "warn", _t("addagent.job.skills_warn", "skills pendientes: %s") % e)
     finally:
         try:
             sys.stdout, sys.stderr, sys.stdin = old
@@ -304,7 +322,7 @@ def cleanup(snap):
     import shutil
     if not snap:
         clear_state()
-        return True, "nada que limpiar"
+        return True, _t("addagent.job.cleanup.nothing", "nada que limpiar")
     det = []
     dest = snap.get("dest") or ""
     home = os.path.realpath(os.path.expanduser("~"))
@@ -312,9 +330,9 @@ def cleanup(snap):
         rd = os.path.realpath(dest)
         if rd.startswith(home + os.sep) and rd != home:   # guard: solo bajo ~
             shutil.rmtree(dest, ignore_errors=True)
-            det.append("carpeta borrada")
+            det.append(_t("addagent.job.cleanup.folder_deleted", "carpeta borrada"))
         else:
-            det.append("carpeta fuera de ~ — no la toco")
+            det.append(_t("addagent.job.cleanup.folder_outside", "carpeta fuera de ~ — no la toco"))
     name = snap.get("name") or ""
     if name:
         try:
@@ -323,11 +341,11 @@ def cleanup(snap):
             if reg and os.path.realpath(reg["brain"]) == \
                     os.path.realpath(dest or reg["brain"]):
                 agentsreg.remove(name)
-                det.append("registro quitado")
+                det.append(_t("addagent.job.cleanup.reg_removed", "registro quitado"))
         except Exception:
-            det.append("no pude tocar el registro")
+            det.append(_t("addagent.job.cleanup.reg_fail", "no pude tocar el registro"))
     clear_state()
-    return True, " · ".join(det) or "snapshot borrado"
+    return True, " · ".join(det) or _t("addagent.job.cleanup.snapshot_deleted", "snapshot borrado")
 
 
 # ── costo HONESTO ────────────────────────────────────────────────────────────

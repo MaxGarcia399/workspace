@@ -40,6 +40,29 @@ if ROOT not in sys.path:
 
 import personalidad as P                                       # noqa: E402
 import hublayout as HL                                         # noqa: E402
+# i18n (lado cliente): la pantalla TONO se ve en el idioma activo. Falla-suave
+# — sin el módulo, `_t()` devuelve el español inline (ES byte-idéntico).
+try:
+    import i18n                                                 # noqa: E402
+except Exception:
+    i18n = None
+
+
+def _t(key, es, **kw):
+    if i18n is None:
+        s = es
+    else:
+        try:
+            v = i18n.t(key)
+            s = v if v != key else es
+        except Exception:
+            s = es
+    if kw:
+        try:
+            return s.format(**kw)
+        except Exception:
+            return s
+    return s
 
 # Los diales agrupados por lo que gobiernan — MISMOS grupos que el panel
 # TONO del layout `dia` (hublayout._DIA_TONO_GRUPOS): la pantalla y el panel
@@ -47,17 +70,39 @@ import hublayout as HL                                         # noqa: E402
 GRUPOS = (("trato", ("amabilidad", "franqueza", "sarcasmo", "humor")),
           ("forma", ("longitud", "formalidad", "tecnicismo", "emojis")),
           ("trabajo", ("didactica", "iniciativa")))
-_BY = {d["key"]: d for d in P.DIALS}
-# orden VISUAL (por grupo), que es el que recorre ↑↓
-ORDEN = tuple(_BY[k] for _, claves in GRUPOS for k in claves)
+# Encabezados de grupo: se REUSAN de la Ola 1 (hub.tono.group.*), que es lo
+# que ya traduce el mini-panel TONO del dashboard — misma historia, mismo texto.
+_GRUPO_I18N = {"trato": "hub.tono.group.manner",
+               "forma": "hub.tono.group.form",
+               "trabajo": "hub.tono.group.work"}
+# El orden VISUAL (por grupo) es independiente del idioma; las claves no
+# cambian. Resolvemos los DATOS por idioma en cada uso (P.DIALS).
+_ORDEN_KEYS = tuple(k for _, claves in GRUPOS for k in claves)
 
 NEUTRO_TXT = "como siempre — este dial no envía nada"
 
-# UNA fuente de verdad de los atajos: la cabecera enseña los 3 clave + salir
-# (HL.top_hints los recorta) y el pie la lista COMPLETA (HL.foot_hints).
-PARES = (("↑↓", "dial"), ("◄►", "nivel"), ("Tab", "agente"),
-         ("1-5", "directo"), ("p", "modo"), ("r", "neutro"),
-         ("q", "vuelve al menú"))
+
+def _orden():
+    """Los diales en orden visual, con los textos en el idioma activo."""
+    by = {d["key"]: d for d in P.DIALS}
+    return tuple(by[k] for k in _ORDEN_KEYS)
+
+
+def _pname(key):
+    """Nombre VISIBLE del modo (preset); la clave interna no cambia."""
+    return _t("tono.preset.%s" % key, key)
+
+
+def _pares():
+    """UNA fuente de verdad de los atajos, en el idioma activo: la cabecera
+    enseña los 3 clave + salir (HL recorta) y el pie la lista COMPLETA."""
+    return ((u"↑↓", _t("tono.hint.dial", "dial")),
+            (u"◄►", _t("tono.hint.level", "nivel")),
+            ("Tab", _t("tono.hint.agent", "agente")),
+            ("1-5", _t("tono.hint.direct", "directo")),
+            ("p", _t("tono.hint.mode", "modo")),
+            ("r", _t("tono.hint.neutral", "neutro")),
+            ("q", _t("tono.hint.back", "vuelve al menú")))
 
 
 def _K():
@@ -127,6 +172,8 @@ def _cuerpo_diales(S, K, dest, iw, grupos=True):
     """Caja izquierda: los 10 diales con su slider + polo, agrupados, y los
     MODOS (presets) con nombre visible — nada de ciclar a ciegas."""
     niv = P.niveles(dest)
+    orden = _orden()
+    by = {d["key"]: d for d in orden}
     out, i = [], 0
 
     def fila(d, i):
@@ -148,28 +195,31 @@ def _cuerpo_diales(S, K, dest, iw, grupos=True):
         for n, (titulo, claves) in enumerate(GRUPOS):
             if n:
                 out.append("")
-            out.append(_divisor(K, titulo, iw))
+            out.append(_divisor(K, _t(_GRUPO_I18N[titulo], titulo), iw))
             for k in claves:
-                out.append(fila(_BY[k], i))
+                out.append(fila(by[k], i))
                 i += 1
     else:
-        for d in ORDEN:
+        for d in orden:
             out.append(fila(d, i))
             i += 1
     # ── modos (presets): visibles por nombre, p aplica el siguiente ──
     out.append("")
-    out.append(_divisor(K, "modos", iw))
+    out.append(_divisor(K, _t("tono.group.modes", "modos"), iw))
     nombres = sorted(P.PRESETS)
     trozos = []
     for n in nombres:
         on = (n == S.get("preset"))
         trozos.append("%s%s%s" % ((K["C"] + K["BO"]) if on else K["GREY"],
-                                  n, K["R"]))
+                                  _pname(n), K["R"]))
     out.append(HL.clip(" %sp%s  %s" % (K["C"] + K["BO"], K["R"],
                                        ("%s·%s" % (K["DK"], K["R"]))
                                        .join(trozos)), iw))
-    out.append(HL.clip(" %sun modo mueve varios diales de golpe%s"
-                       % (K["DIM"], K["R"]), iw))
+    out.append(HL.clip(" %s%s%s"
+                       % (K["DIM"],
+                          _t("tono.modes.hint",
+                             "un modo mueve varios diales de golpe"),
+                          K["R"]), iw))
     return out
 
 
@@ -180,7 +230,7 @@ def _cuerpo_dial(S, K, dest, iw, full=2):
 
     `full` es cuánto cabe: 2 = todo · 1 = sin la letra chica (cómo
     funciona) · 0 = solo el eje y la escalera de niveles."""
-    d = ORDEN[S["si"]]
+    d = _orden()[S["si"]]
     niv = P.niveles(dest)
     v = niv[d["key"]]
     out = []
@@ -193,7 +243,7 @@ def _cuerpo_dial(S, K, dest, iw, full=2):
     out.append("")
     # la escalera 1→5: CADA nivel con su instrucción (el actual, completo)
     for n in (1, 2, 3, 4, 5):
-        txt = d["niveles"].get(n) or NEUTRO_TXT
+        txt = d["niveles"].get(n) or _t("tono.neutral", NEUTRO_TXT)
         if n == v:
             cab = " %s%s %d%s  " % (K["C"] + K["BO"], K["PTR"], n, K["R"])
             lineas = _wrap(txt, max(8, iw - 7))[:2]
@@ -209,32 +259,47 @@ def _cuerpo_dial(S, K, dest, iw, full=2):
         return out
     # ── lo que de verdad viaja al agente ──
     out.append("")
-    out.append(_divisor(K, "se le inyecta a %s" % _nombre(dest).lower(),
-                        iw, tono=3))
+    out.append(_divisor(K, _t("tono.inject.divisor",
+                              "se le inyecta a %s" % _nombre(dest).lower(),
+                              name=_nombre(dest).lower()), iw, tono=3))
     act = P.activos(dest)
     if act:
-        out.append(HL.clip(" %scon cada mensaje tuyo viaja esta "
-                           "instrucción:%s" % (K["DIM"], K["R"]), iw))
-        vista = P.linea(dest).replace("[tono activo] ", "")
+        out.append(HL.clip(" %s%s%s"
+                           % (K["DIM"],
+                              _t("tono.inject.intro",
+                                 "con cada mensaje tuyo viaja esta "
+                                 "instrucción:"), K["R"]), iw))
+        prefijo = _t("tono.inject.prefix", "[tono activo] ")
+        vista = P.linea(dest).replace(prefijo, "")
         lineas = _wrap(vista, max(8, iw - 3))
         for ln in lineas[:2]:
             out.append(HL.clip(" %s%s%s" % (K["OK"], ln, K["R"]), iw))
         if len(lineas) > 2:
-            out.append(HL.clip(" %s… (el agente la recibe completa)%s"
-                               % (K["DK"], K["R"]), iw))
+            out.append(HL.clip(" %s%s%s"
+                               % (K["DK"],
+                                  _t("tono.inject.truncated",
+                                     "… (el agente la recibe completa)"),
+                                  K["R"]), iw))
     else:
-        out.append(HL.clip(" %snada — todo en neutro: %s responde como "
-                           "siempre%s" % (K["DK"], _nombre(dest).lower(),
-                                          K["R"]), iw))
+        out.append(HL.clip(" %s%s%s"
+                           % (K["DK"],
+                              _t("tono.inject.none",
+                                 "nada — todo en neutro: %s responde como "
+                                 "siempre" % _nombre(dest).lower(),
+                                 name=_nombre(dest).lower()), K["R"]), iw))
     if full < 2:
         return out
     # ── cómo funciona (la letra chica, visible) ──
     out.append("")
-    out.append(_divisor(K, "cómo funciona", iw, tono=4))
-    for ln in ("cada cambio se guarda ya; aplica al siguiente mensaje",
-               "3 = neutro: ese dial no envía nada (costo cero)",
-               "GLOBAL aplica a todos; lo del agente pisa lo global",
-               "solo estilo: jamás identidad, reglas ni honestidad"):
+    out.append(_divisor(K, _t("tono.how.title", "cómo funciona"), iw, tono=4))
+    for ln in (_t("tono.how.1",
+                  "cada cambio se guarda ya; aplica al siguiente mensaje"),
+               _t("tono.how.2",
+                  "3 = neutro: ese dial no envía nada (costo cero)"),
+               _t("tono.how.3",
+                  "GLOBAL aplica a todos; lo del agente pisa lo global"),
+               _t("tono.how.4",
+                  "solo estilo: jamás identidad, reglas ni honestidad")):
         for sub in _wrap(ln, max(8, iw - 4))[:2]:
             out.append(HL.clip(" %s·%s %s%s%s" % (K["DK"], K["R"], K["DIM"],
                                                   sub, K["R"]), iw))
@@ -259,8 +324,11 @@ def _fila_destinos(S, K, w):
         else:
             tabs.append("%s%s%s%s" % (K["GREY"], _nombre(dn), K["R"], dot))
     fila = " " + "   ".join(tabs)
-    leg = "%sTab cambia · %s●%s con ajustes propios%s" % (K["DK"], K["B2"],
-                                                          K["DK"], K["R"])
+    leg = "%s%s · %s●%s %s%s" % (K["DK"],
+                                 _t("tono.dest.tab_changes", "Tab cambia"),
+                                 K["B2"], K["DK"],
+                                 _t("tono.dest.own_settings",
+                                    "con ajustes propios"), K["R"])
     hueco = (w - 1) - HL.vis(fila) - HL.vis(leg) - 1
     if hueco > 1:
         fila += " " * hueco + leg
@@ -271,9 +339,12 @@ def render(S, w, h):
     K = _K()
     dests = S["dests"]
     dest = dests[S["di"] % len(dests)]
+    pares = _pares()
     # cabecera COMPARTIDA (wordmark + subtítulo + atajos clave + regla)
-    L = HL.screen_header(K, w, h, "tono — cómo te hablan tus agentes",
-                         hints=PARES)
+    L = HL.screen_header(K, w, h,
+                         _t("tono.header.subtitle",
+                            "tono — cómo te hablan tus agentes"),
+                         hints=pares)
     L.append(_fila_destinos(S, K, w))
     L.append("")
     top = len(L)
@@ -295,9 +366,11 @@ def render(S, w, h):
             else (max(len(bi), len(bd)) + 2)
         if need <= avail:
             break
-    d = ORDEN[S["si"]]
-    t_izq = "DIALES · %s" % (_nombre(dest) if dest else "GLOBAL (todos)")
-    t_der = "EL DIAL · %s" % d["label"]
+    d = _orden()[S["si"]]
+    t_izq = "%s · %s" % (_t("tono.box.dials", "DIALES"),
+                         _nombre(dest) if dest
+                         else _t("tono.box.dials_global", "GLOBAL (todos)"))
+    t_der = "%s · %s" % (_t("tono.box.dial", "EL DIAL"), d["label"])
     if apilado:                                  # ── angosto: APILADO ──
         # presupuesto honesto: DIALES entero; EL DIAL recibe lo que quede
         # (mínimo la escalera a 3 filas) — desbordar rompe el pie
@@ -322,7 +395,7 @@ def render(S, w, h):
         L.append(" %s%s%s" % (K["B2"], S["msg"], K["R"]))
     else:
         L.append("")
-    L.append(HL.foot_hints(K, PARES, w))
+    L.append(HL.foot_hints(K, pares, w))
     return [HL.clip(x, w - 1) for x in L[:h - 1]]
 
 
@@ -331,14 +404,15 @@ def _accion(S, key):
     """Devuelve False para salir. Cada cambio se guarda al instante."""
     dests = S["dests"]
     dest = dests[S["di"] % len(dests)]
-    d = ORDEN[S["si"]]
+    orden = _orden()
+    d = orden[S["si"]]
     S["msg"] = ""
     if key in ("q", "\x1b", "\x03"):
         return False
     if key == "up":
-        S["si"] = (S["si"] - 1) % len(ORDEN)
+        S["si"] = (S["si"] - 1) % len(orden)
     elif key == "down":
-        S["si"] = (S["si"] + 1) % len(ORDEN)
+        S["si"] = (S["si"] + 1) % len(orden)
     elif key in ("tab", "right_tab"):
         S["di"] = (S["di"] + (1 if key == "tab" else -1)) % len(dests)
         S["preset"] = ""
@@ -346,23 +420,29 @@ def _accion(S, key):
         v = P.niveles(dest)[d["key"]] + (1 if key == "right" else -1)
         v = max(1, min(5, v))
         P.set_nivel(d["key"], v, dest)
-        S["msg"] = "%s → %d/5 · guardado ✓ (aplica al siguiente mensaje)" \
-            % (d["label"], v)
+        S["msg"] = _t("tono.msg.saved",
+                      "%s → %d/5 · guardado ✓ (aplica al siguiente mensaje)"
+                      % (d["label"], v), label=d["label"], v=v)
     elif key in tuple("12345"):
         P.set_nivel(d["key"], int(key), dest)
-        S["msg"] = "%s → %s/5 · guardado ✓ (aplica al siguiente mensaje)" \
-            % (d["label"], key)
+        S["msg"] = _t("tono.msg.saved",
+                      "%s → %s/5 · guardado ✓ (aplica al siguiente mensaje)"
+                      % (d["label"], key), label=d["label"], v=key)
     elif key == "r":
         P.reset(dest)
         S["preset"] = ""
-        S["msg"] = "%s en neutro — no se le inyecta nada" % _nombre(dest)
+        S["msg"] = _t("tono.msg.reset",
+                      "%s en neutro — no se le inyecta nada" % _nombre(dest),
+                      name=_nombre(dest))
     elif key == "p":
         nombres = sorted(P.PRESETS)
         S["pi"] = (S.get("pi", -1) + 1) % len(nombres)
         S["preset"] = nombres[S["pi"]]
         P.aplicar_preset(S["preset"], dest)
-        S["msg"] = "modo «%s» aplicado a %s · p pasa al siguiente" \
-            % (S["preset"], _nombre(dest))
+        S["msg"] = _t("tono.msg.preset",
+                      "modo «%s» aplicado a %s · p pasa al siguiente"
+                      % (S["preset"], _nombre(dest)),
+                      preset=_pname(S["preset"]), name=_nombre(dest))
     return True
 
 

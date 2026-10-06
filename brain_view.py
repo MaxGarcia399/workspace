@@ -6,13 +6,41 @@ labelled; a preview never claims a proposed skill is already installed.
 from pathlib import Path
 import re
 
-ROUTES = {
-    'setup': ('COMPOSICIÓN', 'Formulario → plantilla → revisión → cerebro', 'Vista previa · nada creado todavía', 'C',''),
-    'boot': ('ARRANQUE', 'CLAUDE.md → BOOT/ → STATE/MEMORY + INDEX + users/', 'wiki y skills completas: sólo cuando hacen falta', 'C', 'CLAUDE.md BOOT STATE'),
-    'save': ('GUARDAR', 'Trabajo significativo → sessions/ + inbox/ → consolidación', 'Claude: respaldo al compactar; rastro al cerrar si faltó captura', 'OK', 'STATE'),
-    'retrieve': ('RECUPERAR', 'INDEX.md → archivo · si falta: FTS5 → archivo · fallback: grep', 'Wiki: index.md → [[enlace]] → nota · sólo el detalle necesario', 'B', 'STATE wiki/'),
-    'organize': ('ORGANIZAR', 'Capturas → consolidación → MEMORY + INDEX · Dream → DESTILADO', 'Dream propone; promoción humana → MEMORY · sin intervalo universal', 'B2', 'STATE'),
-}
+# i18n (lado cliente): el mapa conceptual lo ven los clientes. Import guardado
+# con red de seguridad inline → si i18n no se pudo importar, _t() devuelve el
+# español (paridad EXACTA con el mapa de siempre). Las etiquetas se resuelven en
+# cada llamada (routes()/projection() son funciones) para que el mapa flipee de
+# idioma EN VIVO con el hub.
+try:
+    import i18n
+except Exception:
+    i18n = None
+
+
+def _t(key, es):
+    if i18n is None:
+        return es
+    try:
+        s = i18n.t(key)
+        return s if s != key else es
+    except Exception:
+        return es
+
+
+def routes():
+    """Rutas del mapa (texto live-i18n + color/carpetas estáticos)."""
+    return {
+        'setup': (_t('addagent.route.setup.head', 'COMPOSICIÓN'), _t('addagent.route.setup.desc', 'Formulario → plantilla → revisión → cerebro'), _t('addagent.route.setup.note', 'Vista previa · nada creado todavía'), 'C', ''),
+        'boot': (_t('addagent.route.boot.head', 'ARRANQUE'), _t('addagent.route.boot.desc', 'CLAUDE.md → BOOT/ → STATE/MEMORY + INDEX + users/'), _t('addagent.route.boot.note', 'wiki y skills completas: sólo cuando hacen falta'), 'C', 'CLAUDE.md BOOT STATE'),
+        'save': (_t('addagent.route.save.head', 'GUARDAR'), _t('addagent.route.save.desc', 'Trabajo significativo → sessions/ + inbox/ → consolidación'), _t('addagent.route.save.note', 'Claude: respaldo al compactar; rastro al cerrar si faltó captura'), 'OK', 'STATE'),
+        'retrieve': (_t('addagent.route.retrieve.head', 'RECUPERAR'), _t('addagent.route.retrieve.desc', 'INDEX.md → archivo · si falta: FTS5 → archivo · fallback: grep'), _t('addagent.route.retrieve.note', 'Wiki: index.md → [[enlace]] → nota · sólo el detalle necesario'), 'B', 'STATE wiki/'),
+        'organize': (_t('addagent.route.organize.head', 'ORGANIZAR'), _t('addagent.route.organize.desc', 'Capturas → consolidación → MEMORY + INDEX · Dream → DESTILADO'), _t('addagent.route.organize.note', 'Dream propone; promoción humana → MEMORY · sin intervalo universal'), 'B2', 'STATE'),
+    }
+
+
+# Compatibilidad: ROUTES sigue existiendo como snapshot (idioma al importar),
+# pero el código vivo usa routes() para flipear EN VIVO.
+ROUTES = routes()
 
 
 def clean(value):
@@ -21,28 +49,28 @@ def clean(value):
 
 def projection(values, base, proposed, personalized, owner=''):
     """Facts match agent_admin seeding and the versioned template contract."""
-    v=lambda k, default='por definir': clean(values.get(k)) or default
+    v=lambda k, default=_t('addagent.proj.undefined', 'por definir'): clean(values.get(k)) or default
     profile=any(values.get(k) for k in ('dueño_quien','dueño_como','dueño_necesita'))
-    owner=owner or v('dueño','socio')
+    owner=owner or v('dueño', _t('addagent.proj.owner', 'socio'))
     user_path='users/%s.md' % owner
-    return {'name':v('visible', v('nombre','Tu agente')), 'preview':True,
-            'identity':'IA: propuesta de redacción' if personalized else 'plantilla + semillas del formulario',
+    return {'name':v('visible', v('nombre', _t('addagent.proj.default_name', 'Tu agente'))), 'preview':True,
+            'identity':_t('addagent.proj.identity_ai', 'IA: propuesta de redacción') if personalized else _t('addagent.proj.identity_tpl', 'plantilla + semillas del formulario'),
             'branches':[
-                ('CLAUDE.md', [('Orden de lectura', 'BOOT → memoria → índices')]),
+                ('CLAUDE.md', [(_t('addagent.proj.claude.read_order', 'Orden de lectura'), _t('addagent.proj.claude.read_flow', 'BOOT → memoria → índices'))]),
                 ('BOOT/', [('00-SOUL.md', v('tono')+' · '+v('estilo')),
                            ('01-IDENTITY.md', v('rol')+' · '+v('proposito')),
                            ('03-RULES.md', v('limites')),
                            ('04-BRAIN-MAP.md', 'HOT → WARM → COLD')]),
-                ('STATE/', [('MEMORY.md + INDEX.md','memoria + rutas'),
-                            (user_path if profile else 'users/','perfil: '+v('dueño_quien') if profile else 'sin perfil sembrado'),
-                            ('sessions/<socio>/<pestaña>.md','se crea al usar una pestaña'),
-                            ('inbox/ + DESTILADO.md','capturas + candidatos; promoción revisada')]),
-                ('wiki/', [('index.md → [[notas]]','conocimiento bajo demanda')]),
-                ('skills/', [('INDEX-LITE.md → categoría/SKILL.md','%d base + %d propuestas' % (base,proposed) + (' · revisión pendiente' if proposed else '')),
-                             ('_propuestas/','imports → oficiales/ o externas/')]),
-                ('adapters/', [('claude-code.md','contrato del runtime; motor elegido aparte')]),
-                ('.workspace/', [('agent.json','identidad + recibo de importación')]),
-                ('.claude/', [('hooks + socio.local','configuración del motor')])],
+                ('STATE/', [('MEMORY.md + INDEX.md', _t('addagent.proj.state.memidx', 'memoria + rutas')),
+                            (user_path if profile else 'users/', _t('addagent.proj.state.profile', 'perfil: ')+v('dueño_quien') if profile else _t('addagent.proj.state.no_profile', 'sin perfil sembrado')),
+                            (_t('addagent.proj.state.session_path', 'sessions/<socio>/<pestaña>.md'), _t('addagent.proj.state.session_note', 'se crea al usar una pestaña')),
+                            ('inbox/ + DESTILADO.md', _t('addagent.proj.state.inbox_note', 'capturas + candidatos; promoción revisada'))]),
+                ('wiki/', [(_t('addagent.proj.wiki.idx', 'index.md → [[notas]]'), _t('addagent.proj.wiki.note', 'conocimiento bajo demanda'))]),
+                ('skills/', [(_t('addagent.proj.skills.idx', 'INDEX-LITE.md → categoría/SKILL.md'), _t('addagent.proj.skills.counts', '%d base + %d propuestas') % (base,proposed) + (_t('addagent.proj.skills.pending', ' · revisión pendiente') if proposed else '')),
+                             ('_propuestas/', _t('addagent.proj.skills.prop', 'imports → oficiales/ o externas/'))]),
+                ('adapters/', [('claude-code.md', _t('addagent.proj.adapters.note', 'contrato del runtime; motor elegido aparte'))]),
+                ('.workspace/', [('agent.json', _t('addagent.proj.workspace.note', 'identidad + recibo de importación'))]),
+                ('.claude/', [('hooks + socio.local', _t('addagent.proj.claudedir.note', 'configuración del motor'))])],
             'base':base,'proposed':proposed}
 
 
@@ -54,7 +82,7 @@ def inspect(brain, max_files=4000):
     """
     root=Path(brain)
     if root.is_symlink() or not root.is_dir():
-        raise ValueError('El cerebro debe ser una carpeta real')
+        raise ValueError(_t('addagent.inspect.not_folder', 'El cerebro debe ser una carpeta real'))
     branches=[]; count=0
     for label in ('CLAUDE.md','BOOT','STATE','wiki','skills','adapters','.workspace','.claude'):
         path=root/label
@@ -62,7 +90,7 @@ def inspect(brain, max_files=4000):
             continue
         leaves=[]
         if path.is_file():
-            leaves=[('Entrada','orden de lectura')]
+            leaves=[(_t('addagent.inspect.entry', 'Entrada'), _t('addagent.inspect.entry_note', 'orden de lectura'))]
         else:
             # scandir avoids following symlinked folders; bounded traversal.
             stack=[path]

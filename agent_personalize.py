@@ -69,6 +69,21 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
+try:
+    import i18n
+except Exception:
+    i18n = None
+
+
+def _t(key, es):
+    if i18n is None:
+        return es
+    try:
+        s = i18n.t(key)
+        return s if s != key else es
+    except Exception:
+        return es
+
 #: ≈4 chars/token — la MISMA convención de brain_vitals/doctor (estimación
 #: gruesa y declarada como tal; headless no reporta usage real).
 CHARS_PER_TOKEN = 4
@@ -171,7 +186,8 @@ def requested(params):
 def steps_skeleton():
     """Los pasos de la pasada, en el MISMO shape que agent_create_job usa
     ({key,label,st,note}) — la vista EN VIVO los pinta sin tocarla."""
-    return [{"key": k, "label": lbl, "st": "pend", "note": ""}
+    return [{"key": k, "label": _t("addagent.pers.step.%s" % k, lbl),
+             "st": "pend", "note": ""}
             for k, lbl in STEPS]
 
 
@@ -317,24 +333,30 @@ def parse_blocks(text, allowed):
         rel = m.group("path").strip().replace("\\", "/").lstrip("./")
         body = m.group("body")
         if rel not in allowed:
-            warns.append("ruta fuera de whitelist ignorada: %s" % rel[:80])
+            warns.append(_t("addagent.pers.warn.path_not_whitelisted",
+                            "ruta fuera de whitelist ignorada: %s") % rel[:80])
             continue
         if ".." in rel.split("/") or os.path.isabs(rel):
-            warns.append("ruta sospechosa ignorada: %s" % rel[:80])
+            warns.append(_t("addagent.pers.warn.path_suspicious",
+                            "ruta sospechosa ignorada: %s") % rel[:80])
             continue
         if not body.strip():
-            warns.append("%s: contenido vacío — se conserva el template" % rel)
+            warns.append(_t("addagent.pers.warn.empty",
+                            "%s: contenido vacío — se conserva el template") % rel)
             continue
         if len(body) > MAX_FILE_CHARS:
-            warns.append("%s: demasiado grande (%d chars) — se conserva el "
-                         "template" % (rel, len(body)))
+            warns.append(_t("addagent.pers.warn.too_big",
+                            "%s: demasiado grande (%d chars) — se conserva el "
+                            "template") % (rel, len(body)))
             continue
         if "<<<ARCHIVO:" in body:
-            warns.append("%s: marcador anidado — se conserva el template" % rel)
+            warns.append(_t("addagent.pers.warn.nested",
+                            "%s: marcador anidado — se conserva el template") % rel)
             continue
         for mark in _REQUIRED_MARKS.get(rel, ()):
             if mark not in body:
-                warns.append("%s: perdió «%s» — se conserva el template"
+                warns.append(_t("addagent.pers.warn.lost_mark",
+                                "%s: perdió «%s» — se conserva el template")
                              % (rel, mark))
                 break
         else:
@@ -366,13 +388,16 @@ def pick_backend(engine):
     try:
         b = headless.get_backend(eng)
     except headless.UnknownBackend:
-        return None, None, "el harness %r no tiene modo headless" % eng
+        return None, None, _t("addagent.pers.backend.no_headless",
+                              "el harness %r no tiene modo headless") % eng
     except Exception as e:
-        return None, None, "headless no disponible: %s" % e
+        return None, None, _t("addagent.pers.backend.unavailable",
+                              "headless no disponible: %s") % e
     if b.get("can_disable_tools"):
         return eng, headless.TOOLS_GEN, ""
     return eng, headless.TOOLS_READ_ONLY, \
-        "%s: sin knob tools-off — corre en sandbox read-only" % eng
+        _t("addagent.pers.backend.read_only",
+           "%s: sin knob tools-off — corre en sandbox read-only") % eng
 
 
 def _tok(nchars):
@@ -403,8 +428,9 @@ def run(brain, params, progress=None, should_cancel=None, timeout=None,
     name = str(p.get("name", "")).strip().lower()
     display = str(p.get("display") or name.capitalize() or "agente")
     owner = str(p.get("owner", "")).strip().lower()
-    rerun_hint = "córrelo luego: python3 agent_personalize.py %s" % (name or
-                                                                     "<agente>")
+    rerun_hint = _t("addagent.pers.rerun_hint",
+                    "córrelo luego: python3 agent_personalize.py %s") % (
+                        name or "<agente>")
 
     def _skip(key_from, st, note):
         """Cierra los pasos desde `key_from` en adelante con el mismo estado."""
@@ -427,15 +453,20 @@ def run(brain, params, progress=None, should_cancel=None, timeout=None,
         _prog(progress, "perso-prep", "run")
         brain = os.path.abspath(os.path.expanduser(brain or ""))
         if not os.path.isdir(brain):
-            res["note"] = "cerebro inexistente: %s" % brain
-            _skip("perso-prep", "warn", "sin personalizar — " + res["note"])
+            res["note"] = _t("addagent.pers.note.brain_missing",
+                             "cerebro inexistente: %s") % brain
+            _skip("perso-prep", "warn",
+                  _t("addagent.pers.prefix.unpersonalized",
+                     "sin personalizar — ") + res["note"])
             return res
         fields = collect_fields(p)
         # sin datos más allá del nombre no hay nada que personalizar — honesto
         if len([1 for lbl, _v in fields
                 if lbl not in ("nombre corto (slug)",)]) < 2:
-            res["note"] = "sin datos del formulario que personalizar"
-            _skip("perso-prep", "skip", res["note"] + " — plantilla tal cual")
+            res["note"] = _t("addagent.pers.note.no_form_data",
+                             "sin datos del formulario que personalizar")
+            _skip("perso-prep", "skip", res["note"] + _t(
+                "addagent.pers.suffix.template_asis", " — plantilla tal cual"))
             return res
         tg = targets(owner)
         files = {}
@@ -446,47 +477,61 @@ def run(brain, params, progress=None, should_cancel=None, timeout=None,
                     with open(path, encoding="utf-8") as fh:
                         files[rel] = fh.read()
                 except Exception:
-                    res["warns"].append("%s: ilegible — fuera de la pasada"
+                    res["warns"].append(_t("addagent.pers.warn.unreadable",
+                                           "%s: ilegible — fuera de la pasada")
                                         % rel)
             elif rel.startswith("STATE/users/"):
                 files[rel] = None            # nuevo: el modelo puede crearlo
         if not files:
-            res["note"] = "no encontré archivos de identidad en el cerebro"
-            _skip("perso-prep", "warn", "sin personalizar — " + res["note"])
+            res["note"] = _t("addagent.pers.note.no_identity_files",
+                             "no encontré archivos de identidad en el cerebro")
+            _skip("perso-prep", "warn",
+                  _t("addagent.pers.prefix.unpersonalized",
+                     "sin personalizar — ") + res["note"])
             return res
         backend, tools, bnote = pick_backend(backend_override
                                              or p.get("engine"))
         if backend is None:
             res["note"] = bnote
             _skip("perso-prep", "warn",
-                  "sin personalizar — %s · %s" % (bnote, rerun_hint))
+                  _t("addagent.pers.note.unpersonalized_two",
+                     "sin personalizar — %s · %s") % (bnote, rerun_hint))
             return res
         res["backend"], res["tools"] = backend, tools
         if bnote:
             res["warns"].append(bnote)
         prompt = build_prompt(name, display, fields, files, owner)
         if len(prompt) > MAX_PROMPT_CHARS:
-            res["note"] = "prompt demasiado grande (%d chars)" % len(prompt)
-            _skip("perso-prep", "warn", "sin personalizar — " + res["note"])
+            res["note"] = _t("addagent.pers.note.prompt_too_big",
+                             "prompt demasiado grande (%d chars)") % len(prompt)
+            _skip("perso-prep", "warn",
+                  _t("addagent.pers.prefix.unpersonalized",
+                     "sin personalizar — ") + res["note"])
             return res
         tin = _tok(len(prompt))
         res["tokens_est"]["in"] = tin
         _prog(progress, "perso-prep", "ok",
-              "%d archivos · %d campos · ~%s tok in (est.)"
+              _t("addagent.pers.note.prep_ok",
+                 "%d archivos · %d campos · ~%s tok in (est.)")
               % (len(files), len(fields), _fmt_tok(tin)))
 
         # ── 2 · redactar con el modelo ──
         if _cxl():
-            res["note"] = "cancelado antes del modelo"
-            _skip("perso-modelo", "skip", "cancelado — plantilla tal cual")
+            res["note"] = _t("addagent.pers.note.canceled_before_model",
+                             "cancelado antes del modelo")
+            _skip("perso-modelo", "skip",
+                  _t("addagent.pers.note.canceled_asis",
+                     "cancelado — plantilla tal cual"))
             return res
         if dry_run:
             res["ok"] = True
-            res["note"] = "dry-run: prompt listo, modelo NO invocado (0 tokens)"
+            res["note"] = _t("addagent.pers.note.dry_run",
+                             "dry-run: prompt listo, modelo NO invocado (0 tokens)")
             res["_prompt"] = prompt
             _skip("perso-modelo", "skip", res["note"])
             return res
-        _prog(progress, "perso-modelo", "run", "harness %s" % backend)
+        _prog(progress, "perso-modelo", "run",
+              _t("addagent.pers.note.harness", "harness %s") % backend)
         import headless
         try:
             tmo = int(timeout or os.environ.get(
@@ -503,21 +548,26 @@ def run(brain, params, progress=None, should_cancel=None, timeout=None,
         if not ok:
             res["note"] = str(out)[:200]
             _prog(progress, "perso-modelo", "warn",
-                  "sin personalizar — %s" % rerun_hint)
-            _prog(progress, "perso-aplicar", "skip", "plantilla tal cual")
+                  _t("addagent.pers.note.unpersonalized_hint",
+                     "sin personalizar — %s") % rerun_hint)
+            _prog(progress, "perso-aplicar", "skip",
+                  _t("addagent.pers.note.template_asis", "plantilla tal cual"))
             return res
         tout = _tok(len(out))
         res["tokens_est"]["out"] = tout
         res["tokens_est"]["total"] = tin + tout
         _prog(progress, "perso-modelo", "ok",
-              "~%s tok (in+out, est. por chars)" % _fmt_tok(tin + tout))
+              _t("addagent.pers.note.model_ok",
+                 "~%s tok (in+out, est. por chars)") % _fmt_tok(tin + tout))
 
         # ── 3 · validar + aplicar (todo-o-rollback) ──
         _prog(progress, "perso-aplicar", "run")
         if _cxl():
-            res["note"] = "cancelado antes de aplicar"
+            res["note"] = _t("addagent.pers.note.canceled_before_apply",
+                             "cancelado antes de aplicar")
             _prog(progress, "perso-aplicar", "skip",
-                  "cancelado — plantilla tal cual")
+                  _t("addagent.pers.note.canceled_asis",
+                     "cancelado — plantilla tal cual"))
             return res
         blocks, warns = parse_blocks(out, tg)
         res["warns"].extend(warns)
@@ -525,13 +575,16 @@ def run(brain, params, progress=None, should_cancel=None, timeout=None,
         if "BOOT/03-RULES.md" in blocks:
             orig = files.get("BOOT/03-RULES.md") or ""
             if not _rules_prefix_ok(orig, blocks["BOOT/03-RULES.md"]):
-                res["warns"].append("BOOT/03-RULES.md: tocó algo fuera del "
-                                    "Scope — se conserva el template")
+                res["warns"].append(_t("addagent.pers.warn.rules_scope",
+                                       "BOOT/03-RULES.md: tocó algo fuera del "
+                                       "Scope — se conserva el template"))
                 del blocks["BOOT/03-RULES.md"]
         if not blocks:
-            res["note"] = "la respuesta no trajo archivos válidos"
+            res["note"] = _t("addagent.pers.note.no_valid_files",
+                             "la respuesta no trajo archivos válidos")
             _prog(progress, "perso-aplicar", "warn",
-                  "sin personalizar — %s · %s" % (res["note"], rerun_hint))
+                  _t("addagent.pers.note.unpersonalized_two",
+                     "sin personalizar — %s · %s") % (res["note"], rerun_hint))
             return res
         written, originals = [], {}
         try:
@@ -558,24 +611,30 @@ def run(brain, params, progress=None, should_cancel=None, timeout=None,
                             fh.write(originals[rel])
                 except Exception:
                     pass
-            res["note"] = "falló al escribir (%s) — revertido, plantilla " \
-                          "intacta" % e
+            res["note"] = _t("addagent.pers.note.write_failed",
+                             "falló al escribir (%s) — revertido, plantilla "
+                             "intacta") % e
             _prog(progress, "perso-aplicar", "warn",
-                  "sin personalizar — revertido · %s" % rerun_hint)
+                  _t("addagent.pers.note.unpersonalized_reverted",
+                     "sin personalizar — revertido · %s") % rerun_hint)
             return res
         res["files"] = written
         res["skipped"] = [r for r in sorted(files) if r not in written]
         res["ok"] = True
         res["dur_s"] = round(time.monotonic() - t0, 1)
         _write_receipt(brain, res, fields, model or p.get("personalize_model"))
-        extra = " · %d avisos" % len(res["warns"]) if res["warns"] else ""
+        extra = _t("addagent.pers.suffix.warns",
+                   " · %d avisos") % len(res["warns"]) if res["warns"] else ""
         _prog(progress, "perso-aplicar", "ok",
-              "%d archivo(s) · ~%s tok (est.)%s"
+              _t("addagent.pers.note.apply_ok",
+                 "%d archivo(s) · ~%s tok (est.)%s")
               % (len(written), _fmt_tok(res["tokens_est"]["total"]), extra))
         return res
     except Exception as e:                           # red de seguridad total
         res["note"] = "%s: %s" % (type(e).__name__, e)
-        _skip("perso-prep", "warn", "sin personalizar — error interno")
+        _skip("perso-prep", "warn",
+              _t("addagent.pers.note.internal_error",
+                 "sin personalizar — error interno"))
         return res
     finally:
         res["dur_s"] = res["dur_s"] or round(time.monotonic() - t0, 1)
@@ -624,7 +683,8 @@ def estimate_for_template(template_root):
         tin = _tok(total + 3500)       # + reglas del prompt y campos típicos
         tout = _tok(total)             # reescribe ~los mismos archivos
         return {"in": tin, "out": tout, "total": tin + tout,
-                "nota": "estimado por chars (~%d chars/token)"
+                "nota": _t("addagent.pers.est.nota",
+                           "estimado por chars (~%d chars/token)")
                         % CHARS_PER_TOKEN}
     except Exception:
         return None

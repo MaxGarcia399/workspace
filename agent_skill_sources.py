@@ -20,6 +20,25 @@ import urllib.request
 import urllib.parse
 import skill_source_preferences as preferences
 
+# i18n (lado cliente): los pasos EN VIVO, las notas de avance y los motivos de
+# revisión los ve el socio en la pantalla «Agregar agente». Import guardado —
+# sin i18n, _t() devuelve el español inline (paridad EXACTA con lo de siempre).
+try:
+    import i18n
+except Exception:
+    i18n = None
+
+
+def _t(key, es):
+    if i18n is None:
+        return es
+    try:
+        s = i18n.t(key)
+        return s if s != key else es
+    except Exception:
+        return es
+
+
 SOURCES = ("anthropics/skills", "openai/plugins")
 MAX_CANDIDATES = 16
 MAX_SELECTED = 5
@@ -170,9 +189,9 @@ def discover(params, fetch_tree=None, read_blob=None, search=None, should_cancel
     cancelled = should_cancel or (lambda: False)
     terms = _terms(profile(params))
     result = {"candidates": [], "errors": [], "policy": POLICY,
-              "note": "coincidencia de capacidades; no valida conocimiento de dominio"}
+              "note": _t("addagent.src.note", "coincidencia de capacidades; no valida conocimiento de dominio")}
     if not terms:
-        result["note"] = "describe tareas o skills para buscar coincidencias"
+        result["note"] = _t("addagent.src.note_empty", "describe tareas o skills para buscar coincidencias")
         return result
     choices = []
     deadline = time.monotonic() + 90
@@ -194,7 +213,7 @@ def discover(params, fetch_tree=None, read_blob=None, search=None, should_cancel
         if cancelled():
             break
         if time.monotonic() >= deadline:
-            result["errors"].append("búsqueda acotada: tiempo máximo alcanzado")
+            result["errors"].append(_t("addagent.src.err_timeout", "búsqueda acotada: tiempo máximo alcanzado"))
             break
         try:
             tree = fetch_tree(repo)
@@ -248,7 +267,7 @@ def discover(params, fetch_tree=None, read_blob=None, search=None, should_cancel
         data = read_blob(c["repo"], c["sha"], (c["path"] + "/" if c["path"] else "") + "SKILL.md")
         meta = _metadata(data.decode("utf-8"))
         return dict(c, **meta, metadata_sha256=hashlib.sha256(data).hexdigest(),
-                    reason="coincide con: " + ", ".join(c["matches"]),
+                    reason=_t("addagent.src.reason_match", "coincide con: ") + ", ".join(c["matches"]),
                     source_url="https://github.com/%s/tree/%s/%s" % (c["repo"], c["sha"], c["path"]))
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         jobs = [pool.submit(describe, c) for c in choices[:MAX_CANDIDATES]]
@@ -262,8 +281,8 @@ def discover(params, fetch_tree=None, read_blob=None, search=None, should_cancel
 
 def steps_skeleton():
     return [{"key": k, "label": label, "st": "pend", "note": ""}
-            for k, label in (("skills-audit", "skills: descargar y revisar"),
-                             ("skills-install", "skills: instalar y catalogar"))]
+            for k, label in (("skills-audit", _t("addagent.src.step.audit", "skills: descargar y revisar")),
+                             ("skills-install", _t("addagent.src.step.install", "skills: instalar y catalogar")))]
 
 
 def _review(candidate, read_blob, cancelled, report=None, params=None):
@@ -272,20 +291,20 @@ def _review(candidate, read_blob, cancelled, report=None, params=None):
         _safe_path(prefix)
     permitted = preferences.permitted(repo, params, candidate) if params and "skill_source_config" in params else repo in SOURCES
     if not permitted or not SHA.fullmatch(sha):
-        raise ValueError("fuente no permitida por el usuario")
+        raise ValueError(_t("addagent.src.err_not_permitted", "fuente no permitida por el usuario"))
     if repo == "anthropics/skills" and not prefix.startswith("skills/"):
         raise ValueError("skill fuera del catálogo")
     if repo == "openai/plugins" and not re.match(r"^plugins/[^/]+/skills/", prefix + "/"):
         raise ValueError("skill fuera del catálogo")
     files = list(candidate["files"]) + list(candidate.get("license_files", []))
     if len(files) > MAX_FILES or not files:
-        raise ValueError("cantidad de archivos excedida")
+        raise ValueError(_t("addagent.src.err_too_many_files", "cantidad de archivos excedida"))
     # Guard obligatorio: si falta el scanner NO se activa contenido remoto.
     from hooks.untrusted import scan
     from secret_scan import scan_text
     contents, alerts, notes, total = {}, [], [], 0
     if candidate.get("companions"):
-        alerts.append("plugin requiere apps/MCP: instalar skill sola no lo conecta")
+        alerts.append(_t("addagent.src.alert_plugin_apps", "plugin requiere apps/MCP: instalar skill sola no lo conecta"))
     for entry in files:
         if cancelled():
             raise InterruptedError("cancelado")
@@ -314,24 +333,24 @@ def _review(candidate, read_blob, cancelled, report=None, params=None):
             raise ValueError("hash Git de recurso no coincide")
         suffix = PurePosixPath(rel).suffix.lower()
         if suffix not in TEXT_EXT and not PurePosixPath(rel).name.upper().startswith("LICENSE"):
-            alerts.append("recurso binario/no inspeccionable: " + rel)
+            alerts.append(_t("addagent.src.alert_binary", "recurso binario/no inspeccionable: ") + rel)
         else:
             try:
                 text = data.decode("utf-8")
             except UnicodeDecodeError:
-                alerts.append("recurso no UTF-8: " + rel)
+                alerts.append(_t("addagent.src.alert_not_utf8", "recurso no UTF-8: ") + rel)
             else:
                 findings = {f["class"] for f in scan(text)} | {f["class"] for f in scan_text(text)}
                 alerts.extend("%s: %s" % (rel, k) for k in sorted(findings))
                 if re.search(r"(?i)(?:\$\{?CLAUDE_PLUGIN_ROOT|\$\{?CODEX_HOME|mcp__|tools\.mcp|app://)", text):
-                    alerts.append("dependencia de runtime/app: " + rel)
+                    alerts.append(_t("addagent.src.alert_runtime_dep", "dependencia de runtime/app: ") + rel)
                 if re.search(r"/(?:mnt/data|opt/|home/oai/)|[A-Za-z]:\\", text):
-                    notes.append("adaptar rutas de ejemplo al entorno: " + rel)
+                    notes.append(_t("addagent.src.note_adapt_paths", "adaptar rutas de ejemplo al entorno: ") + rel)
                 # Referencias relativas dentro de recursos no son traversal del
                 # instalador. Los nombres de archivo sí se validan estrictamente.
                 relative_refs = re.findall(r"(?:\.\./)+[A-Za-z0-9_.\-/]+", text)
                 if relative_refs:
-                    notes.append("referencias relativas de ejemplo; adaptar al contexto de uso: " + rel)
+                    notes.append(_t("addagent.src.note_relative_refs", "referencias relativas de ejemplo; adaptar al contexto de uso: ") + rel)
                 # Un enlace Markdown a un recurso necesario debe resolverse.
                 # Los Targets XML de PPTX y rutas de salida son datos de ejemplo,
                 # no nombres de archivo que el importador vaya a escribir.
@@ -339,18 +358,18 @@ def _review(candidate, read_blob, cancelled, report=None, params=None):
                     resolved = posixpath.normpath(posixpath.join(posixpath.dirname(rel), ref.split("#")[0]))
                     relative_files = [e["path"][len(prefix) + 1:] if prefix else e["path"] for e in candidate["files"]]
                     if resolved.startswith("../") or not any(p == resolved or p.startswith(resolved.rstrip("/") + "/") for p in relative_files):
-                        alerts.append("recurso enlazado no incluido: " + rel)
+                        alerts.append(_t("addagent.src.alert_linked_missing", "recurso enlazado no incluido: ") + rel)
                 if suffix in (".py", ".js", ".ts", ".sh", ".ps1") and re.search(r"(?i)\b(?:eval|exec)\s*\(|(?:curl|wget)\b[^\n]*[|;]\s*(?:sh|bash)|\b(?:b64decode|frombase64string)\s*\(", text):
-                    alerts.append("código dinámico o ejecución remota requiere revisión: " + rel)
+                    alerts.append(_t("addagent.src.alert_dynamic_code", "código dinámico o ejecución remota requiere revisión: ") + rel)
         contents[rel] = data
         if report:
-            report("%s: %d/%d recursos revisados" % (candidate["name"], len(contents), len(files)))
+            report(_t("addagent.src.audit_progress", "%s: %d/%d recursos revisados") % (candidate["name"], len(contents), len(files)))
     from skill_meta import parse_requires, evaluate
     if contents.get("SKILL.md"):
         requires = parse_requires(contents["SKILL.md"].decode("utf-8"))
         available, missing = evaluate(requires)
         if not available:
-            alerts.append("requisitos no disponibles: " + ", ".join(missing))
+            alerts.append(_t("addagent.src.alert_missing_reqs", "requisitos no disponibles: ") + ", ".join(missing))
     skill = contents.get("SKILL.md", b"")
     meta = _metadata(skill.decode("utf-8"))
     if hashlib.sha256(skill).hexdigest() != candidate.get("metadata_sha256"):
@@ -360,7 +379,7 @@ def _review(candidate, read_blob, cancelled, report=None, params=None):
     # No reescribir metadata o licencias upstream. Procedencia va en sidecar.
     license_files = [p for p in contents if PurePosixPath(p).name.upper().startswith("LICENSE")]
     if not license_files:
-        alerts.append("licencia no incluida en la skill: requiere revisión")
+        alerts.append(_t("addagent.src.alert_no_license", "licencia no incluida en la skill: requiere revisión"))
     candidate["compatibility_notes"] = sorted(set(notes))
     return contents, sorted(set(alerts))
 
@@ -431,9 +450,9 @@ def run(brain, params, progress=None, should_cancel=None, read_blob=None):
               "review": "estática; no certifica seguridad, exactitud ni competencia"}
     selected = params.get("skill_candidates") or []
     if len(selected) > MAX_SELECTED:
-        result["errors"].append("máximo %d skills por creación" % MAX_SELECTED)
+        result["errors"].append(_t("addagent.src.err_max_skills", "máximo %d skills por creación") % MAX_SELECTED)
         selected = []
-    progress("skills-audit", "run", "%d seleccionadas · 0 tokens" % len(selected))
+    progress("skills-audit", "run", _t("addagent.src.audit_selected", "%d seleccionadas · 0 tokens") % len(selected))
     root = Path(brain).resolve()
     skill_root = root / "skills"
     published, indices = [], {}
@@ -449,12 +468,12 @@ def run(brain, params, progress=None, should_cancel=None, read_blob=None):
             indices[path] = path.read_bytes() if path.exists() else None
         for c in selected:
             if cancelled():
-                result["errors"].append("cancelado; las skills instaladas se conservan")
+                result["errors"].append(_t("addagent.src.err_cancelled_kept", "cancelado; las skills instaladas se conservan"))
                 break
             name = c.get("name", "")
             try:
                 if not SLUG.fullmatch(name):
-                    raise ValueError("nombre inválido")
+                    raise ValueError(_t("addagent.src.err_bad_name", "nombre inválido"))
                 contents, alerts = _review(c, read_blob, cancelled,
                                           lambda note: progress("skills-audit", "run", note), params=params)
                 record = {k: c[k] for k in ("name", "repo", "sha", "path", "reason", "source_url")}
@@ -471,9 +490,9 @@ def run(brain, params, progress=None, should_cancel=None, read_blob=None):
                 parent.mkdir(exist_ok=True)
                 dest = parent / name
                 if dest.exists() or dest.is_symlink():
-                    raise ValueError("skill existente: no se sobrescribe")
+                    raise ValueError(_t("addagent.src.err_exists", "skill existente: no se sobrescribe"))
                 if any(p.parent.name == name for p in skill_root.glob("*/*/SKILL.md")):
-                    raise ValueError("nombre ya presente en otra categoría")
+                    raise ValueError(_t("addagent.src.err_name_elsewhere", "nombre ya presente en otra categoría"))
                 stage = Path(tempfile.mkdtemp(prefix=".skill-stage-", dir=str(parent)))
                 try:
                     for rel, data in contents.items():
@@ -482,7 +501,7 @@ def run(brain, params, progress=None, should_cancel=None, read_blob=None):
                         p.write_bytes(data)
                     (stage / ".source.json").write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
                     if cancelled():
-                        raise InterruptedError("cancelado antes de instalar")
+                        raise InterruptedError(_t("addagent.src.err_cancelled_pre", "cancelado antes de instalar"))
                     stage.rename(dest)
                     published.append(dest)
                     result["installed"].append(record)
@@ -492,15 +511,15 @@ def run(brain, params, progress=None, should_cancel=None, read_blob=None):
             except Exception as exc:
                 result["errors"].append("%s: %s" % (name, str(exc)))
         progress("skills-audit", "warn" if result["held"] or result["errors"] else "ok",
-                 "%d instaladas · %d requieren revisión" % (len(result["installed"]), len(result["held"])))
-        progress("skills-install", "run", "actualizar índices y recibo")
+                 _t("addagent.src.audit_done", "%d instaladas · %d requieren revisión") % (len(result["installed"]), len(result["held"])))
+        progress("skills-install", "run", _t("addagent.src.install_run", "actualizar índices y recibo"))
         _catalogs(root)
         receipt = root / ".workspace/skill-sourcing.json"
         if receipt.parent.is_symlink():
             raise ValueError("carpeta .workspace symlink no permitida")
         _atomic(receipt, json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8"))
         progress("skills-install", "warn" if result["errors"] else "ok",
-                 "%d skills activadas · recibo .workspace/skill-sourcing.json" % len(result["installed"]))
+                 _t("addagent.src.install_done", "%d skills activadas · recibo .workspace/skill-sourcing.json") % len(result["installed"]))
     except Exception as exc:
         result["errors"].append(str(exc))
         # Sólo revertir carpetas NUEVAS publicadas por esta corrida. Nunca
@@ -521,5 +540,5 @@ def run(brain, params, progress=None, should_cancel=None, read_blob=None):
                     _atomic(path, original)
             except OSError:
                 result["errors"].append("no se pudo restaurar índice: " + path.name)
-        progress("skills-install", "warn", "skills revertidas; agente conservado")
+        progress("skills-install", "warn", _t("addagent.src.install_reverted", "skills revertidas; agente conservado"))
     return result
