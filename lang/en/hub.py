@@ -52,7 +52,7 @@ STRINGS = {
     "hub.cfg.enter_changes": "Enter changes",
     "hub.cfg.pick_change": "◄► pick · Enter/space change",
     "hub.cfg.config_edit": "Config ▸ to edit",
-    "hub.pin.background": "bg",
+    "hub.pin.background": "background",
     "hub.pin.theme": "theme",
     "hub.pin.layout": "layout",
     "hub.pin.heartbeat": "heartbeat",
