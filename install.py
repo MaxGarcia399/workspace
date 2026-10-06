@@ -997,6 +997,85 @@ def install_greeter():
     ok("greeter agregado: el menú WORKSPACE sale al abrir terminal (q = terminal normal)")
 
 
+# Variante HINT del greeter (autostart OFF): NO lanza el menú, solo recuerda el
+# comando. Comparte el GREETER_MARK (así install_greeter lo ve como "ya
+# configurado" y respeta la elección) y la misma estructura `if … fi` que el
+# bloque normal (así set_terminal_autostart lo corta con el mismo splice).
+GREETER_HINT_BLOCK = """
+# ── WORKSPACE · menú al abrir terminal (autostart OFF — solo con el comando) ───
+# La terminal NO abre el hub sola; escribe `workspace`. Reactivar: ui.autostart
+# o  workspace onboarding  (o borra el 'OFF' y deja el greeter normal).
+if [[ $- == *i* && -o login && -z "$WORKSPACE_GREETER" && -z "$WORKSPACE_NO_GREETER" ]] && command -v workspace >/dev/null 2>&1; then
+  export WORKSPACE_GREETER=1
+  printf '\\033[2mWorkspace listo · escribe \\033[0m\\033[1mworkspace\\033[0m\\033[2m para abrir el hub\\033[0m\\n'
+fi
+"""
+
+WIN_GREETER_HINT_BLOCK = (
+    '# WORKSPACE-greeter v3 (autostart OFF — solo con el comando workspace)\n'
+    'if ([Environment]::UserInteractive -and $env:WT_SESSION '
+    '-and -not $env:WORKSPACE_GREETER -and -not $env:WORKSPACE_NO_GREETER '
+    '-and (Get-Command workspace -ErrorAction SilentlyContinue)) '
+    '{ Write-Host "Workspace listo - escribe: workspace" }')
+
+
+def set_terminal_autostart(on):
+    """QUIRÚRGICO: reescribe SOLO el bloque del greeter en el rc según la
+    preferencia del socio — on = la terminal abre el menú (GREETER_BLOCK);
+    off = solo un recordatorio del comando (GREETER_HINT_BLOCK). Idempotente;
+    NO toca el resto del archivo ni la lógica de install_greeter/legacy.
+
+    Devuelve la ruta del rc si lo (re)escribió o ya estaba como se pidió; ''
+    si degradó (no ubicó el rc, o un bloque editado a mano cuyo cierre no
+    reconocí — en ese caso NO tocamos nada). El onboarding usa el valor de
+    retorno para decidir el mensaje (aplicado vs solo-preferencia)."""
+    if IS_WIN:
+        block = WIN_GREETER_BLOCK if on else WIN_GREETER_HINT_BLOCK
+        return _ps_set_block(WIN_GREETER_MARK, block,
+                             legacy=("WORKSPACE-greeter", "WORKSPACE_GREETER"))
+    block = GREETER_BLOCK if on else GREETER_HINT_BLOCK
+    rc = os.path.join(HOME, ".zshrc")
+    cur = open(rc).read() if os.path.exists(rc) else ""
+    # 1) quitar el bloque existente (normal, hint o legacy v1): de la línea del
+    #    marcador hasta su `fi` de cierre. Todos los bloques reales terminan en
+    #    `fi`; si no lo encuentro, el socio lo editó a mano → no toco nada.
+    lines = cur.splitlines(True)
+    out, i, dirty = [], 0, False
+    while i < len(lines):
+        line = lines[i]
+        if (GREETER_MARK in line or GREETER_MARK_V1 in line) \
+                and line.lstrip().startswith("#"):
+            j = i
+            while j < len(lines) and lines[j].strip() != "fi":
+                j += 1
+            if j < len(lines):                       # cierre reconocido
+                i = j + 1
+                continue
+            dirty = True                             # editado a mano → preservar
+        out.append(line)
+        i += 1
+    if dirty:
+        say(f"{DIM}Tu greeter de ~/.zshrc está editado a mano: lo dejo como "
+            f"está. Ajusta ui.autostart por tu cuenta si quieres.{R}")
+        return ""
+    base = "".join(out).rstrip(chr(10))
+    new = (base + chr(10) if base else "") + block
+    if new == cur:                                   # ya estaba así
+        return rc
+    if DRY:
+        dry(f"ajustaría el greeter (autostart {'on' if on else 'off'}) en {rc}")
+        return rc
+    try:
+        with open(rc, "w") as f:
+            f.write(new)
+    except Exception as e:
+        say(f"{DIM}No pude escribir a {rc} ({e}). Ajusta el greeter a mano.{R}")
+        return ""
+    ok(f"autostart {'ON' if on else 'OFF'}: la terminal "
+       f"{'abre el menú WORKSPACE' if on else 'solo recuerda el comando'} ({rc})")
+    return rc
+
+
 def desktop_app_path():
     return os.path.join(HOME, "Desktop", "WORKSPACE.app")
 
@@ -1066,6 +1145,161 @@ def check_prereqs():
         say(f"{DIM}Puedes seguir, pero algunas piezas no funcionarán hasta resolverlo.{R}\n")
 
 
+# ── detección de instalación previa / reinstalación (QoL · idempotencia) ─────
+def workspace_version():
+    """Versión CORTA del harness para los mensajes ('v1a2b3c') o '' si este checkout
+    no es un repo git / git no está. Sin RED (solo lee HEAD local). Fail-soft."""
+    try:
+        import subprocess
+        r = subprocess.run(["git", "-C", WORKSPACE, "rev-parse", "--short", "HEAD"],
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=5)
+        sha = (r.stdout or "").strip()
+        return ("v" + sha) if r.returncode == 0 and sha else ""
+    except Exception:
+        return ""
+
+
+def prior_install_markers():
+    """Rastros PER-MÁQUINA de una instalación previa de WORKSPACE (NO el checkout —
+    el estado que deja install.py). Devuelve [(label, path)] de los que existen.
+    Sirve para ANUNCIAR 're-install' vs 'primer install': re-correr el instalador es
+    SEGURO e idempotente (actualiza lo que cambió, no duplica)."""
+    launcher = os.path.join(HOME, ".local", "bin",
+                            "workspace.cmd" if IS_WIN else "workspace")
+    cands = [("estado per-máquina", os.path.join(HOME, ".claude", "workspace")),
+             ("comando `workspace`", launcher)]
+    return [(lbl, p) for lbl, p in cands if os.path.exists(p)]
+
+
+# ── harness VIEJO del equipo (OLYMPUS / repo privada pre-rename) ─────────────
+# Antes del rename OLYMPUS→WORKSPACE el harness del equipo se llamaba OLYMPUS.
+# En una máquina del equipo pueden quedar: la carpeta del harness viejo
+# (~/Desktop/OLYMPUS o $OLYMPUS_ROOT), su estado per-máquina (~/.claude/olympus) y
+# el comando `olympus` en ~/.local/bin. Se OFRECE retirarlos para seguir solo con
+# WORKSPACE. SEGURIDAD N1: jamás se borra sin confirmación EXPLÍCITA, y jamás un
+# cerebro/datos del usuario — solo artefactos que SON el harness viejo.
+def _olympus_root_candidates():
+    cands = []
+    env = os.environ.get("OLYMPUS_ROOT")
+    if env:
+        cands.append(os.path.expanduser(env))
+    cands.append(os.path.join(HOME, "Desktop", "OLYMPUS"))
+    seen, out = set(), []
+    for c in cands:
+        try:
+            rc = os.path.realpath(c)
+        except Exception:
+            rc = c
+        if rc not in seen:
+            seen.add(rc)
+            out.append(c)
+    return out
+
+
+def _looks_like_harness(d):
+    """Firma de un harness (NO de un cerebro): front.py + dispatch.py en la raíz.
+    Un cerebro tiene BOOT/ + STATE/ + CLAUDE.md y NO estos scripts → nunca se
+    confunde con uno (misma prueba que uninstall._is_harness)."""
+    return all(os.path.isfile(os.path.join(d, f))
+               for f in ("front.py", "dispatch.py"))
+
+
+def detect_legacy_harness():
+    """Detecta el harness VIEJO del equipo (OLYMPUS) en ESTA máquina. Solo lectura.
+    Devuelve dict:
+      · 'folders'   : [rutas] que SON un harness (front.py+dispatch.py) → retirables
+      · 'state'     : ~/.claude/olympus si existe ('' si no)
+      · 'launchers' : [rutas] de comandos `olympus` en ~/.local/bin
+      · 'ambiguous' : [rutas] que existen pero NO parecen harness → SOLO avisar
+    'ambiguous' JAMÁS se borra (podría ser datos del usuario): ante la duda, avisar."""
+    folders, ambiguous = [], []
+    for c in _olympus_root_candidates():
+        if os.path.isdir(c):
+            (folders if _looks_like_harness(c) else ambiguous).append(os.path.abspath(c))
+    state = os.path.join(HOME, ".claude", "olympus")
+    state = state if os.path.isdir(state) else ""
+    launchers = []
+    bindir = os.path.join(HOME, ".local", "bin")
+    for fn in ("olympus", "olympus.cmd"):
+        p = os.path.join(bindir, fn)
+        if os.path.isfile(p):
+            launchers.append(p)
+    return {"folders": folders, "state": state, "launchers": launchers,
+            "ambiguous": ambiguous}
+
+
+def legacy_present(info):
+    return bool(info["folders"] or info["state"] or info["launchers"]
+                or info["ambiguous"])
+
+
+def offer_retire_legacy(info=None, *, assume_yes=False):
+    """Ofrece RETIRAR el harness viejo (OLYMPUS). SEGURIDAD N1: no borra NADA sin
+    confirmación EXPLÍCITA. Lista EXACTAMENTE qué se quita y de dónde; si el socio no
+    confirma (o no es interactivo), NO toca nada. Los 'ambiguous' solo se avisan
+    (nunca se borran). `assume_yes` (flag --retire-legacy) permite el camino no
+    interactivo consciente. Respeta --dry-run. Devuelve True si retiró algo."""
+    info = info or detect_legacy_harness()
+    if not legacy_present(info):
+        return False
+    say("")
+    say(f"{B}Encontré una instalación vieja del harness del equipo (OLYMPUS).{R}")
+    removable = []
+    for d in info["folders"]:
+        say(f"    · carpeta del harness viejo:  {d}")
+        removable.append(("carpeta del harness viejo", d))
+    if info["state"]:
+        say(f"    · estado per-máquina viejo:   {info['state']}")
+        removable.append(("estado per-máquina viejo", info["state"]))
+    for p in info["launchers"]:
+        say(f"    · comando `olympus`:          {p}")
+        removable.append(("comando `olympus`", p))
+    for d in info["ambiguous"]:
+        say(f"    · {DIM}(no parece un harness — NO lo toco, solo aviso): {d}{R}")
+    if not removable:
+        say(f"{DIM}  Nada seguro que retirar automáticamente. Revísalo a mano si quieres.{R}")
+        return False
+    say(f"{DIM}  WORKSPACE ya lo reemplaza. Puedo RETIRARLO: borro SOLO esos artefactos del "
+        f"harness viejo.{R}")
+    say(f"{DIM}  Tus CEREBROS (carpetas de agentes) y tus transcripts NO se tocan.{R}")
+    if DRY:
+        for lbl, p in removable:
+            dry(f"retiraría {lbl}: {p}")
+        return False
+    if not assume_yes:
+        try:
+            interactive = sys.stdin.isatty()
+        except Exception:
+            interactive = False
+        if not interactive:
+            say(f"{DIM}  (no-interactivo: NO retiro nada. Corre el instalador en una terminal, "
+                f"o pásale --retire-legacy para retirarlo.){R}")
+            return False
+        try:
+            r = input("  Escribe 'retirar' para quitarlo, o Enter para dejarlo como está: ").strip().lower()
+        except EOFError:
+            r = ""
+        if r not in ("retirar", "si", "sí", "s", "yes", "y"):
+            say("  Lo dejo como está — no toqué nada.")
+            return False
+    import shutil
+    done = 0
+    for lbl, p in removable:
+        try:
+            if os.path.isdir(p) and not os.path.islink(p):
+                shutil.rmtree(p, ignore_errors=True)
+            else:
+                os.remove(p)
+            ok(f"retirado {lbl}: {p}")
+            done += 1
+        except OSError as e:
+            say(f"{DIM}no pude retirar {p} ({e}) — quítalo a mano{R}")
+    if done:
+        ok("harness viejo (OLYMPUS) retirado. Sigues solo con WORKSPACE.")
+    return done > 0
+
+
 def main():
     print(f"\n  {B}{C}Instalador de WORKSPACE{R}  {DIM}· {platform.system()} · {WORKSPACE}{R}"
           + (f"  {DIM}(DRY-RUN){R}" if DRY else "") + "\n")
@@ -1084,6 +1318,20 @@ def main():
               f"principal.")
         print(f"  {DIM}(override consciente: {FORCE_ENV}=1){R}\n")
         sys.exit(2)
+
+    # Re-install inteligente (QoL · idempotencia): si ya había una instalación en
+    # esta máquina, decirlo — re-correr el instalador NO duplica ni re-clona, solo
+    # actualiza lo que cambió (RMW en configure_brain + launchers/greeter idempotentes).
+    _ver = workspace_version()
+    _prior = prior_install_markers()
+    if _prior:
+        say(f"Ya tenías WORKSPACE instalado{f' ({_ver})' if _ver else ''} "
+            f"en esta máquina.")
+        say(f"{DIM}Re-ejecutar es seguro: actualizo lo que cambió, nada se duplica "
+            f"({', '.join(l for l, _ in _prior)}).{R}\n")
+    elif _ver:
+        say(f"{DIM}Instalando WORKSPACE {_ver}.{R}\n")
+
     reg = registry()
     agents = reg.get("agents", [])
     if not agents:
@@ -1119,6 +1367,13 @@ def main():
         print(f"  {DIM}OneDrive sincroniza y BLOQUEA los archivos del harness (locks, "
               f"latencia, estado per-máquina) → fallos intermitentes.{R}\n")
         sys.exit(2)
+
+    # Harness VIEJO del equipo (OLYMPUS / repo privada pre-rename): si quedó en la
+    # máquina, ofrecer retirarlo y seguir solo con WORKSPACE. SEGURIDAD N1: jamás
+    # borra sin un 'retirar' explícito (o --retire-legacy consciente), jamás cerebros.
+    # Opt-out total con --no-retire-legacy (automatización/tests).
+    if "--no-retire-legacy" not in sys.argv:
+        offer_retire_legacy(assume_yes="--retire-legacy" in sys.argv)
 
     agent_names, zenith_brain, discovered = [], None, {}
     for a in agents:

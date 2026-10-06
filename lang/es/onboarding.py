@@ -19,6 +19,18 @@ STRINGS = {
     "onboarding.div.que_cambia": "qué cambia",
     "onboarding.continuar": "✦ continuar",
 
+    # línea de ACCIÓN PRIMARIA (P0-B) — por foco, corta y brillante
+    "onboarding.action.idioma": "Enter elige el idioma",
+    "onboarding.action.bienvenida": "Enter para empezar",
+    "onboarding.action.motores_opt": "espacio marca · Enter continúa",
+    "onboarding.action.continuar": "Enter continúa al siguiente paso",
+    "onboarding.action.apariencia_opt": "Enter aplica «{lbl}»",
+    "onboarding.action.autostart": "Enter elige «{lbl}» · Esc salta",
+    "onboarding.action.agente": "Enter abre «{lbl}»",
+    "onboarding.action.gcal": "Esc salta · Enter conecta",
+    "onboarding.action.gcal_done": "Enter te lleva al resumen",
+    "onboarding.action.resumen": "Enter te deja en el recinto",
+
     # paso 0: idioma
     "onboarding.idioma.divisor": "idioma",
     "onboarding.idioma.heading": "Elige el idioma de Workspace.",
@@ -171,6 +183,57 @@ STRINGS = {
                                       "crear, cargar o descubrir siguen ahí, "
                                       "idénticos.",
 
+    # paso NUEVO (opcional): AUTOSTART — ¿abre al abrir la terminal o solo
+    # con el comando?
+    "onboarding.autostart.title_l": "ARRANQUE",
+    "onboarding.autostart.title_r": "CÓMO ABRE",
+    "onboarding.autostart.div": "arranque",
+    "onboarding.autostart.heading": "¿Cuándo abre Workspace?",
+    "onboarding.autostart.opt_on": "al abrir la terminal",
+    "onboarding.autostart.opt_off": "solo con el comando workspace",
+    "onboarding.autostart.on_p": "Cada terminal nueva abre el menú de "
+                                 "Workspace: eliges un agente o sigues con una "
+                                 "terminal normal (q). Cómodo para entrar "
+                                 "directo al hub.",
+    "onboarding.autostart.off_p": "La terminal arranca como siempre; escribes "
+                                  "`workspace` cuando quieras el hub. Menos "
+                                  "invasivo — ideal si compartes la máquina o "
+                                  "corres scripts en ella.",
+    "onboarding.autostart.div_donde": "dónde queda",
+    "onboarding.autostart.donde_p": "ui.autostart en settings.json + un bloque "
+                                    "en ~/.zshrc (o tu $PROFILE de "
+                                    "PowerShell). Cambiarlo luego: repite "
+                                    "`workspace onboarding` o edita ese bloque.",
+
+    # paso NUEVO (opcional): GOOGLE CALENDAR
+    "onboarding.gcal.title_l": "GOOGLE CALENDAR",
+    "onboarding.gcal.title_r": "OPCIONAL",
+    "onboarding.gcal.div_pasos": "cómo",
+    "onboarding.gcal.already": "Ya tienes Google Calendar conectado ✓",
+    "onboarding.gcal.step1": "Abre Google Calendar en la web "
+                             "(calendar.google.com).",
+    "onboarding.gcal.step2": "En el calendario que quieras: Configuración y "
+                             "uso compartido.",
+    "onboarding.gcal.step3": "Baja a «Integrar calendario».",
+    "onboarding.gcal.step4": "Copia la «Dirección secreta en formato iCal» "
+                             "(termina en .ics).",
+    "onboarding.gcal.step5": "Vuelve aquí y pulsa Enter: la pegas en una línea "
+                             "normal.",
+    "onboarding.gcal.changes_p": "Workspace LEE tus eventos (solo lectura) y "
+                                 "los muestra en el calendario del hub. Nunca "
+                                 "escribe en tu agenda.",
+    "onboarding.gcal.div_seguro": "seguro",
+    "onboarding.gcal.seguro_p": "Solo se guarda esa URL iCal, en tu máquina; "
+                                "jamás se imprime en pantalla. Puedes quitarla "
+                                "cuando quieras desde el calendario.",
+    "onboarding.gcal.prompt_url": "Pega la «Dirección secreta en formato iCal» "
+                                  "(Enter vacío = cancelar):",
+    "onboarding.gcal.prompt_label": "Etiqueta (opcional, Enter = auto): ",
+    "onboarding.gcal.connected": "conectado ✓ · {n} eventos",
+    "onboarding.gcal.failed": "no se pudo conectar ({err})",
+    "onboarding.gcal.cancelled": "conexión cancelada",
+    "onboarding.gcal.unavailable": "Google Calendar no está disponible aquí",
+
     # paso final: RESUMEN
     "onboarding.resumen.title_l": "LO QUE QUEDÓ",
     "onboarding.resumen.title_r": "DÓNDE Y QUÉ SIGUE",
@@ -204,6 +267,12 @@ STRINGS = {
                                       "marcar",
     "onboarding.msg.applied": "{tipo} «{lbl}» · guardado ✓",
     "onboarding.msg.apply_fail": "no se pudo aplicar {tipo} ({err})",
+    "onboarding.msg.autostart_on": "Workspace abrirá al abrir la terminal · "
+                                   "guardado ✓",
+    "onboarding.msg.autostart_off": "Workspace abrirá solo con el comando · "
+                                    "guardado ✓",
+    "onboarding.msg.autostart_saved": "preferencia guardada (ajusta el rc a "
+                                      "mano si hace falta)",
 
     # hints del pie (por vista)
     "onboarding.hints.idioma": "↑↓ idioma · Enter elige · Esc/q salta",
@@ -213,7 +282,10 @@ STRINGS = {
                                 "continúa · Esc atrás · q salta",
     "onboarding.hints.apariencia": "↑↓ opción · Enter/espacio aplica (guarda "
                                    "ya) · Esc atrás · q salta",
+    "onboarding.hints.autostart": "↑↓ opción · Enter elige · Esc salta · q "
+                                  "sale",
     "onboarding.hints.agente": "↑↓ camino · 1-4 directo · Enter abre · Esc "
                                "atrás · q salta",
+    "onboarding.hints.gcal": "Enter conecta · Esc salta · q sale",
     "onboarding.hints.resumen": "Enter — al recinto",
 }

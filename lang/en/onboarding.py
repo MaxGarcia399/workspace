@@ -13,6 +13,18 @@ STRINGS = {
     "onboarding.div.que_cambia": "what changes",
     "onboarding.continuar": "✦ continue",
 
+    # PRIMARY ACTION line (P0-B) — per focus, short and bright
+    "onboarding.action.idioma": "Enter picks the language",
+    "onboarding.action.bienvenida": "Enter to start",
+    "onboarding.action.motores_opt": "space selects · Enter continues",
+    "onboarding.action.continuar": "Enter continues to the next step",
+    "onboarding.action.apariencia_opt": "Enter applies “{lbl}”",
+    "onboarding.action.autostart": "Enter picks “{lbl}” · Esc skips",
+    "onboarding.action.agente": "Enter opens “{lbl}”",
+    "onboarding.action.gcal": "Esc skips · Enter connects",
+    "onboarding.action.gcal_done": "Enter takes you to the summary",
+    "onboarding.action.resumen": "Enter drops you into the hub",
+
     # step 0: language
     "onboarding.idioma.divisor": "language",
     "onboarding.idioma.heading": "Choose your Workspace language.",
@@ -166,6 +178,55 @@ STRINGS = {
                                       "discover are all still there, "
                                       "identical.",
 
+    # NEW step (optional): AUTOSTART — open on terminal open, or command only?
+    "onboarding.autostart.title_l": "STARTUP",
+    "onboarding.autostart.title_r": "HOW IT OPENS",
+    "onboarding.autostart.div": "startup",
+    "onboarding.autostart.heading": "When does Workspace open?",
+    "onboarding.autostart.opt_on": "when you open the terminal",
+    "onboarding.autostart.opt_off": "only with the workspace command",
+    "onboarding.autostart.on_p": "Every new terminal opens the Workspace menu: "
+                                 "you pick an agent or carry on with a normal "
+                                 "terminal (q). Handy to jump straight into the "
+                                 "hub.",
+    "onboarding.autostart.off_p": "The terminal starts as usual; you type "
+                                  "`workspace` when you want the hub. Less "
+                                  "invasive — ideal if you share the machine or "
+                                  "run scripts on it.",
+    "onboarding.autostart.div_donde": "where it lives",
+    "onboarding.autostart.donde_p": "ui.autostart in settings.json + a block in "
+                                    "~/.zshrc (or your PowerShell $PROFILE). "
+                                    "Change it later: repeat "
+                                    "`workspace onboarding` or edit that block.",
+
+    # NEW step (optional): GOOGLE CALENDAR
+    "onboarding.gcal.title_l": "GOOGLE CALENDAR",
+    "onboarding.gcal.title_r": "OPTIONAL",
+    "onboarding.gcal.div_pasos": "how",
+    "onboarding.gcal.already": "Google Calendar is already connected ✓",
+    "onboarding.gcal.step1": "Open Google Calendar on the web "
+                             "(calendar.google.com).",
+    "onboarding.gcal.step2": "On the calendar you want: Settings and sharing.",
+    "onboarding.gcal.step3": "Scroll to “Integrate calendar”.",
+    "onboarding.gcal.step4": "Copy the “Secret address in iCal format” (ends "
+                             "in .ics).",
+    "onboarding.gcal.step5": "Come back here and press Enter: you'll paste it "
+                             "on a normal line.",
+    "onboarding.gcal.changes_p": "Workspace READS your events (read-only) and "
+                                 "shows them in the hub calendar. It never "
+                                 "writes to your agenda.",
+    "onboarding.gcal.div_seguro": "safe",
+    "onboarding.gcal.seguro_p": "Only that iCal URL is stored, on your machine; "
+                               "it's never printed on screen. You can remove it "
+                               "anytime from the calendar.",
+    "onboarding.gcal.prompt_url": "Paste the “Secret address in iCal format” "
+                                  "(empty Enter = cancel):",
+    "onboarding.gcal.prompt_label": "Label (optional, Enter = auto): ",
+    "onboarding.gcal.connected": "connected ✓ · {n} events",
+    "onboarding.gcal.failed": "couldn't connect ({err})",
+    "onboarding.gcal.cancelled": "connection cancelled",
+    "onboarding.gcal.unavailable": "Google Calendar isn't available here",
+
     # final step: SUMMARY
     "onboarding.resumen.title_l": "WHAT YOU SET",
     "onboarding.resumen.title_r": "WHERE & WHAT'S NEXT",
@@ -198,6 +259,12 @@ STRINGS = {
     "onboarding.msg.not_installable": "{eid} isn't installed — can't select it",
     "onboarding.msg.applied": "{tipo} “{lbl}” · saved ✓",
     "onboarding.msg.apply_fail": "couldn't apply {tipo} ({err})",
+    "onboarding.msg.autostart_on": "Workspace will open when you open the "
+                                   "terminal · saved ✓",
+    "onboarding.msg.autostart_off": "Workspace will open only with the command "
+                                    "· saved ✓",
+    "onboarding.msg.autostart_saved": "preference saved (adjust the rc by hand "
+                                      "if needed)",
 
     # footer hints (per view)
     "onboarding.hints.idioma": "↑↓ language · Enter picks · Esc/q skips",
@@ -207,7 +274,10 @@ STRINGS = {
                                 "Esc back · q skips",
     "onboarding.hints.apariencia": "↑↓ option · Enter/space applies (saves "
                                    "now) · Esc back · q skips",
+    "onboarding.hints.autostart": "↑↓ option · Enter picks · Esc skips · q "
+                                  "quits",
     "onboarding.hints.agente": "↑↓ path · 1-4 direct · Enter opens · Esc back "
                                "· q skips",
+    "onboarding.hints.gcal": "Enter connects · Esc skips · q quits",
     "onboarding.hints.resumen": "Enter — to the hub",
 }

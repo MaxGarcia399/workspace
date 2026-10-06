@@ -112,6 +112,7 @@ def _pares():
             ("a", _t("cal.hint.add", "agrega")),
             ("l", _t("cal.hint.list", "lista")),
             ("v", _t("cal.hint.queue", "cola")),
+            ("g", _t("cal.hint.google", "Google")),
             ("n/p", _t("cal.hint.month", "mes")),
             ("t", _t("cal.hint.today", "hoy")),
             ("m", _t("common.hint.move", "mueve")),
@@ -511,6 +512,8 @@ def render(S, w, h):
         return _queue_render(S, K, w, h)
     if S["modo"] == "trash":
         return _trash_render(S, K, w, h)
+    if S["modo"] == "gcal":
+        return _gcal_render(S, K, w, h)
     pares = _pares()
     # cabecera COMPARTIDA (wordmark + subtítulo + atajos clave + regla)
     L = HL.screen_header(K, w, h, _t("cal.subtitle", "calendario"), hints=pares)
@@ -896,6 +899,344 @@ def _queue_render(S, K, w, h):
     return [HL.clip(row, w - 1) for row in lines[:h - 1]] + [""] * max(0, h - 1 - len(lines))
 
 
+# ── cuentas de Google Calendar (vista multi-cuenta, SOLO lectura) ───────────
+# Lee gcal.list_accounts()/add_account()/remove_account()/rename_account(),
+# todo FALLA-SUAVE: sin gcal (o en error) la vista queda vacía, nada levanta.
+# El modelo de cuenta tolera `kind` ("ical" hoy, "oauth" mañana) — seam limpio
+# para una futura cuenta de dos vías, sin construir OAuth aquí.
+def _gcal():
+    try:
+        import gcal
+        return gcal
+    except Exception:
+        return None
+
+
+def _gcal_accounts():
+    g = _gcal()
+    if g is None:
+        return []
+    try:
+        return g.list_accounts() or []
+    except Exception:
+        return []
+
+
+def _ago_str(ts):
+    """Antigüedad relativa localizada (reusa common.ago.*). "" si no hay."""
+    if not ts:
+        return ""
+    try:
+        s = max(0, int(time.time() - float(ts)))
+    except Exception:
+        return ""
+    if s < 60:
+        return _t("common.ago.sec", "hace {n}s", n=s)
+    if s < 3600:
+        return _t("common.ago.min", "hace {n}m", n=s // 60)
+    if s < 86400:
+        return _t("common.ago.hour", "hace {n}h", n=s // 3600)
+    return _t("common.ago.day", "hace {n}d", n=s // 86400)
+
+
+def _gcal_pares(S):
+    """Atajos de ESTA vista, según el sub-modo (cabecera recorta, pie completo)."""
+    view = S.get("g_view", "list")
+    if view == "add":
+        return (("Tab", _t("cal.hint.field", "campo")),
+                ("Enter", _t("cal.g.hint.connect", "conecta")),
+                ("Esc", _t("cal.hint.cancel", "cancela")))
+    if view == "rename":
+        return (("Enter", _t("cal.g.hint.rename", "renombra")),
+                ("Esc", _t("cal.hint.cancel", "cancela")))
+    if view == "confirm_rm":
+        return (("Enter", _t("cal.g.hint.confirm", "confirma")),
+                ("Esc", _t("cal.hint.cancel", "cancela")))
+    return (("↑↓", _t("common.hint.pick", "elige")),
+            ("a", _t("cal.g.hint.add", "conecta")),
+            ("e", _t("cal.g.hint.rename", "renombra")),
+            ("x", _t("cal.g.hint.remove", "quita")),
+            ("q", _t("common.hint.menu", "menú")))
+
+
+def _g_state_label(st):
+    return {"ok": _t("cal.g.state.ok", "conectado"),
+            "error": _t("cal.g.state.error", "URL inválida"),
+            "nofetch": _t("cal.g.state.nofetch", "sin bajar aún")}.get(st, st)
+
+
+def _gcal_list_body(S, K, accts, inner):
+    """Las cuentas vinculadas: nombre + punto de estado, y debajo host · estado ·
+    nº eventos · última sync · (del sistema). «ninguna todavía» si vacío. Al pie,
+    la nota del seam de dos-vías (OAuth) — honesta: aún no existe."""
+    out = []
+    if not accts:
+        out.append("%s%s%s" % (K["DK"], _t(
+            "cal.g.none", "ninguna todavía — conecta tu primer calendario con a"),
+            K["R"]))
+    else:
+        sel = S.get("g_sel", 0) % len(accts)
+        S["g_sel"] = sel
+        dotc = {"ok": K["OK"], "error": (K["BAD"] or K["B"]),
+                "nofetch": K["DIM"]}
+        for i, a in enumerate(accts):
+            cur = (K["C"] + K["BO"] + K["PTR"] + K["R"] + " ") if i == sel \
+                else "  "
+            dot = "%s●%s" % (dotc.get(a["state"], K["DIM"]), K["R"])
+            name = "%s%s%s" % ((K["WH"] + K["BO"]) if i == sel else K["GREY"],
+                               a["label"], K["R"])
+            kind = _t("cal.g.kind.oauth", "dos vías") \
+                if a.get("kind") == "oauth" else _t("cal.g.kind.ical",
+                                                    "iCal · solo lectura")
+            out.append(HL.clip("%s%s %s   %s%s%s" % (
+                cur, dot, name, K["DK"], kind, K["R"]), inner))
+            # sub-línea: host · estado · eventos · sync · (del sistema)
+            bits = ["%s%s%s" % (K["DK"], a["host"], K["R"]),
+                    "%s%s%s" % (dotc.get(a["state"], K["DIM"]),
+                                _g_state_label(a["state"]), K["R"])]
+            if a["state"] == "ok":
+                bits.append("%s%s%s" % (K["GREY"], _t(
+                    "cal.g.row.events", "{n} eventos", n=a["events"]), K["R"]))
+                ago = _ago_str(a.get("last_sync"))
+                if ago:
+                    bits.append("%s%s%s" % (K["DIM"], _t(
+                        "cal.g.row.sync", "sync {ago}", ago=ago), K["R"]))
+            if a.get("env"):
+                bits.append("%s%s%s" % (K["DIM"], _t(
+                    "cal.g.row.env", "del sistema"), K["R"]))
+            sep = " %s·%s " % (K["DK"], K["R"])
+            out.append(HL.clip("     " + sep.join(bits), inner))
+    out.append("")
+    out.append("%s%s%s" % (K["DIM"], _t(
+        "cal.g.future",
+        "Pronto: cuentas de dos vías (OAuth) para editar desde aquí."), K["R"]))
+    return out
+
+
+def _gcal_add_body(S, K, inner):
+    """El paso a paso para obtener la «Dirección secreta en formato iCal» +
+    los dos campos (nombre visible, URL oculta). El cursor marca el campo."""
+    field = S.get("g_field", 0)
+    out = ["%s%s%s" % (K["DIM"], _t(
+        "cal.g.add.steps_head",
+        "Para obtener la dirección secreta en formato iCal:"), K["R"])]
+    for i in range(1, 6):
+        out.append(HL.clip("%s%s%s" % (K["GREY"], _t(
+            "cal.g.add.step%d" % i, "%d." % i), K["R"]), inner))
+    out.append("")
+    # campo 0: nombre (visible)
+    out.append(_campo_etq(K, _t("cal.g.add.name_field",
+                                "nombre (p. ej. Trabajo)"), field == 0, inner))
+    nombre = S.get("g_label") or ""
+    out.append(HL.clip("   " + nombre + ("▏" if field == 0 else ""), inner))
+    out.append("")
+    # campo 1: URL (oculta — nunca en pantalla; solo el conteo)
+    out.append(_campo_etq(K, _t("cal.g.add.url_field",
+                                "dirección secreta iCal · se pega oculta"),
+                          field == 1, inner))
+    n = len(S.get("g_url") or "")
+    if n:
+        masked = "•" * min(n, max(8, inner - 24))
+        shown = "%s%s%s  %s%s%s" % (
+            K["B2"], masked, K["R"], K["DIM"],
+            _t("cal.g.add.url_pasted", "{n} caracteres pegados", n=n), K["R"])
+    else:
+        shown = "%s%s%s" % (K["DIM"], _t(
+            "cal.g.add.url_empty",
+            "pega aquí la URL — no se muestra en pantalla"), K["R"])
+    out.append(HL.clip("   " + shown + ("▏" if field == 1 and not n else ""),
+                       inner))
+    return out
+
+
+def _gcal_rename_body(S, K, accts, inner):
+    sel = S.get("g_sel", 0) % max(1, len(accts))
+    label = accts[sel]["label"] if accts else ""
+    out = [HL.clip("%s%s%s" % (K["DK"], label, K["R"]), inner), ""]
+    out.append(_campo_etq(K, _t("cal.g.rename.field", "nuevo nombre"), True,
+                          inner))
+    out.append(HL.clip("   " + (S.get("g_label") or "") + "▏", inner))
+    return out
+
+
+def _gcal_confirm_body(S, K, accts, inner):
+    sel = S.get("g_sel", 0) % max(1, len(accts))
+    label = accts[sel]["label"] if accts else ""
+    return [HL.clip("%s%s%s" % (K["GREY"], _t(
+        "cal.g.confirm.body", "Se desvincula «{label}»; sus eventos dejan de "
+        "verse.", label=label), K["R"]), inner),
+        "",
+        HL.clip("%s%s%s" % (K["DIM"], _t(
+            "cal.g.confirm.note",
+            "No borra nada en Google; puedes volver a conectarla."), K["R"]),
+            inner)]
+
+
+def _gcal_render(S, K, w, h):
+    accts = _gcal_accounts()
+    pares = _gcal_pares(S)
+    L = HL.screen_header(K, w, h, _t("cal.g.subtitle",
+                                     "cuentas de google calendar"), hints=pares)
+    inner = w - 7
+    view = S.get("g_view", "list")
+    if view == "add":
+        title = _t("cal.g.add.title", "CONECTAR UN CALENDARIO DE GOOGLE")
+        body = _gcal_add_body(S, K, inner)
+    elif view == "rename":
+        title = _t("cal.g.rename.title", "RENOMBRAR CUENTA")
+        body = _gcal_rename_body(S, K, accts, inner)
+    elif view == "confirm_rm":
+        title = _t("cal.g.confirm.title", "¿QUITAR ESTA CUENTA?")
+        body = _gcal_confirm_body(S, K, accts, inner)
+    else:
+        title = _t("cal.g.box", "CUENTAS DE GOOGLE CALENDAR")
+        body = _gcal_list_body(S, K, accts, inner)
+    box = HL.full_box(title, body, K, w - 3, len(body), True, border=K["C"])
+    L += [" " + x for x in box]
+    L.append("")
+    L.append((" %s%s%s" % (K["B2"], S.get("g_msg", ""), K["R"]))
+             if S.get("g_msg") else "")
+    L.append(HL.foot_hints(K, pares, w))
+    L = [HL.clip(x, w - 1) for x in L[:h - 1]]
+    return L + [""] * max(0, (h - 1) - len(L))
+
+
+def _gcal_connect(S):
+    """Valida+conecta la cuenta tecleada: fetch de prueba SÍNCRONO (como el CLI
+    set-url). Al terminar vuelve a la lista con el resultado en g_msg."""
+    g = _gcal()
+    if g is None:
+        S["g_msg"] = _t("cal.g.msg.save_failed", "no pude guardarla")
+        return
+    url_v = (S.get("g_url") or "").strip()
+    if not url_v:
+        S["g_msg"] = _t("cal.g.msg.need_url", "pega la dirección iCal primero")
+        return
+    try:
+        r = g.add_account(S.get("g_label") or "", url_v)
+    except Exception:
+        r = {"ok": False, "error": "save_failed"}
+    if r.get("ok"):
+        S["g_msg"] = _t("cal.g.msg.connected", "conectado ✓ · {n} eventos",
+                        n=r.get("events", 0))
+        S["g_view"], S["g_url"], S["g_label"] = "list", "", ""
+        S["g_sel"] = 0
+    else:
+        S["g_msg"] = {
+            "not_https": _t("cal.g.msg.not_https",
+                            "eso no es una URL https de Google"),
+            "duplicate": _t("cal.g.msg.duplicate",
+                            "esa cuenta ya está vinculada"),
+            "fetch_failed": _t("cal.g.msg.fetch_failed",
+                               "no pude bajar el calendario (¿red o URL "
+                               "revocada?)"),
+            "save_failed": _t("cal.g.msg.save_failed", "no pude guardarla"),
+        }.get(r.get("error"), _t("cal.g.msg.save_failed", "no pude guardarla"))
+
+
+def _gcal_key(S, key):
+    view = S.get("g_view", "list")
+    accts = _gcal_accounts()
+    if view == "add":
+        if key == "\x1b":
+            S["g_view"], S["g_url"], S["g_label"], S["g_msg"] = \
+                "list", "", "", ""
+            return True
+        if key in ("tab", "right_tab"):
+            S["g_field"] = 1 - S.get("g_field", 0)
+            return True
+        if key in ("\r", "\n", "\x13"):
+            _gcal_connect(S)
+            return True
+        name = "g_label" if S.get("g_field", 0) == 0 else "g_url"
+        buf = S.get(name) or ""
+        if key in ("\x7f", "\b", "\x08"):
+            S[name] = buf[:-1]
+        elif len(key) == 1 and key.isprintable():
+            # un pegado llega carácter a carácter por el driver: se acumula.
+            if len(buf) < 4096:
+                S[name] = buf + key
+        return True
+    if view == "rename":
+        if key == "\x1b":
+            S["g_view"], S["g_label"], S["g_msg"] = "list", "", ""
+            return True
+        if key in ("\r", "\n", "\x13"):
+            g = _gcal()
+            label = (S.get("g_label") or "").strip()
+            if not label:
+                S["g_msg"] = _t("cal.g.msg.rename_empty",
+                                "el nombre no puede ir vacío")
+                return True
+            sel = S.get("g_sel", 0) % max(1, len(accts))
+            r = {}
+            if g is not None and accts:
+                try:
+                    r = g.rename_account(accts[sel]["id"], label)
+                except Exception:
+                    r = {"ok": False, "error": "save_failed"}
+            if r.get("ok"):
+                S["g_msg"] = _t("cal.g.msg.renamed", "renombrada: {label}",
+                                label=label)
+            elif r.get("error") == "env":
+                S["g_msg"] = _t("cal.g.msg.env", "cuenta del sistema (variable "
+                                "{var}) — gestiónala allá", var="WORKSPACE_"
+                                "GCAL_ICS_URL")
+            else:
+                S["g_msg"] = _t("cal.g.msg.save_failed", "no pude guardarla")
+            S["g_view"], S["g_label"] = "list", ""
+            return True
+        buf = S.get("g_label") or ""
+        if key in ("\x7f", "\b", "\x08"):
+            S["g_label"] = buf[:-1]
+        elif len(key) == 1 and key.isprintable() and len(buf) < 60:
+            S["g_label"] = buf + key
+        return True
+    if view == "confirm_rm":
+        if key in ("\r", "\n", "y", "Y"):
+            g = _gcal()
+            sel = S.get("g_sel", 0) % max(1, len(accts))
+            r = {}
+            if g is not None and accts:
+                try:
+                    r = g.remove_account(accts[sel]["id"])
+                except Exception:
+                    r = {"ok": False, "error": "save_failed"}
+            if r.get("ok"):
+                S["g_msg"] = _t("cal.g.msg.removed", "desvinculada: {label}",
+                                label=accts[sel]["label"])
+                S["g_sel"] = 0
+            elif r.get("error") == "env":
+                S["g_msg"] = _t("cal.g.msg.env", "cuenta del sistema (variable "
+                                "{var}) — gestiónala allá",
+                                var="WORKSPACE_GCAL_ICS_URL")
+            else:
+                S["g_msg"] = _t("cal.g.msg.save_failed", "no pude guardarla")
+            S["g_view"] = "list"
+            return True
+        if key in ("\x1b", "n", "N", "q", "Q"):
+            S["g_view"] = "list"
+        return True
+    # ── vista LISTA ──────────────────────────────────────────────────────
+    if key in ("q", "Q", "\x1b"):
+        S["modo"] = "nav"
+        S["g_msg"] = ""
+        return True
+    if key in ("up", "down", "tab", "right_tab") and accts:
+        step = -1 if key in ("up", "right_tab") else 1
+        S["g_sel"] = (S.get("g_sel", 0) + step) % len(accts)
+    elif key in ("a", "A"):
+        S.update(g_view="add", g_field=0, g_url="", g_label="", g_msg="")
+    elif key in ("e", "E", "r", "R") and accts:
+        sel = S.get("g_sel", 0) % len(accts)
+        S.update(g_view="rename", g_label=accts[sel]["label"], g_msg="")
+    elif key in ("x", "X", "d", "D") and accts:
+        S["g_view"], S["g_msg"] = "confirm_rm", ""
+    elif key in ("a", "A", "e", "E", "x", "X", "d", "D"):
+        S["g_msg"] = _t("cal.g.msg.none_sel", "no hay cuenta seleccionada")
+    return True
+
+
 def _edit_key(S, key):
     field = S.get("campo", 0)
     name = ("buf", "nbuf", "pbuf")[field]
@@ -986,6 +1327,8 @@ def _accion(S, key):
                 if P.restore_event(e["id"]) else _t("cal.msg.restore_fail", "no pude restaurarlo")
             S["trash_idx"] = min(idx, max(0, len(P.trash_events()) - 1))
         return True
+    if S["modo"] == "gcal":
+        return _gcal_key(S, key)
     if S["modo"] == "move":
         if key in ("\x1b", "q", "Q"):
             S["sel"], S["modo"] = S["move_origin"], "nav"
@@ -1049,6 +1392,8 @@ def _accion(S, key):
             S["msg"] = _t("cal.msg.no_task_mark", "no hay tarea que marcar")
     elif key in ("v", "V"):
         S["modo"], S["queue_idx"] = "queue", 0
+    elif key in ("g", "G"):
+        S["modo"], S["g_view"], S["g_sel"], S["g_msg"] = "gcal", "list", 0, ""
     elif key in ("b", "B"):
         S["modo"], S["trash_idx"] = "trash", 0
         P.trash_events()

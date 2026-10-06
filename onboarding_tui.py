@@ -375,6 +375,204 @@ def _opciones_agente():
     return base + [_SIN_AGENTE]
 
 
+# ── claridad del rediseño: foco · atajos · acción primaria ───────────────────
+def _foco(K, sel):
+    """P0-C: barra de acento `▐` en la 1ª columna de la fila ENFOCADA (esa
+    celda ya era un espacio → coste CERO de ancho) + cursor `❯`. Las demás
+    filas van en blanco. Devuelve (barra, cursor) ya coloreados."""
+    if sel:
+        return ("%s▐%s" % (K["C"] + K["BO"], K["R"]),
+                "%s%s%s" % (K["C"] + K["BO"], K["PTR"], K["R"]))
+    return " ", " "
+
+
+def _pares(view):
+    """P0-A: ÚNICA fuente de atajos por paso. Parte la cadena de
+    `onboarding.hints.<view>` (ES byte-idéntico, nada inventado) en pares
+    (tecla, acción) — la cabecera (HL.screen_header) enseña los clave y el
+    pie (HL.foot_hints) la lista completa; HL.keyline garantiza que caben."""
+    hk = _HINT_KEYS.get(view)
+    s = _t(hk, _HINTS.get(view, "")) if hk else _HINTS.get(view, "")
+    out = []
+    for seg in str(s).split(" · "):
+        seg = seg.strip()
+        if not seg:
+            continue
+        parts = seg.split(" ", 1)
+        out.append((parts[0], parts[1] if len(parts) > 1 else ""))
+    return tuple(out)
+
+
+def _accion_primaria(S, K, w):
+    """P0-B: la LÍNEA DE ACCIÓN PRIMARIA — full-width, acento + glifo `▸`,
+    distinta del pie, corta y brillante, según el FOCO. Es esencial: nunca se
+    cede por altura."""
+    v = S["view"]
+    if v == "idioma":
+        txt = _t("onboarding.action.idioma", "Enter elige el idioma")
+    elif v == "bienvenida":
+        txt = _t("onboarding.action.bienvenida", "Enter para empezar")
+    elif v == "motores":
+        txt = _t("onboarding.action.motores_opt",
+                 "espacio marca · Enter continúa") \
+            if S["mi"] < len(SOPORTADOS) else \
+            _t("onboarding.action.continuar", "Enter continúa al siguiente paso")
+    elif v == "apariencia":
+        items = _items_apariencia(S)
+        if S["ti"] < len(items):
+            txt = _t("onboarding.action.apariencia_opt",
+                     "Enter aplica «{lbl}»").format(lbl=items[S["ti"]][2])
+        else:
+            txt = _t("onboarding.action.continuar",
+                     "Enter continúa al siguiente paso")
+    elif v == "autostart":
+        opts = _autostart_opts()
+        txt = _t("onboarding.action.autostart",
+                 "Enter elige «{lbl}» · Esc salta").format(
+                     lbl=opts[S.get("asi", 1) % len(opts)][1])
+    elif v == "agente":
+        ops = _opciones_agente()
+        tok, lbl, _d = ops[S["ai"] % len(ops)]
+        txt = _t("onboarding.action.agente", "Enter abre «{lbl}»").format(
+            lbl=_t("onboarding.agente.%s.label" % tok, lbl))
+    elif v == "gcal":
+        txt = _t("onboarding.action.gcal_done", "Enter te lleva al resumen") \
+            if _gcal_configured() else \
+            _t("onboarding.action.gcal", "Esc salta · Enter conecta")
+    elif v == "resumen":
+        txt = _t("onboarding.action.resumen", "Enter te deja en el recinto")
+    else:
+        txt = ""
+    return HL.clip(" %s▸ %s%s" % (K["C"] + K["BO"], txt, K["R"]), w - 1)
+
+
+# ── pasos nuevos (opcionales, no etapas): autostart · Google Calendar ─────────
+def _autostart_opts():
+    """Los dos radios del paso autostart (menos invasivo al final)."""
+    return (("abrir", _t("onboarding.autostart.opt_on",
+                         "al abrir la terminal")),
+            ("comando", _t("onboarding.autostart.opt_off",
+                           "solo con el comando workspace")))
+
+
+def _b_autostart(S, K, iw, full=2):
+    """Paso autostart: ¿la terminal abre Workspace sola, o solo con el
+    comando? La caja der explica qué cambia y dónde. Saltable con Esc."""
+    opts = _autostart_opts()
+    cur_on = bool(_setting("ui.autostart", False))
+    izq = []
+    izq.append(_divisor(K, _t("onboarding.autostart.div", "arranque"), iw,
+                        tono=2))
+    izq += _parrafo(K, (_t("onboarding.autostart.heading",
+                           "¿Cuándo abre Workspace?"),), iw, color=K["WH"])
+    izq.append("")
+    for i, (_tok, lbl) in enumerate(opts):
+        sel = (i == S.get("asi", 1) % len(opts))
+        activo = ((i == 0) == cur_on)
+        bar, cur = _foco(K, sel)
+        marca = ("%s●%s" % (K["C"], K["R"])) if activo else \
+            ("%s○%s" % (K["GREY"], K["R"]))
+        lab = "%s%s%s" % ((K["WH"] + K["BO"]) if sel
+                          else (K["GREY"] if activo else K["DK"]), lbl, K["R"])
+        izq.append(HL.clip("%s%s %s %s" % (bar, cur, marca, lab), iw))
+        izq.append("")
+
+    der = []
+    foco = opts[S.get("asi", 1) % len(opts)][0]
+    der.append(_divisor(K, _t("onboarding.div.que_cambia", "qué cambia"), iw,
+                        tono=3))
+    if foco == "abrir":
+        der += _parrafo(K, (_t(
+            "onboarding.autostart.on_p",
+            "Cada terminal nueva abre el menú de Workspace: eliges un agente o "
+            "sigues con una terminal normal (q). Cómodo para entrar directo al "
+            "hub."),), iw)
+    else:
+        der += _parrafo(K, (_t(
+            "onboarding.autostart.off_p",
+            "La terminal arranca como siempre; escribes `workspace` cuando "
+            "quieras el hub. Menos invasivo — ideal si compartes la máquina o "
+            "corres scripts en ella."),), iw)
+    if full >= 1:
+        der.append("")
+        der.append(_divisor(K, _t("onboarding.autostart.div_donde",
+                                  "dónde queda"), iw))
+        der += _parrafo(K, (_t(
+            "onboarding.autostart.donde_p",
+            "ui.autostart en settings.json + un bloque en ~/.zshrc (o tu "
+            "$PROFILE de PowerShell). Cambiarlo luego: repite "
+            "`workspace onboarding` o edita ese bloque."),), iw)
+    return izq, der
+
+
+def _gcal_configured():
+    try:
+        import gcal
+        return bool(gcal.configured())
+    except Exception:
+        return False
+
+
+def _gcal_accounts():
+    try:
+        import gcal
+        return gcal.list_accounts()
+    except Exception:
+        return []
+
+
+def _b_gcal(S, K, iw, full=2):
+    """Paso Google Calendar (opcional): paso-a-paso para sacar la URL iCal.
+    Conectar cae a un prompt CLÁSICO fuera del alt-screen (ver run()); la URL
+    JAMÁS se imprime. Si ya hay cuenta: «conectado ✓»."""
+    conf = _gcal_configured()
+    izq = []
+    izq.append(_divisor(K, _t("onboarding.gcal.div_pasos", "cómo"), iw,
+                        tono=2))
+    if conf:
+        izq += _parrafo(K, (_t("onboarding.gcal.already",
+                               "Ya tienes Google Calendar conectado ✓"),), iw,
+                        color=K["OK"])
+        for a in _gcal_accounts()[:3]:
+            izq.append(HL.clip(" %s●%s %s%s%s" % (
+                K["C"], K["R"], K["GREY"], a.get("label", ""), K["R"]), iw))
+    else:
+        pasos = (
+            _t("onboarding.gcal.step1",
+               "Abre Google Calendar en la web (calendar.google.com)."),
+            _t("onboarding.gcal.step2",
+               "En el calendario que quieras: Configuración y uso compartido."),
+            _t("onboarding.gcal.step3", "Baja a «Integrar calendario»."),
+            _t("onboarding.gcal.step4",
+               "Copia la «Dirección secreta en formato iCal» (termina en "
+               ".ics)."),
+            _t("onboarding.gcal.step5",
+               "Vuelve aquí y pulsa Enter: la pegas en una línea normal."))
+        for n, txt in enumerate(pasos, 1):
+            for i, sub in enumerate(_wrap(txt, max(8, iw - 5))):
+                pre = (" %s%d%s " % (K["C"] + K["BO"], n, K["R"])) if i == 0 \
+                    else "    "
+                izq.append(HL.clip(pre + "%s%s%s" % (K["DIM"], sub, K["R"]),
+                                   iw))
+
+    der = []
+    der.append(_divisor(K, _t("onboarding.div.que_cambia", "qué cambia"), iw,
+                        tono=1))
+    der += _parrafo(K, (_t(
+        "onboarding.gcal.changes_p",
+        "Workspace LEE tus eventos (solo lectura) y los muestra en el "
+        "calendario del hub. Nunca escribe en tu agenda."),), iw)
+    if full >= 1:
+        der.append("")
+        der.append(_divisor(K, _t("onboarding.gcal.div_seguro", "seguro"), iw))
+        der += _parrafo(K, (_t(
+            "onboarding.gcal.seguro_p",
+            "Solo se guarda esa URL iCal, en tu máquina; jamás se imprime en "
+            "pantalla. Puedes quitarla cuando quieras desde el calendario."),),
+            iw)
+    return izq, der
+
+
 # ── render ──────────────────────────────────────────────────────────────────
 def _fila_etapas(S, K, w):
     """`1 motores ── 2 apariencia ── 3 agente` — etapas REALES del proceso
@@ -409,12 +607,12 @@ def _b_idioma(S, K, iw, full=2):
     izq.append("")
     for i, (code, name) in enumerate(opts):
         sel = (i == S.get("li", 0))
-        cur = "%s%s%s" % (K["C"] + K["BO"], K["PTR"], K["R"]) if sel else " "
+        bar, cur = _foco(K, sel)
         marca = ("%s●%s" % (K["C"], K["R"])) if sel else \
             ("%s○%s" % (K["GREY"], K["R"]))
         lab = "%s%s%s  %s(%s)%s" % ((K["WH"] + K["BO"]) if sel else K["GREY"],
                                     name, K["R"], K["DK"], code, K["R"])
-        izq.append(HL.clip(" %s %s %s" % (cur, marca, lab), iw))
+        izq.append(HL.clip("%s%s %s %s" % (bar, cur, marca, lab), iw))
     der = []
     if full >= 1:
         der.append(_divisor(K, "workspace", iw, tono=1))
@@ -471,25 +669,25 @@ def _b_motores(S, K, iw, full=2):
         sel = (i == S["mi"])
         txt, col, elegible = _estado_motor(K, S, eid)
         usa = eid in S["sel"]
-        cur = "%s%s%s" % (K["C"] + K["BO"], K["PTR"], K["R"]) if sel else " "
+        bar, cur = _foco(K, sel)
         marca = ("%s●%s" % (K["C"], K["R"])) if usa else \
             ("%s○%s" % ((K["GREY"] if elegible else K["DK"]), K["R"]))
         lab = "%s%s%s" % ((K["WH"] + K["BO"]) if sel
                           else (K["GREY"] if elegible else K["DK"]),
                           eid, K["R"])
-        izq.append(HL.clip(" %s %s %s" % (cur, marca, lab), iw))
+        izq.append(HL.clip("%s%s %s %s" % (bar, cur, marca, lab), iw))
         # el ESTADO en su propia línea: completo, jamás truncado
         for sub in _wrap(txt, max(8, iw - 6)):
             izq.append(HL.clip("      %s%s%s" % (col, sub, K["R"]), iw))
         izq.append("")
     izq.append(_divisor(K, _t("onboarding.motores.div_listo", "listo"), iw))
     selc = (S["mi"] == len(SOPORTADOS))
-    cur = "%s%s%s" % (K["C"] + K["BO"], K["PTR"], K["R"]) if selc else " "
+    bar, cur = _foco(K, selc)
     _cont = _t("onboarding.continuar", "✦ continuar")
     _mk = _t("onboarding.motores.marcados",
              "{n} motor(es) marcados").format(n=len(S["sel"]))
-    izq.append(HL.clip(" %s %s%s%s   %s%s%s"
-                       % (cur, (K["C"] + K["BO"]) if selc else K["GREY"],
+    izq.append(HL.clip("%s%s %s%s%s   %s%s%s"
+                       % (bar, cur, (K["C"] + K["BO"]) if selc else K["GREY"],
                           _cont, K["R"], K["DK"], _mk, K["R"]), iw))
 
     der = []
@@ -558,7 +756,7 @@ def _b_apariencia(S, K, iw, full=2):
             grupo = tipo
         sel = (i == S["ti"])
         act = (iid == (tema_act if tipo == "tema" else fondo_act))
-        cur = "%s%s%s" % (K["C"] + K["BO"], K["PTR"], K["R"]) if sel else " "
+        bar, cur = _foco(K, sel)
         marca = ("%s●%s" % (K["C"], K["R"])) if act else \
             ("%s·%s" % (K["DK"], K["R"]))
         lab = "%s%s%s" % ((K["WH"] + K["BO"]) if sel
@@ -567,12 +765,12 @@ def _b_apariencia(S, K, iw, full=2):
         extra = ("%s%s%s" % (K["OK"],
                              _t("onboarding.apariencia.activo", "activo"),
                              K["R"])) if act else ""
-        izq.append(HL.clip(" %s %s %s %s" % (cur, marca, lab, extra), iw))
+        izq.append(HL.clip("%s%s %s %s %s" % (bar, cur, marca, lab, extra), iw))
     izq.append("")
     selc = (S["ti"] == len(items))
-    cur = "%s%s%s" % (K["C"] + K["BO"], K["PTR"], K["R"]) if selc else " "
-    izq.append(HL.clip(" %s %s%s%s" % (
-        cur, (K["C"] + K["BO"]) if selc else K["GREY"],
+    bar, cur = _foco(K, selc)
+    izq.append(HL.clip("%s%s %s%s%s" % (
+        bar, cur, (K["C"] + K["BO"]) if selc else K["GREY"],
         _t("onboarding.continuar", "✦ continuar"), K["R"]), iw))
 
     der = []
@@ -613,11 +811,11 @@ def _b_agente(S, K, iw, full=2):
     izq = []
     for i, (tok, lbl, _desc) in enumerate(ops):
         sel = (i == S["ai"])
-        cur = "%s%s%s" % (K["C"] + K["BO"], K["PTR"], K["R"]) if sel else " "
+        bar, cur = _foco(K, sel)
         lab = "%s%s%s" % ((K["WH"] + K["BO"]) if sel else K["GREY"],
                           _t("onboarding.agente.%s.label" % tok, lbl), K["R"])
-        izq.append(HL.clip(" %s %s%d%s  %s" % (cur, K["DK"], i + 1, K["R"],
-                                               lab), iw))
+        izq.append(HL.clip("%s%s %s%d%s  %s" % (bar, cur, K["DK"], i + 1,
+                                                K["R"], lab), iw))
         izq.append("")
     der = []
     tok, lbl, desc = ops[S["ai"] % len(ops)]
@@ -732,7 +930,9 @@ _VISTAS = {"idioma": (_b_idioma, "IDIOMA · LANGUAGE", "WORKSPACE"),
            "bienvenida": (_b_bienvenida, "QUÉ ES WORKSPACE", "EL PLAN"),
            "motores": (_b_motores, "MOTORES DETECTADOS", "EL MOTOR"),
            "apariencia": (_b_apariencia, "TEMA Y FONDO", "LA APARIENCIA"),
+           "autostart": (_b_autostart, "ARRANQUE", "CÓMO ABRE"),
            "agente": (_b_agente, "TU PRIMER AGENTE", "EL CAMINO"),
+           "gcal": (_b_gcal, "GOOGLE CALENDAR", "OPCIONAL"),
            "resumen": (_b_resumen, "LO QUE QUEDÓ", "DÓNDE Y QUÉ SIGUE")}
 
 #: Claves i18n del TÍTULO de cada caja, por vista (izq, der). Solo las vistas
@@ -744,7 +944,10 @@ _TITLE_KEYS = {
     "motores": ("onboarding.motores.title_l", "onboarding.motores.title_r"),
     "apariencia": ("onboarding.apariencia.title_l",
                    "onboarding.apariencia.title_r"),
+    "autostart": ("onboarding.autostart.title_l",
+                  "onboarding.autostart.title_r"),
     "agente": ("onboarding.agente.title_l", "onboarding.agente.title_r"),
+    "gcal": ("onboarding.gcal.title_l", "onboarding.gcal.title_r"),
     "resumen": ("onboarding.resumen.title_l", "onboarding.resumen.title_r"),
 }
 
@@ -754,7 +957,9 @@ _HINT_KEYS = {
     "bienvenida": "onboarding.hints.welcome",
     "motores": "onboarding.hints.motores",
     "apariencia": "onboarding.hints.apariencia",
+    "autostart": "onboarding.hints.autostart",
     "agente": "onboarding.hints.agente",
+    "gcal": "onboarding.hints.gcal",
     "resumen": "onboarding.hints.resumen",
 }
 
@@ -763,25 +968,20 @@ _HINTS = {
     "bienvenida": "Enter empieza · q al hub (vuelve con `workspace onboarding`)",
     "motores": "↑↓ motor · espacio marca/quita · Enter continúa · Esc atrás · q salta",
     "apariencia": "↑↓ opción · Enter/espacio aplica (guarda ya) · Esc atrás · q salta",
+    "autostart": "↑↓ opción · Enter elige · Esc salta · q sale",
     "agente": "↑↓ camino · 1-4 directo · Enter abre · Esc atrás · q salta",
+    "gcal": "Enter conecta · Esc salta · q sale",
     "resumen": "Enter — al recinto",
 }
 
 
 def render(S, w, h):
     K = _K()
-    L = [""]
-    bt = HL.big_title(K, w, h, indent=" ", compact=(h < 30), center=True)
-    L += bt
-    if len(bt) > 1:
-        L += HL.title_reflection(K, w, indent=" ", center=True)
+    pares = _pares(S["view"])                    # P0-A: una sola fuente de atajos
     sub = _t("onboarding.subtitle",
              "primer arranque — deja tu Workspace listo en 3 pasos")
-    L.append(" " * max(0, ((w - 1) - HL.vis(sub)) // 2)
-             + "%s%s%s" % (K["DIM"], sub, K["R"]))
-    L.append("%s%s%s%s%s" % (K["B2"], K["BOX"][5] * 3, K["DK"],
-                             K["BOX"][5] * max(1, w - 5), K["R"]))
-    L.append("")
+    # cabecera COMPARTIDA (wordmark + reflejo + subtítulo + atajos arriba + regla)
+    L = HL.screen_header(K, w, h, sub, hints=pares)
     L.append(_fila_etapas(S, K, w))
     L.append("")
     top = len(L)
@@ -793,7 +993,9 @@ def render(S, w, h):
     apilado = w < 100
     lw = (w - 1) if apilado else max(36, min(46, (w - 6) * 46 // 100))
     rw = (w - 1) if apilado else (w - 1) - lw - 3
-    avail = max(8, (h - 1) - top - 3)
+    # -4 (no -3): además del blanco+msg+pie, la fila de ACCIÓN PRIMARIA (P0-B)
+    # es esencial y suma una línea — si no se cuenta, el pie se sale.
+    avail = max(8, (h - 1) - top - 4)
     bi = bd = None
     for full in (2, 1, 0):                       # degradación honesta
         if apilado:                              # cada caja a su ancho real
@@ -824,11 +1026,10 @@ def render(S, w, h):
                              + "  " + (der[i] if i < len(der) else ""),
                              w - 1))
     L.append("")
+    L.append(_accion_primaria(S, K, w))          # P0-B: acción primaria (esencial)
     L.append((" %s%s%s" % (K["B2"], S["msg"], K["R"])) if S.get("msg")
              else "")
-    _hk = _HINT_KEYS.get(S["view"])
-    _hint = _t(_hk, _HINTS[S["view"]]) if _hk else _HINTS[S["view"]]
-    L.append(" %s%s%s" % (K["DK"], _hint, K["R"]))
+    L.append(HL.foot_hints(K, pares, w))         # P0-A: pie de atajos completo
     L = [HL.clip(x, w - 1) for x in L[:h - 1]]
     return L + [""] * max(0, (h - 1) - len(L))    # altura SIEMPRE estable
 
@@ -940,7 +1141,7 @@ def _accion(S, key):
                 if key == " ":
                     return True
                 S["hechos"].add("apariencia")
-                S["view"] = "agente"
+                S["view"] = "autostart"          # paso nuevo (opcional)
                 return True
             tipo, iid, lbl = items[S["ti"]]
             skey = "ui.theme" if tipo == "tema" else "ui.background"
@@ -957,13 +1158,28 @@ def _accion(S, key):
                                   tipo=_tipo, err=err)
         return True
 
+    if v == "autostart":                         # paso NUEVO (opcional)
+        opts = _autostart_opts()
+        n = len(opts)
+        if key == "up":
+            S["asi"] = (S.get("asi", 1) - 1) % n
+        elif key in ("down", "tab"):
+            S["asi"] = (S.get("asi", 1) + 1) % n
+        elif key == "\x1b":                       # Esc = salta (al agente)
+            S["view"] = "agente"
+        elif key in ("\r", "\n"):
+            on = (S.get("asi", 1) % n == 0)       # opción 0 = al abrir terminal
+            _aplicar_autostart(S, on)
+            S["view"] = "agente"
+        return True
+
     if v == "agente":
         ops = _opciones_agente()
         if key == "up":
             S["ai"] = (S["ai"] - 1) % len(ops)
         elif key in ("down", "tab"):
             S["ai"] = (S["ai"] + 1) % len(ops)
-        elif key == "\x1b":
+        elif key == "\x1b":                       # atrás: salta el opcional
             S["view"] = "apariencia"
         elif key in tuple("1234"):
             S["ai"] = min(int(key) - 1, len(ops) - 1)
@@ -972,12 +1188,47 @@ def _accion(S, key):
             return False
         return True
 
+    if v == "gcal":                              # paso NUEVO (opcional)
+        if key == "\x1b":                         # Esc = salta → resumen
+            S["view"] = "resumen"
+        elif key in ("\r", "\n"):
+            if _gcal_configured():                # ya conectado → al resumen
+                S["view"] = "resumen"
+            else:                                 # prompt CLÁSICO fuera del alt
+                S["salir"] = "gcal_connect"
+                return False
+        return True
+
     if v == "resumen":
         if key in ("\r", "\n", "q", "Q", "\x1b"):
             S["salir"] = "fin"
             return False
         return True
     return True
+
+
+def _aplicar_autostart(S, on):
+    """Persiste ui.autostart y reescribe el bloque del greeter en el rc
+    (install.set_terminal_autostart). Degrada a solo-preferencia si no se
+    puede reescribir limpio (y lo dice)."""
+    _guardar("ui.autostart", bool(on))
+    rc = None
+    try:
+        import install
+        fn = getattr(install, "set_terminal_autostart", None)
+        if fn:
+            rc = fn(bool(on))
+    except Exception:
+        rc = None
+    if rc:
+        S["msg"] = (_t("onboarding.msg.autostart_on",
+                       "Workspace abrirá al abrir la terminal · guardado ✓")
+                    if on else
+                    _t("onboarding.msg.autostart_off",
+                       "Workspace abrirá solo con el comando · guardado ✓"))
+    else:
+        S["msg"] = _t("onboarding.msg.autostart_saved",
+                      "preferencia guardada (ajusta el rc a mano si hace falta)")
 
 
 # ── drivers (mismo patrón que tono_tui; cadencia viva mientras hay probe) ──
@@ -1122,12 +1373,54 @@ def _tono_para(agente):
             return 0
 
 
+def _gcal_connect_clasico(S):
+    """Prompt CLÁSICO fuera del alt-screen (raw mode no deja pegar una URL
+    larga de forma fiable): pide la «Dirección secreta iCal», la vincula con
+    gcal.add_account y deja el resultado en S["msg"]. NUNCA imprime la URL."""
+    try:
+        import gcal
+    except Exception:
+        S["msg"] = _t("onboarding.gcal.unavailable",
+                      "Google Calendar no está disponible aquí")
+        return
+    try:
+        print()
+        print(_t("onboarding.gcal.prompt_url",
+                 "Pega la «Dirección secreta en formato iCal» "
+                 "(Enter vacío = cancelar):"))
+        url = input("  > ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return
+    if not url:
+        S["msg"] = _t("onboarding.gcal.cancelled", "conexión cancelada")
+        return
+    try:
+        label = input("  %s" % _t("onboarding.gcal.prompt_label",
+                                  "Etiqueta (opcional, Enter = auto): ")
+                      ).strip()
+    except (EOFError, KeyboardInterrupt):
+        label = ""
+    try:
+        res = gcal.add_account(label, url)
+    except Exception as e:
+        res = {"ok": False, "error": str(e)}
+    if res.get("ok"):
+        S["msg"] = _t("onboarding.gcal.connected",
+                      "conectado ✓ · {n} eventos").format(
+                          n=res.get("events", 0))
+    else:
+        S["msg"] = _t("onboarding.gcal.failed",
+                      "no se pudo conectar ({err})").format(
+                          err=res.get("error", ""))
+
+
 # ── entrada ─────────────────────────────────────────────────────────────────
 def _estado_inicial():
     harn = _descriptores()
     sel = {e for e in SOPORTADOS if (harn.get(e) or {}).get("binaries_ok")}
-    return {"view": "idioma", "li": 0, "mi": 0, "ti": 0, "ai": 0, "msg": "",
-            "harn": harn, "probe": {}, "probing": False, "sel": sel,
+    return {"view": "idioma", "li": 0, "mi": 0, "ti": 0, "ai": 0,
+            "asi": 0 if bool(_setting("ui.autostart", False)) else 1,
+            "msg": "", "harn": harn, "probe": {}, "probing": False, "sel": sel,
             "temas": _temas(), "hechos": set(), "nuevos": [], "tono": "",
             "def_engine": "", "salir": None}
 
@@ -1178,7 +1471,11 @@ def run(force=False):
                         _tono_para(nuevos[0])
                         S["tono"] = nuevos[0]
                 S["hechos"].add("agente")
-                S["view"], S["salir"] = "resumen", None
+                S["view"], S["salir"] = "gcal", None   # paso opcional antes del resumen
+                continue
+            if token == "gcal_connect":           # prompt clásico fuera del alt-screen
+                _gcal_connect_clasico(S)
+                S["view"], S["salir"] = "gcal", None
                 continue
             break                                 # token desconocido → fuera
     finally:

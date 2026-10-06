@@ -416,6 +416,14 @@ SETTINGS_SCHEMA = (
      "type": "bool", "default": True,
      "help": "Menú animado del recinto y banner animado (sin esto: estático + picker).",
      "applies": "front.py + banner/render.py; env WORKSPACE_NO_ANIM=1 gana."},
+    {"key": "ui.autostart", "group": "ui", "label": "Abrir al abrir la terminal",
+     "type": "bool", "default": False,
+     "help": "Si cada terminal nueva abre el menú de Workspace (greeter del rc) "
+             "o si Workspace solo abre con el comando `workspace` (default — "
+             "menos invasivo). Lo fija el paso «arranque» del onboarding.",
+     "applies": "install.set_terminal_autostart() reescribe el bloque del "
+                "greeter en ~/.zshrc (o el $PROFILE de PowerShell); "
+                "env WORKSPACE_NO_GREETER=1 desactiva el greeter pase lo que pase."},
     {"key": "ui.lang", "group": "ui", "label": "Idioma",
      "type": "enum", "default": "es", "choices": ("es", "en"),
      "help": "Idioma de la interfaz que VE EL CLIENTE (menú del hub, "
