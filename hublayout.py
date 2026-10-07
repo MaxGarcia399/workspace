@@ -1512,10 +1512,12 @@ def bottom_statusline(data, view, K, w):
                  (_t("common.hint.key", "tecla"),
                   _t("common.hint.jump", "salta"))]
         pares += [(_ac[n], _hact[n]) for n in ("motor", "info") if _ac.get(n)]
+        pares.append(("l", _t("common.hint.redlight", "luz roja")))
         pares.append(("q", _hquit))
     else:
         pares = [("↑↓", _hmove), ("◄►", _hpick), ("Enter", _henter),
-                 ("m", _hact["motor"]), ("q", _hquit)]
+                 ("m", _hact["motor"]),
+                 ("l", _t("common.hint.redlight", "luz roja")), ("q", _hquit)]
     # tecla en acento + acción tenue (keyline): el pie se LEE de un vistazo
     hints = keyline(K, pares, w - 1)
     sep = " %s│%s " % (K["DK"], K["R"])
@@ -2797,10 +2799,16 @@ def _dia_menu_body(data, view, K, inner, separador=True, hits=None):
 # Etiquetas CORTAS de los pins: el label del schema («Tema del hub», «Modo del
 # latido») se recorta a «Tema del …» en una columna de 22 y deja de informar.
 _DIA_PIN_CORTO = {"ui.background": "fondo", "ui.theme": "tema", "ui.layout": "layout",
-                  "latido.mode": "latido", "ui.split": "split",
-                  "ui.stars": "estrellas", "ui.anim": "animación"}
+                  "ui.brightness": "brillo", "ui.redlight": "luz roja",
+                  "ui.autostart": "auto-abrir",
+                  "latido.mode": "latido",
+                  "ui.split": "split", "ui.stars": "estrellas",
+                  "ui.anim": "animación"}
 # clave i18n paralela por setting (misma palabra, traducible)
 _DIA_PIN_I18N = {"ui.background": "hub.pin.background", "ui.theme": "hub.pin.theme",
+                 "ui.brightness": "hub.pin.brightness",
+                 "ui.redlight": "hub.pin.redlight",
+                 "ui.autostart": "hub.pin.autostart",
                  "ui.layout": "hub.pin.layout", "latido.mode": "hub.pin.heartbeat",
                  "ui.split": "hub.pin.split", "ui.stars": "hub.pin.stars",
                  "ui.anim": "hub.pin.anim"}

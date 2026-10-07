@@ -920,17 +920,22 @@ def install_launchers(agent_names):
 
 
 # Greeter de Windows (versionado: subir vN cuando cambie el bloque → install/doctor
-# reemplazan el viejo). Guards: solo sesión interactiva Y Windows Terminal (WT_SESSION)
-# — un $PROFILE cargado por un script/pipe no debe lanzar el menú. Al volver del menú
-# se mandan los OSC 110/111/112 para que la terminal no quede teñida por el tema del agente.
+# reemplazan el viejo). Guard ROBUSTO: solo sesión interactiva ([Environment]::
+# UserInteractive) — funciona en CUALQUIER consola (Windows Terminal, consola clásica,
+# VS Code, pwsh), no solo Windows Terminal; un $PROFILE cargado por un script/pipe no
+# es UserInteractive y no lanza el menú. Al volver del menú se mandan los OSC 110/111/112
+# para que la terminal no quede teñida por el tema del agente.
 WIN_GREETER_MARK = "# WORKSPACE-greeter v3"
 WIN_GREETER_BLOCK = (
-    '# WORKSPACE-greeter v3 — menú al abrir terminal, solo interactivo + Windows Terminal '
-    '(opt-out: $env:WORKSPACE_NO_GREETER=1)\n'
-    'if ([Environment]::UserInteractive -and $env:WT_SESSION '
+    '# WORKSPACE-greeter v3 — menú al abrir terminal, cualquier consola interactiva '
+    '(opt-out: $env:WORKSPACE_NO_GREETER=1; el guard WORKSPACE_GREETER se setea solo '
+    'mientras corre workspace y se QUITA en finally, para NO heredarlo a terminales '
+    'abiertas desde una sesion de Workspace — si no, su greeter nunca dispararia)\n'
+    'if ([Environment]::UserInteractive '
     '-and -not $env:WORKSPACE_GREETER -and -not $env:WORKSPACE_NO_GREETER '
     '-and (Get-Command workspace -ErrorAction SilentlyContinue)) '
-    '{ $env:WORKSPACE_GREETER="1"; workspace; '
+    '{ try { $env:WORKSPACE_GREETER="1"; workspace } '
+    'finally { Remove-Item Env:WORKSPACE_GREETER -ErrorAction SilentlyContinue }; '
     'Write-Host -NoNewline "$([char]27)]110$([char]7)$([char]27)]111$([char]7)$([char]27)]112$([char]7)" }')
 
 GREETER_MARK = "WORKSPACE · menú al abrir terminal"
@@ -938,9 +943,14 @@ GREETER_MARK_V1 = "WORKSPACE · menú al abrir terminal (v1)"   # bloque pre-ren
 GREETER_BLOCK = """
 # ── WORKSPACE · menú al abrir terminal (elige agente o terminal normal) ────────
 # Desactivar: borra este bloque, o corre  export WORKSPACE_NO_GREETER=1
-if [[ $- == *i* && -o login && -z "$WORKSPACE_GREETER" && -z "$WORKSPACE_NO_GREETER" ]] && command -v workspace >/dev/null 2>&1; then
-  export WORKSPACE_GREETER=1
-  workspace
+# Condición ROBUSTA: cualquier shell INTERACTIVA (no solo login) → funciona en
+# iTerm2, VS Code, tmux, etc. — NO gatear a `-o login` (iTerm2 no siempre lo es).
+# WORKSPACE_GREETER va one-shot (prefijo de comando), NO `export`: así la var NO
+# queda en el environment del shell → las terminales lanzadas DESDE una sesión de
+# Workspace (agentes, iTerm abierto desde el hub) no la heredan y su propio greeter
+# SÍ dispara. workspace y sus subshells igual la ven (guard anti-recursión intacto).
+if [[ $- == *i* && -z "$WORKSPACE_GREETER" && -z "$WORKSPACE_NO_GREETER" ]] && command -v workspace >/dev/null 2>&1; then
+  WORKSPACE_GREETER=1 workspace
   printf '\\033]111\\007\\033]110\\007\\033]112\\007'   # restaura colores de la terminal al volver al shell
 fi
 """
@@ -1005,15 +1015,18 @@ GREETER_HINT_BLOCK = """
 # ── WORKSPACE · menú al abrir terminal (autostart OFF — solo con el comando) ───
 # La terminal NO abre el hub sola; escribe `workspace`. Reactivar: ui.autostart
 # o  workspace onboarding  (o borra el 'OFF' y deja el greeter normal).
-if [[ $- == *i* && -o login && -z "$WORKSPACE_GREETER" && -z "$WORKSPACE_NO_GREETER" ]] && command -v workspace >/dev/null 2>&1; then
-  export WORKSPACE_GREETER=1
+# Misma condición ROBUSTA que el greeter normal (interactiva, sin `-o login`).
+# No `export` de WORKSPACE_GREETER: solo imprime el hint (no lanza subshell que
+# necesite el guard), y así no contamina el environment ni lo heredan las
+# terminales abiertas desde una sesión de Workspace.
+if [[ $- == *i* && -z "$WORKSPACE_GREETER" && -z "$WORKSPACE_NO_GREETER" ]] && command -v workspace >/dev/null 2>&1; then
   printf '\\033[2mWorkspace listo · escribe \\033[0m\\033[1mworkspace\\033[0m\\033[2m para abrir el hub\\033[0m\\n'
 fi
 """
 
 WIN_GREETER_HINT_BLOCK = (
     '# WORKSPACE-greeter v3 (autostart OFF — solo con el comando workspace)\n'
-    'if ([Environment]::UserInteractive -and $env:WT_SESSION '
+    'if ([Environment]::UserInteractive '
     '-and -not $env:WORKSPACE_GREETER -and -not $env:WORKSPACE_NO_GREETER '
     '-and (Get-Command workspace -ErrorAction SilentlyContinue)) '
     '{ Write-Host "Workspace listo - escribe: workspace" }')

@@ -942,6 +942,38 @@ def build_sections():
                         "Color #RRGGBB; elige personalizado en Fondo "
                         "independiente.")),
                 _item_for(
+                    "ui.brightness", kind="bright",
+                    label=_t("personalizacion.brightness.label", "Brillo"),
+                    help_override=_t(
+                        "personalizacion.brightness.help",
+                        "Qué tan vivo se ve el TUI. ◄► ajusta EN VIVO: 0 = la "
+                        "paleta del tema tal cual; + sube luminosidad y "
+                        "saturación de los colores (no del fondo), − los "
+                        "apaga. Sirve con cualquier tema; el texto siempre "
+                        "queda legible.")),
+                _item_for(
+                    "ui.redlight",
+                    label=_t("personalizacion.redlight.label",
+                             "Luz roja (modo noche)"),
+                    help_override=_t(
+                        "personalizacion.redlight.help",
+                        "Modo noche en ROJO para madrugadas. ON remapea toda la "
+                        "paleta a un rojo/ámbar cálido (baja el azul/verde y la "
+                        "luminosidad) conservando legibilidad y jerarquía; OFF = "
+                        "la paleta del tema tal cual. En mono no hace nada.")),
+                _item_for(
+                    "ui.autostart", env="WORKSPACE_NO_GREETER",
+                    label=_t("personalizacion.autostart.label",
+                             "Abrir al abrir la terminal"),
+                    help_override=_t(
+                        "personalizacion.autostart.help",
+                        "ON = cada terminal nueva abre el menú de Workspace "
+                        "(greeter del rc) en CUALQUIER terminal (iTerm2, VS "
+                        "Code, etc.); OFF = Workspace solo abre con el comando "
+                        "`workspace` (default, menos invasivo). Reescribe el "
+                        "bloque del greeter en ~/.zshrc. env WORKSPACE_NO_GREETER=1 "
+                        "lo desactiva pase lo que pase.")),
+                _item_for(
                     "ui.stars", env="WORKSPACE_NO_STARS",
                     label=_t("personalizacion.stars.label", "Cielo estrellado"),
                     help_override=_t(
@@ -1145,6 +1177,10 @@ def handle_arrow(S, d):
         S["cur"] = max(0, min(len(flat) - 1, S.get("cur", 0) + step))
         return
     if d in ("left", "right"):
+        it = current_item(S)
+        if it is not None and it.get("kind") == "bright":
+            _bump_bright(S, it, -1 if d == "left" else 1)   # ajusta, no salta
+            return
         step = -1 if d == "left" else 1
         si = _cur_sec(S)
         n = len(S.get("sections") or [])
@@ -1221,6 +1257,9 @@ def handle_key(S, ch):
             _open_agent(S, it)                       # panel motor↔modelo
         elif kind in ("int", "str", "route"):
             _open_edit(S, it)
+        elif kind == "bright":                       # ◄► lo ajusta, no Enter
+            S["status"] = _t("personalizacion.brightness.use_arrows",
+                             "usa ◄► para subir o bajar el brillo")
         elif kind == "scaffold":
             S["status"] = "Avanzado: reservado para v2 — sin opciones todavía"
         return None
@@ -1237,6 +1276,9 @@ def handle_key(S, ch):
             _open_connect(S, it)                     # Espacio también abre el asistente
         elif kind == "agent":
             _open_agent(S, it)
+        elif kind == "bright":                       # ◄► lo ajusta, no Espacio
+            S["status"] = _t("personalizacion.brightness.use_arrows",
+                             "usa ◄► para subir o bajar el brillo")
         elif kind == "scaffold":
             S["status"] = "Avanzado: reservado para v2 — sin opciones todavía"
         return None
@@ -1316,8 +1358,21 @@ def _toggle(S, it):
         nv = not bool(it["value"])
         ok, _ = _apply_set(S, it["key"], nv)
         if ok:
+            tail = ""
+            # ui.autostart: además de persistir el bool, reescribe el bloque del
+            # greeter del rc para que surta efecto. Falla-suave: rc editado a mano
+            # → preferencia guardada igual + aviso honesto, nunca truena.
+            if it["key"] == "ui.autostart":
+                rc = ""
+                try:
+                    import install
+                    rc = install.set_terminal_autostart(bool(nv)) or ""
+                except Exception:
+                    rc = ""
+                if not rc:
+                    tail = " (ajusta el rc a mano)"
             S["status"] = ("guardado: %s → %s — ya corre así" % (it["key"],
-                           "on" if nv else "off")) + _env_note(it)
+                           "on" if nv else "off")) + tail + _env_note(it)
             refresh(S)
             _mark_saved(S, it["key"])
         return
@@ -1340,6 +1395,35 @@ def _toggle(S, it):
                 _env_note(it)
             refresh(S)
             _mark_saved(S, it["key"])
+
+
+def _bump_bright(S, it, delta):
+    """◄► sobre el BRILLO (kind "bright"): mueve el nivel ±1 con clamp al rango
+    y PERSISTE EN VIVO (settings.set valida contra el range). La paleta memoiza
+    por nivel ⇒ la muestra y el hub reflejan el cambio al instante. En el tope
+    no reenvía (evita el flash de guardado sin cambio real). Falla-suave:
+    cualquier problema → aviso, sin romper la pantalla."""
+    lo, hi = it.get("range") or (-3, 3)
+    try:
+        cur = int(it["value"])
+    except Exception:
+        cur = 0
+    nv = max(lo, min(hi, cur + delta))
+    if nv == cur:                                    # ya en el extremo
+        S["status"] = _t("personalizacion.brightness.at_edge",
+                          "brillo al {edge} ({n})",
+                          edge=(_t("personalizacion.brightness.min", "mínimo")
+                                if delta < 0 else
+                                _t("personalizacion.brightness.max", "máximo")),
+                          n=("%+d" % nv) if nv else "0")
+        return
+    ok, v = _apply_set(S, it["key"], nv)
+    if ok:
+        S["status"] = _t("personalizacion.brightness.saved",
+                         "guardado: brillo → {n} — el hub lo pinta al instante",
+                         n=("%+d" % int(v)) if int(v) else "0")
+        refresh(S)
+        _mark_saved(S, it["key"])
 
 
 # ── PICKER de tema (kind "theme": Enter abre lista · ↑↓/1-9 · Enter aplica) ─
@@ -1944,6 +2028,12 @@ def _fmt_val(it):
         return str(v), (WH if it.get("override") else DIM)
     if it["kind"] == "route":
         return (str(v) if v else "(sin regla)"), (WH if v else DIM)
+    if it["kind"] == "bright":                       # brillo: +2 / 0 / −1
+        try:
+            n = int(v)
+        except Exception:
+            n = 0
+        return (("%+d" % n) if n else "0"), (WH if n else DIM)
     if it["kind"] == "account":
         stx = it.get("status") or {}
         labels = {"connected": ("conectada", GREEN),
@@ -2056,6 +2146,47 @@ def _detail_lines(S, it, rw):
     if it["kind"] == "route":
         out.append(_cell([("  Espacio cicla ids reales de providers · Enter "
                            "escribe uno · vacío = quita la regla", DIM)], rw))
+    # BRILLO: mini-slider ━━●── con el nivel + muestra EN VIVO de los colores
+    # cromáticos a ese nivel (se re-resuelve la paleta por frame, como el
+    # tema) + hint de teclas. ◄► ajusta sin entrar a editar.
+    if it["kind"] == "bright":
+        lo, hi = it.get("range") or (-3, 3)
+        try:
+            cur = int(it["value"])
+        except Exception:
+            cur = 0
+        n = hi - lo + 1
+        idx = max(0, min(n - 1, cur - lo))
+        knob, seg = [], []
+        for k in range(n):
+            if k == idx:
+                seg.append(("●", C + BO)); knob.append("●")
+            else:
+                seg.append(("━", DK)); knob.append("━")
+        bar = ([("  " + _t("personalizacion.brightness.softer", "− apagado"),
+                 DIM), ("  ", None)] + seg
+               + [("  ", None),
+                  (_t("personalizacion.brightness.brighter", "vivo +"), DIM),
+                  ("    " + (("%+d" % cur) if cur else "0"), WH + BO)])
+        out.append(_cell(bar, rw))
+        # muestra EN VIVO: los 6 roles cromáticos del tema a ESTE nivel
+        # (brillo ya persistido ⇒ la paleta memoiza por nivel y refleja el
+        # cambio al instante). Falla-suave: sin tuitheme, se omite la muestra.
+        try:
+            import tuitheme as _tt
+            P = _tt.palette()
+            sw = [("  " + _t("personalizacion.brightness.preview",
+                             "muestra"), DIM), ("  ", None)]
+            for role in ("B", "C", "B2", "OK", "ERR", "BAD"):
+                sq = getattr(P, role, "")
+                sw.append(("██", sq))
+                sw.append((" ", None))
+            out.append(_cell(sw, rw))
+        except Exception:
+            pass
+        out.append(_cell([("  " + _t("personalizacion.brightness.hint",
+                                     "◄► ajusta el brillo · 0 = sin cambios"),
+                           GREY)], rw))
     # enum/model: TODAS las opciones estilo radio, la SELECCIONADA marcada
     # explícitamente (pedido del socio) — verde si recién guardada.
     if it["kind"] in ("enum", "model") and it.get("choices"):

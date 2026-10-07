@@ -30,7 +30,11 @@ Cada ficha tiene IDEA / DESCRIPCIÓN y PROMPT PARA EL AGENTE, de hasta
 el mes siempre visible y dos campos compactos (apilados en vertical).
 Ctrl+G alterna entre calendario y escritura. Tab cambia entre
 título, idea y prompt; Enter crea saltos en texto; Ctrl+S guarda desde
-cualquier campo. Las nuevas ideas son BORRADOR: l las marca LISTA para
+cualquier campo. Ctrl+V adjunta una IMAGEN al campo actual (idea → detalle,
+prompt → prompt): primero del portapapeles del SO y, si no hay, pide la ruta
+de un archivo fuera del alt-screen. Ctrl+X quita la imagen enfocada. Las
+imágenes se ven como chips bajo cada campo (y en el DETALLE) y sus rutas
+absolutas viajan en el prompt al despachar la tarea al agente multimodal. Las nuevas ideas son BORRADOR: l las marca LISTA para
 agentes. La prioridad alta es independiente del estado de preparación.
 
 El modelo (store atómico, validación) vive en `personal.py`. Los drivers de
@@ -50,6 +54,10 @@ if ROOT not in sys.path:
 
 import personal as P                                           # noqa: E402
 import hublayout as HL                                         # noqa: E402
+try:
+    import clip_image                                          # noqa: E402
+except Exception:                                              # falla-suave
+    clip_image = None
 
 # i18n (lado cliente). Import guardado + red de seguridad inline: sin i18n (o
 # clave faltante) `_t()` devuelve el español `es` tal cual → paridad EXACTA con
@@ -669,7 +677,8 @@ def _trash_render(S, K, w, h):
     return [HL.clip(x, w - 1) for x in lines[:h - 1]] + [""] * max(0, h - 1 - len(lines))
 
 
-def _text_panel(S, K, key, title, width, height, active, readonly=False):
+def _text_panel(S, K, key, title, width, height, active, readonly=False,
+                field=None):
     text = S.get(key) or ""
     iw = max(8, width - 4)
     cursor = S.setdefault("text_cursor", {}).get(key, len(text))
@@ -681,15 +690,27 @@ def _text_panel(S, K, key, title, width, height, active, readonly=False):
         display = text
     rows = _lineas(display, iw - 2)
     capacity = max(1, height - 2)
-    scroll = S.setdefault("text_scroll", {}).get(key, max(0, cursor_line - capacity + 1) if active and not readonly else 0)
-    scroll = min(max(0, scroll), max(0, len(rows) - capacity))
+    # CHIPS de imágenes adjuntas: una fila al pie del campo (dentro de la caja),
+    # el enfocado en el acento. Roba UNA fila al texto para no cambiar el alto.
+    chips = _event_images(S, field) if field else []
+    chip = None
+    if chips:
+        focus_idx = S.get("img_focus", {}).get(field, len(chips) - 1)
+        chip = _chip_line(K, chips, focus_idx, iw - 2)
+    text_cap = max(1, capacity - (1 if chip is not None else 0))
+    scroll = S.setdefault("text_scroll", {}).get(key, max(0, cursor_line - text_cap + 1) if active and not readonly else 0)
+    scroll = min(max(0, scroll), max(0, len(rows) - text_cap))
     S["text_scroll"][key] = scroll
-    body = [K["GREY"] + row + K["R"] for row in rows[scroll:scroll + capacity]]
+    body = [K["GREY"] + row + K["R"] for row in rows[scroll:scroll + text_cap]]
     if not text and not active:
         body = [K["DIM"] + (_t("cal.panel.idea_ph", "Describe qué quieres lograr y el contexto.")
                             if key == "nbuf" else
                             _t("cal.panel.prompt_ph", "Indica cómo debe trabajar el agente.")) + K["R"]]
+    if chip is not None:
+        body = body[:text_cap] + [chip]
     label = title + " · %d/%d" % (scroll + 1, len(rows))
+    if chips:
+        label += "  %s%s%s" % (K["B2"], _t("cal.img.label", "{n} img", n=len(chips)), K["R"])
     return HL.full_box(label, body, K, width, capacity, active, border=K["C"] if active else K["B2"])
 
 
@@ -759,6 +780,163 @@ def _persist_form(S, close=True):
         S["form_focus"] = "editor"
     S["msg"] = _t("cal.msg.saved", "guardado; l marca LISTA para un agente")
     return True
+
+
+# ── imágenes adjuntas (schema 2) ─────────────────────────────────────────────
+# El campo IDEA/DESCRIPCIÓN guarda en images["detail"]; PROMPT en images
+# ["prompt"]. Adjuntar = Ctrl+V (portapapeles del SO; si no hay imagen, cae al
+# prompt CLÁSICO fuera del alt-screen que resuelven los drivers via
+# S["await_attach"]). Quitar la enfocada = Ctrl+X. Chips bajo cada campo.
+def _active_eid(S):
+    """El id del evento en edición/detalle (store), o None en un alta sin
+    guardar todavía."""
+    return S.get("editando") or S.get("form_event")
+
+
+def _img_field(S):
+    """El campo de imágenes según el cursor: PROMPT si está en el prompt
+    (campo 2), DETALLE en título/idea (campo 0/1)."""
+    return "prompt" if S.get("campo") == 2 else "detail"
+
+
+def _event_images(S, field, eid=None):
+    """Las imágenes de `field` del evento activo, leídas del store (la fuente
+    de verdad tras adjuntar/quitar). [] si no hay evento o campo vacío."""
+    eid = eid or _active_eid(S)
+    if not eid:
+        return []
+    e = next((x for x in P.events() if x["id"] == eid), None)
+    return list((e.get("images") or {}).get(field) or []) if e else []
+
+
+def _refresh_edit_event(S):
+    """Re-lee el evento en edición del store (para que el render muestre las
+    imágenes recién adjuntadas/quitadas)."""
+    eid = _active_eid(S)
+    if eid:
+        S["edit_event"] = next((e for e in P.events() if e["id"] == eid),
+                               S.get("edit_event"))
+
+
+def _img_chip_name(it):
+    """Nombre visible del chip: la etiqueta del archivo original si la hay
+    (adjunto por ruta), si no el archivo guardado (`<id>.ext`)."""
+    return (it.get("caption") or it.get("file") or "").strip() or "imagen"
+
+
+def _chip_line(K, chips, focus_idx, width):
+    """Hilera de CHIPS `[img 1] nombre.png`, el enfocado en el acento. Si no
+    cabe entera degrada a `[img i/n] nombre` y, en último caso, a `n imágenes`.
+    None si no hay chips.
+
+    PREVIEW inline de iTerm2 (protocolo 1337;File) DEFERIDO a propósito: el
+    redraw de esta pantalla es H + \\033[K por línea con alto FIJO (contrato de
+    hublayout); una imagen inline rompe la geometría estable y el posicionado
+    del cursor. El chip es la representación honesta dentro del TUI; el agente
+    sí ve la imagen real vía las rutas absolutas del despacho."""
+    if not chips:
+        return None
+    partes = []
+    for i, it in enumerate(chips):
+        foc = (i == focus_idx)
+        col = (K["C"] + K["BO"]) if foc else K["GREY"]
+        partes.append("%s[%s %d]%s %s%s%s" % (
+            K["DK"], _t("cal.img.chip", "img"), i + 1, K["R"],
+            col, _img_chip_name(it), K["R"]))
+    line = "   ".join(partes)
+    if HL.vis(line) > width:
+        fi = max(0, min(focus_idx, len(chips) - 1))
+        line = "%s[%s %d/%d]%s %s%s%s" % (
+            K["DK"], _t("cal.img.chip", "img"), fi + 1, len(chips), K["R"],
+            K["C"] + K["BO"], _img_chip_name(chips[fi]), K["R"])
+        if HL.vis(line) > width:
+            line = "%s%s%s" % (K["DK"], _t("cal.img.count", "{n} imágenes",
+                                           n=len(chips)), K["R"])
+    return HL.clip(line, width)
+
+
+def _attach_image(S):
+    """Adjunta una imagen al campo activo. Primero el portapapeles del SO; si
+    no hay imagen (o no hay módulo), marca S["await_attach"] para que el driver
+    pida la RUTA de un archivo con el prompt clásico fuera del alt-screen."""
+    if clip_image is None:
+        S["msg"] = _t("cal.img.unavailable", "adjuntar imágenes no está disponible aquí")
+        return
+    eid = _active_eid(S)
+    if not eid:                       # alta sin guardar → persistir para tener id
+        if not _persist_form(S, close=False):
+            S["msg"] = _t("cal.img.need_save", "escribe un título para adjuntar la imagen")
+            return
+        eid = _active_eid(S)
+    if not eid:
+        S["msg"] = _t("cal.img.save_fail", "no pude adjuntar la imagen")
+        return
+    field = _img_field(S)
+    cap = None
+    try:
+        cap = clip_image.from_clipboard()
+    except Exception:
+        cap = None
+    if cap:
+        data, ext = cap
+        rec = P.add_image(eid, field, data, ext)
+        if rec:
+            _refresh_edit_event(S)
+            S.setdefault("img_focus", {})[field] = len(_event_images(S, field)) - 1
+            S["msg"] = _t("cal.img.attached", "imagen adjuntada ✓ — el agente la verá")
+        else:
+            S["msg"] = _t("cal.img.save_fail", "no pude adjuntar la imagen")
+        return
+    S["await_attach"] = field          # el driver pide la ruta (prompt clásico)
+    S["msg"] = _t("cal.img.none_clip",
+                  "sin imagen en el portapapeles — pega la ruta del archivo")
+
+
+def _finish_classic_attach(S, path):
+    """Cierra el adjunto por RUTA tras el prompt clásico del driver: valida que
+    sea una imagen (magic bytes) y la registra. Deja el resultado en S["msg"]."""
+    field = S.pop("await_attach", None)
+    if clip_image is None or not field:
+        return
+    path = (path or "").strip()
+    if not path:
+        S["msg"] = _t("cal.img.classic_cancel", "sin imagen adjuntada")
+        return
+    cap = clip_image.from_path(path)
+    if not cap:
+        S["msg"] = _t("cal.img.bad", "no es una imagen válida (png/jpg/gif/webp)")
+        return
+    eid = _active_eid(S)
+    if not eid:
+        S["msg"] = _t("cal.img.save_fail", "no pude adjuntar la imagen")
+        return
+    data, ext = cap
+    rec = P.add_image(eid, field, data, ext, caption=os.path.basename(path))
+    if rec:
+        _refresh_edit_event(S)
+        S.setdefault("img_focus", {})[field] = len(_event_images(S, field)) - 1
+        S["msg"] = _t("cal.img.attached", "imagen adjuntada ✓ — el agente la verá")
+    else:
+        S["msg"] = _t("cal.img.save_fail", "no pude adjuntar la imagen")
+
+
+def _remove_focused_image(S):
+    """Quita la imagen ENFOCADA del campo activo (archivo incluido)."""
+    field = _img_field(S)
+    eid = _active_eid(S)
+    chips = _event_images(S, field, eid)
+    if not chips:
+        S["msg"] = _t("cal.img.none", "no hay imágenes en este campo")
+        return
+    idx = S.get("img_focus", {}).get(field, len(chips) - 1)
+    idx = max(0, min(idx, len(chips) - 1))
+    if eid and P.remove_image(eid, field, chips[idx]["id"]):
+        _refresh_edit_event(S)
+        rem = _event_images(S, field, eid)
+        S.setdefault("img_focus", {})[field] = max(0, min(idx, len(rem) - 1))
+        S["msg"] = _t("cal.img.removed", "imagen quitada")
+    else:
+        S["msg"] = _t("cal.img.save_fail", "no pude adjuntar la imagen")
 
 
 def _calendar_form_key(S, key):
@@ -842,13 +1020,16 @@ def _task_form_render(S, K, w, h):
     else:
         hints = ((("Ctrl+G", _t("cal.hint.calendar", "calendario")),
                   ("Tab", _t("cal.hint.field", "campo")),
-                  ("Ctrl+B/F", _t("cal.hint.scroll", "desplaza")),
+                  ("Ctrl+V", _t("cal.hint.attach", "imagen")),
+                  ("Ctrl+X", _t("cal.hint.detach", "quita img")),
                   ("e", _t("cal.hint.edit", "edita")),
                   ("l", _t("cal.hint.list", "lista")),
                   ("Esc", _t("cal.hint.back", "vuelve"))) if readonly else
                  (("Ctrl+G", _t("cal.hint.calendar", "calendario")),
                   ("Tab", _t("cal.hint.field", "campo")),
                   ("Ctrl+S", _t("cal.hint.save", "guarda")),
+                  ("Ctrl+V", _t("cal.hint.attach", "imagen")),
+                  ("Ctrl+X", _t("cal.hint.detach", "quita img")),
                   ("Enter", _t("cal.hint.newline", "salto")),
                   ("Esc", _t("cal.hint.cancel", "cancela"))))
     footer = [" " + HL.clip(_t("cal.ficha.result", "Resultado: {text}", text=e["result"]), w - 3) if readonly and e.get("result") else "",
@@ -860,16 +1041,16 @@ def _task_form_render(S, K, w, h):
         rw = w - 4 - lw
         left = _calendar_context(S, K, lw, available, focus == "calendar")
         first = available // 2
-        right = _text_panel(S, K, "nbuf", _t("cal.box.idea", "IDEA / DESCRIPCIÓN"), rw, first, field == 1 and focus == "editor", readonly)
-        right += _text_panel(S, K, "pbuf", _t("cal.box.prompt", "PROMPT PARA EL AGENTE"), rw, available - first, field == 2 and focus == "editor", readonly)
+        right = _text_panel(S, K, "nbuf", _t("cal.box.idea", "IDEA / DESCRIPCIÓN"), rw, first, field == 1 and focus == "editor", readonly, field="detail")
+        right += _text_panel(S, K, "pbuf", _t("cal.box.prompt", "PROMPT PARA EL AGENTE"), rw, available - first, field == 2 and focus == "editor", readonly, field="prompt")
         body = [" " + HL.pad(a, lw) + " " + b for a, b in zip(left, right)]
     else:
         calendar_h = min(len(_mes_body(S, K, w - 7)) + 6, available - 14)
         body = [" " + row for row in _calendar_context(S, K, w - 3, calendar_h, focus == "calendar")]
         text_h = available - calendar_h
         first = text_h // 2
-        body += [" " + row for row in _text_panel(S, K, "nbuf", _t("cal.box.idea", "IDEA / DESCRIPCIÓN"), w - 3, first, field == 1 and focus == "editor", readonly)]
-        body += [" " + row for row in _text_panel(S, K, "pbuf", _t("cal.box.prompt", "PROMPT PARA EL AGENTE"), w - 3, text_h - first, field == 2 and focus == "editor", readonly)]
+        body += [" " + row for row in _text_panel(S, K, "nbuf", _t("cal.box.idea", "IDEA / DESCRIPCIÓN"), w - 3, first, field == 1 and focus == "editor", readonly, field="detail")]
+        body += [" " + row for row in _text_panel(S, K, "pbuf", _t("cal.box.prompt", "PROMPT PARA EL AGENTE"), w - 3, text_h - first, field == 2 and focus == "editor", readonly, field="prompt")]
     result = top + body + footer
     return [HL.clip(row, w - 1) for row in result[:h - 1]] + [""] * max(0, h - 1 - len(result))
 
@@ -1247,6 +1428,12 @@ def _edit_key(S, key):
     if key == "\x1b":
         S["modo"], S["msg"] = "nav", _t("cal.msg.cancelled", "cancelado")
         return True
+    if key == "\x16":                       # Ctrl+V — adjuntar imagen al campo
+        _attach_image(S)
+        return True
+    if key == "\x18":                       # Ctrl+X — quitar la imagen enfocada
+        _remove_focused_image(S)
+        return True
     if key in ("tab", "right_tab"):
         S["campo"] = (field + (1 if key == "tab" else -1)) % 3
         return True
@@ -1355,6 +1542,16 @@ def _accion(S, key):
             return True
         if key in ("l", "L"):
             _toggle_ready(S, e)
+            return True
+        if key == "\x16":                   # Ctrl+V — adjuntar imagen (local)
+            if e.get("google"):
+                S["msg"] = _t("cal.msg.g_readonly", "evento de Google — solo lectura")
+            else:
+                _attach_image(S)
+            return True
+        if key == "\x18":                   # Ctrl+X — quitar la imagen enfocada
+            if not e.get("google"):
+                _remove_focused_image(S)
             return True
         if key in ("\x02", "\x06", "pageup", "pagedown"):
             name = "pbuf" if S.get("campo") == 2 else "nbuf"
@@ -1510,6 +1707,28 @@ def _run_unix(S):
                 key = "tab"
             if not _accion(S, key):
                 break
+            if S.get("await_attach"):
+                # sin imagen en portapapeles → prompt CLÁSICO fuera del
+                # alt-screen (raw mode no pega rutas fiables); modo cocido,
+                # pedir la ruta, re-entrar al alt-screen y redibujar.
+                try:
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old)
+                    tout.write("\033[?1049l\033[?25h")
+                    tout.flush()
+                    print("\n" + _t("cal.img.classic_head",
+                                    "Arrastra la imagen a la terminal y pega su "
+                                    "ruta (Enter vacío = cancelar):"))
+                    try:
+                        _path = input("  > ")
+                    except (EOFError, KeyboardInterrupt):
+                        _path = ""
+                finally:
+                    tty.setraw(fd)
+                    tout.write("\033[?1049h")
+                    tout.flush()
+                _finish_classic_attach(S, _path)
+                _draw(tout, S, first=True)
+                continue
             _draw(tout, S)
     finally:
         try:
@@ -1547,6 +1766,22 @@ def _run_windows(S):
                 continue
             if not _accion(S, key):
                 break
+            if S.get("await_attach"):
+                # sin imagen en portapapeles → prompt clásico fuera del alt-screen
+                tout.write("\033[?1049l\033[?25h")
+                tout.flush()
+                print("\n" + _t("cal.img.classic_head",
+                                "Arrastra la imagen a la terminal y pega su "
+                                "ruta (Enter vacío = cancelar):"))
+                try:
+                    _path = input("  > ")
+                except (EOFError, KeyboardInterrupt):
+                    _path = ""
+                tout.write("\033[?1049h")
+                tout.flush()
+                _finish_classic_attach(S, _path)
+                _draw(tout, S, first=True)
+                continue
             _draw(tout, S)
     finally:
         try:

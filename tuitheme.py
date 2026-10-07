@@ -181,6 +181,212 @@ def _seq(v, mode):
     return "\033[38;5;%dm" % nearest256(rgb)
 
 
+# ── BRILLO (ui.brightness): transformación HSL de los roles CROMÁTICOS ──────
+# El socio percibe el TUI más APAGADO que el sitio web; la causa real es que el
+# web es una pantalla RETROILUMINADA con gradientes — el MISMO hex se percibe
+# más vivo ahí. Este control le deja subir (o bajar) luminosidad + saturación
+# de la paleta a su gusto, para CUALQUIER tema. Sube solo los roles cromáticos
+# (accent/hi/mid/ok/err/bad); jamás toca bg/surface/estructura. El TONO se
+# preserva (el acento sigue siendo el acento). En nivel 0 NO se transforma nada
+# (la paleta queda byte-idéntica — el memo distingue por nivel).
+_BRIGHT_ROLES = ("accent", "hi", "mid", "ok", "err", "bad")
+_BRIGHT_RANGE = (-3, 3)        # neutro en 0; negativos apagan, positivos avivan
+_BRIGHT_DL = 0.05              # Δ luminosidad por paso (escala 0..1)
+_BRIGHT_DS = 0.06              # Δ saturación  por paso (escala 0..1)
+_BRIGHT_LMAX = 0.92           # tope duro de L (no reventar a blanco)
+_BRIGHT_LMIN = 0.06           # piso duro de L (no colapsar a negro)
+_BRIGHT_MIN_CONTRAST = 2.0    # ratio WCAG mínimo del rol contra el fondo
+
+
+def _brightness_level():
+    """ui.brightness: env WORKSPACE_BRIGHTNESS lo pisa (tests herméticos /
+    overrides), si no el store. Clamp al rango. Falla-suave ABSOLUTA → 0
+    (neutro: sin tuitheme nadie nota diferencia, la paleta no se toca)."""
+    lo, hi = _BRIGHT_RANGE
+    ov = os.environ.get("WORKSPACE_BRIGHTNESS", "").strip()
+    if ov:
+        try:
+            return max(lo, min(hi, int(ov)))
+        except Exception:
+            return 0
+    try:
+        import settings
+        v = int(settings.get("ui.brightness", 0))
+    except Exception:
+        return 0
+    return max(lo, min(hi, v))
+
+
+def _role_rgb(v):
+    """RGB (0-255) de un valor de rol: índice 256 (int) o '#rrggbb'."""
+    return _idx_rgb(v) if isinstance(v, int) else _hex_rgb(v)
+
+
+def _rgb_to_hsl(r, g, b):
+    r, g, b = r / 255.0, g / 255.0, b / 255.0
+    mx, mn = max(r, g, b), min(r, g, b)
+    l = (mx + mn) / 2.0
+    d = mx - mn
+    if d == 0:
+        return 0.0, 0.0, l                     # gris: tono/saturación indefinidos
+    s = d / (2.0 - mx - mn) if l > 0.5 else d / (mx + mn)
+    if mx == r:
+        h = ((g - b) / d) % 6.0
+    elif mx == g:
+        h = (b - r) / d + 2.0
+    else:
+        h = (r - g) / d + 4.0
+    return h / 6.0, s, l
+
+
+def _hue2rgb(p, q, t):
+    t %= 1.0
+    if t < 1 / 6.0:
+        return p + (q - p) * 6.0 * t
+    if t < 1 / 2.0:
+        return q
+    if t < 2 / 3.0:
+        return p + (q - p) * (2 / 3.0 - t) * 6.0
+    return p
+
+
+def _hsl_to_rgb(h, s, l):
+    if s == 0:
+        v = int(round(l * 255))
+        return v, v, v
+    q = l * (1.0 + s) if l < 0.5 else l + s - l * s
+    p = 2.0 * l - q
+    return (max(0, min(255, int(round(_hue2rgb(p, q, h + 1 / 3.0) * 255)))),
+            max(0, min(255, int(round(_hue2rgb(p, q, h) * 255)))),
+            max(0, min(255, int(round(_hue2rgb(p, q, h - 1 / 3.0) * 255)))))
+
+
+def _rel_lum(rgb):
+    """Luminancia relativa WCAG de un RGB (0-255)."""
+    def ch(c):
+        c = c / 255.0
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    r, g, b = rgb
+    return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b)
+
+
+def _contrast(a, b):
+    """Ratio de contraste WCAG entre dos RGB (1.0 = idénticos, 21 = máx)."""
+    la, lb = _rel_lum(a), _rel_lum(b)
+    hi, lo = max(la, lb), min(la, lb)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def _bright_hex(v, level, bg_rgb):
+    """`v` (índice 256 o hex) ajustado `level` pasos de brillo → '#rrggbb'.
+    level>0 sube L+S (más vivo); level<0 las baja (más apagado). CLAMPS duros
+    (L en [LMIN, LMAX], S en [0,1]) y un PISO de contraste legible contra el
+    fondo: si el rol cae por debajo del mínimo (típico al APAGAR sobre fondo
+    oscuro) se empuja L en la dirección legible hasta cumplir. El TONO (h)
+    nunca cambia. level==0 jamás llega aquí (palette lo corta antes)."""
+    h, s, l = _rgb_to_hsl(*_role_rgb(v))
+    l = min(_BRIGHT_LMAX, max(_BRIGHT_LMIN, l + level * _BRIGHT_DL))
+    s = min(1.0, max(0.0, s + level * _BRIGHT_DS))
+    rgb = _hsl_to_rgb(h, s, l)
+    bg_l = _rel_lum(bg_rgb)
+    direction = 1.0 if bg_l < 0.5 else -1.0    # fondo oscuro → aclarar; claro → oscurecer
+    guard = 0
+    while _contrast(rgb, bg_rgb) < _BRIGHT_MIN_CONTRAST and guard < 48:
+        l = min(_BRIGHT_LMAX, max(_BRIGHT_LMIN, l + direction * 0.02))
+        nrgb = _hsl_to_rgb(h, s, l)
+        if nrgb == rgb:
+            break                              # L topó el clamp — sin más margen
+        rgb, guard = nrgb, guard + 1
+    return "#%02x%02x%02x" % rgb
+
+
+# ── DETALLE del WORDMARK bajo brillo (fix 2026-10): el gradiente del wordmark
+# (spec["wordmark"], típicamente roles mid→accent→hi en bandas) PIERDE su
+# contraste interno al subir el brillo — _bright_hex empuja las 3 bandas hacia
+# el techo L≤LMAX y CONVERGEN; en 256 la cuantización las separa por accidente,
+# en truecolor no hay reja que las separe y el wordmark se ve PLANO. Este helper
+# re-expande la luminosidad del gradiente BRILLADO para conservar (al menos) el
+# spread ORIGINAL entre bandas: ancla el punto más CLARO (el brillo se mantiene)
+# y estira las bandas oscuras hacia abajo. Como el ancla es el tope, ninguna
+# banda queda más oscura que su versión a nivel 0 (el spread solo baja desde el
+# punto claro). Hue/saturación de cada banda = los de la versión brillada. ──────
+def _wordmark_spread(vals, level, bg_rgb):
+    """`vals`: valores de color ORIGINALES (sin brillo) de las bandas del
+    wordmark (int idx o '#hex'). Devuelve la lista BRILLADA `level` pasos como
+    '#rrggbb' conservando el SPREAD de luminosidad original entre bandas. Solo
+    para level!=0 (a nivel 0 el wordmark queda byte-idéntico por otra rama)."""
+    try:
+        origL = [_rgb_to_hsl(*_role_rgb(v))[2] for v in vals]
+        orig_spread = max(origL) - min(origL)
+        bright = [_bright_hex(v, level, bg_rgb) for v in vals]
+        if orig_spread <= 1e-6:
+            return bright                      # gradiente plano → nada que estirar
+        brightL = [_rgb_to_hsl(*_hex_rgb(h))[2] for h in bright]
+        b_spread = max(brightL) - min(brightL)
+        if b_spread >= orig_spread - 1e-6:
+            return bright                      # el spread sobrevivió → sin tocar
+        top = max(brightL)
+        scale = orig_spread / b_spread         # >1: re-expande hacia abajo
+        out = []
+        for h in bright:
+            hh, ss, bl = _rgb_to_hsl(*_hex_rgb(h))
+            newl = top - (top - bl) * scale
+            newl = min(_BRIGHT_LMAX, max(_BRIGHT_LMIN, newl))
+            out.append("#%02x%02x%02x" % _hsl_to_rgb(hh, ss, newl))
+        return out
+    except Exception:
+        # falla-suave: sin re-expansión, el gradiente brillado tal cual
+        try:
+            return [_bright_hex(v, level, bg_rgb) for v in vals]
+        except Exception:
+            return list(vals)
+
+
+# ── MODO LUZ ROJA (ui.redlight): pantalla en rojo para madrugadas ───────────
+# Confort visual nocturno: remapea TODA la paleta a un rojo/ámbar cálido. Se
+# aplica DESPUÉS de tema+brillo (es la última transformación al resolver la
+# paleta). Reduce fuerte azul/verde (hue forzado a la banda roja), baja la
+# luminosidad general (comprimida a la mitad oscura) y conserva la JERARQUÍA:
+# la luminosidad relativa de cada rol se preserva (bg→casi-negro-rojo, texto→
+# rojo brillante), así el contraste texto/fondo y el orden de énfasis siguen.
+# El acento sigue distinguible porque el ÁMBAR crece con la saturación de
+# origen (roles cálidos/saturados = ámbar; neutros = rojo puro). En mono no se
+# pinta color → no-op (degrada suave). OFF = la paleta de hoy, intocada.
+_RL_HUE_RED = 0.015           # tono base (rojo) en la escala 0..1 del HSL
+_RL_HUE_AMBER = 0.050         # lift de tono hacia ámbar, escalado por saturación
+_RL_SAT = 0.85                # saturación fija alta (rojo vivo pero nocturno)
+_RL_L_FLOOR = 0.05            # piso de luminosidad (negro-rojo, no negro puro)
+_RL_L_SPAN = 0.55             # techo = floor + span → noche cómoda, sin blancos
+
+
+def _redlight_on():
+    """ui.redlight del store. Falla-suave ABSOLUTA → False (sin tuitheme nadie
+    nota diferencia: la paleta no se toca)."""
+    try:
+        import settings
+        return bool(settings.enabled("ui.redlight", default=False))
+    except Exception:
+        return False
+
+
+def _redlight_rgb(rgb):
+    """Un RGB (0-255) remapeado a la gama roja/ámbar nocturna. Preserva la
+    luminosidad RELATIVA (jerarquía/contraste) y fuerza el tono a la banda
+    roja; el ámbar crece con la saturación original (acento distinguible)."""
+    h, s, l = _rgb_to_hsl(*rgb)
+    hue = _RL_HUE_RED + _RL_HUE_AMBER * min(1.0, s)
+    nl = _RL_L_FLOOR + _RL_L_SPAN * max(0.0, min(1.0, l))
+    return _hsl_to_rgb(hue, _RL_SAT, nl)
+
+
+def _redlight_hex(v):
+    """Valor de color (int idx o '#hex') → '#rrggbb' en la gama roja nocturna."""
+    try:
+        return "#%02x%02x%02x" % _redlight_rgb(_role_rgb(v))
+    except Exception:
+        return v
+
+
 # ── selección del tema (mismo mecanismo que el web) ─────────────────────────
 def _settings_theme():
     """ui.theme del store. Un id GUARDADO que ya no está instalado (tema
@@ -312,13 +518,71 @@ def palette(theme_id=None):
     mode = color_mode()
     import theme
     bg = theme.background_color()
-    key = (tid, mode, bg)
+    level = _brightness_level()
+    redlight = _redlight_on()
+    key = (tid, mode, bg, level, redlight)
     if key in _memo:
         return _memo[key]
     spec = _merged(_tui_block(tid))
     mono = (mode == "mono")
+    # mono EFECTIVO para las TRANSFORMACIONES cromáticas (brillo/wordmark/luz
+    # roja): un tema B/N POR DECLARACIÓN (tui.mono=true) debe quedar en grises
+    # aunque la terminal tenga color — subirle saturación (brillo) o remapearlo
+    # a rojo (luz roja) mancharía un tema que PROMETE ser B/N (invariante del
+    # tema `mono`, test_hub_layout). NO afecta a `mono` (R/OSC/MONO/_seq siguen
+    # usándolo): un tema B/N en truecolor SÍ emite sus grises y resets.
+    mono_eff = mono or bool(spec.get("mono"))
     if bg and not mono:
         spec["osc"] = dict(spec["osc"] or {}, bg=bg)
+    bg_hex = bg or (spec.get("osc") or {}).get("bg") or "#000000"
+    try:
+        bg_rgb = _hex_rgb(bg_hex) if _HEX_RX.match(bg_hex or "") else (0, 0, 0)
+    except Exception:
+        bg_rgb = (0, 0, 0)
+    # Valores ORIGINALES de los roles del wordmark (ANTES del brillo): el fix de
+    # DETALLE re-expande el gradiente desde aquí, no desde los roles ya brillados
+    # (que convergen). Snapshot barato (dict de ≤12 enteros/hex).
+    orig_role_vals = dict(spec["roles"])
+    # BRILLO (ui.brightness): sube/baja L+S de los roles CROMÁTICOS para que el
+    # socio ajuste qué tan vivo se ve el TUI (ver _bright_hex). Nivel 0 = NO se
+    # toca NADA (paleta byte-idéntica). En mono (terminal o tema B/N) no hay
+    # color que avivar — y avivar grises les colaría saturación (bug anti-mono).
+    if level != 0 and not mono_eff:
+        for rk in _BRIGHT_ROLES:
+            if rk in spec["roles"]:
+                try:
+                    spec["roles"][rk] = _bright_hex(spec["roles"][rk], level, bg_rgb)
+                except Exception:
+                    pass                        # falla-suave: ese rol sin ajustar
+
+    # WORDMARK: resolver sus 6 bandas a valores concretos. A nivel 0 (o mono)
+    # usa los roles tal cual → byte-idéntico a hoy. Con brillo, re-expande el
+    # gradiente para que las bandas NO converjan (fix de detalle en truecolor).
+    def _wm_val(w):                              # rol → valor; color literal → él mismo
+        return spec["roles"][w] if w in spec["roles"] else w
+    if level != 0 and not mono_eff:
+        wm_src = [orig_role_vals[w] if w in orig_role_vals else w
+                  for w in spec["wordmark"]]
+        wcol_vals = _wordmark_spread(wm_src, level, bg_rgb)
+    else:
+        wcol_vals = [_wm_val(w) for w in spec["wordmark"]]
+
+    # LUZ ROJA (ui.redlight): última transformación — remapea TODA la paleta a
+    # la gama roja/ámbar nocturna (ver _redlight_rgb). En mono (terminal o tema
+    # B/N declarado) no hay color que remapear (degrada suave → no-op): un tema
+    # que promete ser B/N no se vuelve rojo. OFF = paleta intocada.
+    if redlight and not mono_eff:
+        for rk in list(spec["roles"]):
+            spec["roles"][rk] = _redlight_hex(spec["roles"][rk])
+        spec["stars"]["dim"] = [_redlight_hex(v) for v in spec["stars"]["dim"]]
+        spec["stars"]["mid"] = [_redlight_hex(v) for v in spec["stars"]["mid"]]
+        spec["stars"]["hi"] = _redlight_hex(spec["stars"]["hi"])
+        spec["fire"] = [_redlight_hex(v) for v in spec["fire"]]
+        spec["ember"] = [_redlight_hex(v) for v in spec["ember"]]
+        spec["off"] = _redlight_hex(spec["off"])
+        wcol_vals = [_redlight_hex(v) for v in wcol_vals]
+        if spec.get("osc") and spec["osc"].get("bg"):
+            spec["osc"] = dict(spec["osc"], bg=_redlight_hex(spec["osc"]["bg"]))
 
     def s(v):
         return _seq(v, mode)
@@ -341,7 +605,7 @@ def palette(theme_id=None):
         FIRE=[s(v) for v in spec["fire"]],
         EMBER=[s(v) for v in spec["ember"]],
         OFF=s(spec["off"]),
-        WCOL=[roles[w] if w in roles else s(w) for w in spec["wordmark"]],
+        WCOL=[s(v) for v in wcol_vals],
         GLYPHS=dict(spec["glyphs"]),
         OSC=(None if mono else spec["osc"]),
     )

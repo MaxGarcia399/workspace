@@ -1522,6 +1522,22 @@ def _menu_machinery(tout):
             newv = _st.next_pin_value(p["key"])
             disp = "on" if newv is True else ("off" if newv is False
                                               else str(newv))
+            # ui.autostart: además de persistir el bool, reescribe el bloque del
+            # greeter del rc (install.set_terminal_autostart) para que el cambio
+            # surta efecto en la próxima terminal. Falla-suave: si el rc está
+            # editado a mano (no se reconoce el bloque) la preferencia queda
+            # guardada igual y lo decimos — jamás truena el recinto.
+            if p["key"] == "ui.autostart":
+                rc = ""
+                try:
+                    import install
+                    rc = install.set_terminal_autostart(bool(newv)) or ""
+                except Exception:
+                    rc = ""
+                if not rc:
+                    S["hb_msg"] = (f"{p['label']} → {disp} (guardado · ajusta el "
+                                   f"rc a mano)")
+                    return
             S["hb_msg"] = f"{p['label']} → {disp} (guardado)"
         except Exception:
             S["hb_msg"] = f"no pude cambiar «{p['label']}» — queda igual"
@@ -1548,6 +1564,24 @@ def _menu_machinery(tout):
                 _LDATA["opts"] = opts
         except Exception:
             pass
+
+    def toggle_redlight():
+        """Tecla rápida del hub (`l`): enciende/apaga el MODO LUZ ROJA
+        (ui.redlight) — pantalla en rojo nocturno. Persiste el bool y deja un
+        aviso visible; la paleta se re-resuelve EN VIVO al siguiente frame
+        (tuitheme memoiza por este flag → sync_theme detecta el cambio y
+        repinta). Falla-suave ABSOLUTA: cualquier problema deja un aviso y el
+        recinto sigue igual."""
+        try:
+            import settings as _st
+            newv = not bool(_st.enabled("ui.redlight", default=False))
+            _st.set("ui.redlight", newv)
+            S["msg"] = (_t("hub.redlight.on", "luz roja ON — modo noche")
+                        if newv else
+                        _t("hub.redlight.off", "luz roja OFF"))
+        except Exception:
+            S["msg"] = _t("hub.redlight.fail",
+                          "no pude cambiar la luz roja — queda igual")
 
     # Divisor entre secciones con FADE de grises (toque 2026-10-02, mismo
     # juego que el reflejo del Tono): el centro apenas más claro (GREY) y los
@@ -1882,7 +1916,8 @@ def _menu_machinery(tout):
                    ("Enter", _t("common.hint.enter", "entra")),
                    (_key, _t("common.hint.aim_open", "apunta/abre"))]
                   + [(_ac[n], _act[n]) for n in ("motor", "info") if _ac.get(n)]
-                  + [("q", _t("common.hint.terminal", "terminal"))])
+                  + [("l", _t("common.hint.redlight", "luz roja")),
+                     ("q", _t("common.hint.terminal", "terminal"))])
         if _hl:
             hdr = _ctr(_hl.keyline(_hl.cols(TH), _pares,
                                    max(20, S["term_w"] - 4)))
@@ -1892,7 +1927,8 @@ def _menu_machinery(tout):
             hdr = _ctr(f"{DIM}↑↓ {_pares[0][1]} · ◄► {_pares[1][1]} · "
                        f"Enter {_pares[2][1]} · "
                        f"{_key} {_t('common.hint.aim_open', 'apunta/abre')}"
-                       f"{_hx} · q {_t('common.hint.terminal', 'terminal')}{R}")
+                       f"{_hx} · l {_t('common.hint.redlight', 'luz roja')}"
+                       f" · q {_t('common.hint.terminal', 'terminal')}{R}")
         upper = (list(render.wordmark_plain()) + _wordmark_reflection() + [""]
                  + _franja(agents) + ["", hdr, ""])      # cielo + banner (+ reflejo ░ en grises)
         lower = block_lines()                            # bloque interactivo: lo repinta redraw()
@@ -2235,6 +2271,7 @@ def _menu_machinery(tout):
                                  block_lines=block_lines,
                                  gsize=gsize, full_draw=full_draw, redraw=redraw,
                                  tick=tick, nav=nav, activate=activate, space=space,
+                                 toggle_redlight=toggle_redlight,
                                  cycle_engine=cycle_engine, jump=jump,
                                  click=click, quick=quick, jkeys=JKEYS,
                                  jump_set=frozenset(JUMP),
@@ -2278,6 +2315,8 @@ def _animated_loop_unix(tin, M):
                     res = M.jump(ch)                                   # salto directo (tecla visible junto al ítem)
                     if res is not None:
                         return res
+                elif ch in ("l", "L") and M.S.get("cal_mode") != "add":
+                    M.toggle_redlight()                               # `l` → luz roja (modo noche) on/off EN VIVO
                 elif ch in ("q", "Q", "\x03") and M.S.get("cal_mode") != "add":
                     return "__shell__"                                 # q → Terminal normal
                 elif M.key(ch):                                        # alta del calendario: al buffer
@@ -2322,6 +2361,8 @@ def _animated_loop_windows(M, max_frames=None):
                 res = M.jump(ch)                                   # salto directo (tecla visible junto al ítem)
                 if res is not None:
                     return res
+            elif ch in ("l", "L") and M.S.get("cal_mode") != "add":
+                M.toggle_redlight()                               # `l` → luz roja (modo noche) on/off EN VIVO
             elif ch in ("q", "Q", "\x03") and M.S.get("cal_mode") != "add":
                 return "__shell__"                                 # q → Terminal normal
             elif M.key(ch):                                        # alta del calendario: al buffer

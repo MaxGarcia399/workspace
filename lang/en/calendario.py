@@ -96,6 +96,23 @@ STRINGS = {
     "cal.hint.save": "save",
     "cal.hint.newline": "newline",
     "cal.hint.cancel": "cancel",
+    "cal.hint.attach": "image",
+    "cal.hint.detach": "drop img",
+
+    # ── attached images (Ctrl+V attaches · Ctrl+X removes) ──────────────────
+    "cal.img.chip": "img",
+    "cal.img.label": "{n} img",
+    "cal.img.count": "{n} images",
+    "cal.img.attached": "image attached ✓ — the agent will see it",
+    "cal.img.removed": "image removed",
+    "cal.img.none": "no images in this field",
+    "cal.img.none_clip": "no image in the clipboard — paste the file path",
+    "cal.img.bad": "not a valid image (png/jpg/gif/webp)",
+    "cal.img.classic_head": "Drag the image onto the terminal and paste its path (empty Enter = cancel):",
+    "cal.img.classic_cancel": "no image attached",
+    "cal.img.need_save": "type a title to attach the image",
+    "cal.img.save_fail": "could not attach the image",
+    "cal.img.unavailable": "attaching images is not available here",
 
     # ── statusline messages (S["msg"]) ──────────────────────────────────────
     "cal.msg.g_readonly": "Google event — read-only",

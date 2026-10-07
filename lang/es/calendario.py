@@ -98,6 +98,23 @@ STRINGS = {
     "cal.hint.save": "guarda",
     "cal.hint.newline": "salto",
     "cal.hint.cancel": "cancela",
+    "cal.hint.attach": "imagen",
+    "cal.hint.detach": "quita img",
+
+    # ── imágenes adjuntas (Ctrl+V adjunta · Ctrl+X quita) ───────────────────
+    "cal.img.chip": "img",
+    "cal.img.label": "{n} img",
+    "cal.img.count": "{n} imágenes",
+    "cal.img.attached": "imagen adjuntada ✓ — el agente la verá",
+    "cal.img.removed": "imagen quitada",
+    "cal.img.none": "no hay imágenes en este campo",
+    "cal.img.none_clip": "sin imagen en el portapapeles — pega la ruta del archivo",
+    "cal.img.bad": "no es una imagen válida (png/jpg/gif/webp)",
+    "cal.img.classic_head": "Arrastra la imagen a la terminal y pega su ruta (Enter vacío = cancelar):",
+    "cal.img.classic_cancel": "sin imagen adjuntada",
+    "cal.img.need_save": "escribe un título para adjuntar la imagen",
+    "cal.img.save_fail": "no pude adjuntar la imagen",
+    "cal.img.unavailable": "adjuntar imágenes no está disponible aquí",
 
     # ── mensajes de la statusline (S["msg"]) ────────────────────────────────
     "cal.msg.g_readonly": "evento de Google — solo lectura",

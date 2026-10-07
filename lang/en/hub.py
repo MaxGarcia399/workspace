@@ -54,11 +54,18 @@ STRINGS = {
     "hub.cfg.config_edit": "Config ▸ to edit",
     "hub.pin.background": "background",
     "hub.pin.theme": "theme",
+    "hub.pin.brightness": "brightness",
+    "hub.pin.redlight": "red light",
+    "hub.pin.autostart": "autostart",
     "hub.pin.layout": "layout",
     "hub.pin.heartbeat": "heartbeat",
     "hub.pin.split": "split",
     "hub.pin.stars": "stars",
     "hub.pin.anim": "anim",
+    # red light toggle notice (recinto key `l`)
+    "hub.redlight.on": "red light ON — night mode",
+    "hub.redlight.off": "red light OFF",
+    "hub.redlight.fail": "couldn't toggle red light — unchanged",
 
     # ── instrument bar / monitor (centro) ───────────────────────────────────
     "hub.instr.usage5h": "5h use",

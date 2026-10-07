@@ -20,6 +20,7 @@ STRINGS = {
     "common.hint.menu": "menú",
     "common.hint.aim_open": "apunta/abre",
     "common.hint.key": "tecla",
+    "common.hint.redlight": "luz roja",
 
     # ── estado de un agente (semáforo + palabra) ────────────────────────────
     "common.status.active": "activo",

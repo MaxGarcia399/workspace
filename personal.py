@@ -15,11 +15,17 @@ Mismo trato que board.json / calendar.json del dashboard de dev:
   · papelera: «borrar» conserva el evento por 15 días; después expira y
     se purga en la próxima escritura. --hard es borrado explícito inmediato.
 
-Modelo (schema 1 — aditivo, los eventos viejos se normalizan al leer):
-    {"schema": 1,
+Modelo (schema 2 — aditivo, los eventos viejos se normalizan al leer):
+    {"schema": 2,
      "foco": {"text": str, "date": "YYYY-MM-DD", "updated": "<iso>"},
      "eventos": [{"id", "date", "time", "title", "cat", "notes",
-                  "done", "prio", "archived", "created"}]}
+                  "done", "prio", "archived", "created", "images"}]}
+
+  · images     — IMÁGENES adjuntas, separadas por campo (schema 2):
+                 {"detail": [{id, file, caption} …], "prompt": [ … ]}.
+                 `file` es RELATIVO al dir de assets de ESE evento
+                 (~/.claude/workspace/calendar-assets/<id>/), portable.
+                 Eventos viejos (schema 1) → listas vacías al leer.
 
   · foco.date  — el día para el que se fijó: si no es HOY, el hub lo pinta
                  como «de ayer» en vez de mentir que es el foco de hoy.
@@ -52,8 +58,14 @@ import threading
 from olock import file_lock, LockTimeout
 from datetime import date as _date, datetime, timedelta
 
-SCHEMA = 1
+SCHEMA = 2
 CATEGORIES = ("reunion", "hito", "recordatorio", "cumple", "otro")
+#: campos de una ficha que pueden llevar imágenes adjuntas (schema 2)
+IMAGE_FIELDS = ("detail", "prompt")
+#: tope sano de imágenes por campo (el socio ilustra, no sube un álbum)
+MAX_IMAGES = 12
+#: extensiones que aceptamos (el tipo REAL lo decide clip_image por magic bytes)
+IMAGE_EXTS = ("png", "jpg", "jpeg", "gif", "webp", "bmp")
 #: tope de la descripción larga — el socio la usa para tareas y proyectos enteros
 NOTES_MAX = 30000
 PROMPT_MAX = 30000
@@ -98,6 +110,183 @@ def task_status(event):
         return "done"
     value = event.get("task_status")
     return value if value in TASK_STATUSES and value != "done" else "draft"
+
+
+# ── imágenes adjuntas (schema 2) ─────────────────────────────────────────────
+def _empty_images():
+    return {f: [] for f in IMAGE_FIELDS}
+
+
+def _norm_images(raw):
+    """Normaliza el bloque `images` de un evento: un dict por campo con listas
+    de {id, file, caption}. Cualquier cosa rara → listas vacías (falla-suave).
+    `file` se reduce a su basename (jamás una ruta — portabilidad + seguridad)."""
+    out = _empty_images()
+    if isinstance(raw, dict):
+        for field in IMAGE_FIELDS:
+            lst = raw.get(field)
+            if not isinstance(lst, list):
+                continue
+            for it in lst:
+                if not isinstance(it, dict):
+                    continue
+                name = os.path.basename(str(it.get("file") or "")).strip()
+                if not name:
+                    continue
+                out[field].append({
+                    "id": str(it.get("id") or uuid.uuid4().hex[:8]),
+                    "file": name[:128],
+                    "caption": str(it.get("caption") or "")[:200]})
+            out[field] = out[field][:MAX_IMAGES]
+    return out
+
+
+def _assets_root():
+    """Dir per-máquina de los PNG de las fichas. `WORKSPACE_CAL_ASSETS` lo pisa
+    (tests herméticos), igual que `WORKSPACE_PERSONAL` para el store."""
+    p = os.environ.get("WORKSPACE_CAL_ASSETS")
+    return p if p else os.path.join(_workspace_dir(), "calendar-assets")
+
+
+def assets_dir(ev_id):
+    """Dir de assets de UN evento: <root>/<event_id>/. No lo crea."""
+    return os.path.join(_assets_root(), str(ev_id))
+
+
+def resolve_image(ev_id, rel):
+    """Ruta ABSOLUTA de una imagen (su `file` relativo) de `ev_id`."""
+    return os.path.abspath(os.path.join(assets_dir(ev_id), os.path.basename(str(rel))))
+
+
+def resolve_images(event, only_existing=True):
+    """Lista de rutas ABSOLUTAS de TODAS las imágenes del evento (detail +
+    prompt, en ese orden). Solo las que existen en disco si `only_existing`."""
+    out = []
+    imgs = event.get("images") if isinstance(event, dict) else None
+    if not isinstance(imgs, dict):
+        return out
+    ev_id = event.get("id")
+    for field in IMAGE_FIELDS:
+        for it in imgs.get(field) or ():
+            p = resolve_image(ev_id, it.get("file"))
+            if not only_existing or os.path.isfile(p):
+                out.append(p)
+    return out
+
+
+def _purge_assets(ev_id):
+    """Borra el dir de assets de un evento (falla-suave). Lo llama el borrado
+    duro y la poda de la papelera vencida."""
+    import shutil
+    try:
+        shutil.rmtree(assets_dir(ev_id), ignore_errors=True)
+    except Exception:
+        pass
+
+
+def _prune_orphan_assets(data):
+    """Borra dirs de assets cuyo evento ya no existe (borrado duro o papelera
+    vencida). Autosanador y barato (pocos dirs). Falla-suave absoluto."""
+    try:
+        root = _assets_root()
+        if not os.path.isdir(root):
+            return
+        live = {str(e.get("id")) for e in data.get("eventos") or ()}
+        for name in os.listdir(root):
+            if name not in live and os.path.isdir(os.path.join(root, name)):
+                _purge_assets(name)
+    except Exception:
+        pass
+
+
+@_mutation
+def add_image(ev_id, field, data, ext, caption=""):
+    """Guarda los bytes `data` (ya validados como imagen) bajo el dir de assets
+    de `ev_id` y los registra en images[field] del evento. Devuelve el dict
+    {id, file, caption} agregado, o None (evento ausente, campo inválido, tope,
+    o fallo de disco). NO valida magic bytes — eso es de clip_image."""
+    if field not in IMAGE_FIELDS or not data:
+        return None
+    ext = str(ext or "png").lower().lstrip(".")
+    if ext == "jpeg":
+        ext = "jpg"
+    if ext not in IMAGE_EXTS:
+        return None
+    store = load()
+    ev = next((e for e in store["eventos"] if e.get("id") == ev_id
+               and not e.get("archived")), None)
+    if ev is None:
+        return None
+    imgs = ev.get("images") or _empty_images()
+    if len(imgs.get(field) or ()) >= MAX_IMAGES:
+        return None
+    img_id = uuid.uuid4().hex[:8]
+    fname = "%s.%s" % (img_id, ext)
+    try:
+        d = assets_dir(ev_id)
+        os.makedirs(d, exist_ok=True)
+        dest = os.path.join(d, fname)
+        tmp = "%s.tmp-%d-%s" % (dest, os.getpid(), uuid.uuid4().hex[:8])
+        with open(tmp, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, dest)
+    except Exception:
+        return None
+    rec = {"id": img_id, "file": fname, "caption": str(caption or "")[:200]}
+    imgs.setdefault(field, []).append(rec)
+    ev["images"] = imgs
+    ev["updated"] = _now_iso()
+    return rec if save(store) else None
+
+
+@_mutation
+def remove_image(ev_id, field, img_id):
+    """Quita una imagen de images[field] y borra su archivo. True si tocó algo."""
+    if field not in IMAGE_FIELDS:
+        return False
+    store = load()
+    ev = next((e for e in store["eventos"] if e.get("id") == ev_id), None)
+    if ev is None:
+        return False
+    imgs = ev.get("images") or _empty_images()
+    keep, gone = [], None
+    for it in imgs.get(field) or ():
+        if it.get("id") == img_id and gone is None:
+            gone = it
+        else:
+            keep.append(it)
+    if gone is None:
+        return False
+    imgs[field] = keep
+    ev["images"] = imgs
+    ev["updated"] = _now_iso()
+    try:
+        fp = resolve_image(ev_id, gone.get("file"))
+        if os.path.isfile(fp):
+            os.unlink(fp)
+    except Exception:
+        pass
+    return save(store)
+
+
+def dispatch_task(event):
+    """El evento PREPARADO para despachárselo a un agente: una COPIA cuyo
+    `prompt` lleva, al final, las rutas ABSOLUTAS de las imágenes adjuntas
+    (detail + prompt) — así un agente multimodal (Claude Code) puede abrirlas
+    y VERLAS. Añade también `images_abs` (la lista cruda). Sin imágenes, es el
+    evento tal cual. El store NO cambia; esto es solo la vista de despacho."""
+    if not isinstance(event, dict):
+        return event
+    e = dict(event)
+    paths = resolve_images(event)
+    e["images_abs"] = paths
+    if paths:
+        e["prompt"] = ((e.get("prompt") or "").rstrip()
+                       + "\n\nImágenes adjuntas (revísalas): "
+                       + ", ".join(paths)).strip()
+    return e
 
 
 # ── lectura / escritura ─────────────────────────────────────────────────────
@@ -145,7 +334,9 @@ def load():
                                  ("alta", "high", "!") else ""),
                         "archived": bool(e.get("archived")),
                         "created": str(e.get("created") or ""),
-                        "deleted_at": str(e.get("deleted_at") or "")})
+                        "deleted_at": str(e.get("deleted_at") or ""),
+                        # schema 2: imágenes por campo; viejos → vacío
+                        "images": _norm_images(e.get("images"))})
         return out
     except Exception:
         return _empty()
@@ -172,6 +363,7 @@ def save(data):
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp, dest)
+        _prune_orphan_assets(data)      # limpia assets de eventos ya inexistentes
         return True
     except Exception:
         try:
@@ -286,7 +478,8 @@ def upcoming(limit=5, days=30, now=None):
 
 
 @_mutation
-def add_event(date_s, title, time_s="", cat="otro", notes="", prio="", prompt=""):
+def add_event(date_s, title, time_s="", cat="otro", notes="", prio="",
+              prompt="", images=None):
     """Agrega un evento. Devuelve su id, o None si la fecha/título no sirven."""
     if len(str(notes or "")) > NOTES_MAX or len(str(prompt or "")) > PROMPT_MAX:
         return None
@@ -299,14 +492,15 @@ def add_event(date_s, title, time_s="", cat="otro", notes="", prio="", prompt=""
           "notes": str(notes or "")[:NOTES_MAX],
           "prompt": str(prompt or "")[:PROMPT_MAX], "task_status": "draft",
           "done": False, "prio": "alta" if prio == "alta" else "",
-          "archived": False, "created": _now_iso()}
+          "archived": False, "created": _now_iso(),
+          "images": _norm_images(images)}
     data["eventos"].append(ev)
     return ev["id"] if save(data) else None
 
 
 @_mutation
 def update_event(ev_id, date_s=None, title=None, time_s=None, notes=None,
-                 cat=None, done=None, prio=None, prompt=None):
+                 cat=None, done=None, prio=None, prompt=None, images=None):
     """Edita un evento EN SITIO (conserva su id, su `created` y lo que no se
     toca). True si lo encontro y guardo. Fecha invalida -> False y no toca
     nada: mas vale no editar que corromper el store."""
@@ -339,6 +533,8 @@ def update_event(ev_id, date_s=None, title=None, time_s=None, notes=None,
             nuevo["claimed_by"], nuevo["claim_token"], nuevo["claimed_at"] = "", "", ""
         if prio is not None:
             nuevo["prio"] = "alta" if prio == "alta" else ""
+        if images is not None:
+            nuevo["images"] = _norm_images(images)
         nuevo["updated"] = _now_iso()
         data["eventos"][i] = nuevo
         break
@@ -394,6 +590,7 @@ def remove_event(ev_id, hard=False):
         if e.get("id") == ev_id:
             hit = True
             if hard:
+                _purge_assets(ev_id)       # borrado duro = sus imágenes también
                 continue
             e = dict(e, archived=True,
                      deleted_at=e.get("deleted_at") or datetime.now().astimezone().isoformat())
@@ -527,7 +724,10 @@ def _task_cli(argv):
     if args.action in (None, "list"):
         rows = task_queue(getattr(args, "status", "ready"))
         if getattr(args, "json", False):
-            print(json.dumps(rows, ensure_ascii=False, indent=2))
+            # DESPACHO: la vista JSON lleva las rutas ABSOLUTAS de las imágenes
+            # adjuntas en el prompt (+ images_abs) para el agente multimodal.
+            print(json.dumps([dispatch_task(e) for e in rows],
+                             ensure_ascii=False, indent=2))
         else:
             for e in rows:
                 print("%s  %s  %s  %s" % (e["id"], e["date"], task_status(e), e["title"]))
@@ -538,7 +738,10 @@ def _task_cli(argv):
         return 0 if ok else 1
     if args.action == "claim":
         task = claim_task(args.id, args.agent)
-        print(json.dumps({"task": task}, ensure_ascii=False, indent=2))
+        # DESPACHO: el agente que reclama recibe las rutas ABSOLUTAS de las
+        # imágenes en el prompt (ver dispatch_task) sin tocar el store.
+        print(json.dumps({"task": dispatch_task(task) if task else task},
+                         ensure_ascii=False, indent=2))
         return 0 if task else 1
     status = {"finish": "done", "block": "blocked", "release": "ready"}[args.action]
     ok = finish_task(args.id, args.token, status, args.result)

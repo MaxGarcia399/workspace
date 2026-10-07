@@ -14,6 +14,7 @@ STRINGS = {
     "common.hint.menu": "menu",
     "common.hint.aim_open": "aim/open",
     "common.hint.key": "key",
+    "common.hint.redlight": "red light",
 
     # ── agent status (badge + word) ─────────────────────────────────────────
     "common.status.active": "active",

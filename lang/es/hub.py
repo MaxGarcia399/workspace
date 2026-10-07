@@ -65,11 +65,18 @@ STRINGS = {
     # etiquetas cortas de pins (layout `dia`)
     "hub.pin.background": "fondo",
     "hub.pin.theme": "tema",
+    "hub.pin.brightness": "brillo",
+    "hub.pin.redlight": "luz roja",
+    "hub.pin.autostart": "auto-abrir",
     "hub.pin.layout": "layout",
     "hub.pin.heartbeat": "latido",
     "hub.pin.split": "split",
     "hub.pin.stars": "estrellas",
     "hub.pin.anim": "animación",
+    # aviso del toggle de luz roja (tecla `l` del recinto)
+    "hub.redlight.on": "luz roja ON — modo noche",
+    "hub.redlight.off": "luz roja OFF",
+    "hub.redlight.fail": "no pude cambiar la luz roja — queda igual",
 
     # ── barra de instrumentos / monitor (centro) ────────────────────────────
     "hub.instr.usage5h": "uso 5h",

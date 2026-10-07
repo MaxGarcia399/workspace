@@ -15,6 +15,9 @@ STRINGS = {
     "personalizacion.theme.label": "Hub theme",
     "personalizacion.background.label": "Independent background",
     "personalizacion.background_custom.label": "Custom background color",
+    "personalizacion.brightness.label": "Brightness",
+    "personalizacion.redlight.label": "Red light (night mode)",
+    "personalizacion.autostart.label": "Open when the terminal opens",
     "personalizacion.stars.label": "Starry sky",
     "personalizacion.anim.label": "Animations",
 
@@ -29,6 +32,22 @@ STRINGS = {
         "background.",
     "personalizacion.background_custom.help":
         "Color #RRGGBB; pick 'custom' under Independent background.",
+    "personalizacion.brightness.help":
+        "How vivid the TUI looks. ◄► adjusts it LIVE: 0 = the theme's palette "
+        "as-is; + raises the colors' lightness and saturation (not the "
+        "background), − dims them. Works with any theme; text always stays "
+        "legible.",
+    "personalizacion.redlight.help":
+        "RED night mode for late hours. ON remaps the whole palette to a warm "
+        "red/amber (lowers blue/green and overall lightness) while keeping "
+        "legibility and hierarchy; OFF = the theme's palette as-is. Does "
+        "nothing in mono.",
+    "personalizacion.autostart.help":
+        "ON = every new terminal opens the Workspace menu (rc greeter) in ANY "
+        "terminal (iTerm2, VS Code, etc.); OFF = Workspace opens only with the "
+        "`workspace` command (default, less invasive). Rewrites the greeter "
+        "block in ~/.zshrc. env WORKSPACE_NO_GREETER=1 disables it no matter "
+        "what.",
     "personalizacion.stars.help":
         "Static star field of the hub (front.py).",
     "personalizacion.anim.help":
@@ -58,4 +77,17 @@ STRINGS = {
     "personalizacion.saved.layout":
         "saved: layout → {label} ({id}) — the hub redraws this way on reopen "
         "(workspace)",
+
+    # ── BRIGHTNESS control (slider + live sample + states) ──────────────────
+    "personalizacion.brightness.softer": "− dim",
+    "personalizacion.brightness.brighter": "vivid +",
+    "personalizacion.brightness.preview": "sample",
+    "personalizacion.brightness.hint": "◄► adjust brightness · 0 = no change",
+    "personalizacion.brightness.use_arrows":
+        "use ◄► to raise or lower the brightness",
+    "personalizacion.brightness.saved":
+        "saved: brightness → {n} — the hub paints it instantly",
+    "personalizacion.brightness.at_edge": "brightness at {edge} ({n})",
+    "personalizacion.brightness.min": "min",
+    "personalizacion.brightness.max": "max",
 }

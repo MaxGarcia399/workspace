@@ -42,10 +42,11 @@ _AGENTES = tuple(
     for n in range(1, 10))
 
 # Teclas que JAMÁS se asignan: q (salir — contrato del recinto), espacio
-# (cicla pins), y las letras apartadas por otras pantallas/convenciones del
-# equipo (t a e x f d n p). Enter/Esc/Tab/flechas no son "un carácter
-# imprimible", así que el validador ya las rechaza solo.
-RESERVADAS = frozenset("q taexfdnp".replace(" ", "")) | frozenset((" ",))
+# (cicla pins), l (toggle de LUZ ROJA / modo noche — tecla fija del recinto,
+# front._menu_machinery) y las letras apartadas por otras pantallas/
+# convenciones del equipo (t a e x f d n p). Enter/Esc/Tab/flechas no son "un
+# carácter imprimible", así que el validador ya las rechaza solo.
+RESERVADAS = frozenset("q taexfdnpl".replace(" ", "")) | frozenset((" ",))
 
 # ── sección «menú»: DERIVADA del menú REAL del hub (front.menu_entries) ───
 # Una sección nueva del MENÚ (Dev, GitHub, futuras) aparece aquí SOLA —

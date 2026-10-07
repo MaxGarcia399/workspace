@@ -254,7 +254,13 @@ def _hub_pin_ok(key):
         spec = _BY_KEY.get(key)
         if not spec or spec.get("readonly"):
             return False
-        if spec.get("type") not in ("enum", "bool"):
+        t = spec.get("type")
+        if t in ("enum", "bool"):
+            pass
+        elif t == "int" and spec.get("pin") and spec.get("range"):
+            pass                       # int ACOTADO y marcado `pin` (brillo):
+            #                            ciclable ◄► por next_pin_value, seguro
+        else:
             return False
         low = key.lower()
         return not any(bad in low for bad in _PIN_UNSAFE)
@@ -444,6 +450,41 @@ SETTINGS_SCHEMA = (
      "type": "str", "default": "#101018",
      "help": "Color #RRGGBB; elige personalizado en Fondo independiente.",
      "applies": "tuitheme.palette() y theme.apply_colors()."},
+    {"key": "ui.brightness", "group": "ui", "label": "Brillo",
+     # NEUTRO por default (0) → la paleta queda byte-idéntica para quien ya
+     # tiene instalación. Rango chico y simétrico (-3..+3, 0 = actual): 7
+     # niveles, centro neutro, headroom parejo a ambos lados. Es `pin` (int
+     # acotado + ciclable ◄►) pese a no ser enum/bool — ver _hub_pin_ok.
+     "type": "int", "default": 0, "range": (-3, 3),
+     "pin": True, "pin_signed": True,
+     "help": "Qué tan VIVO/saturado se ve el TUI. 0 = la paleta del tema tal "
+             "cual (default — sin cambios para instalaciones existentes); "
+             "negativos la APAGAN, positivos suben luminosidad+saturación de "
+             "los colores del tema (accent/hi/mid/ok/err/bad) SIN cambiar el "
+             "tono ni el fondo. Útil porque una pantalla retroiluminada hace "
+             "que el MISMO color se vea más vivo que en el TUI. Funciona con "
+             "CUALQUIER tema; clamps duros mantienen el texto legible. En mono "
+             "no hace nada.",
+     "applies": "tuitheme.palette() transforma los roles cromáticos (hex→HSL→"
+                "hex) con este nivel; el control de la sección TEMA del config "
+                "y el pin del hub lo cambian EN VIVO (la paleta se memoiza por "
+                "nivel, así el hub re-resuelve al siguiente frame)."},
+    {"key": "ui.redlight", "group": "ui", "label": "Luz roja (modo noche)",
+     # Pin bool (default off → paleta intocada para toda instalación). Cuando
+     # está ON, tuitheme remapea TODA la paleta a un rojo/ámbar cálido nocturno
+     # DESPUÉS de tema+brillo — confort visual para madrugadas. Ciclable ◄►/
+     # Enter como pin y con tecla rápida desde el hub (toggle EN VIVO).
+     "type": "bool", "default": False,
+     "help": "Modo noche en ROJO para madrugadas (confort visual). ON = toda la "
+             "paleta del TUI se remapea a un rojo/ámbar cálido (se reduce fuerte "
+             "el azul/verde y baja la luminosidad general), conservando la "
+             "legibilidad y la jerarquía — el acento sigue distinguible. OFF "
+             "(default) = la paleta del tema tal cual, sin cambios. En mono no "
+             "hace nada. Se aplica EN VIVO (pin del hub + tecla rápida).",
+     "applies": "tuitheme.palette() aplica el remapeo rojo como ÚLTIMA "
+                "transformación (tras tema+brillo); el pin del hub y la tecla "
+                "rápida lo cambian EN VIVO (la paleta se memoiza por este flag, "
+                "así el hub re-resuelve al siguiente frame)."},
     {"key": "ui.theme", "group": "ui", "label": "Tema del hub",
      "type": "enum", "default": "bruma",   # 2026-10 (socio): la familia rosé es la insignia; bruma (hermana neblinosa de rose) = default de instalación nueva, CON color
      # SOLO temas TUI-ready (_TUI_THEMES: mono + cyberpunk + la familia rosé)
@@ -529,7 +570,9 @@ SETTINGS_SCHEMA = (
      # llama ahora PERSONALIZACIÓN y es para tema/colores/customizables.
      # Layout y latido siguen vivos (settings/config TUI/CLI) — quien los
      # quiera de vuelta en el hub puede re-anclarlos desde la Config.
-     "type": "list", "default": ["ui.theme", "ui.background"],
+     "type": "list",
+     "default": ["ui.theme", "ui.background", "ui.brightness", "ui.redlight",
+                 "ui.autostart"],
      "max_items": 5, "member_ok": lambda k: _hub_pin_ok(k),
      "help": "Lista de settings (keys del schema) que el hub muestra en su "
              "sección PERSONALIZACIÓN para acceso rápido — label + valor "
@@ -951,6 +994,9 @@ def _pin_display(spec, val):
     try:
         if spec.get("type") == "bool" or isinstance(val, bool):
             return "on" if val else "off"
+        if spec.get("type") == "int" and spec.get("pin_signed"):
+            n = int(val)                         # brillo: +2 / 0 / -1 (signo
+            return ("%+d" % n) if n else "0"     # explícito salvo el neutro)
         return str(val)
     except Exception:
         return ""
@@ -1035,6 +1081,15 @@ def next_pin_value(key):
         except ValueError:
             i = -1                       # valor fuera de choices → arranca en el 1º
         newv = choices[(i + 1) % len(choices)]
+    elif t == "int":
+        # int acotado (brillo): sube de a 1, wrap de hi→lo (ciclo circular,
+        # igual que el enum). El rango lo da el schema; sin rango no sería pin.
+        lo, hi = spec.get("range", (0, 0))
+        try:
+            c = int(cur)
+        except Exception:
+            c = lo
+        newv = lo if c >= hi else c + 1
     else:
         raise ValueError("%s no es ciclable (tipo %r)" % (key, t))
     return set(key, newv)                # valida + persiste + sync
