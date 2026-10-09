@@ -650,19 +650,21 @@ def foot_hints(K, items, w):
 
 
 def screen_header(K, w, h, sub, hints=None, compact_h=30, refl_min_h=0,
-                  hints_min_h=None):
+                  hints_min_h=None, word="WORKSPACE"):
     """Cabecera COMPARTIDA de las pantallas-sección del hub (tono /
     calendario / atajos / github / dev / …): wordmark centrado + reflejo +
     subtítulo + atajos clave (top_hints) + regla + aire. `refl_min_h` > 0
     cede el reflejo bajo ese alto (pantallas densas); `hints_min_h` idem
     para la fila de atajos (default: el mismo umbral del wordmark
-    compacto). Devuelve las líneas iniciales del render."""
+    compacto). `word` titula la sección en el wordmark (default WORKSPACE).
+    Devuelve las líneas iniciales del render."""
     K = cols(K)
     L = [""]
-    bt = big_title(K, w, h, indent=" ", compact=(h < compact_h), center=True)
+    bt = big_title(K, w, h, indent=" ", compact=(h < compact_h), center=True,
+                   word=word)
     L += bt
     if len(bt) > 1 and h >= refl_min_h:
-        L += title_reflection(K, w, indent=" ", center=True)
+        L += title_reflection(K, w, indent=" ", center=True, word=word)
     L.append(" " * max(0, ((w - 1) - vis(sub)) // 2)
              + "%s%s%s" % (K["DIM"], sub, K["R"]))
     if hints:
@@ -797,6 +799,46 @@ _SHADOW = {
 }
 
 
+_SHADOW.update({' ': ('   ', '   ', '   ', '   ', '   ', '   '),
+ '-': ('       ', '       ', ' █████╗', ' ╚════╝', '       ', '       '),
+ '0': (' ██████╗ ', '██╔═████╗', '██║██╔██║', '████╔╝██║', '╚██████╔╝', ' ╚═════╝ '),
+ '1': (' ██╗', '███║', '╚██║', ' ██║', ' ██║', ' ╚═╝'),
+ '2': ('██████╗ ', '╚════██╗', ' █████╔╝', '██╔═══╝ ', '███████╗', '╚══════╝'),
+ '3': ('██████╗ ', '╚════██╗', ' █████╔╝', ' ╚═══██╗', '██████╔╝', '╚═════╝ '),
+ '4': ('██╗  ██╗', '██║  ██║', '███████║', '╚════██║', '     ██║', '     ╚═╝'),
+ '5': ('███████╗', '██╔════╝', '███████╗', '╚════██║', '███████║', '╚══════╝'),
+ '6': (' ██████╗ ', '██╔════╝ ', '███████╗ ', '██╔═══██╗', '╚██████╔╝', ' ╚═════╝ '),
+ '7': ('███████╗', '╚════██║', '    ██╔╝', '   ██╔╝ ', '   ██║  ', '   ╚═╝  '),
+ '8': (' █████╗ ', '██╔══██╗', '╚█████╔╝', '██╔══██╗', '╚█████╔╝', ' ╚════╝ '),
+ '9': (' █████╗ ', '██╔══██╗', '╚██████║', ' ╚═══██║', ' █████╔╝', ' ╚════╝ '),
+ 'A': (' █████╗ ', '██╔══██╗', '███████║', '██╔══██║', '██║  ██║', '╚═╝  ╚═╝'),
+ 'B': ('██████╗ ', '██╔══██╗', '██████╔╝', '██╔══██╗', '██████╔╝', '╚═════╝ '),
+ 'C': (' ██████╗', '██╔════╝', '██║     ', '██║     ', '╚██████╗', ' ╚═════╝'),
+ 'D': ('██████╗ ', '██╔══██╗', '██║  ██║', '██║  ██║', '██████╔╝', '╚═════╝ '),
+ 'E': ('███████╗', '██╔════╝', '█████╗  ', '██╔══╝  ', '███████╗', '╚══════╝'),
+ 'F': ('███████╗', '██╔════╝', '█████╗  ', '██╔══╝  ', '██║     ', '╚═╝     '),
+ 'G': (' ██████╗ ', '██╔════╝ ', '██║  ███╗', '██║   ██║', '╚██████╔╝', ' ╚═════╝ '),
+ 'H': ('██╗  ██╗', '██║  ██║', '███████║', '██╔══██║', '██║  ██║', '╚═╝  ╚═╝'),
+ 'I': ('██╗', '██║', '██║', '██║', '██║', '╚═╝'),
+ 'J': ('     ██╗', '     ██║', '     ██║', '██   ██║', '╚█████╔╝', ' ╚════╝ '),
+ 'K': ('██╗  ██╗', '██║ ██╔╝', '█████╔╝ ', '██╔═██╗ ', '██║  ██╗', '╚═╝  ╚═╝'),
+ 'L': ('██╗     ', '██║     ', '██║     ', '██║     ', '███████╗', '╚══════╝'),
+ 'M': ('███╗   ███╗', '████╗ ████║', '██╔████╔██║', '██║╚██╔╝██║', '██║ ╚═╝ ██║', '╚═╝     ╚═╝'),
+ 'N': ('███╗   ██╗', '████╗  ██║', '██╔██╗ ██║', '██║╚██╗██║', '██║ ╚████║', '╚═╝  ╚═══╝'),
+ 'O': (' ██████╗ ', '██╔═══██╗', '██║   ██║', '██║   ██║', '╚██████╔╝', ' ╚═════╝ '),
+ 'P': ('██████╗ ', '██╔══██╗', '██████╔╝', '██╔═══╝ ', '██║     ', '╚═╝     '),
+ 'Q': (' ██████╗ ', '██╔═══██╗', '██║   ██║', '██║▄▄ ██║', '╚██████╔╝', ' ╚══▀▀═╝ '),
+ 'R': ('██████╗ ', '██╔══██╗', '██████╔╝', '██╔══██╗', '██║  ██║', '╚═╝  ╚═╝'),
+ 'S': ('███████╗', '██╔════╝', '███████╗', '╚════██║', '███████║', '╚══════╝'),
+ 'T': ('████████╗', '╚══██╔══╝', '   ██║   ', '   ██║   ', '   ██║   ', '   ╚═╝   '),
+ 'U': ('██╗   ██╗', '██║   ██║', '██║   ██║', '██║   ██║', '╚██████╔╝', ' ╚═════╝ '),
+ 'V': ('██╗   ██╗', '██║   ██║', '██║   ██║', '╚██╗ ██╔╝', ' ╚████╔╝ ', '  ╚═══╝  '),
+ 'W': ('██╗    ██╗', '██║    ██║', '██║ █╗ ██║', '██║███╗██║', '╚███╔███╔╝', ' ╚══╝╚══╝ '),
+ 'X': ('██╗  ██╗', '╚██╗██╔╝', ' ╚███╔╝ ', ' ██╔██╗ ', '██╔╝ ██╗', '╚═╝  ╚═╝'),
+ 'Y': ('██╗   ██╗', '╚██╗ ██╔╝', ' ╚████╔╝ ', '  ╚██╔╝  ', '   ██║   ', '   ╚═╝   '),
+ 'Z': ('███████╗', '╚══███╔╝', '  ███╔╝ ', ' ███╔╝  ', '███████╗', '╚══════╝')})
+
+
 def _shadow_rows(word="WORKSPACE"):
     """Las 6 filas ANSI Shadow de `word` (sin color). WORKSPACE = 75 cols."""
     rows = ["", "", "", "", "", ""]
@@ -832,7 +874,7 @@ def _neon_row(row, core, shade, R):
 
 
 def big_title(K, w, h=0, indent=" ", right="", compact=False,
-              center=False):
+              center=False, word="WORKSPACE"):
     """Título WORKSPACE GRANDE en ANSI Shadow, look NEÓN: núcleo █ con el
     GRADIENTE del tema activo (WCOL fila a fila: magenta→violeta→cian en
     cyberpunk, dorado en olympo) en bold + la sombra de la fuente (╔╗╚╝║═)
@@ -847,9 +889,13 @@ def big_title(K, w, h=0, indent=" ", right="", compact=False,
     grande centra sus 75 columnas; el wordmark compacto centra SU línea, que
     es mucho más corta — centrar ambos con el mismo indent dejaba el
     compacto tirado a la derecha). Si el widget `right` ya no cabe junto al
-    bloque centrado se OMITE: la rama sigue en la statusline del pie."""
+    bloque centrado se OMITE: la rama sigue en la statusline del pie.
+
+    `word` (default WORKSPACE): la palabra del wordmark — una sección puede
+    titularse con su nombre (p.ej. AGENTES) en el MISMO estilo; letras sin
+    glifo en _SHADOW se omiten (agregarlas allí)."""
     K = cols(K)
-    rows = _shadow_rows()
+    rows = _shadow_rows(word)
     tw = max(len(r) for r in rows)
     grande = (not compact) and (w - 1) >= (vis(indent) + tw) \
         and (not h or h >= 24)
@@ -867,8 +913,8 @@ def big_title(K, w, h=0, indent=" ", right="", compact=False,
             out.append(clip(ln, w - 1))
         return out
     if center:                                   # el compacto centra SU ancho
-        indent = " " * max(0, ((w - 1) - vis("▛▀ WORKSPACE")) // 2)
-    ln = "%s%s▛▀ %sWORKSPACE%s" % (indent, K["B"] + K["BO"], K["C"], K["R"])
+        indent = " " * max(0, ((w - 1) - vis("▛▀ " + word)) // 2)
+    ln = "%s%s▛▀ %s%s%s" % (indent, K["B"] + K["BO"], K["C"], word, K["R"])
     if right:
         gapw = w - 1 - vis(ln) - vis(right)
         if gapw >= 2:
@@ -876,7 +922,7 @@ def big_title(K, w, h=0, indent=" ", right="", compact=False,
     return [clip(ln, w - 1)]
 
 
-def title_reflection(K, w, indent=" ", center=False):
+def title_reflection(K, w, indent=" ", center=False, word="WORKSPACE"):
     """Fila-REFLEJO bajo el título neón (feedback cockpit-v7 2026-07-04):
     la silueta ░ de las 2 últimas filas del ANSI Shadow en orden ESPEJO
     (la base primero) y tonos apagados del acento que se desvanecen —
@@ -886,7 +932,7 @@ def title_reflection(K, w, indent=" ", center=False):
     K = cols(K)
     if not (K["B2"] or K["DK"]):                 # mono → sin reflejo
         return []
-    rows = _shadow_rows()
+    rows = _shadow_rows(word)
     if center:                                   # mismo eje que el título
         indent = " " * max(0, ((w - 1) - max(len(r) for r in rows)) // 2)
     out = []

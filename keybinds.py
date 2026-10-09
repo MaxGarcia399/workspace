@@ -70,6 +70,7 @@ _MENU_BASE = (
      "abre esta pantalla — re-mapea cualquiera de estas teclas"),
     ("menu.__doctor__", "u", "Actualizaciones",
      "revisar · reparar · actualizar el harness"),
+    ("menu.__agentes__", "b", "Agentes", "configuración y cerebro de cada agente"),
     ("menu.__add_agent__", "g", "Agregar agente",
      "crear o cargar un agente nuevo"),
 )

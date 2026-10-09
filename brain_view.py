@@ -184,6 +184,100 @@ def render(model, api, K, canvas_type, width, height, route='setup'):
     return canvas.lines()
 
 
+# ── Primitivas compartidas del lenguaje de mapas (cajas + conectores) ─────
+# Las usan el mini-mapa del dev panel (dev_tui._minimapa, vía pipeline) y la
+# sección AGENTES del hub (agents_tui). Viven aquí porque este módulo viaja en
+# la distro (dev_tui no). `HL` = hublayout (vis/clip); `make(K, w, h)` =
+# fábrica del lienzo (agent_create_ui._MapCanvas o su clon).
+
+def box(canvas, K, x, y, w, label, col):
+    """Caja completa de 3 filas: borde, etiqueta en negrita, borde."""
+    canvas.put(x, y, '╭' + '─' * (w - 2) + '╮', col)
+    canvas.put(x, y + 1, '│', col)
+    canvas.put(x + w - 1, y + 1, '│', col)
+    canvas.put(x + 2, y + 1, label, col + K['BO'], w - 4)
+    canvas.put(x, y + 2, '╰' + '─' * (w - 2) + '╯', col)
+
+
+def pipeline(HL, K, make, iw, ih, nodes, caps, nota):
+    """Fila de cajas unidas borde a borde (├──┤) con la etiqueta de cada
+    tramo BAJO la línea y una nota al pie. `nodes` = ((«largo|corto»,
+    clave_color), …) con clave en c/ok/b/wh/dk/b2; `caps` = un texto por
+    tramo (también admite «largo|corto»). Intenta la variante larga y luego
+    la corta; None si ni así cabe (el caller cede a texto con honestidad)."""
+    COL = {"c": K["C"], "ok": K["OK"], "b": K["B"],
+           "wh": K["WH"], "dk": K["DK"], "b2": K["B2"]}
+
+    def _var(s, corto):                          # «largo|corto» → variante
+        largo, _, chico = str(s).partition("|")
+        return (chico or largo) if corto else largo
+
+    labels = caps_v = W = G = None
+    for corto in (False, True):                  # largo primero; luego corto
+        labels = [_var(n[0], corto) for n in nodes]
+        caps_v = [_var(cp, corto) for cp in caps]
+        W = [HL.vis(lb) + 4 for lb in labels]
+        G = [max(HL.vis(cp) + 2, 6) for cp in caps_v]
+        if sum(W) + sum(G) <= iw:
+            break
+    else:
+        return None
+    o = max(0, (iw - sum(W) - sum(G)) // 2)
+    xs = [o]
+    for i in range(1, len(nodes)):
+        xs.append(xs[i - 1] + W[i - 1] + G[i - 1])
+    c = make(K, iw, ih)
+    for i, (lbl, ck) in enumerate(zip(labels, (n[1] for n in nodes))):
+        col = COL.get(ck, K["WH"])
+        c.put(xs[i], 0, "╭" + "─" * (W[i] - 2) + "╮", col)
+        c.put(xs[i], 1, "│", col)
+        c.put(xs[i] + W[i] - 1, 1, "│", col)
+        c.put(xs[i] + 2, 1, lbl, col + K["BO"], W[i] - 4)
+        c.put(xs[i], 2, "╰" + "─" * (W[i] - 2) + "╯", col)
+    for i, cp in enumerate(caps_v):
+        col = COL.get(nodes[i + 1][1], K["WH"])     # tinta del destino
+        for x in range(xs[i] + W[i], xs[i + 1]):
+            c.put(x, 1, "─", col)
+        c.put(xs[i] + W[i] - 1, 1, "├", col)
+        c.put(xs[i + 1], 1, "┤", col)
+        gx = xs[i] + W[i] + max(0, (G[i] - HL.vis(cp)) // 2)
+        c.put(gx, 3, cp, col, G[i])
+    nv = HL.clip(nota, iw - 2)
+    c.put(max(0, (iw - HL.vis(nv)) // 2), min(5, ih - 1), nv, K["DIM"])
+    return c.lines()
+
+
+def fan(canvas, HL, K, x, y, w, label, leaves, col, width):
+    """Una caja-nodo con sus hojas en rama a la derecha, como el grupo «se
+    queda» del mapa del dev panel: `leaves` = [(nombre, detalle, color)]. La
+    rama sale del borde real del nodo (├) por su fila central; una hoja sola
+    va en línea recta; varias se unen con un rail (┌ ├ ┼ └). Ocupa
+    max(3, len(leaves)) filas desde `y`."""
+    box(canvas, K, x, y, w, label, col)
+    n = len(leaves)
+    if not n:
+        return
+    mid = y + 1
+    tx = x + w + 2                               # rail en tx-1, hoja en tx+1
+    canvas.put(x + w - 1, mid, '├', col)
+    canvas.put(x + w, mid, '─', col)
+    top = mid if n == 1 else y
+    glyph = {(False, False, True): '─', (False, True, False): '┌',
+             (False, True, True): '┬', (True, False, False): '└',
+             (True, False, True): '┴', (True, True, False): '├',
+             (True, True, True): '┼', (False, False, False): '─'}
+    lim = max(1, width - tx - 1)
+    for j, (nom, det, lc) in enumerate(leaves):
+        yy = top + j
+        canvas.put(tx - 1, yy, glyph[(j > 0, j < n - 1, yy == mid)],
+                   col if yy == mid else lc)
+        canvas.put(tx + 1, yy, nom, lc + K['BO'], lim)
+        sx = tx + 1 + HL.vis(HL.clip(' '.join(str(nom).split()), lim)) + 2
+        if det and sx < width - 2:
+            canvas.put(sx, yy, '· ' + det,
+                       K['WH'] if lc != K['DK'] else K['DK'], width - sx)
+
+
 def main():
     """Read-only reuse for an existing agent, independent of creation form."""
     import argparse

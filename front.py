@@ -210,6 +210,8 @@ def menu_entries():
              _t("menu.keybinds.tag", "re-mapea las teclas rápidas del hub")),
             ("__doctor__", _t("menu.updates.label", "Actualizaciones"),
              _t("menu.updates.tag", "revisar · reparar · actualizar")),
+            ("__agentes__", _t("menu.agents.label", "Agentes"),
+             _t("menu.agents.tag", "configuración y cerebro de cada agente")),
             ("__add_agent__", _t("menu.add_agent.label", "Agregar agente"),
              _t("menu.add_agent.tag", "crear o cargar un agente")),
             # El control de IDIOMA ya NO vive en el MENÚ: es un CUADRO propio
@@ -351,7 +353,7 @@ def _step(idx, d, it):
 _JUMP_FALLBACK = {"menu.__ramas__": "r", "menu.__devmap__": "v",
                   "menu.__cal__": "c", "menu.__tono__": "o",
                   "menu.__keybinds__": "k", "menu.__doctor__": "u",
-                  "menu.__add_agent__": "g",
+                  "menu.__add_agent__": "g", "menu.__agentes__": "b",
                   "accion.motor": "m", "accion.info": "i"}
 
 
@@ -5575,7 +5577,8 @@ def main():
                     "__ramas__": ("github", "github_tui"),
                     "__devmap__": ("dev", "dev_tui"),
                     "__keybinds__": ("atajos", "keybinds_tui"),
-                    "__add_agent__": ("agregar agente", "add_agent_tui")}
+                    "__add_agent__": ("agregar agente", "add_agent_tui"),
+                    "__agentes__": ("agentes", "agents_tui")}
         if name not in loopback:
             break
         label, modname = loopback[name]
