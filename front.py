@@ -210,6 +210,8 @@ def menu_entries():
              _t("menu.keybinds.tag", "re-mapea las teclas rápidas del hub")),
             ("__doctor__", _t("menu.updates.label", "Actualizaciones"),
              _t("menu.updates.tag", "revisar · reparar · actualizar")),
+            ("__motores__", _t("menu.engines.label", "Motores"),
+             _t("menu.engines.tag", "gestionar proveedores y conectar motores")),
             ("__agentes__", _t("menu.agents.label", "Agentes"),
              _t("menu.agents.tag", "configuración y cerebro de cada agente")),
             ("__add_agent__", _t("menu.add_agent.label", "Agregar agente"),
@@ -5578,7 +5580,8 @@ def main():
                     "__devmap__": ("dev", "dev_tui"),
                     "__keybinds__": ("atajos", "keybinds_tui"),
                     "__add_agent__": ("agregar agente", "add_agent_tui"),
-                    "__agentes__": ("agentes", "agents_tui")}
+                    "__agentes__": ("agentes", "agents_tui"),
+                    "__motores__": ("motores", "engines_tui")}
         if name not in loopback:
             break
         label, modname = loopback[name]
