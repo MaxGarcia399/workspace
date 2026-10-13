@@ -46,6 +46,7 @@ import subprocess
 import sys
 import threading
 import time
+from theme import screen as _theme_screen  # fondo/tinta del tema
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 if ROOT not in sys.path:
@@ -253,6 +254,7 @@ def _inicia_job(S, tok):
             steps.append({"label": t("actualizaciones.step.fetch",
                                      label=label), "st": "pend", "note": ""})
     for titulo, fn in doctor.PHASES:
+        titulo = doctor.phase_title(titulo, fn)       # título en el idioma de la UI
         plan.append(("fase", titulo, fn))
         steps.append({"label": _fase_corta(titulo), "st": "pend", "note": ""})
     if tok != "update":
@@ -309,6 +311,16 @@ def _worker(S, ctx, doctor):
             try:
                 if paso[0] == "pull":
                     _paso_pull(job, i, paso)
+                elif paso[0] == "fase" and job.get("harness_new"):
+                    # El harness cambió en disco: las fases cargadas en ESTE
+                    # proceso son las de la versión vieja. La revisión la hace
+                    # la versión nueva, en su propio proceso, una sola vez.
+                    if not job.get("new_doctor_done"):
+                        _paso_doctor_nuevo(job, i)
+                        job["new_doctor_done"] = True
+                    else:
+                        job["steps"][i]["st"] = "skip"
+                        job["steps"][i]["note"] = ""
                 elif paso[0] == "fase":
                     _paso_fase(job, i, paso, ctx, doctor)
                 else:
@@ -336,7 +348,8 @@ def _paso_fase(job, i, paso, ctx, doctor):
     try:
         finds = fn(ctx, fix=job["fix"])
     except Exception as e:
-        finds = [doctor.f(doctor.FAIL, "error interno de la fase",
+        finds = [doctor.f(doctor.FAIL,
+                          doctor._t("doctor.main.8", "error interno de la fase"),
                           "%s: %s" % (type(e).__name__, e), "")]
     stmap = {doctor.OK: "ok", doctor.FIXED: "fixed", doctor.WARN: "warn",
              doctor.FAIL: "fail"}
@@ -363,10 +376,80 @@ def _paso_fase(job, i, paso, ctx, doctor):
                            fase=_fase_corta(titulo), n=len(finds)))
 
 
+def _paso_harness(job, i, label):
+    """El HARNESS se actualiza con el mismo motor que `workspace update`
+    (updater.update_harness: candado, fast-forward, comprueba que la versión
+    nueva arranca y si no vuelve sola, ajustes registrados)."""
+    import updater
+    res = updater.update_harness(ROOT, mode="manual")
+    stt = res.get("status")
+    st, note, txt = "ok", "", ""
+    if stt == updater.UPDATED:
+        n = len(res.get("commits") or [])
+        st, note = "fixed", "+%d" % n
+        txt = t("actualizaciones.pull.updated_version",
+                v=res.get("to_version") or res.get("to", "")[:7], n=n)
+        job["new_commits"], job["n_new"] = list(res.get("commits") or [])[:15], n
+        job["harness_new"] = True
+        mig = res.get("migrations") or {}
+        try:
+            import migrate
+            line = migrate.summary_line(mig) if not mig.get("error") else ""
+        except Exception:
+            line = ""
+        if line:
+            _live(job, "warn" if mig.get("failed") else "ok", line)
+    elif stt == updater.UPTODATE:
+        note = t("actualizaciones.note.uptodate")
+        txt = t("actualizaciones.pull.uptodate", branch=res.get("branch") or "?")
+    elif stt == updater.ROLLED_BACK:
+        st = "warn"
+        txt = t("actualizaciones.pull.rolled_back")
+    elif stt == updater.HELD:
+        st = "warn"
+        txt = t("actualizaciones.pull.paused_manual"
+                if (updater.hold() or {}).get("kind") == "manual"
+                else "actualizaciones.pull.held")
+    else:
+        st = "warn"
+        txt = updater.reason_text(res.get("reason"))
+    job["steps"][i]["st"] = st
+    job["steps"][i]["note"] = note or ("⚠" if st == "warn" else "")
+    job["pulled"].append((label, st, txt))
+    _live(job, st, "%s: %s" % (label, txt))
+
+
+def _paso_doctor_nuevo(job, i):
+    """Revisión con la versión NUEVA del harness (proceso aparte): el doctor
+    cargado aquí es el viejo y podría reparar con reglas viejas."""
+    args = [sys.executable, os.path.join(ROOT, "front.py"), "doctor", "--from-update"]
+    if not job.get("fix"):
+        args.append("--check")
+    env = dict(os.environ)
+    env.update(PYTHONIOENCODING="utf-8", WORKSPACE_DOCTOR_NO_ZENITH="1",
+               WORKSPACE_NO_AUTOUPDATE="1")
+    try:
+        r = subprocess.run(args, capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=600, env=env,
+                           stdin=subprocess.DEVNULL, cwd=ROOT)
+        ok = r.returncode == 0
+    except Exception:
+        ok = False
+    job["steps"][i]["st"] = "ok" if ok else "warn"
+    job["steps"][i]["note"] = t("actualizaciones.note.new_version")
+    _live(job, "ok" if ok else "warn",
+          t("actualizaciones.live.new_doctor_ok") if ok
+          else t("actualizaciones.live.new_doctor_warn"))
+
+
 def _paso_pull(job, i, paso):
     """Pull --ff-only de UN repo en su rama actual — misma clasificación que
-    front._update_repo, pero estructurada para pintarse en la pantalla."""
+    front._update_repo, pero estructurada para pintarse en la pantalla. El
+    harness (ROOT) va por updater (ver _paso_harness)."""
     _, label, path, transport = paso
+    if path and os.path.normcase(os.path.realpath(path)) == \
+            os.path.normcase(os.path.realpath(ROOT)):
+        return _paso_harness(job, i, label)
     st, note, txt = "ok", "", ""
     if transport == "obsidian-sync":
         note, txt = t("actualizaciones.note.sync"), t("actualizaciones.pull.sync")
@@ -495,7 +578,35 @@ def PARES_MENU():
     return (("↑↓", t("actualizaciones.hint.action")),
             ("Enter", t("actualizaciones.hint.run")),
             ("1-3", t("actualizaciones.hint.direct")),
+            ("a", t("actualizaciones.hint.auto")),
             ("q", t("actualizaciones.hint.back_menu")))
+
+
+def _modo_auto():
+    """(modo, texto) de las actualizaciones automáticas; falla-suave."""
+    try:
+        import updater
+        m = updater.auto_mode()
+        return m, updater.auto_mode_text(m)
+    except Exception:
+        return "auto", ""
+
+
+def _cicla_modo_auto(S):
+    """`a`: auto → notify → off → auto. Guarda y dice qué quedó."""
+    try:
+        import updater
+        if os.environ.get("WORKSPACE_NO_AUTOUPDATE"):
+            S["msg"] = t("actualizaciones.msg.auto_env")
+            return
+        cur = updater.auto_mode()
+        nxt = updater.AUTO_MODES[(updater.AUTO_MODES.index(cur) + 1)
+                                 % len(updater.AUTO_MODES)]
+        updater.set_auto_mode(nxt)
+        S["msg"] = t("actualizaciones.msg.auto_set",
+                     mode=updater.auto_mode_text(nxt))
+    except Exception as e:
+        S["msg"] = t("actualizaciones.msg.auto_fail", err=type(e).__name__)
 
 
 def PARES_RUN():
@@ -511,7 +622,7 @@ def PARES_DONE():
 def _marco(S, K, w, h, sub, hints=None):
     """Wordmark + reflejo + subtítulo + atajos clave + regla — el
     encabezado común (HL.screen_header, compartido con todo el hub)."""
-    return HL.screen_header(K, w, h, sub, hints=hints)
+    return HL.screen_header(K, w, h, sub, hints=hints, word=HL.section_word('actualizaciones'))
 
 
 def _linea_chk(S, K, iw):
@@ -567,6 +678,10 @@ def _cuerpo_acciones(S, K, iw):
                                     est or t("actualizaciones.ver.unavailable"),
                                     K["R"]), iw))
     out.append(_linea_chk(S, K, iw))
+    _m, txt = _modo_auto()
+    if txt:
+        for sub in _wrap(t("actualizaciones.auto.line", mode=txt), max(8, iw - 2)):
+            out.append(HL.clip(" %s%s%s" % (K["DIM"], sub, K["R"]), iw))
     return out
 
 
@@ -607,7 +722,7 @@ def _render_menu(S, K, w, h):
     apilado = w < 100
     lw = (w - 1) if apilado else max(34, min(44, (w - 6) * 42 // 100))
     rw = (w - 1) if apilado else (w - 1) - lw - 3
-    avail = max(8, (h - 1) - top - 3)
+    avail = max(8, (h - 1) - top - 5)
     bi = _cuerpo_acciones(S, K, lw - 4)
     si0, full = S["si"], True
     # ALTURA ESTABLE: la caja derecha mide lo del detalle MÁS LARGO de las 3
@@ -645,7 +760,7 @@ def _render_menu(S, K, w, h):
     L.append("")
     L.append(" %s%s%s" % (K["B2"], S.get("msg") or "", K["R"])
              if S.get("msg") else "")
-    L.append(HL.foot_hints(K, PARES_MENU(), w))
+    L.extend(HL.instruction_buttons(K, PARES_MENU(), w-1))
     return L
 
 
@@ -742,7 +857,7 @@ def _render_run(S, K, w, h):
     apilado = w < 100
     lw = (w - 1) if apilado else max(36, min(52, (w - 6) * 46 // 100))
     rw = (w - 1) if apilado else (w - 1) - lw - 3
-    avail = max(8, (h - 1) - top - 3)
+    avail = max(8, (h - 1) - top - 5)
     if apilado:
         ih_i = max(4, min(len(job["steps"]), (avail - 4) * 55 // 100))
         ih_d = max(3, avail - ih_i - 4)
@@ -930,7 +1045,7 @@ def _render_done(S, K, w, h):
     apilado = w < 100
     lw = (w - 1) if apilado else max(36, min(52, (w - 6) * 46 // 100))
     rw = (w - 1) if apilado else (w - 1) - lw - 3
-    avail = max(8, (h - 1) - top - 3)
+    avail = max(8, (h - 1) - top - 5)
     bi = _cuerpo_resumen(S, K, lw - 4)
     pend_all = _lineas_pendientes(job, K, rw - 4)
     if apilado:
@@ -969,7 +1084,7 @@ def _render_done(S, K, w, h):
     L.append("")
     L.append(" %s%s%s" % (K["B2"], S.get("msg") or "", K["R"])
              if S.get("msg") else "")
-    L.append(HL.foot_hints(K, PARES_DONE(), w))
+    L.extend(HL.instruction_buttons(K, PARES_DONE(), w-1))
     return L
 
 
@@ -1056,6 +1171,8 @@ def _accion(S, key):
         S["si"] = (S["si"] - 1) % len(ACCIONES)
     elif key == "down":
         S["si"] = (S["si"] + 1) % len(ACCIONES)
+    elif key in ("a", "A"):
+        _cicla_modo_auto(S)
     elif key in tuple("123") or key in ("\r", "\n"):
         if key in tuple("123"):
             S["si"] = int(key) - 1
@@ -1164,6 +1281,7 @@ def _run_windows(S):
     return S.get("tok")
 
 
+@_theme_screen
 def run(version_text=""):
     """Abre la pantalla. El flujo entero (revisar/reparar/actualizar) corre
     AQUÍ, en vivo. Devuelve None cuando todo se atendió (o el socio volvió),

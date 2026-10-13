@@ -19,6 +19,7 @@ Uso:
     python3 proyectos_demo.py --port 9200
 """
 import datetime
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import os
 import shutil
 import subprocess
@@ -31,7 +32,7 @@ if ROOT not in sys.path:
 
 
 def _real_source():
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace",
+    return os.path.join(_paths.state_dir(),
                         "proyectos", "proyectos.json")
 
 
@@ -82,7 +83,7 @@ def main(argv=None):
             pass
 
     sandbox = os.path.join(tempfile.mkdtemp(prefix="proyectos-v2-demo-"), "home")
-    pdir = os.path.join(sandbox, ".claude", "workspace", "proyectos")
+    pdir = os.path.join(_paths.state_dir(sandbox), "proyectos")
     os.makedirs(pdir, exist_ok=True)
 
     src = _real_source()

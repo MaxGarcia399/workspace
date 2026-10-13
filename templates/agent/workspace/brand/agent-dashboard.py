@@ -254,7 +254,7 @@ def socio():
     # El dueño sale de .claude/socio.local (lo escribe el harness) — cualquier slug,
     # no solo el trío del equipo: un agente vendido tiene su propio dueño. Sin guess horneado.
     try:
-        s = open(os.path.join(BRAIN, ".claude", "socio.local")).read().strip().lower()
+        s = open(os.path.join(BRAIN, ".claude", "socio.local"), encoding="utf-8").read().strip().lower()
         if s:
             return s
     except Exception:
@@ -292,7 +292,7 @@ def render_context():
              f"SESIÓN ACTIVA: «{ws}». Esta conversación es esa sesión persistente."]
     if body:
         parts.append("Memoria de esta sesión (STATE/sessions/" + (soc or "<socio>") + "/):")
-        parts.append(body[:1200])
+        parts.append(agent_brand.session_memory(BRAIN, ws))
     parts.append("Al cerrar trabajo significativo, haz append fechado a ## Historial de esa "
                  "memoria y actualiza su frontmatter (actualizada/estado/trabajo). "
                  "Ver CLAUDE.md §2.5 (Memoria de sesión).")
@@ -319,6 +319,8 @@ def menu_items():
 
 def _tty():
     try:
+        if sys.platform == "win32":    # "/dev/tty" sería el archivo C:/dev/tty
+            raise OSError
         return open("/dev/tty", "r"), open("/dev/tty", "w")
     except Exception:
         if sys.platform == "win32":
@@ -476,6 +478,9 @@ def main():
             tout.write("\n" + "\n".join(header_lines()) + "\n"); tout.flush()
         items = menu_items()
         idx = run_picker(items)
+        if idx == "BACK":                # Esc: el motor reabre el hub
+            sys.stdout.write("BACK")
+            return
         kind = items[idx][2]
         if kind[0] == "NEW":
             tout.write(f"\r\n  {MUTE}{_t('banner.dash.name_prompt', 'Nombre de la sesión: ')}{R}"); tout.flush()

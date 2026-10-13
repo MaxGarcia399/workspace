@@ -211,6 +211,22 @@ PALETTES = {
 }
 
 
+def theme_colors():
+    """Colores de la barra de estado desde el TEMA del hub (ui.theme): el
+    tema que elige el socio pinta TODO, también la sesión de cada agente —
+    la identidad del agente queda en su NOMBRE, no en un color propio.
+    dict de secuencias ANSI, o None si tuitheme no se resuelve (entonces la
+    paleta de marca de siempre). Jamás levanta."""
+    try:
+        import tuitheme
+        P = tuitheme.palette()
+        return {"HEAD": P.C, "MODEL": P.B, "LBL": P.DIM, "VAL": P.WH,
+                "SEP": P.DK, "FILL": P.C, "EMPT": P.INACTIVE,
+                "OK": P.OK, "ERR": P.ERR, "WARN": P.B2}
+    except Exception:
+        return None
+
+
 def palette(brain, color=None):
     """Los 7 códigos 256-color (HEAD..EMPT) de un agente, como DATO del cerebro.
     Prioridad: paleta CUSTOM en `.workspace/agent.json` ("palette": lista de 7 ints) >
@@ -324,3 +340,9 @@ def resolve_identity(brain, display=None, tagline=None, color=None,
         "scope": scp,
         "skills": skl,
     }
+
+
+def session_memory(brain, name, limit=1200):
+    """Shared current-state selector for native dashboards (lazy: no cycle)."""
+    import sessions_registry
+    return sessions_registry.tab_memory(brain, name, limit=limit)

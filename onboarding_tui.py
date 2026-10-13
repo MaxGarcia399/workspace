@@ -4,9 +4,12 @@
 La primera vez que alguien baja Workspace y lo abre, no hay config, no hay
 agentes y no sabe qué es esto. Este flujo lo recibe al estilo WORKSPACE
 (wordmark, cajas del tema, transparencia total) y lo deja operativo en
-3 etapas + un resumen honesto de dónde quedó todo:
+3 etapas (las de `_ETAPAS`) más pasos opcionales y un resumen honesto:
 
-  bienvenida → 1 MOTORES → 2 APARIENCIA → 3 AGENTE → (tono) → resumen
+  idioma → bienvenida → 1 MOTORES → 2 APARIENCIA → (arranque) → 3 AGENTE
+         → (tono) → (google calendar) → resumen
+
+(idioma, arranque y google calendar son pasos opcionales, no etapas; ver _VISTAS.)
 
 Qué REUSA (nada se duplica — este módulo solo orquesta):
   · motores     harnesses.installed()/describe(probe=True): detección real de
@@ -27,6 +30,13 @@ Qué REUSA (nada se duplica — este módulo solo orquesta):
 No re-disparo: ~/.claude/workspace/onboarded.json (env WORKSPACE_ONBOARDED lo
 pisa — tests herméticos). Se escribe APENAS arranca el flujo (un Ctrl-C a
 medias no vuelve a molestar) y se completa al final con el resumen real.
+
+REANUDABLE (U07/Z07): el flag guarda el estado por ETAPA (completa/omitida/
+pendiente) y la vista donde quedó; `workspace onboarding` CONTINÚA desde ahí
+(no reinicia). «Listo» (completo=True) exige lo VERIFICABLE: un motor con
+binario y un agente lanzable (agent_state). Omitir es válido (modo explorar):
+queda `pendientes` en el flag y el hub lo muestra — sin bucle forzado (la
+obligatoriedad sigue en debate; esto no la impone).
 Una máquina que YA tiene agentes registrados se marca "adopcion" en silencio:
 el onboarding es para el primer uso, no para quien ya opera. Re-correrlo a
 mano: `workspace onboarding`.
@@ -39,6 +49,7 @@ Mismo patrón de pantalla que tono_tui/add_agent_tui (2J3JH al entrar, H +
 (stdlib, Python 3.9+). Mac y Windows.
 """
 import datetime
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import json
 import os
 import sys
@@ -111,8 +122,57 @@ def flag_path():
     p = os.environ.get("WORKSPACE_ONBOARDED", "").strip()
     if p:
         return os.path.expanduser(p)
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace",
+    return os.path.join(_paths.state_dir(),
                         "onboarded.json")
+
+
+def leer_flag():
+    """El flag como dict ({} si no existe/ilegible)."""
+    try:
+        with open(flag_path(), encoding="utf-8") as fh:
+            d = json.load(fh)
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def pendientes_verificables(motores=None):
+    """Lo que FALTA para declarar la máquina lista, verificado contra el
+    estado real (no contra lo que el flujo creyó): 'motor' si ningún motor
+    soportado tiene binario; 'agente' si ningún agente es lanzable."""
+    out = []
+    try:
+        harn = _descriptores()
+        sel = motores if motores is not None else list(harn)
+        if not any((harn.get(e) or {}).get("binaries_ok") for e in sel):
+            out.append("motor")
+    except Exception:
+        out.append("motor")
+    try:
+        import agent_state
+        if not agent_state.snapshot().launchable():
+            out.append("agente")
+    except Exception:
+        out.append("agente")
+    return out
+
+
+def resumen_pendiente():
+    """Línea para el hub si el onboarding quedó a medias (modo explorar o
+    salida temprana): qué falta y cómo continuar. '' si nada pendiente.
+    Barato: lee el flag; NO re-verifica (eso pasa al continuar)."""
+    d = leer_flag()
+    if not d or d.get("modo") != "onboarding" or d.get("completo"):
+        return ""
+    pend = d.get("pendientes") or [e for e in _ETAPAS
+                                   if (d.get("etapas") or {}).get(e) != "completa"]
+    if not pend:
+        return ""
+    nombres = ", ".join(_t("onboarding.etapa.%s" % (p if p != "motor" else "motores"),
+                           p) for p in pend)
+    return _t("onboarding.pendiente_hub",
+              "configuración a medias ({p}) — continúa con: workspace onboarding"
+              ).replace("{p}", nombres)
 
 
 def ya_corrio():
@@ -231,7 +291,9 @@ def _probe_start(S):
                 S["probe"][eid] = harnesses.describe(eid, probe=True)
             except Exception as e:
                 d = dict(S["harn"].get(eid) or {})
-                d["ready"], d["detail"] = False, "probe falló: %s" % e
+                d["ready"], d["detail"] = False, _t("onboarding.probe_fail",
+                                                "probe falló: {err}").format(
+                                                    err=e)
                 S["probe"][eid] = d
         S["probing"] = False
 
@@ -293,7 +355,7 @@ def _estado_corto(K, S, eid):
 
 def _temas():
     """[(id, label)] curados para el hub — hubtheme.hub_picker(). Falla-suave
-    → el snapshot de choices de ui.theme → ('rose',)."""
+    → el snapshot de choices de ui.theme → (default del hub,)."""
     try:
         import hubtheme
         out = [(t.get("id"), t.get("label") or t.get("id"))
@@ -306,9 +368,18 @@ def _temas():
         import settings
         spec = next(s for s in settings.SETTINGS_SCHEMA
                     if s["key"] == "ui.theme")
-        return [(c, c) for c in spec.get("choices") or ("rose",)]
+        return [(c, c) for c in spec.get("choices") or (_tema_default(),)]
     except Exception:
-        return [("rose", "rose")]
+        return [(_tema_default(), _tema_default())]
+
+
+def _tema_default():
+    """El default ÚNICO del hub (tuitheme.DEFAULT_ID) — no un literal suelto."""
+    try:
+        import tuitheme
+        return tuitheme.DEFAULT_ID
+    except Exception:
+        return "bruma"
 
 
 def _setting(key, default):
@@ -522,9 +593,7 @@ def _gcal_accounts():
 
 
 def _b_gcal(S, K, iw, full=2):
-    """Paso Google Calendar (opcional): paso-a-paso para sacar la URL iCal.
-    Conectar cae a un prompt CLÁSICO fuera del alt-screen (ver run()); la URL
-    JAMÁS se imprime. Si ya hay cuenta: «conectado ✓»."""
+    """Google Calendar: browser OAuth first, iCal fallback; local credentials."""
     conf = _gcal_configured()
     izq = []
     izq.append(_divisor(K, _t("onboarding.gcal.div_pasos", "cómo"), iw,
@@ -539,15 +608,14 @@ def _b_gcal(S, K, iw, full=2):
     else:
         pasos = (
             _t("onboarding.gcal.step1",
-               "Abre Google Calendar en la web (calendar.google.com)."),
+               'Pulsa Enter y elige «Conectar con Google en el navegador».'),
             _t("onboarding.gcal.step2",
-               "En el calendario que quieras: Configuración y uso compartido."),
-            _t("onboarding.gcal.step3", "Baja a «Integrar calendario»."),
+               'Elige tu cuenta de Google y autoriza leer los eventos.'),
+            _t("onboarding.gcal.step3", 'Vuelve a Workspace: la sesión se renueva automáticamente.'),
             _t("onboarding.gcal.step4",
-               "Copia la «Dirección secreta en formato iCal» (termina en "
-               ".ics)."),
+               'También puedes conectar con una URL iCal.'),
             _t("onboarding.gcal.step5",
-               "Vuelve aquí y pulsa Enter: la pegas en una línea normal."))
+               'La primera conexión necesita el cliente OAuth de Workspace.'))
         for n, txt in enumerate(pasos, 1):
             for i, sub in enumerate(_wrap(txt, max(8, iw - 5))):
                 pre = (" %s%d%s " % (K["C"] + K["BO"], n, K["R"])) if i == 0 \
@@ -567,8 +635,7 @@ def _b_gcal(S, K, iw, full=2):
         der.append(_divisor(K, _t("onboarding.gcal.div_seguro", "seguro"), iw))
         der += _parrafo(K, (_t(
             "onboarding.gcal.seguro_p",
-            "Solo se guarda esa URL iCal, en tu máquina; jamás se imprime en "
-            "pantalla. Puedes quitarla cuando quieras desde el calendario."),),
+            'La sesión de Google o la URL iCal se guarda en tu máquina. Puedes quitar la conexión desde el calendario.'),),
             iw)
     return izq, der
 
@@ -734,6 +801,17 @@ def _b_motores(S, K, iw, full=2):
     return izq, der
 
 
+def _fondo_val(v):
+    """VALOR de ui.background tal como se MUESTRA (el guardado no cambia):
+    en es es el id mismo (paridad); en en, su nombre corto traducido."""
+    v = str(v)
+    return _t("onboarding.fondo_val.%s" % v, v) if v in _FONDO_IDS else v
+
+
+_FONDO_IDS = ("tema", "negro", "grafito", "azul", "verde", "violeta",
+              "personalizado")
+
+
 def _items_apariencia(S):
     """[(tipo, id, label)] navegables + la fila continuar al final."""
     out = [("tema", tid, lbl) for tid, lbl in S["temas"]]
@@ -744,7 +822,7 @@ def _items_apariencia(S):
 
 def _b_apariencia(S, K, iw, full=2):
     items = _items_apariencia(S)
-    tema_act = str(_setting("ui.theme", "rose"))
+    tema_act = str(_setting("ui.theme", _tema_default()))
     fondo_act = str(_setting("ui.background", "tema"))
     izq, grupo = [], None
     for i, (tipo, iid, lbl) in enumerate(items):
@@ -781,7 +859,7 @@ def _b_apariencia(S, K, iw, full=2):
         K["WH"] + K["BO"], tema_act, K["R"]), iw))
     der.append(HL.clip(" %s%s%s %s%s%s" % (
         K["DK"], _t("onboarding.apariencia.group.fondo", "fondo"), K["R"],
-        K["WH"] + K["BO"], fondo_act, K["R"]), iw))
+        K["WH"] + K["BO"], _fondo_val(fondo_act), K["R"]), iw))
     if full >= 1:
         der.append("")
         der.append(_divisor(K, _t("onboarding.div.que_cambia", "qué cambia"),
@@ -841,6 +919,44 @@ def _b_agente(S, K, iw, full=2):
     return izq, der
 
 
+#: Las teclas que IMPORTAN al salir del onboarding (lección Omarchy: el toast
+#: de bienvenida enseña Super+Space/Super+K). (id en keybinds | tecla fija,
+#: clave i18n, texto ES). Las que no son del registro (el comando y `q`, que
+#: keybinds.RESERVADAS deja fija) van literales.
+_TECLAS_CLAVE = (
+    ("=workspace", "onboarding.resumen.tecla_abrir",
+     "abre el recinto desde cualquier terminal"),
+    ("menu.__keybinds__", "onboarding.resumen.tecla_atajos",
+     "Atajos — todas las teclas, re-mapeables"),
+    ("menu.__devmap__", "onboarding.resumen.tecla_comandos",
+     "Comandos — qué hace cada comando"),
+    ("=q", "onboarding.resumen.tecla_salir",
+     "sale del recinto a tu terminal"),
+)
+
+
+def teclas_clave():
+    """[(tecla, texto)] de las teclas que importan, leídas del mapa EFECTIVO
+    de keybinds: si el usuario re-mapeó Atajos/Comandos, se ven las SUYAS.
+    Una acción sin tecla (tapada por otro override) se dice tal cual en vez
+    de inventar una. Falla-suave: sin keybinds → defaults de fábrica (k/v);
+    jamás rompe el resumen. Solo LEE (no toca keybinds.json ni el flag)."""
+    try:
+        import keybinds as _kb
+        eff = _kb.effective()
+    except Exception:
+        eff = {"menu.__keybinds__": "k", "menu.__devmap__": "v"}
+    out = []
+    for aid, key, es in _TECLAS_CLAVE:
+        if aid.startswith("="):
+            tecla = aid[1:]
+        else:
+            tecla = eff.get(aid) or _t("onboarding.resumen.sin_tecla",
+                                       "sin tecla")
+        out.append((tecla, _t(key, es)))
+    return out
+
+
 def _b_resumen(S, K, iw, full=2):
     izq = []
     izq.append(_divisor(K, _t("onboarding.resumen.div_motores", "motores"),
@@ -864,9 +980,10 @@ def _b_resumen(S, K, iw, full=2):
                               "apariencia"), iw, tono=2))
     izq.append(HL.clip(" %s %s%s%s · %s %s%s%s" % (
         _t("onboarding.apariencia.group.tema", "tema"),
-        K["WH"] + K["BO"], _setting("ui.theme", "rose"), K["R"],
+        K["WH"] + K["BO"], _setting("ui.theme", _tema_default()), K["R"],
         _t("onboarding.apariencia.group.fondo", "fondo"),
-        K["WH"] + K["BO"], _setting("ui.background", "tema"), K["R"]), iw))
+        K["WH"] + K["BO"], _fondo_val(_setting("ui.background", "tema")),
+        K["R"]), iw))
     izq.append("")
     izq.append(_divisor(K, _t("onboarding.resumen.div_agentes", "agentes"),
                         iw, tono=3))
@@ -892,6 +1009,14 @@ def _b_resumen(S, K, iw, full=2):
             .format(agente=S["tono"]), K["R"]), iw))
 
     der = []
+    # Primero las teclas (esencial: no se degrada con `full`); luego dónde quedó.
+    der.append(_divisor(K, _t("onboarding.resumen.div_teclas",
+                              "las teclas que importan"), iw, tono=1))
+    for tecla, txt in teclas_clave():
+        der.append(HL.clip(" %s%s%s  %s%s%s" % (
+            K["WH"] + K["BO"], HL.pad(tecla, 10), K["R"],
+            K["GREY"], txt, K["R"]), iw))
+    der.append("")
     der.append(_divisor(K, _t("onboarding.resumen.div_donde", "dónde quedó"),
                         iw, tono=4))
     try:
@@ -981,7 +1106,7 @@ def render(S, w, h):
     sub = _t("onboarding.subtitle",
              "primer arranque — deja tu Workspace listo en 3 pasos")
     # cabecera COMPARTIDA (wordmark + reflejo + subtítulo + atajos arriba + regla)
-    L = HL.screen_header(K, w, h, sub, hints=pares)
+    L = HL.screen_header(K, w, h, sub, hints=pares, word=HL.section_word('onboarding'))
     L.append(_fila_etapas(S, K, w))
     L.append("")
     top = len(L)
@@ -995,7 +1120,7 @@ def render(S, w, h):
     rw = (w - 1) if apilado else (w - 1) - lw - 3
     # -4 (no -3): además del blanco+msg+pie, la fila de ACCIÓN PRIMARIA (P0-B)
     # es esencial y suma una línea — si no se cuenta, el pie se sale.
-    avail = max(8, (h - 1) - top - 4)
+    avail = max(8, (h - 1) - top - 6)
     bi = bd = None
     for full in (2, 1, 0):                       # degradación honesta
         if apilado:                              # cada caja a su ancho real
@@ -1029,7 +1154,7 @@ def render(S, w, h):
     L.append(_accion_primaria(S, K, w))          # P0-B: acción primaria (esencial)
     L.append((" %s%s%s" % (K["B2"], S["msg"], K["R"])) if S.get("msg")
              else "")
-    L.append(HL.foot_hints(K, pares, w))         # P0-A: pie de atajos completo
+    L.extend(HL.instruction_buttons(K, pares, w-1))         # P0-A: pie de atajos completo
     L = [HL.clip(x, w - 1) for x in L[:h - 1]]
     return L + [""] * max(0, (h - 1) - len(L))    # altura SIEMPRE estable
 
@@ -1374,44 +1499,10 @@ def _tono_para(agente):
 
 
 def _gcal_connect_clasico(S):
-    """Prompt CLÁSICO fuera del alt-screen (raw mode no deja pegar una URL
-    larga de forma fiable): pide la «Dirección secreta iCal», la vincula con
-    gcal.add_account y deja el resultado en S["msg"]. NUNCA imprime la URL."""
-    try:
-        import gcal
-    except Exception:
-        S["msg"] = _t("onboarding.gcal.unavailable",
-                      "Google Calendar no está disponible aquí")
-        return
-    try:
-        print()
-        print(_t("onboarding.gcal.prompt_url",
-                 "Pega la «Dirección secreta en formato iCal» "
-                 "(Enter vacío = cancelar):"))
-        url = input("  > ").strip()
-    except (EOFError, KeyboardInterrupt):
-        return
-    if not url:
-        S["msg"] = _t("onboarding.gcal.cancelled", "conexión cancelada")
-        return
-    try:
-        label = input("  %s" % _t("onboarding.gcal.prompt_label",
-                                  "Etiqueta (opcional, Enter = auto): ")
-                      ).strip()
-    except (EOFError, KeyboardInterrupt):
-        label = ""
-    try:
-        res = gcal.add_account(label, url)
-    except Exception as e:
-        res = {"ok": False, "error": str(e)}
-    if res.get("ok"):
-        S["msg"] = _t("onboarding.gcal.connected",
-                      "conectado ✓ · {n} eventos").format(
-                          n=res.get("events", 0))
-    else:
-        S["msg"] = _t("onboarding.gcal.failed",
-                      "no se pudo conectar ({err})").format(
-                          err=res.get("error", ""))
+    """Choose browser OAuth or hidden iCal paste outside the alt-screen."""
+    import google_connect_ui
+    res = google_connect_ui.choose_connection()
+    S["msg"] = google_connect_ui.result_message(res)
 
 
 # ── entrada ─────────────────────────────────────────────────────────────────
@@ -1425,8 +1516,25 @@ def _estado_inicial():
             "def_engine": "", "salir": None}
 
 
+def _progreso(S):
+    """Estado por etapa para reanudar (se guarda en cada transición)."""
+    et = {}
+    for e in _ETAPAS:
+        if e in S["hechos"]:
+            et[e] = "omitida" if e in S.get("omitidas", ()) else "completa"
+        else:
+            et[e] = "pendiente"
+    return {"etapas": et, "vista": S.get("view") or "idioma",
+            "motores_sel": sorted(S.get("sel") or ())}
+
+
 def _resumen_flag(S, completo):
-    return {"modo": "onboarding", "completo": bool(completo),
+    pend = pendientes_verificables(sorted(S.get("sel") or ()) or None)
+    return {"modo": "onboarding",
+            # «listo» = el flujo terminó Y lo verificable se cumple (U07)
+            "completo": bool(completo) and not pend,
+            "pendientes": pend,
+            **_progreso(S),
             "motores": sorted(S["sel"]),
             "default_engine": S.get("def_engine") or "",
             "tema": str(_setting("ui.theme", "")),
@@ -1439,22 +1547,28 @@ def run(force=False):
     """El flujo completo. force=True lo corre aunque ya haya corrido
     (`workspace onboarding`). Sin TTY: señala el camino y no truena."""
     if not force and ya_corrio():
-        print("el onboarding ya corrió aquí — repetir: workspace onboarding")
+        print(_t("onboarding.cli.ya_corrio",
+                 "el onboarding ya corrió aquí — repetir: workspace onboarding"))
         return 0
     try:
         interactivo = sys.stdin.isatty() and sys.stdout.isatty()
     except Exception:
         interactivo = False
     if not interactivo:
-        print("el onboarding necesita una terminal interactiva.")
-        print("abre `workspace` en una terminal y corre: workspace onboarding")
+        print(_t("onboarding.cli.no_tty",
+                 "el onboarding necesita una terminal interactiva."))
+        print(_t("onboarding.cli.no_tty2", "abre `workspace` en una terminal "
+                 "y corre: workspace onboarding"))
         return 0
+    prev = leer_flag()
     _marcar({"modo": "onboarding", "completo": False})   # jamás re-molestar
     S = _estado_inicial()
+    _reanudar(S, prev)
     _probe_start(S)
     try:
         while True:
             token = _pantalla(S)
+            _marcar(_progreso(S))                 # cada salida del driver guarda
             if token == "quit":
                 _marcar(_resumen_flag(S, False))
                 break
@@ -1471,6 +1585,11 @@ def run(force=False):
                         _tono_para(nuevos[0])
                         S["tono"] = nuevos[0]
                 S["hechos"].add("agente")
+                if token == "ninguno":           # explorar: omitida, queda pendiente
+                    S.setdefault("omitidas", set()).add("agente")
+                else:
+                    S.get("omitidas", set()).discard("agente")
+                _marcar(_progreso(S))
                 S["view"], S["salir"] = "gcal", None   # paso opcional antes del resumen
                 continue
             if token == "gcal_connect":           # prompt clásico fuera del alt-screen
@@ -1482,6 +1601,32 @@ def run(force=False):
         _marcar(_resumen_flag(S, S.get("salir") == "fin"))
         _aplicar_osc()                            # el hub entra ya pintado
     return 0
+
+
+def _reanudar(S, prev):
+    """Si un onboarding anterior quedó a medias, continúa donde quedó:
+    etapas completas se respetan, la vista arranca en la primera etapa
+    pendiente (o en la que estaba). Un flag 'adopcion' o completo no reanuda."""
+    if not isinstance(prev, dict) or prev.get("modo") != "onboarding" \
+            or prev.get("completo"):
+        return False
+    et = prev.get("etapas") or {}
+    if not et:
+        return False
+    for e, v in et.items():
+        if e in _ETAPAS and v in ("completa", "omitida"):
+            S["hechos"].add(e)
+            if v == "omitida":
+                S.setdefault("omitidas", set()).add(e)
+    sel = prev.get("motores_sel")
+    if isinstance(sel, list) and sel:
+        S["sel"] = set(sel) & set(SOPORTADOS) or S["sel"]
+    pend = [e for e in _ETAPAS if e not in S["hechos"]]
+    S["view"] = pend[0] if pend else (prev.get("vista") or "resumen")
+    if S["view"] not in _VISTAS:
+        S["view"] = "bienvenida"
+    S["msg"] = _t("onboarding.reanudado", "continuando donde lo dejaste")
+    return True
 
 
 def maybe_run():

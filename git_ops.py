@@ -1,5 +1,6 @@
 """Queries and explicit, reviewable version actions. Python 3.9 stdlib only."""
 import hashlib
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import json
 import os
 import platform
@@ -182,13 +183,13 @@ def cloud(repo):
 
 
 def project_store():
-    return Path(os.path.expanduser('~')) / '.claude' / 'workspace' / 'version-projects.json'
+    return Path(_paths.state_dir()) / 'version-projects.json'
 
 
 def projects(default):
     paths = [os.path.realpath(default)]
     try:
-        data = json.loads(project_store().read_text())
+        data = json.loads(project_store().read_text(encoding='utf-8'))
         paths += [p for p in data if isinstance(p, str) and os.path.isdir(p)]
     except (OSError, ValueError, TypeError):
         pass
@@ -201,13 +202,16 @@ def add_project(path, default):
     resolved = top(path)
     if not resolved:
         raise ValueError('Esta carpeta no contiene un proyecto Git. Elige la carpeta del proyecto.')
+    # git da el toplevel como `C:/…` en Windows; projects() guarda realpath
+    # nativo (`C:\…`). Misma forma para no duplicar el repo en la lista.
+    resolved = os.path.realpath(resolved)
     paths = projects(default)
     if resolved not in paths:
         paths.append(resolved)
     p = project_store()
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix('.tmp-%d' % os.getpid())
-    tmp.write_text(json.dumps(paths, ensure_ascii=False, indent=2))
+    tmp.write_text(json.dumps(paths, ensure_ascii=False, indent=2), encoding='utf-8')
     os.replace(str(tmp), str(p))
     return resolved
 

@@ -1,0 +1,100 @@
+{
+  "id": "blanco",
+  "label": "Blanco",
+  "emoji": "◑",
+  "swatches": [
+    "#000000",
+    "#ffffff"
+  ],
+  "web_nota": "DOS colores puros, sin matices (pedido del socio 2026-10-12): todo lo que se pinta va en #000000 y el fondo es #ffffff. La jerarquía la cargan el peso (bold), los glifos y la posición, nunca un gris. Las estrellas tenues van del color del fondo (no se ven) para no meter puntos sueltos.",
+  "web": {
+    "tokens": {
+      "bg": "#ffffff",
+      "surface": "#ffffff",
+      "surface2": "#ffffff",
+      "surface3": "#ffffff",
+      "border": "#000000",
+      "border-hi": "#000000",
+      "text": "#000000",
+      "dim": "#000000",
+      "faint": "#000000",
+      "accent": "#000000",
+      "accent-hi": "#000000",
+      "accent-soft": "rgba(0,0,0,.10)",
+      "accent-line": "rgba(0,0,0,1)",
+      "accent-2": "#000000",
+      "red": "#000000",
+      "amber": "#000000",
+      "blue": "#000000",
+      "green": "#000000",
+      "grey": "#000000",
+      "radius": "0px",
+      "radius-sm": "0px",
+      "fast": ".08s",
+      "med": ".14s",
+      "font": "ui-monospace,'SF Mono',Menlo,Consolas,monospace"
+    }
+  },
+  "tui": {
+    "_nota": "DOS colores puros, sin matices (pedido del socio 2026-10-12): todo lo que se pinta va en #000000 y el fondo es #ffffff. La jerarquía la cargan el peso (bold), los glifos y la posición, nunca un gris. Las estrellas tenues van del color del fondo (no se ven) para no meter puntos sueltos.",
+    "mono": true,
+    "roles": {
+      "text": "#000000",
+      "hi": "#000000",
+      "accent": "#000000",
+      "mid": "#000000",
+      "dim": "#000000",
+      "dark": "#000000",
+      "grey": "#000000",
+      "inactive": "#000000",
+      "inactive_alt": "#000000",
+      "err": "#000000",
+      "ok": "#000000",
+      "bad": "#000000"
+    },
+    "stars": {
+      "dim": [
+        "#ffffff",
+        "#ffffff",
+        "#ffffff",
+        "#ffffff"
+      ],
+      "mid": [
+        "#000000",
+        "#000000"
+      ],
+      "hi": "#000000"
+    },
+    "fire": [
+      "#000000",
+      "#000000",
+      "#000000",
+      "#000000",
+      "#000000",
+      "#000000",
+      "#000000",
+      "#000000",
+      "#000000",
+      "#000000",
+      "#000000",
+      "#000000"
+    ],
+    "ember": [
+      "#000000",
+      "#000000",
+      "#000000",
+      "#000000"
+    ],
+    "off": "#000000",
+    "glyphs": {
+      "box": "┌┐└┘│─",
+      "orn": "◆"
+    },
+    "osc": {
+      "bg": "#ffffff",
+      "fg": "#000000",
+      "cursor": "#000000"
+    }
+  },
+  "_nota": "Blanco — el inverso de Mono (pedido del socio 2026-10-12, «fondo blanco y todo lo demás negro»). Requiere terminal con OSC 10/11 (Windows Terminal, Terminal.app, iTerm: sí). Caja recta como mono."
+}

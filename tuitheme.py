@@ -436,7 +436,20 @@ def _tui_block(tid):
                   encoding="utf-8") as fh:
             m = json.load(fh)
         t = m.get("tui") if isinstance(m, dict) else None
-        return t if isinstance(t, dict) else {}
+        t = t if isinstance(t, dict) else {}
+        # Paleta semántica (theme_render): un tema que declara `palette` pinta
+        # el TUI desde ella aunque no traiga bloque `tui`; lo explícito del
+        # bloque `tui` gana clave a clave. SIN `palette` = exactamente lo de
+        # siempre (los temas existentes no cambian ni un color).
+        if isinstance(m, dict) and isinstance(m.get("palette"), dict):
+            try:
+                import theme_render
+                rt = theme_render.tui(theme_render.palette_from_manifest(m))
+                if rt:
+                    t = theme_render.overlay(rt, t)
+            except Exception:
+                pass
+        return t
     except Exception:
         return {}
 
@@ -524,6 +537,8 @@ def palette(theme_id=None):
     if key in _memo:
         return _memo[key]
     spec = _merged(_tui_block(tid))
+    # Un tema claro ignora un fondo oscuro elegido aparte (tinta invisible).
+    bg = theme.background_color((spec.get("osc") or {}).get("bg"))
     mono = (mode == "mono")
     # mono EFECTIVO para las TRANSFORMACIONES cromáticas (brillo/wordmark/luz
     # roja): un tema B/N POR DECLARACIÓN (tui.mono=true) debe quedar en grises

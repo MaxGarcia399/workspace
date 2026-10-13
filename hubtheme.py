@@ -113,6 +113,18 @@ def _normalize(m):
     out["label"] = str(m.get("label") or out["id"].capitalize())
     web = m.get("web") if isinstance(m.get("web"), dict) else {}
     tokens = web.get("tokens") if isinstance(web.get("tokens"), dict) else {}
+    # Paleta semántica (theme_render): un tema con `palette` obtiene sus tokens
+    # web desde ella; los `web.tokens` explícitos ganan clave a clave. Sin
+    # `palette` = los tokens de siempre, intactos.
+    if isinstance(m.get("palette"), dict):
+        try:
+            import theme_render
+            rt = theme_render.web_tokens(theme_render.palette_from_manifest(m))
+            if rt:
+                rt.update(tokens)
+                tokens = rt
+        except Exception:
+            pass
     out["web"] = {"tokens": tokens, "css": web.get("css")}
     sw = m.get("swatches")
     if not (isinstance(sw, list) and len(sw) >= 2):

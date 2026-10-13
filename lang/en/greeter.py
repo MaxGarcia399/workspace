@@ -8,4 +8,5 @@ STRINGS = {
     "greeter.hint.open": "open",
     "greeter.hint.direct": "direct",
     "greeter.hint.quit": "quit",
+    "greeter.hint.back": "back",
 }

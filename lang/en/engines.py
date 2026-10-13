@@ -235,7 +235,38 @@ STRINGS = {'engines.agent': 'Agent: {name} · a changes · u assigns engine',
  'engines.wizard.unverified': 'Could not verify the connection. Enter finishes; you can revalidate '
                               'later.',
  'engines.wizard.validating': 'Validating connection…',
+ 'engines.hint.refresh': 'Refresh engines',
+ 'engines.refreshed': 'Engines refreshed · sign-in unverified. If a newly installed CLI is missing, open another terminal.',
+ 'engines.official_source': 'Official source: {url}',
  'engines.word': 'ENGINES',
  'engines.yes': 'Recorded',
  'menu.engines.label': 'Engines',
- 'menu.engines.tag': 'status, capabilities and connections'}
+ 'menu.engines.tag': 'status, capabilities and connections',
+ 'engines.hint.m_toggle': 'Enable in M',
+ 'engines.m_on': 'in the M shortcut',
+ 'engines.m_off': 'not in the M shortcut',
+ 'engines.m_all': 'M offers every installed engine',
+ 'engines.m_saved': 'M shortcut updated',
+ 'engines.m_failed': 'Could not save the M shortcut',
+ 'engines.path_added': 'PATH updated (+{n} folders from a new terminal)'}
+
+# ── engine_install: recipe notes and diagnostics (Engines screen) ───────────
+STRINGS.update({
+    "motores.inst.note.git_win": "Git for Windows is optional (enables the "
+                                 "Bash tool).",
+    "motores.inst.note.node22": "requires Node.js 22+; no sudo",
+    "motores.inst.note.codex_win": "the official docs publish no native "
+                                   "Windows installer; npm needs Node.js "
+                                   "installed.",
+    "motores.inst.not_in_path": "the installer finished fine but `{b}` is not "
+                                "on this terminal's PATH — use Reload (r) or "
+                                "open a new terminal",
+    "motores.inst.missing": "{m} is missing to run the installer",
+    "motores.inst.failed": "the installer exited with code {rc} — check the "
+                           "output above (network, permissions or proxy) and "
+                           "the official guide: {u}",
+    "motores.inst.d.none": "no official installer registered for {e}",
+    "motores.inst.d.source": "Official source: {u} (verified {d})",
+    "motores.inst.d.cmd": "Command: {c}",
+    "motores.inst.d.miss": "Missing: {m} — install it first",
+})

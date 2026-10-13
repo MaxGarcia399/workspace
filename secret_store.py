@@ -43,9 +43,10 @@ _NAME_RX = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 
 def _workspace_dir():
-    """Dir per-máquina de WORKSPACE (el MISMO que settings.py — respeta un HOME
+    """Dir per-máquina de WORKSPACE (SSOT en paths.workspace_dir — respeta un HOME
     parchado en tests)."""
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace")
+    import paths
+    return paths.workspace_dir()
 
 
 def store_path():
@@ -94,18 +95,37 @@ def _write_raw(data):
         val = str(data[name]).replace("\n", " ").replace("\r", " ")
         lines.append("%s=%s" % (name, val))
     body = "\n".join(lines) + "\n"
-    tmp = "%s.tmp-%d" % (store_path(), os.getpid())
-    with open(tmp, "w", encoding="utf-8") as fh:
-        fh.write(body)
+    # El tmp nace YA con 0600 (O_CREAT|O_EXCL, modo en el open — no hay
+    # ventana world-readable antes del chmod) y con nombre IMPREDECIBLE (otro
+    # usuario no puede pre-crearlo ni plantar un symlink: O_EXCL no lo sigue).
+    # Si algo falla antes del replace, el tmp se borra: nunca queda un archivo
+    # huérfano con secretos en claro (auditoría 2026-07).
+    import secrets as _rnd
+    tmp = "%s.tmp-%d-%s" % (store_path(), os.getpid(), _rnd.token_hex(8))
+    fd = os.open(tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY
+                 | getattr(os, "O_BINARY", 0), 0o600)
     try:
-        os.chmod(tmp, 0o600)
-    except OSError:
-        pass                       # Windows / FS sin permisos POSIX — best-effort
-    os.replace(tmp, store_path())
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(body.encode("utf-8"))
+        os.replace(tmp, store_path())
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
     try:
         os.chmod(store_path(), 0o600)
     except OSError:
-        pass
+        pass                       # Windows / FS sin permisos POSIX — best-effort
+
+
+def _locked():
+    """Lock entre procesos del store (olock): set/remove son leer-modificar-
+    escribir — sin lock, dos procesos a la vez pierden una escritura."""
+    from olock import file_lock
+    os.makedirs(_workspace_dir(), exist_ok=True)
+    return file_lock(store_path(), timeout=5)
 
 
 # ── API pública ─────────────────────────────────────────────────────────────
@@ -134,9 +154,10 @@ def set_secret(name, value):
     if not isinstance(value, str) or not value.strip():
         return {"ok": False, "error": "valor vacío — no se guarda"}
     try:
-        data = _read_raw()
-        data[name] = value.strip()
-        _write_raw(data)
+        with _locked():
+            data = _read_raw()
+            data[name] = value.strip()
+            _write_raw(data)
     except Exception as e:
         return {"ok": False, "error": "no pude escribir el store (%s: %s)"
                 % (type(e).__name__, e)}
@@ -146,11 +167,12 @@ def set_secret(name, value):
 def remove(name):
     """Borra un secreto del store. {"ok":True,"name":name,"removed":bool}."""
     try:
-        data = _read_raw()
-        removed = name in data
-        if removed:
-            data.pop(name, None)
-            _write_raw(data)
+        with _locked():
+            data = _read_raw()
+            removed = name in data
+            if removed:
+                data.pop(name, None)
+                _write_raw(data)
     except Exception as e:
         return {"ok": False, "error": "no pude escribir el store (%s: %s)"
                 % (type(e).__name__, e)}

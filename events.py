@@ -57,6 +57,7 @@ record aquí, sea directo (emit) o espejo (_audit/log_event).
 Falla-suave absoluta: record/emit/read_events jamás levantan.
 """
 import datetime as _dt
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import json as _json
 import os as _os
 
@@ -291,7 +292,7 @@ def gated(listener, setup):
 
 
 def _events_dir():
-    return _os.path.join(_os.path.expanduser("~"), ".claude", "workspace",
+    return _os.path.join(_paths.state_dir(),
                          "events")
 
 

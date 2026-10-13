@@ -6,7 +6,7 @@ leyendo la config del agente. Cross-platform, cero dependencias (stdlib, Python 
 Claude Code corre modelos de Anthropic vía la suscripción del socio (OAuth) — sin API key.
 Es el motor premium. Otros motores (agnósticos, locales) llegan en pasos posteriores.
 """
-import sys, os, shutil, subprocess
+import sys, os, re, shutil, subprocess
 
 # La carpeta de sesiones se calcula en UN solo lugar: WORKSPACE/session_paths.py
 # (resuelve symlinks con realpath, igual que Claude Code). dispatch.py ya pone la
@@ -36,6 +36,18 @@ CAPABILITIES = {
 
 def _py():
     return sys.executable or ("python" if os.name == "nt" else "python3")
+
+
+def session_env_names(cfg):
+    """(session_env, session_id_env) del agente. El default se DERIVA del nombre
+    (<UPPER>_WS / <UPPER>_WID) — idéntico a lo que escribe agent_admin.create —
+    en vez del sentinel 'ZENITH_WS'/'ZENITH_WID' que estaba hardcodeado (residuo
+    de cuando zenith era el agente canónico: un agente sin session_env explícito
+    heredaba el workspace de zenith → colisión). SSOT consumido por claude_code y
+    por engines/_ui.export_tab_env."""
+    up = ((cfg.get("name") or "").strip().upper()) or "WORKSPACE"
+    return (cfg.get("session_env") or up + "_WS",
+            cfg.get("session_id_env") or up + "_WID")
 
 
 def _utf8_env():
@@ -121,24 +133,146 @@ def _engine_label(cfg, passthrough=()):
     return "Claude Code" + (" · " + mdl if mdl else "")
 
 
+_REDACT = re.compile(r"(sk-[A-Za-z0-9_-]{8,}|(?i:bearer)\s+[A-Za-z0-9._-]{8,}|"
+                     r"(?i:(token|api[_-]?key|password|secret))\s*[=:]\s*\S+)")
+
+#: Último error del picker de pestañas (U04/Z04) — lo lee el motor que lo
+#: invocó para AVISAR en vez de caer en silencio a un chat sin pestaña.
+LAST_PICK_ERROR = ""
+
+
+def session_log_path():
+    try:
+        import paths
+        return os.path.join(paths.workspace_dir(), "logs", "session-open.log")
+    except Exception:
+        return ""
+
+
+def _session_log(cfg, engine, error, detail=""):
+    """Traza LOCAL y redactada de una apertura de sesión fallida: agente,
+    motor, cerebro, causa y cola del stderr (sin secretos, ≤2 KB). Sirve
+    para reproducir el incidente de sesiones (Z04) sin adivinar la causa."""
+    p = session_log_path()
+    if not p:
+        return ""
+    try:
+        import datetime
+        import json as _json
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        rec = {"ts": datetime.datetime.now().isoformat(timespec="seconds"),
+               "agent": cfg.get("name", ""), "engine": engine,
+               "brain": cfg.get("_brain", ""), "error": error,
+               "detail": _REDACT.sub("[redactado]", (detail or "")[-2048:]),
+               "platform": sys.platform}
+        with open(p, "a", encoding="utf-8") as fh:
+            fh.write(_json.dumps(rec, ensure_ascii=False) + "\n")
+        return p
+    except Exception:
+        return ""
+
+
+def back_to_hub():
+    """Esc en el menú de sesiones: si el agente se abrió DESDE el hub
+    (WORKSPACE_FROM_HUB, lo pone front.launch), se reabre el hub; si se
+    abrió desde el shell, se sale limpio. No regresa."""
+    if os.environ.get("WORKSPACE_FROM_HUB") == "1":
+        front = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "front.py")
+        argv = [sys.executable, front]
+        env = _utf8_env()                # B2: UTF-8 también en el hub reabierto
+        env.pop("WORKSPACE_FROM_HUB", None)
+        if os.name == "nt":
+            sys.exit(subprocess.run(argv, env=env).returncode)
+        os.execve(sys.executable, argv, env)
+    sys.exit(0)
+
+
+def run_dashboard_pick(cfg, py, dashboard, engine="claude-code"):
+    """Corre `dashboard --pick` y devuelve (choice, error).
+    choice = 'WS\\t<wid>\\t<name>' o ''. error = '' si el picker terminó
+    bien; si no, la CAUSA legible (exit code + última línea del stderr) — y
+    queda trazada en session_log_path(). Antes cualquier fallo devolvía ''
+    y el motor abría un chat sin pestaña SIN decir por qué."""
+    global LAST_PICK_ERROR
+    LAST_PICK_ERROR = ""
+    if not dashboard or not os.path.exists(dashboard):
+        err = "sin selector de pestañas (dashboard ausente: %s)" % (dashboard or "—")
+        LAST_PICK_ERROR = err
+        _session_log(cfg, engine, err)
+        return "", err
+    try:
+        r = subprocess.run([py, dashboard, "--pick"], capture_output=True,
+                           text=True, encoding="utf-8", errors="replace",
+                           env=_utf8_env())
+    except Exception as e:
+        err = "no pude correr el selector (%s: %s)" % (type(e).__name__, e)
+        LAST_PICK_ERROR = err
+        _session_log(cfg, engine, err)
+        return "", err
+    out = r.stdout if isinstance(getattr(r, "stdout", None), str) else ""
+    errtxt = r.stderr if isinstance(getattr(r, "stderr", None), str) else ""
+    rc = r.returncode if isinstance(getattr(r, "returncode", None), int) else 0
+    choice = out.strip()
+    if rc == 0 and choice.startswith("WS\t"):
+        return choice, ""
+    if rc == 0 and choice == "BACK":
+        back_to_hub()
+    tail = [ln for ln in errtxt.strip().splitlines() if ln.strip()]
+    err = "el selector de pestañas terminó con código %s%s" % (
+        rc, (": " + _REDACT.sub("[redactado]", tail[-1][:200])) if tail else
+        (" sin elegir pestaña" if rc == 0 else ""))
+    LAST_PICK_ERROR = err
+    _session_log(cfg, engine, err, errtxt)
+    return "", err
+
+
+def warn_no_tab(err):
+    """Aviso visible cuando una sesión arranca SIN pestaña por un fallo."""
+    if not err:
+        return
+    p = session_log_path()
+    try:
+        sys.stdout.write("\nWORKSPACE: %s — abro una conversación SIN pestaña "
+                         "(la memoria de pestaña no se carga).%s\n"
+                         % (err, (" Diagnóstico: %s" % p) if p else ""))
+        sys.stdout.flush()
+    except Exception:
+        pass
+
+
+def session_preflight(cfg, engine):
+    """Avisa (y traza) ANTES del picker si la pestaña abriría sin memoria.
+    No bloquea el launch: la sesión arranca igual, pero el socio sabe por qué."""
+    try:
+        import sessions_registry as _reg
+        issues = _reg.preflight(cfg.get("_brain", ""))
+    except Exception:
+        issues = []
+    for msg in issues:
+        _session_log(cfg, engine, msg)
+        try:
+            sys.stdout.write("WORKSPACE: %s\n" % msg)
+            sys.stdout.flush()
+        except Exception:
+            pass
+    return issues
+
+
 def pick(cfg):
     """Corre solo el menú interactivo del agente y devuelve la elección cruda
-    ('WS\\t<wid>\\t<name>') sin lanzar nada. Lo usa el hub tmux (mux.py)."""
+    ('WS\\t<wid>\\t<name>') sin lanzar nada. Lo usa el hub tmux (mux.py) y
+    el picker compartido de los motores wrapper. Si falla, la causa queda en
+    LAST_PICK_ERROR y en el log de apertura (no se traga en silencio)."""
     import agent_ui
     agent_ui.export_context(cfg)
     os.environ["WORKSPACE_ENGINE_LABEL"] = _engine_label(cfg)
     dashboard = (cfg.get("_scripts") or {}).get("dashboard")
-    if not dashboard or not os.path.exists(dashboard):
-        return ""
     if cfg.get("_brain"):   # los scripts viven en WORKSPACE; el cerebro va por env
         os.environ["WORKSPACE_BRAIN"] = cfg["_brain"]
-    try:
-        r = subprocess.run([_py(), dashboard, "--pick"], capture_output=True,
-                           text=True, encoding="utf-8", errors="replace",
-                           env=_utf8_env())
-        return (r.stdout or "").strip()
-    except Exception:
-        return ""
+    choice, _err = run_dashboard_pick(cfg, _py(), dashboard,
+                                      engine=cfg.get("_engine") or "claude-code")
+    return choice
 
 
 _COLOR_CODE = {"blue": 39, "red": 196, "green": 46, "pink": 213, "violet": 141,
@@ -190,8 +324,7 @@ def launch(cfg, passthrough, plan=False, preselect=None, show_banner=True):
     scripts = cfg["_scripts"]
     banner = scripts.get("banner")
     dashboard = scripts.get("dashboard")
-    session_env = cfg.get("session_env", "ZENITH_WS")
-    wid_env = cfg.get("session_id_env", "ZENITH_WID")
+    session_env, wid_env = session_env_names(cfg)
     py = _py()
 
     # Utilidades passthrough: `<agente> ls` / `<agente> migrar`
@@ -278,16 +411,10 @@ def launch(cfg, passthrough, plan=False, preselect=None, show_banner=True):
     # 2) Elegir pestaña: preselección (tmux) o menú interactivo.
     if preselect and preselect.get("wid"):
         choice = "WS\t%s\t%s" % (preselect["wid"], preselect.get("name", ""))
-    elif dashboard and os.path.exists(dashboard):
-        try:
-            r = subprocess.run([py, dashboard, "--pick"], capture_output=True,
-                               text=True, encoding="utf-8", errors="replace",
-                               env=_utf8_env())
-            choice = (r.stdout or "").strip()
-        except Exception:
-            choice = ""
     else:
-        choice = ""
+        session_preflight(cfg, "claude-code")
+        choice, pick_err = run_dashboard_pick(cfg, py, dashboard)
+        warn_no_tab(pick_err)
 
     env = _utf8_env()   # B2 · PYTHONUTF8=1 lo hereda el hijo `claude` y todo lo que
                         # spawnea (hooks, statusline) → UTF-8 de punta a punta en Windows.

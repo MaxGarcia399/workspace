@@ -1,0 +1,57 @@
+name: "Reportar un problema · Report a problem"
+description: "Algo no funciona como esperabas · Something doesn't work as expected"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Gracias por reportarlo. **¿Es un problema de seguridad?** No lo publiques aquí: sigue `SECURITY.md`.
+        Thanks for reporting. **Is it a security problem?** Don't post it here: follow `SECURITY.md`.
+  - type: input
+    id: version
+    attributes:
+      label: "Versión de Workspace · Workspace version"
+      description: "Sección Actualizaciones del hub (tecla u), o el archivo VERSION en la carpeta de Workspace · The hub's Updates section (key u), or the VERSION file in the Workspace folder"
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: "Sistema operativo · Operating system"
+      options:
+        - macOS
+        - Windows
+        - Linux
+    validations:
+      required: true
+  - type: input
+    id: os_version
+    attributes:
+      label: "Versión del sistema y terminal · OS version and terminal"
+      placeholder: "macOS 15.3 · Terminal.app / Windows 11 24H2 · Windows Terminal"
+  - type: dropdown
+    id: engine
+    attributes:
+      label: "Motor · Engine"
+      options:
+        - Claude Code
+        - Codex
+        - Antigravity
+        - "No aplica / no sé · Not applicable / don't know"
+  - type: textarea
+    id: what
+    attributes:
+      label: "Qué pasó · What happened"
+      description: "Qué hiciste, qué esperabas y qué pasó en cambio · What you did, what you expected, what happened instead"
+    validations:
+      required: true
+  - type: textarea
+    id: bundle
+    attributes:
+      label: "Diagnóstico · Diagnostics"
+      description: |
+        Arrastra aquí el zip de `workspace doctor --bundle` (no incluye secretos ni datos personales; revísalo antes si quieres). Si tu versión aún no tiene `--bundle`, pega la salida de `workspace doctor --check`.
+        Drag the zip from `workspace doctor --bundle` here (it leaves out secrets and personal data; feel free to check it first). If your version doesn't have `--bundle` yet, paste the output of `workspace doctor --check`.
+    validations:
+      required: true

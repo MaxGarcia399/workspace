@@ -13,6 +13,8 @@ STRINGS = {
     "onboarding.etapa.motores": "motores",
     "onboarding.etapa.apariencia": "apariencia",
     "onboarding.etapa.agente": "agente",
+    'onboarding.pendiente_hub': 'configuración a medias ({p}) — continúa con: workspace onboarding',
+    'onboarding.reanudado': 'continuando donde lo dejaste',
 
     # divisores compartidos entre pasos
     "onboarding.div.tu_eleccion": "tu elección",
@@ -210,22 +212,16 @@ STRINGS = {
     "onboarding.gcal.title_r": "OPCIONAL",
     "onboarding.gcal.div_pasos": "cómo",
     "onboarding.gcal.already": "Ya tienes Google Calendar conectado ✓",
-    "onboarding.gcal.step1": "Abre Google Calendar en la web "
-                             "(calendar.google.com).",
-    "onboarding.gcal.step2": "En el calendario que quieras: Configuración y "
-                             "uso compartido.",
-    "onboarding.gcal.step3": "Baja a «Integrar calendario».",
-    "onboarding.gcal.step4": "Copia la «Dirección secreta en formato iCal» "
-                             "(termina en .ics).",
-    "onboarding.gcal.step5": "Vuelve aquí y pulsa Enter: la pegas en una línea "
-                             "normal.",
+    "onboarding.gcal.step1": 'Pulsa Enter y elige «Conectar con Google en el navegador».',
+    "onboarding.gcal.step2": 'Elige tu cuenta de Google y autoriza leer los eventos.',
+    "onboarding.gcal.step3": 'Vuelve a Workspace: la sesión se renueva automáticamente.',
+    "onboarding.gcal.step4": 'También puedes conectar con una URL iCal.',
+    "onboarding.gcal.step5": 'La primera conexión necesita el cliente OAuth de Workspace.',
     "onboarding.gcal.changes_p": "Workspace LEE tus eventos (solo lectura) y "
                                  "los muestra en el calendario del hub. Nunca "
                                  "escribe en tu agenda.",
     "onboarding.gcal.div_seguro": "seguro",
-    "onboarding.gcal.seguro_p": "Solo se guarda esa URL iCal, en tu máquina; "
-                                "jamás se imprime en pantalla. Puedes quitarla "
-                                "cuando quieras desde el calendario.",
+    "onboarding.gcal.seguro_p": 'La sesión de Google o la URL iCal se guarda en tu máquina. Puedes quitar la conexión desde el calendario.',
     "onboarding.gcal.prompt_url": "Pega la «Dirección secreta en formato iCal» "
                                   "(Enter vacío = cancelar):",
     "onboarding.gcal.prompt_label": "Etiqueta (opcional, Enter = auto): ",
@@ -258,6 +254,14 @@ STRINGS = {
                                       "«Agregar agente».",
     "onboarding.resumen.adelante_p2": "Repetir este flujo: "
                                       "`workspace onboarding`.",
+    "onboarding.resumen.div_teclas": "las teclas que importan",
+    "onboarding.resumen.tecla_abrir": "abre el recinto desde cualquier "
+                                      "terminal",
+    "onboarding.resumen.tecla_atajos": "Atajos — todas las teclas, "
+                                       "re-mapeables",
+    "onboarding.resumen.tecla_comandos": "Comandos — qué hace cada comando",
+    "onboarding.resumen.tecla_salir": "sale del recinto a tu terminal",
+    "onboarding.resumen.sin_tecla": "sin tecla",
 
     # mensajes efímeros (pie, S["msg"])
     "onboarding.msg.default_saved": "motor default: {motor} · guardado ✓",
@@ -288,4 +292,17 @@ STRINGS = {
                                "atrás · q salta",
     "onboarding.hints.gcal": "Enter conecta · Esc salta · q sale",
     "onboarding.hints.resumen": "Enter — al recinto",
+
+    # valor mostrado de ui.background + avisos de CLI (auditoría i18n)
+    'onboarding.fondo_val.tema': 'tema',
+    'onboarding.fondo_val.negro': 'negro',
+    'onboarding.fondo_val.grafito': 'grafito',
+    'onboarding.fondo_val.azul': 'azul',
+    'onboarding.fondo_val.verde': 'verde',
+    'onboarding.fondo_val.violeta': 'violeta',
+    'onboarding.fondo_val.personalizado': 'personalizado',
+    'onboarding.cli.ya_corrio': 'el onboarding ya corrió aquí — repetir: workspace onboarding',
+    'onboarding.cli.no_tty': 'el onboarding necesita una terminal interactiva.',
+    'onboarding.cli.no_tty2': 'abre `workspace` en una terminal y corre: workspace onboarding',
+    'onboarding.probe_fail': 'probe falló: {err}',
 }

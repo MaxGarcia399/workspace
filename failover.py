@@ -50,6 +50,7 @@ Cero dependencias (stdlib, Python 3.9+). Cross-platform. Amputable (C10):
 borra este archivo y engines/ollama.py vuelve a fallar one-shot sin cadena.
 """
 import contextlib
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import json
 import os
 import time
@@ -109,7 +110,7 @@ class FallbackSummaryError(Exception):
 
 # ── estado per-máquina (~/.claude/workspace/failover/ — gitignored) ───────────
 def _state_dir():
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace",
+    return os.path.join(_paths.state_dir(),
                         "failover")
 
 

@@ -12,12 +12,14 @@
 #  se escribe lo específico de la máquina. Mac y Windows. Cero dependencias.
 # ════════════════════════════════════════════════════════════════════════════
 import os, re, sys, json, shlex, platform, stat
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 
 WORKSPACE = os.path.dirname(os.path.abspath(__file__))
 if WORKSPACE not in sys.path:
     sys.path.insert(0, WORKSPACE)
 import events   # noqa: E402  (contrato de eventos N9 — build_hooks deriva de él)
 import pathguard  # noqa: E402  (P0-4 — detección de rutas redirigidas a OneDrive)
+import legacy  # noqa: E402  (literales de la instalación anterior — solo para reconocerla)
 HOME = os.path.expanduser("~")
 _REAL_HOME = HOME   # snapshot AL IMPORTAR: los tests parchan HOME, no esto
 PY = sys.executable or ("python" if platform.system() == "Windows" else "python3")
@@ -98,7 +100,7 @@ def agent_cfg(d):
 
 def paths_local():
     # per-máquina, FUERA del vault (no se sincroniza).
-    return os.path.join(HOME, ".claude", "workspace", "paths.local.json")
+    return os.path.join(_paths.state_dir(HOME), "paths.local.json")
 
 
 def _obsidian_json():
@@ -121,14 +123,13 @@ def obsidian_vaults():
 
 def find_brain(name, cfg):
     """Devuelve (ruta, persistir). persistir=True → guardar en paths.local.json."""
-    ov = read_json(paths_local()).get("brains", {})
-    if name in ov and os.path.isdir(os.path.expanduser(ov[name])):
-        return os.path.abspath(os.path.expanduser(ov[name])), False
+    # Resolución declarada: el resolver CANÓNICO (Z20), el mismo del launcher —
+    # override por máquina > registro por máquina > def committeada (rel. ROOT).
+    import brain_resolver
+    res = brain_resolver.resolve(name, cfg, root=WORKSPACE)
+    if res.get("exists"):
+        return res.path, False
     raw = cfg.get("brain", "")
-    if raw:
-        cand = raw if os.path.isabs(raw) else os.path.abspath(os.path.join(WORKSPACE, raw))
-        if os.path.isdir(cand):                      # hermanos (cualquier carpeta)
-            return cand, False
     target = os.path.basename(os.path.normpath(raw)) if raw else ""
     if target:
         for vp in obsidian_vaults():                 # registro de Obsidian (lo más fiable)
@@ -150,18 +151,18 @@ def find_brain(name, cfg):
 
 
 def _within(path, *roots):
-    """True si `path` (resuelto) está CONTENIDO en alguno de `roots`. Defensa de
+    """¿`path` (resuelto) está CONTENIDO en alguno de `roots`? Defensa de
     seguridad: los scripts de un agent.json se hornean como hooks/statusLine; un
-    cerebro malicioso (auto-descubierto) NO debe poder apuntar a un script fuera de
-    su propio cerebro o del harness (p.ej. /tmp/evil.py o {brain}/../../evil.py)."""
-    rp = os.path.realpath(path)
-    for r in roots:
-        if not r:
-            continue
-        rr = os.path.realpath(r)
-        if rp == rr or rp.startswith(rr + os.sep):
-            return True
-    return False
+    cerebro malicioso NO debe poder apuntar a un script fuera de su cerebro o del
+    harness. SSOT: delega en dispatch._within (antes era una copia idéntica que
+    podía driftar de la del runtime → instalador y dispatch aceptando conjuntos
+    distintos de scripts). FALLA-CERRADO: si dispatch no importa, rechaza (nunca
+    se hornea un script sin verificar su contención)."""
+    try:
+        import dispatch
+        return dispatch._within(path, *roots)
+    except Exception:
+        return False
 
 
 def expand(scripts, brain):
@@ -218,7 +219,7 @@ def machine_socio_path():
     del chat cuando NO hay cerebro activo (la TUI se abre desde el menú
     `workspace` con cwd=$HOME, antes de elegir agente). chat.self_ids cae aquí
     tras el socio.local del cerebro activo y el del cerebro de equipo."""
-    return os.path.join(HOME, ".claude", "workspace", "socio.local")
+    return os.path.join(_paths.state_dir(HOME), "socio.local")
 
 
 def write_machine_socio(socio):
@@ -661,15 +662,41 @@ def install_theme(brain, name):
     con el harness, llega a toda máquina sin tocar el cerebro), luego el del cerebro
     (assets/brand/<name>-theme.json), back-compat zenith. Devuelve el nombre instalado
     o '' si no hay tema → el caller NO fuerza ninguno (sin fuga de 'zenith'). DEPLOY-1."""
-    cands = [os.path.join(WORKSPACE, "themes-cc", f"{name}.json"),
+    cands = [os.path.join(_paths.state_dir(HOME), "themes-cc", f"{name}.json"),  # tus agentes
+             os.path.join(WORKSPACE, "themes-cc", f"{name}.json"),
              os.path.join(brain, "assets", "brand", f"{name}-theme.json")]
     if name == "zenith":
         cands.append(os.path.join(brain, "assets", "brand", "zenith-theme.json"))
     src = next((c for c in cands if os.path.exists(c)), "")
-    if not src:
+    # El tema in-app sale del TEMA DEL HUB (el socio 2026-10-12: el tema y el
+    # fondo del hub pintan todo); el themes-cc por agente queda de respaldo.
+    content = None
+    try:
+        import theme_render as _tr
+        _pal = _tr.hub_engine_palette()
+        _data = _tr.engine_theme("claude-code", _pal, name.capitalize()) if _pal else None
+        if _data is not None:
+            content = _tr.json_text(_data)
+    except Exception:
+        content = None
+    if not src and content is None:
         return ""
-    write_text(os.path.join(HOME, ".claude", "themes", f"{name}.json"),
-               open(src, encoding="utf-8").read())
+    dst = os.path.join(HOME, ".claude", "themes", f"{name}.json")
+    if content is None:
+        content = open(src, encoding="utf-8").read()
+    # Lo HECHO A MANO GANA (theme_render): si editaste ~/.claude/themes/<name>.json
+    # después de que lo instalamos, no se pisa. Un archivo sin registro (de una
+    # versión anterior) se presume nuestro y se reescribe como siempre.
+    try:
+        import theme_render
+    except Exception:                                # pragma: no cover
+        theme_render = None
+    if theme_render is not None and theme_render.is_handmade(dst, HOME):
+        ok(f"tema '{name}' editado a mano — se conserva (~/.claude/themes/{name}.json)")
+        return name
+    write_text(dst, content)
+    if theme_render is not None and not DRY:
+        theme_render.mark_generated([(dst, content)], HOME)
     ok(f"tema '{name}' instalado (~/.claude/themes/{name}.json)")
     return name
 
@@ -695,7 +722,7 @@ def ensure_cleanup_days():
     s = read_json(sp) if os.path.exists(sp) else {}
     # SEC-05: registrar (una vez) el valor PREVIO para que `workspace uninstall` lo
     # revierta — no dejamos retención de 10 años a perpetuidad tras desinstalar.
-    pre_path = os.path.join(HOME, ".claude", "workspace", "pre-install.json")
+    pre_path = os.path.join(_paths.state_dir(HOME), "pre-install.json")
     if not DRY and not os.path.exists(pre_path):
         os.makedirs(os.path.dirname(pre_path), exist_ok=True)
         json.dump({"cleanupPeriodDays": s.get("cleanupPeriodDays")},
@@ -893,13 +920,13 @@ def ensure_path_zshrc():
     install_greeter() para que el bloque del PATH quede ARRIBA del greeter — si no, el
     greeter corre con `command -v workspace` fallando y el menú no sale (bug del deploy)."""
     rc = os.path.join(HOME, ".zshrc")
-    cur = open(rc).read() if os.path.exists(rc) else ""
+    cur = open(rc, encoding="utf-8").read() if os.path.exists(rc) else ""
     if PATH_MARK in cur:
         return
     if DRY:
         dry(f"agregaría ~/.local/bin al PATH en {rc}")
         return
-    with open(rc, "a") as f:
+    with open(rc, "a", encoding="utf-8") as f:
         f.write(f'\n{PATH_MARK}\nexport PATH="$HOME/.local/bin:$PATH"\n')
     ok("PATH: ~/.local/bin agregado a ~/.zshrc (reinicia la terminal o `source ~/.zshrc`)")
 
@@ -968,7 +995,7 @@ def install_greeter():
             ok(f"greeter al día (Windows): menú al abrir Windows Terminal ({prof})")
         return
     rc = os.path.join(HOME, ".zshrc")
-    cur = open(rc).read() if os.path.exists(rc) else ""
+    cur = open(rc, encoding="utf-8").read() if os.path.exists(rc) else ""
     if GREETER_MARK in cur:
         ok("greeter ya configurado (menú al abrir terminal)")
         return
@@ -996,13 +1023,13 @@ def install_greeter():
             say(f"{DIM}Tu greeter de ~/.zshrc está editado a mano: lo dejo como está. "
                 f"`workspace` sigue funcionando como alias de `workspace`.{R}")
             return
-        with open(rc, "w") as f:
+        with open(rc, "w", encoding="utf-8") as f:
             NL = chr(10)
             f.write("".join(out).rstrip(NL) + NL + GREETER_BLOCK)
         ok("greeter actualizado: el menú WORKSPACE sale al abrir terminal "
            "(q = terminal normal)")
         return
-    with open(rc, "a") as f:
+    with open(rc, "a", encoding="utf-8") as f:
         f.write(GREETER_BLOCK)
     ok("greeter agregado: el menú WORKSPACE sale al abrir terminal (q = terminal normal)")
 
@@ -1048,7 +1075,7 @@ def set_terminal_autostart(on):
                              legacy=("WORKSPACE-greeter", "WORKSPACE_GREETER"))
     block = GREETER_BLOCK if on else GREETER_HINT_BLOCK
     rc = os.path.join(HOME, ".zshrc")
-    cur = open(rc).read() if os.path.exists(rc) else ""
+    cur = open(rc, encoding="utf-8").read() if os.path.exists(rc) else ""
     # 1) quitar el bloque existente (normal, hint o legacy v1): de la línea del
     #    marcador hasta su `fi` de cierre. Todos los bloques reales terminan en
     #    `fi`; si no lo encuentro, el socio lo editó a mano → no toco nada.
@@ -1079,7 +1106,7 @@ def set_terminal_autostart(on):
         dry(f"ajustaría el greeter (autostart {'on' if on else 'off'}) en {rc}")
         return rc
     try:
-        with open(rc, "w") as f:
+        with open(rc, "w", encoding="utf-8") as f:
             f.write(new)
     except Exception as e:
         say(f"{DIM}No pude escribir a {rc} ({e}). Ajusta el greeter a mano.{R}")
@@ -1180,24 +1207,24 @@ def prior_install_markers():
     SEGURO e idempotente (actualiza lo que cambió, no duplica)."""
     launcher = os.path.join(HOME, ".local", "bin",
                             "workspace.cmd" if IS_WIN else "workspace")
-    cands = [("estado per-máquina", os.path.join(HOME, ".claude", "workspace")),
+    cands = [("estado per-máquina", _paths.state_dir(HOME)),
              ("comando `workspace`", launcher)]
     return [(lbl, p) for lbl, p in cands if os.path.exists(p)]
 
 
-# ── harness VIEJO del equipo (OLYMPUS / repo privada pre-rename) ─────────────
-# Antes del rename OLYMPUS→WORKSPACE el harness del equipo se llamaba OLYMPUS.
-# En una máquina del equipo pueden quedar: la carpeta del harness viejo
-# (~/Desktop/OLYMPUS o $OLYMPUS_ROOT), su estado per-máquina (~/.claude/olympus) y
-# el comando `olympus` en ~/.local/bin. Se OFRECE retirarlos para seguir solo con
-# WORKSPACE. SEGURIDAD N1: jamás se borra sin confirmación EXPLÍCITA, y jamás un
-# cerebro/datos del usuario — solo artefactos que SON el harness viejo.
-def _olympus_root_candidates():
+# ── INSTALACIÓN ANTERIOR (harness con el nombre viejo, pre-rename) ───────────
+# Antes del rename (2026-10) el harness tenía otro nombre (literales en
+# legacy.py). En una máquina que lo tuvo pueden quedar: la carpeta del harness
+# viejo (en el escritorio o la de su variable de entorno), su estado per-máquina
+# bajo ~/.claude y su comando en ~/.local/bin. Se OFRECE retirarlos para seguir
+# solo con WORKSPACE. SEGURIDAD N1: jamás se borra sin confirmación EXPLÍCITA, y
+# jamás un cerebro/datos del usuario — solo artefactos que SON el harness viejo.
+def _legacy_root_candidates():
     cands = []
-    env = os.environ.get("OLYMPUS_ROOT")
+    env = os.environ.get(legacy.ENV_ROOT)
     if env:
         cands.append(os.path.expanduser(env))
-    cands.append(os.path.join(HOME, "Desktop", "OLYMPUS"))
+    cands.append(os.path.join(HOME, "Desktop", legacy.HARNESS_DIRNAME))
     seen, out = set(), []
     for c in cands:
         try:
@@ -1219,22 +1246,22 @@ def _looks_like_harness(d):
 
 
 def detect_legacy_harness():
-    """Detecta el harness VIEJO del equipo (OLYMPUS) en ESTA máquina. Solo lectura.
+    """Detecta la instalación anterior (harness viejo) en ESTA máquina. Solo lectura.
     Devuelve dict:
       · 'folders'   : [rutas] que SON un harness (front.py+dispatch.py) → retirables
-      · 'state'     : ~/.claude/olympus si existe ('' si no)
-      · 'launchers' : [rutas] de comandos `olympus` en ~/.local/bin
+      · 'state'     : su estado per-máquina bajo ~/.claude si existe ('' si no)
+      · 'launchers' : [rutas] de su comando en ~/.local/bin
       · 'ambiguous' : [rutas] que existen pero NO parecen harness → SOLO avisar
     'ambiguous' JAMÁS se borra (podría ser datos del usuario): ante la duda, avisar."""
     folders, ambiguous = [], []
-    for c in _olympus_root_candidates():
+    for c in _legacy_root_candidates():
         if os.path.isdir(c):
             (folders if _looks_like_harness(c) else ambiguous).append(os.path.abspath(c))
-    state = os.path.join(HOME, ".claude", "olympus")
+    state = os.path.join(HOME, ".claude", legacy.STATE_SUBDIR)
     state = state if os.path.isdir(state) else ""
     launchers = []
     bindir = os.path.join(HOME, ".local", "bin")
-    for fn in ("olympus", "olympus.cmd"):
+    for fn in legacy.LAUNCHERS[:2]:                   # comando + .cmd
         p = os.path.join(bindir, fn)
         if os.path.isfile(p):
             launchers.append(p)
@@ -1248,7 +1275,7 @@ def legacy_present(info):
 
 
 def offer_retire_legacy(info=None, *, assume_yes=False):
-    """Ofrece RETIRAR el harness viejo (OLYMPUS). SEGURIDAD N1: no borra NADA sin
+    """Ofrece RETIRAR la instalación anterior. SEGURIDAD N1: no borra NADA sin
     confirmación EXPLÍCITA. Lista EXACTAMENTE qué se quita y de dónde; si el socio no
     confirma (o no es interactivo), NO toca nada. Los 'ambiguous' solo se avisan
     (nunca se borran). `assume_yes` (flag --retire-legacy) permite el camino no
@@ -1257,7 +1284,7 @@ def offer_retire_legacy(info=None, *, assume_yes=False):
     if not legacy_present(info):
         return False
     say("")
-    say(f"{B}Encontré una instalación vieja del harness del equipo (OLYMPUS).{R}")
+    say(f"{B}Encontré restos de la instalación anterior (el harness con el nombre viejo).{R}")
     removable = []
     for d in info["folders"]:
         say(f"    · carpeta del harness viejo:  {d}")
@@ -1266,8 +1293,8 @@ def offer_retire_legacy(info=None, *, assume_yes=False):
         say(f"    · estado per-máquina viejo:   {info['state']}")
         removable.append(("estado per-máquina viejo", info["state"]))
     for p in info["launchers"]:
-        say(f"    · comando `olympus`:          {p}")
-        removable.append(("comando `olympus`", p))
+        say(f"    · comando anterior:           {p}")
+        removable.append(("comando anterior", p))
     for d in info["ambiguous"]:
         say(f"    · {DIM}(no parece un harness — NO lo toco, solo aviso): {d}{R}")
     if not removable:
@@ -1296,21 +1323,22 @@ def offer_retire_legacy(info=None, *, assume_yes=False):
         if r not in ("retirar", "si", "sí", "s", "yes", "y"):
             say("  Lo dejo como está — no toqué nada.")
             return False
-    import shutil
-    done = 0
-    for lbl, p in removable:
-        try:
-            if os.path.isdir(p) and not os.path.islink(p):
-                shutil.rmtree(p, ignore_errors=True)
-            else:
-                os.remove(p)
-            ok(f"retirado {lbl}: {p}")
-            done += 1
-        except OSError as e:
-            say(f"{DIM}no pude retirar {p} ({e}) — quítalo a mano{R}")
-    if done:
-        ok("harness viejo (OLYMPUS) retirado. Sigues solo con WORKSPACE.")
-    return done > 0
+    # U06: retirar = MOVER a un respaldo recuperable (manifest + sha256) vía
+    # migrate_legacy.retire_paths — nunca borrado directo. Las rutas protegidas
+    # (cerebros, HOME, estado de Workspace, transcripts) se saltan ahí mismo.
+    import migrate_legacy
+    labels = {p: lbl for lbl, p in removable}
+    bdir, done_paths, skipped = migrate_legacy.retire_paths([p for _l, p in removable],
+                                                            op="install-retire")
+    for p in done_paths:
+        ok(f"retirado {labels.get(p, '')}: {p}")
+    for p, why in skipped:
+        say(f"{DIM}no retiré {p} ({why}) — revísalo a mano{R}")
+    if done_paths:
+        ok("instalación anterior retirada. Sigues solo con WORKSPACE.")
+        say(f"{DIM}  respaldo recuperable: {bdir}  (deshacer: {migrate_legacy.CLI} "
+            f"--rollback \"{bdir}\"){R}")
+    return bool(done_paths)
 
 
 def main():
@@ -1337,6 +1365,10 @@ def main():
     # actualiza lo que cambió (RMW en configure_brain + launchers/greeter idempotentes).
     _ver = workspace_version()
     _prior = prior_install_markers()
+    # «Nueva» = sin estado de Workspace NI de la instalación anterior: quien trae
+    # restos viejos necesita que sus ajustes (p. ej. traer agentes) SÍ corran.
+    _fresh = (not _prior and not os.path.isdir(_paths.state_dir(HOME))
+              and not os.path.isdir(os.path.join(HOME, ".claude", legacy.STATE_SUBDIR)))
     if _prior:
         say(f"Ya tenías WORKSPACE instalado{f' ({_ver})' if _ver else ''} "
             f"en esta máquina.")
@@ -1381,7 +1413,7 @@ def main():
               f"latencia, estado per-máquina) → fallos intermitentes.{R}\n")
         sys.exit(2)
 
-    # Harness VIEJO del equipo (OLYMPUS / repo privada pre-rename): si quedó en la
+    # INSTALACIÓN ANTERIOR (harness con el nombre viejo, pre-rename): si quedó en la
     # máquina, ofrecer retirarlo y seguir solo con WORKSPACE. SEGURIDAD N1: jamás
     # borra sin un 'retirar' explícito (o --retire-legacy consciente), jamás cerebros.
     # Opt-out total con --no-retire-legacy (automatización/tests).
@@ -1413,8 +1445,11 @@ def main():
             ok(f"[{name}] cerebro detectado: {brain}")
         configure_brain(name, cfg, brain, socio)   # instala el tema por-agente internamente
         agent_names += [name] + [x for x in a.get("aliases", []) if x != name]
-        if name == "zenith":
-            zenith_brain = brain
+        # Guía de migración desde Cowork: la decide el CEREBRO (trae su
+        # MIGRACION.md), no el nombre del agente (U12: sin roster del equipo).
+        if not zenith_brain and os.path.isfile(
+                os.path.join(brain, "assets", "brand", "MIGRACION.md")):
+            zenith_brain = (name, brain)
 
     if discovered:                                  # guarda rutas per-máquina (fuera del vault)
         pl = paths_local()
@@ -1456,6 +1491,16 @@ def main():
     if "--desktop-app" in sys.argv:
         install_desktop_app()
     ensure_cleanup_days()
+    # Instalación NUEVA en esta máquina: el instalador ya dejó todo en el
+    # formato actual → se sellan las migraciones existentes como aplicadas
+    # (si no, correrían historia que no hace falta). Una máquina que YA tenía
+    # Workspace no se sella: sus ajustes pendientes deben correr (migrate.py).
+    if _fresh and not DRY:
+        try:
+            import migrate
+            migrate.mark_all("first-install", home=HOME)
+        except Exception:
+            pass
 
     _names = list(dict.fromkeys(agent_names))
     _direct = f" (o {B}{_names[0]}{R} para ir directo)" if _names else ""
@@ -1464,7 +1509,7 @@ def main():
         print(f"  {DIM}El menú sale vacío → 'Agregar agente' (crear o cargar un cerebro).{R}")
     print(f"  {DIM}Requiere: Claude Code instalado y con sesión iniciada, y Python 3.{R}")
     if zenith_brain:
-        print(f"\n  {DIM}¿Vienes de Cowork? Corre {R}{B}zenith migrar{R}{DIM} y luego di "
+        print(f"\n  {DIM}¿Vienes de Cowork? Corre {R}{B}{zenith_brain[0]} migrar{R}{DIM} y luego di "
               f'"listo, procesa mi migración". Guía: assets/brand/MIGRACION.md en tu cerebro{R}')
     if DRY:
         print(f"\n  {DIM}(DRY-RUN: no se escribió nada. Quita --dry-run para instalar.){R}")

@@ -52,6 +52,8 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+import legacy  # noqa: E402  (literales de la instalación anterior)
+
 META = {"name": "codex", "needs": ["codex"], "auth": "subscription"}
 
 #: Matriz de capacidades (contrato harness-os §3; la consume harnesses.py).
@@ -133,8 +135,12 @@ def session_active(exe_override=None, runner=None):
                                    encoding="utf-8", errors="replace")
             out = ((getattr(r, "stdout", "") or "")
                    + (getattr(r, "stderr", "") or "")).lower()
-            val = (getattr(r, "returncode", 1) == 0
-                   and ("logged in" in out or "chatgpt" in out))
+            # Negar ANTES de afirmar: «not logged in» contiene «logged in»
+            # y un error puede mencionar ChatGPT (auditoría 2026-07).
+            neg = any(t in out for t in ("not logged in", "logged out",
+                                         "no está logueado", "error"))
+            val = (getattr(r, "returncode", 1) == 0 and not neg
+                   and "logged in" in out)
         except Exception:
             val = False
     if runner is None:
@@ -530,34 +536,36 @@ def _rollout_exists(sid, root=None, max_files=4000):
     return False
 
 
-def _vendor_session_after(brain, t0, root=None, limit=16):
-    """Binding POST-HOC de pestañas (sessions_registry): el `session_id` del
-    rollout que ESTA corrida creó para este cerebro, o ''. VERIFICADO contra
-    rollouts reales 0.160: la línea 1 es `session_meta` con payload.session_id
-    + payload.cwd. Se buscan solo rollouts recientes con mtime >= t0 y
-    cwd == realpath(cerebro). Solo lectura; jamás toca auth.json. Falla-suave."""
+def _vendor_session_after(brain, t0, root=None, limit=64):
+    """Bind only one newly CREATED conversation; modification is not ownership.
+
+    A resumed conversation retains its explicit id in launch(). Ambiguous new
+    sessions remain unbound rather than stealing another tab's conversation.
+    """
+    matches = set()
     try:
         real = os.path.realpath(brain or "")
-        if not real:
+        if not brain:
             return ""
         for path in _recent_rollouts(root or _sessions_root(), limit=limit):
             try:
-                if os.path.getmtime(path) < t0 - 1.0:
-                    continue          # viejo — no es de esta corrida
                 with open(path, "rb") as fh:
-                    first = fh.readline().decode("utf-8", "replace")
-                meta = json.loads(first)
+                    meta = json.loads(fh.readline().decode("utf-8"))
                 pay = meta.get("payload") or {}
-                if os.path.realpath(str(pay.get("cwd") or "")) != real:
+                if meta.get("type") != "session_meta" or os.path.realpath(str(pay.get("cwd") or "")) != real:
+                    continue
+                from datetime import datetime
+                created = datetime.fromisoformat(str(pay.get("timestamp") or meta.get("timestamp") or "").replace("Z", "+00:00"))
+                if created.tzinfo is None or created.timestamp() < t0:
                     continue
                 sid = str(pay.get("session_id") or pay.get("id") or "").strip()
                 if sid:
-                    return sid
-            except Exception:
+                    matches.add(sid)
+            except (OSError, ValueError, TypeError, AttributeError):
                 continue
-    except Exception:
-        pass
-    return ""
+    except OSError:
+        return ""
+    return next(iter(matches)) if len(matches) == 1 else ""
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -576,7 +584,7 @@ def _vendor_session_after(brain, t0, root=None, limit=16):
 # Reglas de convivencia (falla-suave SIEMPRE, jamás rompe el launch):
 #   · AGENTS.md no existe            → se crea (marcado GENERADO).
 #   · existe CON la marca WORKSPACE    → se re-sincroniza si el texto cambió.
-#   · existe con la marca LEGACY (pre-rename OLYMPUS) → es NUESTRO: se
+#   · existe con la marca LEGACY (instalación anterior) → es NUESTRO: se
 #     re-sincroniza (migración automática a la marca nueva).
 #   · existe SIN marca (del socio)   → su CONTENIDO no se toca; el bloque de
 #     sesión va ANEXADO al final, marcado y efímero (strip al cerrar +
@@ -588,11 +596,11 @@ def _vendor_session_after(brain, t0, root=None, limit=16):
 #: Primera línea EXACTA de un AGENTS.md generado — es el detector de "es
 #: nuestro, se puede re-sincronizar". No cambiar sin migración.
 _GEN_MARK = "<!-- WORKSPACE:GENERATED inject_context v1 -->"
-#: Marca pre-rename (OLYMPUS→Workspace 2026-10): los cerebros existentes aún
-#: la traen; sin reconocerla el doc generado parecía "del socio" y la memoria
-#: caía al primer prompt visible. Solo se LEE (detección); se escribe siempre
-#: la nueva.
-_GEN_MARK_LEGACY = "<!-- OLYMPUS:GENERATED inject_context v1 -->"
+#: Marca de la instalación anterior (pre-rename 2026-10): los cerebros
+#: existentes aún la traen; sin reconocerla el doc generado parecía "del socio"
+#: y la memoria caía al primer prompt visible. Solo se LEE (detección); se
+#: escribe siempre la nueva.
+_GEN_MARK_LEGACY = legacy.CODEX_GEN_MARK
 
 
 def _is_generated(text):
@@ -653,11 +661,10 @@ AL INICIAR LA SESIÓN, ANTES DE CUALQUIER OTRA COSA:
 #: launch sin pestaña también lo elimina (re-sync al texto base).
 _SESSION_START = "<!-- WORKSPACE:SESSION start — contexto de la pestaña activa; se regenera en cada launch -->"
 _SESSION_END = "<!-- WORKSPACE:SESSION end -->"
-#: Marcas pre-rename (solo LECTURA: un bloque viejo de una corrida OLYMPUS
-#: también debe poder limpiarse — había huérfanos reales en los cerebros).
-_SESSION_STARTS = (_SESSION_START,
-                   "<!-- OLYMPUS:SESSION start — contexto de la pestaña activa; se regenera en cada launch -->")
-_SESSION_ENDS = (_SESSION_END, "<!-- OLYMPUS:SESSION end -->")
+#: Marcas pre-rename (solo LECTURA: un bloque viejo de una corrida de la
+#: instalación anterior también debe poder limpiarse — había huérfanos reales).
+_SESSION_STARTS = (_SESSION_START, legacy.SESSION_START)
+_SESSION_ENDS = (_SESSION_END, legacy.SESSION_END)
 
 
 def _split_session_block(text):
@@ -865,7 +872,13 @@ def _banner(cfg):
     """Arranque visible mínimo (Windows-safe: sin glifos 0x2600–0x27BF)."""
     name = str(cfg.get("display") or cfg.get("name", "agente")).upper()
     tag = str(cfg.get("tagline", ""))
-    C = "\033[38;5;214m"; D = "\033[38;5;240m"; R = "\033[0m"; B = "\033[1m"
+    C, D = "\033[38;5;214m", "\033[38;5;240m"
+    try:                                   # tema del hub
+        from engines import _ui
+        C, D = _ui.theme_cols(C, D)
+    except Exception:
+        pass
+    R = "\033[0m"; B = "\033[1m"
     bar = C + "═" * 52 + R
     try:
         sys.stdout.write("\033[2J\033[3J\033[H")
@@ -967,10 +980,17 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
     # loop de `codex resume <id-muerto>`.
     tab, resume_sid, session_blk = None, "", ""
     agent = str(cfg.get("name") or "")
+    cfg.setdefault("_engine", "codex")
     try:
         from engines import _ui
         import sessions_registry as _reg
+        if not (preselect and preselect.get("wid")):
+            from engines import claude_code as _cc0
+            _cc0.session_preflight(cfg, "codex")
         tab = _ui.pick_tab(cfg, preselect=preselect)
+        if not tab:
+            from engines import claude_code as _cc
+            _cc.warn_no_tab(_cc.LAST_PICK_ERROR)
         if tab:
             wid, wname = tab
             _ui.export_tab_env(cfg, wid, wname)
@@ -979,9 +999,44 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
             if resume_sid and not _rollout_exists(resume_sid):
                 resume_sid = ""       # id local huérfano → fresco + re-bind
             session_blk = _reg.session_doc_block(brain, wname)
-    except Exception:
+    except Exception as e:
+        # U04/Z04: antes este except abría un chat SIN pestaña en silencio
+        # (el síntoma «caían a chat directo»). Ahora la causa se ve y queda
+        # trazada para reproducir.
         tab, resume_sid, session_blk = None, "", ""
+        try:
+            from engines import claude_code as _cc
+            err = "no pude preparar la pestaña (%s: %s)" % (type(e).__name__, e)
+            _cc._session_log(cfg, "codex", err)
+            _cc.warn_no_tab(err)
+        except Exception:
+            pass
 
+    # Reserve before injecting context or firing lifecycle hooks. Locks are local
+    # OS locks: another tab cannot resume this id, and crashed owners release it.
+    import codex_launch
+    previous_sid = resume_sid
+    try:
+        if tab and resume_sid and not any(str(a) in ("resume", "fork") for a in passthrough):
+            resume_sid = codex_launch.verified_resume(brain, tab[1], resume_sid)
+    except ValueError as exc:
+        print("WORKSPACE: %s" % exc)
+        sys.exit(2)
+    argv = _interactive_argv(cfg, passthrough, resume_sid=resume_sid)
+    with codex_launch.session_guard(brain, tab[1] if tab else "", argv) as admitted:
+        if not admitted:
+            sys.exit(2)
+        if resume_sid != previous_sid:
+            try:
+                codex_launch.repair_resume(brain, agent, tab[1], previous_sid, resume_sid)
+            except ValueError as exc:
+                print("WORKSPACE: %s" % exc)
+                sys.exit(2)
+        _launch_selected(cfg, passthrough, brain, agent, tab, resume_sid,
+                         session_blk, sandbox)
+
+
+def _launch_selected(cfg, passthrough, brain, agent, tab, resume_sid, session_blk, sandbox):
     # inject_context (contrato §3): identidad + bloque de la PESTAÑA ACTIVA
     # — inyección INVISIBLE (project doc, no un mensaje en el chat). Doc
     # GENERADO → bloque adentro; doc PROPIO del socio → bloque ANEXADO al
@@ -1073,7 +1128,7 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
     if tab:
         try:
             import sessions_registry as _reg
-            sid = _vendor_session_after(brain, t0)
+            sid = "" if rc != 0 or resume_sid or any(str(a) in ("resume", "fork") for a in passthrough) else _vendor_session_after(brain, t0)
             if sid and sid != resume_sid:
                 _reg.bind(brain, agent, tab[1], "codex", sid)
         except Exception:

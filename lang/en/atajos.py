@@ -1,7 +1,7 @@
 """WORKSPACE · lang/en/atajos — SHORTCUTS (keybinds_tui) — remap hub keys.
 
 EN (translation of lang/es/atajos.py). Same keys as `es` (parity test enforces
-it). The MENU labels (GitHub/Dev/Calendar/…) are NOT here: they come from
+it). The MENU labels (Dev/Calendar/…) are NOT here: they come from
 `front.menu_entries`, already translated. See `lang/README.md`.
 """
 
@@ -75,11 +75,28 @@ STRINGS = {
                         "task — without launching it",
 
     # ── MENU descriptions (Dev excluded: dev-only, stays Spanish) ─────────────
-    "atajos.desc.menu_github": "open your repos: local branch map + "
-                               "PRs/issues/releases via gh",
     "atajos.desc.menu_cal": "open the full-screen agenda editor",
     "atajos.desc.menu_tono": "open the personality dials of your agents",
     "atajos.desc.menu_keys": "open this screen — remap any of these keys",
     "atajos.desc.menu_updates": "check · repair · update the harness",
     "atajos.desc.menu_addagent": "create or load a new agent",
+    "atajos.desc.menu_comandos": "open the reference of terminal commands",
+    "atajos.desc.menu_agents": "open each agent's config and brain: config, "
+                               "real tree, skills, paths and lifecycle "
+                               "(read-only)",
+    "atajos.desc.menu_auto": "open «{label}» — {tag}",
+    "atajos.desc.menu_auto_bare": "open «{label}»",
+
+    # ── keybinds.set_key/clear/reset_all messages (and the CLI listing) ──────
+    "atajos.kb.unknown": "unknown action",
+    "atajos.kb.invalid": "invalid key — must be ONE printable character",
+    "atajos.kb.reserved": "«{k}» is reserved (q quits · t/a/e/x/f/d/n/p belong "
+                          "to other screens)",
+    "atajos.kb.taken": "«{k}» is already used by {label} — free it first",
+    "atajos.kb.save_fail_reg": "couldn't save the registry — nothing changed",
+    "atajos.kb.save_fail": "couldn't save — nothing changed",
+    "atajos.kb.saved": "{label} → «{k}» · saved ✓",
+    "atajos.kb.cleared": "{label} → default «{k}» ✓",
+    "atajos.kb.reset_all": "all keys back to default ✓",
+    "atajos.kb.list_head": "hub shortcuts (per-machine: {ruta})",
 }

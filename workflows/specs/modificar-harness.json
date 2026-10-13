@@ -1,16 +1,30 @@
 {
   "workflow": "modificar-harness",
-  "version": 1,
+  "version": 2,
   "map": "workflows/MAPA.md · P10 (meta-harness) — el wf que modifica wfs. Análogo a skill-improver.",
   "note": "META-HARNESS · modificar. Guía a aplicar feedback a un workflow EXISTENTE sin romper runs vivos, siguiendo workflows/AUTHORING.md. Como skill-improver: distingue el TIPO de cambio (ajuste de nota → sin bump; estructural → nueva `version:`; preferencia de un socio) y versiona en consecuencia. SEGURO POR CONSTRUCCIÓN: el spec se congela por-run (deep-copy), así que modificar el archivo NUNCA afecta un run en curso — termina en su versión vieja. El oráculo central sigue siendo spec.validate. Pasos agent = STUB honesto sin driver (checklist guiado). Opera sobre `--param target_spec=<nombre>`.",
-  "inputs": ["target_spec"],
-  "triggers": ["modificar workflow", "editar workflow", "mejorar workflow", "cambiar harness", "modificar harness", "editar harness", "versionar workflow", "actualizar workflow"],
+  "inputs": [
+    "target_spec"
+  ],
+  "triggers": [
+    "modificar workflow",
+    "editar workflow",
+    "mejorar workflow",
+    "cambiar harness",
+    "modificar harness",
+    "editar harness",
+    "versionar workflow",
+    "actualizar workflow"
+  ],
   "steps": [
     {
       "id": "cargar",
       "kind": "det",
       "run": "spec.validate",
-      "produces": ["spec_valid", "spec_validation"],
+      "produces": [
+        "spec_valid",
+        "spec_validation"
+      ],
       "on_fail": "stop",
       "note": "load_spec(target_spec) + validate — trae el spec vigente y confirma que parte de una base válida (no se modifica sobre algo ya roto)"
     },
@@ -19,8 +33,25 @@
       "kind": "agent",
       "role": "autor",
       "artifact": "clasificacion",
-      "produces": ["clasificacion"],
-      "output_schema": {"type": "object", "required": {"tipo": {"type": "string", "enum": ["nota", "estructural", "preferencia"]}, "diff": {"type": "string"}}},
+      "produces": [
+        "clasificacion"
+      ],
+      "output_schema": {
+        "type": "object",
+        "required": {
+          "tipo": {
+            "type": "string",
+            "enum": [
+              "nota",
+              "estructural",
+              "preferencia"
+            ]
+          },
+          "diff": {
+            "type": "string"
+          }
+        }
+      },
       "verify": "evidence.artifact_exists",
       "on_fail": "stop",
       "contract": {
@@ -51,7 +82,10 @@
       "id": "validar-carga",
       "kind": "det",
       "run": "spec.validate",
-      "produces": ["spec_valid", "spec_validation"],
+      "produces": [
+        "spec_valid",
+        "spec_validation"
+      ],
       "on_fail": "retry",
       "max_iter": 2,
       "note": "re-valida el spec tras la edición — el oráculo infalsificable (registry, integridad referencial, when, output_schema)"
@@ -60,10 +94,24 @@
       "id": "smoke-dry",
       "kind": "det",
       "run": "spec.smoke",
-      "produces": ["smoke_ok", "smoke_steps"],
+      "produces": [
+        "smoke_ok",
+        "smoke_steps"
+      ],
       "on_fail": "retry",
       "max_iter": 2,
       "note": "--dry programático del spec modificado: valida + planea sin ejecutar. Frozen-spec: los runs EN CURSO no se afectan (usan su copia congelada), así que el impacto es solo a runs futuros"
+    },
+    {
+      "id": "prevencion",
+      "kind": "det",
+      "run": "contracts.prevention",
+      "produces": [
+        "prevention_rc"
+      ],
+      "on_fail": "retry",
+      "max_iter": 2,
+      "note": "Z23: red de PREVENCIÓN (roster, resolver, encoding, no-TTY/plan, estado compartido, capacidades, formato de agente) antes de la suite completa — workflows/steps/contracts.PREVENTION_MODULES"
     },
     {
       "id": "aprobar",
@@ -76,7 +124,10 @@
       "id": "registrar",
       "kind": "det",
       "run": "spec.discoverable",
-      "produces": ["registrado", "descubrible"],
+      "produces": [
+        "registrado",
+        "descubrible"
+      ],
       "on_fail": "stop",
       "note": "el spec editado sigue en specs/, en `wf list`, y descubrible por sus triggers (si el cambio tocó triggers, que sigan empatando su tarea)"
     }

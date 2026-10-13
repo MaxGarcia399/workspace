@@ -84,6 +84,7 @@ Amputable (C10): borrar este archivo apaga la pasada unificada; dream.py y
 skill_review.py siguen operando solos.
 """
 import argparse
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import datetime
 import json
 import os
@@ -223,7 +224,7 @@ REVIEW_SIGNALS_END
 
 # ── estado per-máquina propio (mismos helpers que dream, otro archivo) ─────
 def _nightly_dir():
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace",
+    return os.path.join(_paths.state_dir(),
                         "nightly")
 
 
@@ -371,7 +372,7 @@ def _append_brain_locked(brain, rel, text):
 
 def _review_log_path():
     """El MISMO log que el review en vivo: grep '^REVIEW:' cubre ambos."""
-    d = os.path.join(os.path.expanduser("~"), ".claude", "workspace",
+    d = os.path.join(_paths.state_dir(),
                      "review-logs")
     os.makedirs(d, exist_ok=True)
     return os.path.join(d, datetime.date.today().isoformat() + ".md")
@@ -724,7 +725,7 @@ def _retention_days():
 def _retention_roots():
     """Carpetas per-máquina que la purga toca (SOLO estas — jamás el cerebro):
     events/ (rastro N10), telemetry/ (N-telem) y transcripts-backup/ (Y2b)."""
-    base = os.path.join(os.path.expanduser("~"), ".claude", "workspace")
+    base = _paths.state_dir()
     return (os.path.join(base, "events"),
             os.path.join(base, "telemetry"),
             os.path.join(base, "transcripts-backup"))

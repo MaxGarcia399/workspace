@@ -35,6 +35,68 @@ import agentsreg          # noqa: E402
 import dispatch           # noqa: E402
 
 ROOT = dispatch.ROOT
+
+# i18n (lado cliente): las notas de paso y los errores de create()/load() los
+# pinta EN VIVO la pantalla «Agregar agente» (y los imprime el CLI). Import
+# guardado — sin i18n, _t() devuelve el español inline (paridad exacta).
+try:
+    import i18n as _i18n      # noqa: E402
+except Exception:
+    _i18n = None
+
+
+def _t(key, es, **kw):
+    s = es
+    if _i18n is not None:
+        try:
+            v = _i18n.t(key)
+            s = v if v != key else es
+        except Exception:
+            s = es
+    if kw:
+        try:
+            return s.format(**kw)
+        except Exception:
+            return s
+    return s
+
+
+#: Notas FIJAS de los pasos (create/load) → clave i18n. La nota se traduce en
+#: _prog: un solo punto, cero cambios en cada llamada.
+_NOTE_KEYS = {
+    "nombre inválido": "addagent.note.bad_name",
+    "harness inválido": "addagent.note.bad_harness",
+    "ya existe": "addagent.note.exists",
+    "sin template": "addagent.note.no_template",
+    "carpeta ya existe": "addagent.note.folder_exists",
+    "owner inválido": "addagent.note.bad_owner",
+    "cancelado": "addagent.note.cancelled",
+    "revertido": "addagent.note.reverted",
+    "doctor lo completa": "addagent.note.doctor",
+    "def/registro no legible": "addagent.note.def_unreadable",
+    "config incompleta": "addagent.note.config_partial",
+    "no se pudo verificar": "addagent.note.verify_fail",
+    "la carpeta no existe": "addagent.note.no_folder",
+    "colisión de nombre": "addagent.note.name_collision",
+    "no se pudo sembrar": "addagent.note.seed_fail",
+    "def mínima sembrada (no había)": "addagent.note.seeded",
+    "def existente — se respeta": "addagent.note.def_kept",
+}
+_NOTE_PH = re.compile(r"^(\d+) placeholder\(s\) sin llenar$")
+
+
+def _note_t(note):
+    """Nota de paso en el idioma de la UI (falla-suave: la original)."""
+    n = str(note or "")
+    if n in _NOTE_KEYS:
+        return _t(_NOTE_KEYS[n], n)
+    m = _NOTE_PH.match(n)
+    if m:
+        return _t("addagent.note.placeholders",
+                  "{n} placeholder(s) sin llenar", n=m.group(1))
+    return n
+
+
 BRAIN_TEMPLATE = os.path.join(ROOT, "templates", "agent", "brain")
 # brand genérico del template (los agentes nuevos lo referencian; Fase 2: brand propio)
 _GENERIC_BRAND = "{root}/templates/agent/workspace/brand/agent-%s.py"
@@ -82,35 +144,83 @@ def theme_for_color(color):
     return COLOR_THEMES.get(norm_color(color), COLOR_THEMES["gray"])
 
 
-def write_agent_theme(name, display, color, out=print):
-    """Registra el tema del agente (D4): entrada en <WORKSPACE>/themes.json (bg/fg del
-    terminal) + themes-cc/<name>.json (tema in-app de Claude Code). Idempotente,
-    falla-suave: si truena, el agente igual funciona (solo sin color propio)."""
+def themes_local_dir():
+    """Dónde viven los temas de los agentes que TÚ creas: per-máquina
+    (~/.claude/workspace), nunca dentro del repo — crear un agente no debe
+    ensuciar el checkout de Workspace. theme.py ya mezcla themes.local.json
+    sobre themes.json; install.install_theme busca primero aquí."""
+    import paths
+    return paths.workspace_dir()
+
+
+def write_agent_theme(name, display, color, out=print, engine="claude-code",
+                      hub_theme=None):
+    """Registra el tema del agente (D4), per-máquina y fuera del repo:
+      · colores de la TERMINAL (fondo/texto) — sirven con CUALQUIER motor
+        (Codex, Antigravity, Claude Code…): themes.local.json;
+      · el tema DENTRO del motor (themes-cc/<name>.json) — solo si el motor
+        tiene plantilla in-app en theme_render.ENGINES (hoy: claude-code; los
+        otros no tienen un formato verificado que podamos pintar).
+    Ambos salen de UNA paleta semántica renderizada por plantilla
+    (theme_render): la del color del agente, o — si `hub_theme` nombra un tema
+    del hub — la de ese tema (la entrada de terminal guarda la referencia
+    {"theme": id} + bg/fg de respaldo para versiones viejas). Se escriben en
+    bloque (staging atómico) y un themes-cc editado a mano NO se pisa.
+    Idempotente, falla-suave: si truena, el agente igual funciona."""
     name = (name or "").strip().lower()
     bg, fg, accent = theme_for_color(color)
-    # target overridable por env (tests herméticos apuntan a un temp; real = ROOT).
-    troot = os.environ.get("WORKSPACE_THEMES_ROOT") or ROOT
+    pal = {"background": bg, "foreground": fg, "accent": accent}
+    entry = {"bg": bg, "fg": fg}
+    try:
+        import theme_render
+    except Exception:                                # pragma: no cover
+        theme_render = None
+    if hub_theme and theme_render is not None:
+        hp = theme_render.hub_palette(str(hub_theme).strip().lower())
+        if hp:
+            pal = hp
+            entry = {"theme": str(hub_theme).strip().lower(),
+                     "bg": hp["background"], "fg": hp["foreground"]}
+        else:
+            out("AGENT: WARN: tema del hub '%s' no existe — uso el color" % hub_theme)
+    # tests herméticos pueden apuntar a otra raíz (layout del repo: themes.json)
+    override = os.environ.get("WORKSPACE_THEMES_ROOT")
+    troot = override or themes_local_dir()
     ok = True
-    try:                                            # 1) terminal (themes.json, plano)
-        tp = os.path.join(troot, "themes.json")
+    files = []                                       # (ruta, texto, respetar_a_mano)
+    tp = os.path.join(troot, "themes.json" if override else "themes.local.json")
+    try:                                            # 1) terminal (bg/fg)
         themes = {}
         if os.path.isfile(tp):
             with open(tp, encoding="utf-8") as fh:
                 themes = json.load(fh)
-        themes[name] = {"bg": bg, "fg": fg}
-        ok = _atomic_write_json(tp, themes) and ok
+        themes[name] = entry
+        files.append((tp, json.dumps(themes, ensure_ascii=False, indent=2) + "\n", False))
     except Exception as e:
         out("AGENT: WARN: no pude escribir themes.json (%s)" % e); ok = False
-    try:                                            # 2) in-app (themes-cc/<name>.json)
-        ccdir = os.path.join(troot, "themes-cc")
-        os.makedirs(ccdir, exist_ok=True)
+    eng = engine or "claude-code"
+    cc = None
+    if theme_render is not None and theme_render.engine_supported(eng):
+        cc = theme_render.engine_theme(eng, pal, display or name.capitalize())
+    if cc is None and eng == "claude-code":         # sin plantilla: el dict de siempre
         cc = {"name": display or name.capitalize(), "base": "dark",
               "overrides": {"claude": accent, "text": fg, "inactive": "#6f6f82",
                             "suggestion": accent, "permission": accent,
                             "promptBorder": accent, "autoAccept": accent}}
-        ok = _atomic_write_json(os.path.join(ccdir, "%s.json" % name), cc) and ok
-    except Exception as e:
-        out("AGENT: WARN: no pude escribir themes-cc/%s.json (%s)" % (name, e)); ok = False
+    ccp = os.path.join(troot, "themes-cc", "%s.json" % name)
+    if cc is not None:                              # 2) in-app (themes-cc/<name>.json)
+        files.append((ccp, json.dumps(cc, ensure_ascii=False, indent=2) + "\n", True))
+    if not files:
+        return ok
+    if theme_render is not None:
+        r = theme_render.stage_write(files)
+        if not r["ok"]:
+            out("AGENT: WARN: no pude escribir el tema (%s)" % r["error"]); return False
+        if ccp in r["kept"]:
+            out("AGENT: tema in-app de '%s' editado a mano — se conserva" % name)
+        return ok
+    for path, text, _r in files:                    # sin theme_render: escritura directa
+        ok = _atomic_write_json(path, json.loads(text)) and ok
     return ok
 
 
@@ -223,7 +333,8 @@ def seed_definition(folder, name=None, owner=None, display=None, tagline="",
     template. Devuelve (ok, name|error). No sobrescribe una def existente."""
     folder = os.path.abspath(os.path.expanduser(folder or ""))
     if not os.path.isdir(folder):
-        return False, "la carpeta no existe: %s" % folder
+        return False, _t("addagent.err.no_folder", "la carpeta no existe: {p}",
+                         p=folder)
     dest = agentsreg.agent_json_path(folder)
     if os.path.exists(dest):
         existing = _read_json(dest)
@@ -233,6 +344,7 @@ def seed_definition(folder, name=None, owner=None, display=None, tagline="",
         return False, "no pude inferir un nombre válido de %r" % folder
     owner = owner or _detect_owner(folder)
     defn = {
+        "version": 1,
         "name": name,
         "display": display or name.capitalize(),
         "tagline": tagline,
@@ -270,10 +382,10 @@ CREATE_STEPS = (
     ("launcher", "comando en PATH (launcher)"),
     ("verificacion", "verificación final"),
 )
-#: Pasos CRÍTICOS: si uno falla, se revierte TODO (ningún medio-cerebro).
-#: Los demás son falla-suave: el agente queda usable y `workspace doctor`
-#: completa lo que falte (se reporta como warn, jamás en silencio).
-_CRITICAL_STEPS = ("validar", "scaffold", "definicion", "registro")
+#: Pasos CRÍTICOS: si uno falla, se revierte TODO (ningún medio-cerebro). La
+#: criticidad está implementada inline en create() (cada paso crítico revierte y
+#: retorna); no hay una constante que la codifique para no tener dos fuentes que
+#: driften — este comentario ES el contrato.
 
 
 def default_brain_dest(name):
@@ -289,7 +401,7 @@ def _prog(progress, key, st, note=""):
     if progress is None:
         return
     try:
-        progress(key, st, note)
+        progress(key, st, _note_t(note))
     except Exception:
         pass
 
@@ -391,28 +503,35 @@ def create(name, tagline="", display=None, owner="", scope="", soul="",
 
     _prog(progress, "validar", "run")
     if not agentsreg.is_valid_name(name):
-        err = "nombre inválido: %r (minúsculas, dígitos, - o _)" % name
+        err = _t("addagent.err.bad_name",
+                 "nombre inválido: {v} (minúsculas, dígitos, - o _)",
+                 v=repr(name))
         _prog(progress, "validar", "fail", "nombre inválido")
         return False, err
     if not re.match(r"^[a-z0-9][a-z0-9_-]{0,31}$", engine):
         _prog(progress, "validar", "fail", "harness inválido")
-        return False, "harness inválido: %r" % engine
+        return False, _t("addagent.err.bad_harness", "harness inválido: {v}",
+                         v=repr(engine))
     if dispatch.find_agent(name) or agentsreg.find(name):
         _prog(progress, "validar", "fail", "ya existe")
-        return False, "ya existe un agente '%s'" % name
+        return False, _t("addagent.err.exists", "ya existe un agente '{n}'",
+                         n=name)
     if not os.path.isdir(BRAIN_TEMPLATE):
         _prog(progress, "validar", "fail", "sin template")
-        return False, "falta el template del cerebro: %s" % BRAIN_TEMPLATE
+        return False, _t("addagent.err.no_template",
+                         "falta el template del cerebro: {p}", p=BRAIN_TEMPLATE)
     upper, display = name.upper(), (display or name.capitalize())
     dest = os.path.abspath(os.path.expanduser(
         brain_dest or default_brain_dest(name)))
     if os.path.exists(dest):
         _prog(progress, "validar", "fail", "carpeta ya existe")
-        return False, "la carpeta del cerebro ya existe: %s" % dest
+        return False, _t("addagent.err.brain_exists",
+                         "la carpeta del cerebro ya existe: {p}", p=dest)
     owner = (owner or "").strip().lower()
     if owner and not re.match(r"^[a-z0-9_-]+$", owner):
         _prog(progress, "validar", "fail", "owner inválido")
-        return False, "owner inválido: %r" % owner
+        return False, _t("addagent.err.bad_owner", "owner inválido: {v}",
+                         v=repr(owner))
     _prog(progress, "validar", "ok", "")
     if dry_run:
         out("AGENT: DRY:create %s → %s (owner=%s, color=%s, engine=%s)"
@@ -435,6 +554,7 @@ def create(name, tagline="", display=None, owner="", scope="", soul="",
     # engine cae al default ZENITH_WS → colisión de workspace), y el bloque
     # `memory` (contrato que audita `workspace doctor` + opt-in de dreaming/fts).
     defn = {
+        "version": 1,
         "name": name, "display": display, "tagline": tagline,
         "engine": engine, "brain": ".", "color": color, "theme": name,
         "session_env": upper + "_WS", "session_id_env": upper + "_WID",
@@ -510,7 +630,7 @@ def create(name, tagline="", display=None, owner="", scope="", soul="",
                 "doctor` la completa" % name)
             return True, name
         _prog(progress, "tema", "run")
-        okt = write_agent_theme(name, display, color, out=out)   # themes.json + themes-cc
+        okt = write_agent_theme(name, display, color, out=out, engine=engine)
         _prog(progress, "tema", "ok" if okt else "warn",
               "" if okt else "doctor lo completa")
         try:
@@ -619,12 +739,12 @@ def inspect_brain(folder):
             return info
         info["has_def"] = agentsreg.has_definition(fab)
         d = agentsreg.load_definition(fab) if info["has_def"] else {}
-        # LEGACY OLYMPUS: sin `.workspace/` pero con `.olympus/agent.json` → lee
-        # su identidad real para la radiografía (al conectar se migra sola).
-        info["legacy_olympus"] = False
-        if not d and agentsreg.has_olympus_definition(fab):
-            d = agentsreg._read_json(agentsreg.olympus_json_path(fab)) or {}
-            info["legacy_olympus"] = bool(d)
+        # INSTALACIÓN ANTERIOR: sin `.workspace/` pero con el manifiesto viejo →
+        # lee su identidad real para la radiografía (al conectar se migra sola).
+        info["legacy_install"] = False
+        if not d and agentsreg.has_legacy_definition(fab):
+            d = agentsreg._read_json(agentsreg.legacy_json_path(fab)) or {}
+            info["legacy_install"] = bool(d)
         info["name"] = (str(d.get("name") or "").strip().lower()
                         or _name_from_folder(fab))
         info["display"] = str(d.get("display") or "")
@@ -660,16 +780,16 @@ def load(folder, name=None, out=print, progress=None):
     if not os.path.isdir(folder):
         _prog(progress, "validar", "fail", "la carpeta no existe")
         return False, "la carpeta no existe: %s" % folder
-    # LEGACY OLYMPUS: cerebro con SOLO `.olympus/agent.json` → migra a
+    # INSTALACIÓN ANTERIOR: cerebro con SOLO el manifiesto viejo → migra a
     # `.workspace/agent.json` antes de seguir (así se respeta su identidad real
-    # en vez de sembrar una def mínima). Falla-suave; NO borra el `.olympus/`
+    # en vez de sembrar una def mínima). Falla-suave; NO borra la carpeta vieja
     # (doctor Fase 5d lo hace cuando ya existe el `.workspace/`).
     try:
-        if not agentsreg.has_definition(folder) and agentsreg.has_olympus_definition(folder):
-            mok, mres = agentsreg.migrate_olympus(folder)
+        if not agentsreg.has_definition(folder) and agentsreg.has_legacy_definition(folder):
+            mok, mres = agentsreg.migrate_legacy(folder)
             if mok:
-                out("AGENT: MIGRATE:%s — .olympus/agent.json → .workspace/agent.json "
-                    "(venía de OLYMPUS)" % mres)
+                out("AGENT: MIGRATE:%s — manifiesto de la instalación anterior → "
+                    ".workspace/agent.json" % mres)
     except Exception:
         pass
     # nombre INTENCIONADO (antes de escribir nada) para chequear colisión
@@ -682,8 +802,10 @@ def load(folder, name=None, out=print, progress=None):
     existing = agentsreg.find(intended)
     if existing and os.path.realpath(existing["brain"]) != os.path.realpath(folder):
         _prog(progress, "validar", "fail", "colisión de nombre")
-        return False, ("ya hay un agente '%s' cargado desde otra carpeta (%s). "
-                       "Dale otro nombre." % (intended, existing["brain"]))
+        return False, _t("addagent.err.collision",
+                         "ya hay un agente '{n}' cargado desde otra carpeta "
+                         "({p}). Dale otro nombre.",
+                         n=intended, p=existing["brain"])
     _prog(progress, "validar", "ok")
     _prog(progress, "identidad", "run")
     if not agentsreg.has_definition(folder):

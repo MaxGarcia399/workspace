@@ -53,9 +53,9 @@ STRINGS = {
     "tono.dial.longitud.corto": "long",
     "tono.dial.longitud.pole.lo": "breve",
     "tono.dial.longitud.pole.hi": "amplio",
-    "tono.dial.longitud.lvl.1": "Responde en UNA línea. Si no cabe, manda el detalle a un archivo y da la ruta.",
-    "tono.dial.longitud.lvl.2": "Máximo 3 frases. Lo esencial primero; el detalle, a archivo.",
-    "tono.dial.longitud.lvl.4": "Desarrolla: contexto, razón de la decisión y qué sigue.",
+    "tono.dial.longitud.lvl.1": "MÁXIMO una frase (~25 palabras). Si no cabe, el detalle va a un archivo y solo das la ruta. Los bloques fijos que exige tu cerebro van aparte y no cuentan, pero no agregues nada más.",
+    "tono.dial.longitud.lvl.2": "Máximo 3 frases (~60 palabras). Lo esencial primero; el detalle, a archivo. Los bloques fijos del cerebro van aparte.",
+    "tono.dial.longitud.lvl.4": "Desarrolla en 2-4 párrafos: contexto, razón de la decisión y qué sigue.",
     "tono.dial.longitud.lvl.5": "Exhaustivo: alternativas consideradas, trade-offs y riesgos además del resultado.",
     # formalidad
     "tono.dial.formalidad.label": "Formalidad",
@@ -111,6 +111,8 @@ STRINGS = {
 
     # ── lo que se le inyecta al agente (personalidad) ───────────────────────
     "tono.inject.prefix": "[tono activo] ",
+    "tono.priority": "Sobre FORMA y EXTENSIÓN estos diales mandan: ganan a tus hábitos y a cualquier otra indicación de estilo. Los bloques obligatorios de tu cerebro se agregan aparte, sin alargar la respuesta.",
+    "tono.length_wins": "Si dos diales chocan, gana Longitud: lo que pidan los demás (p. ej. explicar el porqué) cabe dentro de ese límite.",
     "tono.block.title": "## Tono de esta sesión (config del socio en esta máquina)",
     "tono.limit": "Esto ajusta **estilo**, nada más: no cambia tu identidad, ni las reglas N1/N2/N3, ni la seguridad, ni la honestidad de lo que reportas. Si un dial chocara con decir la verdad o con una regla, gana la regla.",
 
@@ -154,4 +156,5 @@ STRINGS = {
     "tono.cli.global_suffix": "  ·  global",
     "tono.cli.default": "por defecto",
     "tono.cli.all_neutral": "(todo en neutro: no se inyecta nada)",
+    "tono.msg.removed": "El agente seleccionado ya no está registrado. Elige un destino antes de editar.",
 }

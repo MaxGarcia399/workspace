@@ -30,6 +30,7 @@ JAMÁS truena por el registro. Escrituras atómicas (tmp + os.replace).
 Diseño: research/design/harness-os/SESIONES-MULTI-HARNESS.md.
 """
 import datetime
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import json
 import os
 import re
@@ -91,7 +92,7 @@ def local_store_path():
     """Store per-máquina de resume-ids — FUERA del cerebro a propósito (un
     resume-id es local por naturaleza; en el cerebro además no sincroniza
     y confunde). Mismo hogar que el resto de lo local de WORKSPACE."""
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace",
+    return os.path.join(_paths.state_dir(),
                         "sessions-local.json")
 
 
@@ -107,7 +108,10 @@ def _read_json(path, default):
 def _atomic_write(path, data):
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp = path + ".tmp"
+        # tmp ÚNICO por proceso: el banner/hook y el dashboard escriben el mismo
+        # registro al arrancar; un `.tmp` compartido hacía que dos procesos
+        # concurrentes se pisaran el temporal (camino crítico del arranque).
+        tmp = "%s.tmp-%d" % (path, os.getpid())
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(data, fh, indent=2, ensure_ascii=False)
         os.replace(tmp, path)   # atómico: camino crítico del arranque
@@ -174,6 +178,42 @@ def socio(brain):
     except Exception:
         pass
     return ""
+
+
+def preflight(brain):
+    """Problemas que harían que una pestaña abra SIN memoria (U04/Z04),
+    verificados ANTES de lanzar — en vez de descubrirlos como «cayó a chat
+    directo». Devuelve [str] (vacío = OK). Barato: stat/listdir, sin red.
+      · cerebro inexistente/ilegible;
+      · socio no resoluble (.claude/socio.local ausente y STATE/sessions con
+        0 o varias carpetas) → la memoria de pestaña no tiene dónde vivir;
+      · carpeta de sesiones del socio no escribible."""
+    out = []
+    if not brain or not os.path.isdir(brain):
+        return ["cerebro no encontrado: %s" % (brain or "—")]
+    soc = socio(brain)
+    if not soc:
+        d = os.path.join(brain, "STATE", "sessions")
+        try:
+            n = len([x for x in os.listdir(d) if os.path.isdir(os.path.join(d, x))
+                     and not x.startswith(("_", "."))])
+        except Exception:
+            n = 0
+        out.append("el cerebro no dice de qué socio es (.claude/socio.local)"
+                   + (" y STATE/sessions tiene %d carpetas de socio" % n if n > 1 else "")
+                   + " — corre `workspace doctor` para repararlo")
+        return out
+    d = _md_dir(brain, soc)
+    try:
+        os.makedirs(d, exist_ok=True)
+        probe = os.path.join(d, ".workspace-write-probe")
+        with open(probe, "w", encoding="utf-8") as fh:
+            fh.write("ok")
+        os.remove(probe)
+    except Exception as e:
+        out.append("no puedo escribir la memoria de sesiones en %s (%s)"
+                   % (d, type(e).__name__))
+    return out
 
 
 def _md_dir(brain, soc=None):
@@ -250,7 +290,7 @@ al cerrar trabajo significativo. CLAUDE.md §2.5.]
 """ % (sl, name, soc, claude_wid or "", today, today, name, today)
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp = path + ".tmp"
+        tmp = "%s.tmp-%d" % (path, os.getpid())   # único por proceso (ver _atomic_write)
         with open(tmp, "w", encoding="utf-8") as fh:
             fh.write(txt)
         os.replace(tmp, path)
@@ -413,24 +453,30 @@ def _mirror_to_claude(brain, agent, name, wid):
         return False
 
 
-def bind(brain, agent, name, engine, rid):
-    """Ata el resume-id del vendor a la pestaña — EN EL STORE LOCAL (un id
-    de vendor es per-máquina por naturaleza). Binding post-hoc. True si
-    quedó guardado."""
+def bind(brain, agent, name, engine, rid, *, expected_rid=None, preserve_before=False):
+    """Bind under a local OS lock; recovery compares previous id and backs up."""
     rid = str(rid or "").strip()
     sl = _slug(name)
     engine = str(engine or "").strip()
-    # "last_opened" es metadato del slot, no un motor — un bind ahí
-    # corrompería el orden del picker (guard del doble-check).
     if not rid or not sl or not engine or engine == "last_opened":
         return False
     try:
-        data = _local_load()
-        slot = _local_slot(data, brain, sl, create=True)
-        if slot.get(engine) == rid:
-            return True
-        slot[engine] = rid
-        return _local_save(data)
+        from olock import file_lock
+        with file_lock(local_store_path(), timeout=5):
+            data = _local_load()
+            slot = _local_slot(data, brain, sl, create=True)
+            if expected_rid is not None and slot.get(engine) != expected_rid:
+                return False
+            if slot.get(engine) == rid:
+                return True
+            if preserve_before:
+                import uuid
+                backup = local_store_path() + ".before-repair-" + uuid.uuid4().hex
+                with open(backup, "x", encoding="utf-8") as stream:
+                    os.chmod(backup, 0o600)
+                    json.dump(data, stream, ensure_ascii=False, indent=2)
+            slot[engine] = rid
+            return _local_save(data)
     except Exception:
         return False
 
@@ -470,14 +516,9 @@ def tab_memory(brain, name, limit=1200):
             txt = fh.read()
     except Exception:
         return ""
-    # Solo hay frontmatter si el archivo ABRE con `---`; un `---` dentro del
-    # cuerpo de un .md sin frontmatter no debe comerse el inicio (doble-check).
-    if txt.lstrip().startswith("---"):
-        parts = txt.split("---", 2)
-        body = parts[2].strip() if len(parts) >= 3 else txt.strip()
-    else:
-        body = txt.strip()
-    return body[:limit]
+    from session_continuity import context, select_memory
+    checkpoint = context(brain, name, limit=limit)
+    return checkpoint or select_memory(txt, limit=limit)
 
 
 def first_prompt_context(brain, name, base_prompt=""):

@@ -5,6 +5,7 @@ remains visible (stack_with_default). Only quota/model/plan and observation time
 are cached; incoming email, transcript paths, prompts and auth are discarded.
 """
 import datetime
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import json
 import math
 import os
@@ -18,7 +19,7 @@ MAX_BYTES=65536
 
 
 def cache_path():
-    return Path.home()/'.claude/workspace/antigravity-usage.json'
+    return Path(_paths.state_dir(str(Path.home())))/'antigravity-usage.json'
 
 
 def _stamp(value):

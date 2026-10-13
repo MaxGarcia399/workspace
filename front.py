@@ -10,6 +10,7 @@ Cero dependencias (stdlib, Python 3.9+). El menú interactivo va a /dev/tty
   --banner   imprime banner + menú estático y sale (no interactivo; para pruebas)
 """
 import sys, os, json, subprocess, types
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 sys.dont_write_bytecode = True   # no generar __pycache__ (mantiene limpio el sync)
 if os.name == "nt":
     os.system("")  # habilita ANSI en Windows 10+ (no-op en consolas viejas) — igual que doctor.py
@@ -19,8 +20,6 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable or "python3"
 DISPATCH = os.path.join(ROOT, "dispatch.py")
 sys.path.insert(0, ROOT)
-sys.path.insert(0, os.path.join(ROOT, "banner"))
-import render  # noqa: E402
 import dispatch  # noqa: E402  (registry merge: committeado + agentes cargados per-máquina)
 # i18n (lado cliente): traduce las cadenas que ve el cliente. Falla-suave
 # ABSOLUTA — sin el módulo, _t() devuelve el español inline (paridad exacta).
@@ -112,11 +111,10 @@ def _read_json(p):
         return {}
 
 
-# Agentes de SISTEMA: motores internos del harness que NO son dioses del
-# altar (pedido del socio 2026-10-02: «Workspace Doctor» no debe salir como
-# agente). Filtrado SOLO-display en el hub: dispatch/launch/update los siguen
-# viendo (lanzarlos directo y actualizar su cerebro funciona igual).
-_SYSTEM_AGENTS = frozenset({"doctor"})
+# Agentes de SISTEMA: el filtro vive en el SSOT (dispatch.SYSTEM_AGENTS) para que
+# TODA pantalla que liste agentes para el socio comparta la misma fuente. Alias
+# local por legibilidad; consumidores nuevos usan `dispatch.visible_agents()`.
+_SYSTEM_AGENTS = dispatch.SYSTEM_AGENTS
 
 
 def registry():
@@ -178,26 +176,20 @@ def menu_entries():
     de la pantalla «Atajos» — una sección nueva del hub aparece SOLA en los
     tres lugares (y gana tecla re-mapeable) sin tocar nada más."""
     out = []
-    # «GitHub» (ex-«Ramas», 2026-10-04): la sección creció — conserva el mapa
-    # local de ramas/worktrees (git_tui, tecla m) y suma la capa GitHub
-    # multi-repo vía el CLI gh (github_tui, gated por `gh auth status`).
-    # Ya NO es dev-only: es producto. El token __ramas__ se conserva
-    # (keybinds y ruteo estables).
-    out.append(("__ramas__", _t("menu.github.label", "GitHub"),
-                _t("menu.github.tag",
-                   "tus repos: ramas locales + PRs, issues y releases")))
+    # «GitHub» (token __ramas__, github_tui) quedó APARCADA fuera de la 0.2.0
+    # (rama feat/github) mientras se rehace: sin entrada, sin tecla ni ruteo.
+    # El mapa local de ramas (git_tui) sigue vivo vía `workspace versiones`.
     # «Dev» (sección del hub, 2026-10-04): transparencia del proceso de
     # desarrollo — referencia de comandos + mapa del detrás (pipeline, repos,
     # qué sube, versión, estado). SOLO el dueño/dev: gate por-archivos (igual
     # que «Ramas») + dev_tui.is_dev() (canal main / marker per-máquina).
     # Falla-suave ABSOLUTA: sin dev_tui, el menú queda exactamente como antes.
-    try:
-        import dev_tui as _dtui
-        if _has_dev_panel() and _dtui.is_dev():
-            out.append(("__devmap__", "Dev",
-                        "el detrás de workspace — comandos + mapa"))
-    except Exception:
-        pass
+    # «Comandos» (ex-«Dev», 2026-10-11): la referencia de comandos ES
+    # producto — la ve todo el mundo. Los comandos de desarrollo solo
+    # aparecen en modo dev (comandos_dev.py no viaja en la distribución).
+    # El token __devmap__ se conserva (atajos y ruteo estables).
+    out.append(("__devmap__", _t("menu.comandos.label", "Comandos"),
+                _t("menu.comandos.tag", "lo que puedes escribir en la terminal")))
     # «Actualizaciones» (ex-«Doctor», renombre user-facing 2026-10-02): mismo
     # token __doctor__ y mismos comandos (workspace doctor/update) por debajo.
     out += [("__cal__", _t("menu.cal.label", "Calendario"),
@@ -210,15 +202,16 @@ def menu_entries():
              _t("menu.keybinds.tag", "re-mapea las teclas rápidas del hub")),
             ("__doctor__", _t("menu.updates.label", "Actualizaciones"),
              _t("menu.updates.tag", "revisar · reparar · actualizar")),
+            # «Agentes» (2026-10-09): transparencia por agente — config,
+            # cerebro real, skills, rutas y ciclo de vida (agents_tui).
             ("__motores__", _t("menu.engines.label", "Motores"),
-             _t("menu.engines.tag", "gestionar proveedores y conectar motores")),
+             _t("menu.engines.tag", "estado, capacidades y conexiones")),
             ("__agentes__", _t("menu.agents.label", "Agentes"),
              _t("menu.agents.tag", "configuración y cerebro de cada agente")),
             ("__add_agent__", _t("menu.add_agent.label", "Agregar agente"),
              _t("menu.add_agent.tag", "crear o cargar un agente")),
-            # El control de IDIOMA ya NO vive en el MENÚ: es un CUADRO propio
-            # del hub (layout `dia`), bajo PERSONALIZACIÓN — navegable+Enter,
-            # como tema/fondo. Ver groups "idioma" + hublayout._dia_idioma_body.
+            # El control de IDIOMA ya NO vive en el MENÚ: es una entrada
+            # propia del hub (Idioma › en el lanzador). Ver el grupo "idioma".
             ("__shell__", _t("menu.shell.label", "Terminal normal"),
              _t("menu.shell.tag", "tu shell de siempre · tecla q"))]
     return out
@@ -232,7 +225,8 @@ def items():
         m = _meta(a)
         out.append((a["name"], m.get("display", a["name"]), m.get("tagline", ""), True))
     for p in reg.get("planned", []):
-        out.append((p, p.capitalize(), "próximamente", False))
+        out.append((p, p.capitalize(), _t("hub.agent.soon_tag", "próximamente"),
+                    False))
     # Chat: extraído a la rama feat/chat (se retoma a fondo después). El código
     # (chat_tui.py/chat.py/chat_daemon.py) ya no vive en main — fuera del hub.
     # «Config» salió del MENÚ (pedido del socio 2026-10-02): la sección se va a
@@ -257,71 +251,6 @@ def items():
     out += [(tok, lbl, tag, True) for tok, lbl, tag in menu_entries()
             if tok not in _solo_hub]
     return out
-
-
-def build_info_rows():
-    reg = registry()
-    active = [a["name"] for a in reg.get("agents", [])]
-    planned = reg.get("planned", [])
-    ag = " · ".join(active) + (
-        (" · " + '/'.join(planned) + " "
-         + _t("hub.hero.soon_paren", "(pronto)")) if planned else "")
-    # motor: binding EFECTIVO (harness-os) — antes iba fijo 'claude-code'.
-    # Falla-suave: sin harnesses.py, el texto de siempre.
-    motor_txt = _t("hub.hero.engine_default",
-                   "claude-code · Anthropic (sin API key)")
-    try:
-        import harnesses as _h
-        engs = sorted({_h.binding(a.get("name", ""),
-                                  a.get("engine") or "claude-code")[0]
-                       for a in reg.get("agents", [])})
-        if engs == ["claude-code"]:
-            pass                                   # el texto rico de siempre
-        elif len(engs) == 1:
-            motor_txt = engs[0]
-        elif engs:
-            motor_txt = " · ".join(engs) + _t("hub.hero.engine_per_agent",
-                                              "  (por agente — tecla m)")
-    except Exception:
-        pass
-    # cerebros: derivada del registry real (no literal) — un cliente NO debe ver
-    # nombres internos del equipo. Vacío → genérico.
-    cerebros = (" · ".join(f"{a.upper()}-BRAIN" for a in active) + " · sync"
-                if active else _t("hub.hero.v.config_first",
-                                  "configura tu primer agente"))
-    user = os.environ.get("USER") or os.environ.get("USERNAME", "")   # USER no existe en Windows
-    try:                                              # usuario real per-máquina (lo escribe install)
-        sloc = open(os.path.join(os.path.expanduser("~"), ".claude", "workspace",
-                                 "socio.local"), encoding="utf-8").read().strip()
-    except Exception:
-        sloc = ""
-    socio = sloc or user or "—"
-    socio = (socio[:1].upper() + socio[1:]) if socio != "—" else socio
-    mach = "Mac" if sys.platform == "darwin" else ("Windows" if os.name == "nt" else "Linux")
-    # «directo»: un cliente NO debe ver un nombre interno del equipo. Si ya hay
-    # agentes cargados, el ejemplo usa el primero REAL; sin agentes, genérico.
-    agente_ej = active[0] if active else _t("hub.hero.agent_generic", "tu-agente")
-    return [
-        ("##", _t("hub.hero.h.harness", "El harness")),
-        (_t("hub.hero.k.agents", "agentes"), ag),
-        (_t("hub.hero.k.engine", "motor"), motor_txt),
-        (_t("hub.hero.k.brains", "cerebros"), cerebros),
-        (_t("hub.hero.k.autoclose", "cierre auto"),
-         _t("hub.hero.v.capture", "captura de sesión activa")),
-        ("", ""),
-        ("##", _t("hub.hero.h.setup", "Tu setup")),
-        (_t("hub.hero.k.user", "usuario"), socio),
-        (_t("hub.hero.k.machine", "máquina"), mach),
-        (_t("hub.hero.k.base", "base"),
-         _t("hub.hero.v.base", "instalador + workspace doctor ✓")),
-        ("", ""),
-        ("##", _t("hub.hero.h.howto", "Cómo entrar")),
-        (_t("hub.hero.k.menu", "menú"),
-         _t("hub.hero.v.menu", "elige un agente abajo ↓")),
-        (_t("hub.hero.k.direct", "directo"),
-         _t("hub.hero.v.direct", "escribe su nombre: {name}", name=agente_ej)),
-        ("", ""), ("", ""), ("", ""),
-    ]
 
 
 def _row(disp, tag, selected, selectable, w):
@@ -352,7 +281,7 @@ def _step(idx, d, it):
 # Defaults DUROS del mapa de salto (paridad si keybinds.py faltara): mismo
 # contenido que keybinds.defaults(). La fuente de verdad en runtime es el
 # REGISTRO per-máquina (keybinds.py — pantalla «Atajos» del MENÚ).
-_JUMP_FALLBACK = {"menu.__ramas__": "r", "menu.__devmap__": "v",
+_JUMP_FALLBACK = {"menu.__devmap__": "v", "menu.__motores__": "s",
                   "menu.__cal__": "c", "menu.__tono__": "o",
                   "menu.__keybinds__": "k", "menu.__doctor__": "u",
                   "menu.__add_agent__": "g", "menu.__agentes__": "b",
@@ -516,6 +445,11 @@ def _run_picker_windows(it):
 
 def run_picker(it):
     if sys.platform == "win32":
+        # msvcrt lee de la CONSOLA, no de stdin: sin consola interactiva real
+        # (pipe/archivo/NUL) esperaría una tecla para siempre → lista numerada
+        # sobre stdin (EOF → Terminal normal, determinista). W-F04.
+        if not _interactive_console():
+            return _numbered(it)
         try:
             return _run_picker_windows(it)
         except Exception:
@@ -566,6 +500,9 @@ def run_picker(it):
 
 def _numbered(it):
     try:
+        # En Windows "/dev/tty" sería el archivo C:/dev/tty, no la consola.
+        if os.name == "nt":
+            raise OSError
         inp = open("/dev/tty", "r"); out = open("/dev/tty", "w")
     except Exception:
         inp, out = sys.stdin, sys.stderr
@@ -573,7 +510,7 @@ def _numbered(it):
     sel = [i for i, x in enumerate(it) if x[3]]
     for k, i in enumerate(sel, 1):
         out.write(f"    {C}{k}{R}  {WH}{it[i][1]}{R}   {DIM}{it[i][2]}{R}\n")
-    out.write(f"\n  {DIM}Número y Enter: {R}"); out.flush()
+    out.write(f"\n  {DIM}{_t('banner.dash.number_enter', 'Número y Enter: ')}{R}"); out.flush()
     try:
         k = int((inp.readline() or "").strip())
         if 1 <= k <= len(sel):
@@ -600,6 +537,7 @@ def _split_on():
 
 def launch(name):
     sys.stdout.write("\033[2J\033[3J\033[H"); sys.stdout.flush()   # limpia + scrollback para el banner del agente
+    os.environ["WORKSPACE_FROM_HUB"] = "1"   # Esc en el menú de sesiones regresa aquí
     # Terminal PARTIDA (opt-in, ui.split — APAGADO por default): SOLO aquí,
     # DESPUÉS de que el socio eligió agente en el menú, el chat abre con 2
     # panes (chat | panel del pipeline) vía multiplexer.open_split — la
@@ -701,7 +639,7 @@ def cmd_dev(args):
         except Exception:
             return False
 
-    pidfile = os.path.join(os.path.expanduser("~"), ".claude", "workspace", "dashboard-dev.pid")
+    pidfile = os.path.join(_paths.state_dir(), "dashboard-dev.pid")
 
     if "stop" in args or "--stop" in args:
         _dev_kill(port, pidfile)
@@ -718,10 +656,10 @@ def cmd_dev(args):
                 break
             time.sleep(0.15)
 
-    logdir = os.path.join(os.path.expanduser("~"), ".claude", "workspace")
+    logdir = _paths.state_dir()
     try:
         os.makedirs(logdir, exist_ok=True)
-        log = open(os.path.join(logdir, "dashboard-dev.log"), "a")
+        log = open(os.path.join(logdir, "dashboard-dev.log"), "a", encoding="utf-8")
     except Exception:
         log = subprocess.DEVNULL
     kw = {"creationflags": 0x208} if os.name == "nt" else {"start_new_session": True}
@@ -780,25 +718,27 @@ def cmd_proyectos(args):
         except Exception:
             return False
 
-    pidfile = os.path.join(os.path.expanduser("~"), ".claude", "workspace", "proyectos.pid")
+    pidfile = os.path.join(_paths.state_dir(), "proyectos.pid")
 
     if "stop" in args or "--stop" in args:
         _dev_kill(port, pidfile)                  # el killer por puerto+pidfile es genérico
-        print(f"{C}WORKSPACE proyectos detenido.{R}")
+        print(f"{C}" + _t("cli.proy.stopped", "WORKSPACE proyectos detenido.")
+              + f"{R}")
         return 0
 
     if running():                                 # relanzar = servir el código de HOY
-        print(f"{DIM}  reiniciando la app de proyectos con el código actual…{R}")
+        print(f"{DIM}  " + _t("cli.proy.restarting", "reiniciando la app de "
+                               "proyectos con el código actual…") + f"{R}")
         _dev_kill(port, pidfile)
         for _ in range(20):
             if not running():
                 break
             time.sleep(0.15)
 
-    logdir = os.path.join(os.path.expanduser("~"), ".claude", "workspace")
+    logdir = _paths.state_dir()
     try:
         os.makedirs(logdir, exist_ok=True)
-        log = open(os.path.join(logdir, "proyectos.log"), "a")
+        log = open(os.path.join(logdir, "proyectos.log"), "a", encoding="utf-8")
     except Exception:
         log = subprocess.DEVNULL
     kw = {"creationflags": 0x208} if os.name == "nt" else {"start_new_session": True}
@@ -815,8 +755,12 @@ def cmd_proyectos(args):
             break
         time.sleep(0.15)
     webbrowser.open(url)
-    print(f"{C}WORKSPACE proyectos{R} (mapa de proyectos) → {url}  {DIM}(app aparte del dashboard){R}")
-    print(f"{DIM}  reabrir/refrescar: workspace proyectos   ·   detener: workspace proyectos stop{R}")
+    print(f"{C}WORKSPACE proyectos{R} "
+          + _t("cli.proy.map", "(mapa de proyectos)") + f" → {url}  {DIM}"
+          + _t("cli.proy.separate", "(app aparte del dashboard)") + f"{R}")
+    print(f"{DIM}  " + _t("cli.proy.hint", "reabrir/refrescar: workspace "
+                           "proyectos   ·   detener: workspace proyectos stop")
+          + f"{R}")
     return 0
 
 
@@ -829,7 +773,7 @@ def _git(path, *args, timeout=30):
                            errors="replace", timeout=timeout)
         return r.returncode, (r.stdout or "").strip(), (r.stderr or "").strip()
     except subprocess.TimeoutExpired:
-        return -1, "", "timeout (¿sin conexión?)"
+        return -1, "", _t("cli.git.timeout", "timeout (¿sin conexión?)")
 
 
 def _update_repo(label, path, transport="git"):
@@ -839,19 +783,28 @@ def _update_repo(label, path, transport="git"):
     SANO: ✓ verde y 'managed', no cuenta como repo saltado."""
     pad = f"  {label:<22}"
     if transport == "obsidian-sync":
-        print(f"{pad}{C}✓{R} {DIM}gestionado por Obsidian Sync (sin git){R}")
+        print(f"{pad}{C}✓{R} {DIM}"
+              + _t("cli.repo.obsidian", "gestionado por Obsidian Sync (sin git)")
+              + f"{R}")
         return "managed"
     if not os.path.isdir(os.path.join(path, ".git")):
-        print(f"{pad}{B}⚠{R} {DIM}no es repo git (instalación por sync) — sin auto-update{R}")
+        print(f"{pad}{B}⚠{R} {DIM}"
+              + _t("cli.repo.not_git", "no es repo git (instalación por sync) — "
+                   "sin auto-update") + f"{R}")
         return "skipped"
     rc, remotes, _ = _git(path, "remote", timeout=10)
     if rc != 0 or not remotes:
-        print(f"{pad}{B}⚠{R} {DIM}sin remote configurado — nada que jalar{R}")
+        print(f"{pad}{B}⚠{R} {DIM}"
+              + _t("cli.repo.no_remote", "sin remote configurado — nada que jalar")
+              + f"{R}")
         return "skipped"
     _, dirty, _ = _git(path, "status", "--porcelain", timeout=15)
     if dirty:
-        print(f"{pad}{B}⚠{R} cambios locales sin commitear {DIM}— no jalo encima; "
-              f"commitea/guarda y reintenta{R}")
+        print(f"{pad}{B}⚠{R} "
+              + _t("cli.repo.dirty", "cambios locales sin commitear")
+              + f" {DIM}— "
+              + _t("cli.repo.dirty_hint", "no jalo encima; commitea/guarda y "
+                   "reintenta") + f"{R}")
         return "skipped"
     _, branch, _ = _git(path, "rev-parse", "--abbrev-ref", "HEAD", timeout=10)
     _, old, _ = _git(path, "rev-parse", "--short", "HEAD", timeout=10)
@@ -859,59 +812,188 @@ def _update_repo(label, path, transport="git"):
     if rc != 0:
         low = (out + " " + err).lower()
         if "no tracking information" in low or "no remote ref" in low or "couldn't find remote ref" in low:
-            print(f"{pad}{B}⚠{R} {DIM}la rama '{branch}' no rastrea a origin — "
-                  f'git -C "{path}" branch --set-upstream-to=origin/{branch}{R}')
+            print(f"{pad}{B}⚠{R} {DIM}"
+                  + _t("cli.repo.no_upstream", "la rama '{branch}' no rastrea a "
+                       "origin", branch=branch)
+                  + f' — git -C "{path}" branch --set-upstream-to=origin/{branch}{R}')
         elif "could not resolve" in low or "unable to access" in low or "timeout" in low or "connection" in low:
-            print(f"{pad}{B}⚠{R} {DIM}sin conexión con origin (¿offline?) — se queda como está{R}")
+            print(f"{pad}{B}⚠{R} {DIM}"
+                  + _t("cli.repo.offline", "sin conexión con origin (¿offline?) — "
+                       "se queda como está") + f"{R}")
         elif "not possible to fast-forward" in low or "divergent" in low:
-            print(f"{pad}{B}⚠{R} historia divergente {DIM}— resuélvelo a mano: "
-                  f'git -C "{path}" pull --ff-only{R}')
+            print(f"{pad}{B}⚠{R} "
+                  + _t("cli.repo.diverged", "historia divergente")
+                  + f" {DIM}— "
+                  + _t("cli.repo.diverged_hint", "resuélvelo a mano:")
+                  + f' git -C "{path}" pull --ff-only{R}')
         else:
-            print(f"{pad}{B}⚠{R} {DIM}{(err or out).splitlines()[-1] if (err or out) else 'pull falló'}{R}")
+            _last = ((err or out).splitlines()[-1] if (err or out)
+                     else _t("cli.repo.pull_failed", "pull falló"))
+            print(f"{pad}{B}⚠{R} {DIM}{_last}{R}")
         return "skipped"
     _, new, _ = _git(path, "rev-parse", "--short", "HEAD", timeout=10)
     if new and new != old:
-        print(f"{pad}{C}✓{R} actualizado a {C}{new}{R} {DIM}(rama {branch}){R}")
+        print(f"{pad}{C}✓{R} " + _t("cli.repo.updated_to", "actualizado a")
+              + f" {C}{new}{R} {DIM}("
+              + _t("cli.repo.branch", "rama {branch}", branch=branch) + f"){R}")
         return "updated"
-    print(f"{pad}{C}✓{R} {DIM}ya al día (rama {branch}){R}")
+    print(f"{pad}{C}✓{R} {DIM}"
+          + _t("update.harness.uptodate", "ya al día") + " ("
+          + _t("cli.repo.branch", "rama {branch}", branch=branch) + f"){R}")
     return "uptodate"
+
+
+def _print_harness_update(res):
+    """Una línea (o dos) que cuentan qué pasó con el harness, en lenguaje de
+    usuario. `res` = updater.update_harness()."""
+    import updater
+    pad = f"  {'WORKSPACE':<22}"
+    st = res.get("status")
+    if st == updater.UPDATED:
+        frm = res.get("from_version") or res.get("from", "")[:7]
+        to = res.get("to_version") or res.get("to", "")[:7]
+        ver = (f"v{frm} → v{to}" if frm != to else f"v{to} ({res.get('to', '')[:7]})")
+        print(f"{pad}{C}✓{R} {_t('update.harness.updated', 'actualizado')} {C}{ver}{R} "
+              f"{DIM}("
+              + _t("cli.update.changes", "{n} cambio(s)",
+                   n=len(res.get('commits') or []))
+              + " · " + _t("cli.repo.branch", "rama {branch}",
+                           branch=res.get('branch')) + f"){R}")
+        mig = res.get("migrations") or {}
+        try:
+            import migrate as _mig
+            line = _mig.summary_line(mig) if not mig.get("error") else ""
+        except Exception:
+            line = ""
+        if line:
+            print(f"  {'':<22}{DIM}{line}{R}")
+        return
+    if st == updater.UPTODATE:
+        print(f"{pad}{C}✓{R} {DIM}{_t('update.harness.uptodate', 'ya al día')} "
+              f"(v{res.get('from_version') or '?'} · "
+              + _t("cli.repo.branch", "rama {branch}", branch=res.get('branch'))
+              + f"){R}")
+        return
+    if st == updater.ROLLED_BACK:
+        print(f"{pad}{B}⚠{R} {_t('update.harness.rolled_back', 'la versión nueva no arrancó en esta máquina: volví a la anterior')}"
+              f" {DIM}(v{res.get('from_version') or '?'}){R}")
+        if res.get("detail"):
+            print(f"  {'':<22}{DIM}{res['detail'][:160]}{R}")
+        print(f"  {'':<22}{DIM}{_t('update.harness.held_hint', 'Se queda así hasta que publiquemos un arreglo; no tienes que hacer nada.')}{R}")
+        return
+    if st == updater.HELD:
+        h = updater.hold() or {}
+        if h.get("kind") == "manual":
+            msg = _t("update.harness.paused_manual",
+                     "volviste a la versión anterior; la v{v} queda en pausa hasta que "
+                     "publiquemos una más nueva", v=h.get("bad_version") or "?")
+        else:
+            msg = _t("update.harness.held", "versión fijada: la última publicada no "
+                     "arrancó aquí y aún no hay una más nueva")
+        print(f"{pad}{B}⚠{R} {DIM}{msg} — workspace update --force{R}")
+        return
+    if st == updater.ROLLBACK_FAILED:
+        print(f"{pad}{B}⚠{R} {updater.reason_text('reset_failed')}")
+        print(f"  {'':<22}{DIM}{_t('update.harness.rollback_failed_hint', 'Corre `workspace doctor`; si sigue, `workspace doctor --bundle` y envíanos el zip.')}{R}")
+        return
+    print(f"{pad}{B}⚠{R} {DIM}{updater.reason_text(res.get('reason'))}{R}")
+
+
+def _cmd_update_auto(args):
+    """`workspace update --auto` muestra el modo; `--auto <modo>` lo cambia."""
+    import updater
+    i = args.index("--auto")
+    val = args[i + 1].lower() if i + 1 < len(args) else ""
+    alias = {"on": "auto", "si": "auto", "sí": "auto", "avisar": "notify",
+             "aviso": "notify", "no": "off", "apagado": "off", "apagar": "off"}
+    val = alias.get(val, val)
+    if val:
+        if val not in updater.AUTO_MODES:
+            print(_t("cli.update.auto_usage",
+                     "uso: workspace update --auto [auto|notify|off]"))
+            return 2
+        try:
+            updater.set_auto_mode(val)
+        except Exception as e:
+            print(f"{B}⚠{R} " + _t("cli.update.auto_save_fail",
+                                    "no pude guardar el ajuste: {err}", err=e))
+            return 1
+    print(_t("cli.update.auto_head", "Actualizaciones") + " "
+          + updater.auto_mode_text())
+    if os.environ.get("WORKSPACE_NO_AUTOUPDATE") and val and val != "off":
+        print(f"{DIM}  " + _t("cli.update.auto_env", "ojo: WORKSPACE_NO_AUTOUPDATE=1 "
+                               "está puesto en tu terminal y manda sobre el "
+                               "ajuste; quítalo para que valga «{val}».", val=val)
+              + f"{R}")
+    print(f"{DIM}  " + _t("cli.update.auto_change", "Cambia con: workspace update "
+                           "--auto auto | notify | off · `workspace update` "
+                           "instala cuando quieras.") + f"{R}")
+    return 0
 
 
 def cmd_update(args=None):
     """`workspace update` — deja la máquina del socio al día y verificada, en uno:
-      1. git pull --ff-only de WORKSPACE (en su rama actual: stable para el equipo, main para quien desarrolla).
-      2. git pull --ff-only de cada cerebro registrado (resueltos con dispatch.resolve_brain).
-      3. workspace doctor (REPARA) al final → además de verificar, arregla hooks/launchers/tema.
-    Así un solo `workspace update` deja la máquina al día Y auto-curada (flujo de self-heal
-    remoto: el equipo pushea un fix → el usuario corre update → su máquina se repara sola).
+      1. Harness: updater.update_harness (candado → anota de dónde sale → avanza
+         solo en fast-forward → comprueba que la versión nueva ARRANCA aquí →
+         si no, vuelve sola a la anterior → aplica los ajustes registrados).
+      2. git pull --ff-only de cada cerebro registrado (resueltos con brain_resolver).
+      3. workspace doctor (REPARA) al final, en un proceso NUEVO si el harness
+         cambió: así el doctor que corre es el de la versión nueva.
     Seguro e idempotente: repo sucio / offline / sin remote → ⚠ y sigue con los demás.
-    `workspace update --check` solo diagnostica (no repara); `workspace update --no-check` salta el doctor."""
+    `--check` solo diagnostica · `--no-check` salta el doctor · `--force` reintenta
+    una versión fijada · `--rollback` vuelve a la versión anterior al último update ·
+    `--auto [auto|notify|off]` muestra o elige si se actualiza solo."""
     args = list(args or [])
-    print(f"{C}WORKSPACE update{R} {DIM}— harness + cerebros, en su rama actual…{R}\n")
+    if "--rollback" in args:
+        return _cmd_update_rollback(args)
+    if "--auto" in args:
+        return _cmd_update_auto(args)
+    print(f"{C}WORKSPACE update{R} {DIM}— "
+          + _t("cli.update.head", "harness + cerebros, en su rama actual…")
+          + f"{R}\n")
+    import updater
+    hres = updater.update_harness(ROOT, mode="manual", force="--force" in args)
+    if hres.get("reason") == "git_missing":
+        print(f"\n{B}" + _t("cli.update.no_git", "git no está instalado en esta "
+                             "máquina.") + f"{R} "
+              + _t("cli.update.no_git_hint", "Instálalo y vuelve a correr "
+                   "`workspace update`."))
+        return 1
+    _print_harness_update(hres)
+    skipped = 1 if hres.get("status") in (updater.SKIPPED, updater.BUSY,
+                                           updater.HELD, updater.ROLLED_BACK) else 0
 
-    # repos: WORKSPACE + cada cerebro registrado (misma resolución que el dispatcher)
-    repos = [("WORKSPACE", ROOT, "git")]
+    # cerebros: cada uno con su pull de siempre (son datos del usuario)
+    repos = []
     try:
         import dispatch
+        import brain_resolver                     # Z20: resolver canónico único
         for entry in dispatch.load_registry().get("agents", []):
             try:
                 cfg = dispatch.load_agent_cfg(entry)
             except Exception:
                 cfg = {}
-            brain = dispatch.resolve_brain(entry["name"], cfg)
-            if brain and os.path.isdir(brain):
-                repos.append((f"cerebro {entry['name']}", brain,
+            res = brain_resolver.resolve(entry["name"], cfg, entry)
+            brain = res.path
+            if res.get("exists"):
+                repos.append((_t("cli.update.brain_label", "cerebro {name}",
+                                 name=entry['name']), brain,
                               dispatch.brain_transport(entry["name"], brain)))
             else:
-                repos.append((f"cerebro {entry['name']}", None, "git"))
+                repos.append((_t("cli.update.brain_label", "cerebro {name}",
+                                 name=entry['name']), None, "git"))
     except Exception as e:
-        print(f"  {B}⚠{R} {DIM}no pude leer el registry de agentes ({e}) — solo actualizo WORKSPACE{R}")
+        print(f"  {B}⚠{R} {DIM}"
+              + _t("cli.update.registry_fail", "no pude leer el registry de "
+                   "agentes ({err}) — solo actualizo WORKSPACE", err=e) + f"{R}")
 
-    seen, skipped = set(), 0
+    seen = {os.path.normcase(os.path.realpath(ROOT))}
     try:
         for label, path, transport in repos:
             if path is None:
-                print(f"  {label:<22}{B}⚠{R} {DIM}cerebro no resuelto — corre `workspace doctor`{R}")
+                print(f"  {label:<22}{B}⚠{R} {DIM}"
+                      + _t("cli.update.brain_unresolved", "cerebro no resuelto — "
+                           "corre `workspace doctor`") + f"{R}")
                 skipped += 1
                 continue
             key = os.path.normcase(os.path.realpath(path))
@@ -921,30 +1003,196 @@ def cmd_update(args=None):
             if _update_repo(label, path, transport) == "skipped":
                 skipped += 1
     except FileNotFoundError:
-        print(f"\n{B}git no está instalado en esta máquina.{R} Instálalo y vuelve a correr `workspace update`.")
+        print(f"\n{B}" + _t("cli.update.no_git", "git no está instalado en esta "
+                             "máquina.") + f"{R} "
+              + _t("cli.update.no_git_hint", "Instálalo y vuelve a correr "
+                   "`workspace update`."))
         return 1
 
     if skipped:
-        print(f"\n{DIM}  {skipped} repo(s) quedaron sin actualizar (⚠ arriba) — el resto sí jaló.{R}")
+        print(f"\n{DIM}  " + _t("cli.update.skipped", "{n} repo(s) quedaron sin "
+                                "actualizar (⚠ arriba) — el resto sí jaló.",
+                                n=skipped) + f"{R}")
 
     if "--no-check" in args:
-        print(f"\n{C}✓ Update terminado.{R} {DIM}(doctor omitido por --no-check){R}")
+        print(f"\n{C}" + _t("cli.update.done", "✓ Update terminado.") + f"{R} {DIM}"
+              + _t("cli.update.no_check", "(doctor omitido por --no-check)")
+              + f"{R}")
         return 0
 
     check_only = "--check" in args
     if check_only:
-        print(f"\n{DIM}  Verificando la instalación (workspace doctor --check)…{R}")
+        print(f"\n{DIM}  " + _t("cli.update.verifying", "Verificando la "
+                                "instalación (workspace doctor --check)…") + f"{R}")
     else:
-        print(f"\n{DIM}  Verificando y reparando la instalación (workspace doctor)…{R}")
+        print(f"\n{DIM}  " + _t("cli.update.verifying_fix", "Verificando y "
+                                "reparando la instalación (workspace doctor)…")
+              + f"{R}")
+    # `--from-update`: el doctor NO vuelve a ofrecer update (evita recursión).
+    dargs = (["--check"] if check_only else []) + ["--from-update"]
     try:
-        # `--from-update`: el doctor NO vuelve a ofrecer update (ya venimos de update;
-        # evita recursión/loop).
-        rc = cmd_doctor((["--check"] if check_only else []) + ["--from-update"])
+        if hres.get("status") == updater.UPDATED:
+            # código nuevo en disco → el doctor NUEVO, en su propio proceso
+            return subprocess.call([sys.executable, os.path.join(ROOT, "front.py"),
+                                    "doctor"] + dargs)
+        rc = cmd_doctor(dargs)
     except Exception as e:
-        print(f"  {B}⚠{R} {DIM}el doctor falló ({type(e).__name__}: {e}) — "
-              f"corre `workspace doctor` a mano{R}")
+        print(f"  {B}⚠{R} {DIM}"
+              + _t("cli.update.doctor_failed", "el doctor falló ({err}) — corre "
+                   "`workspace doctor` a mano", err=f"{type(e).__name__}: {e}")
+              + f"{R}")
         return 1
     return rc or 0
+
+
+def _cmd_update_rollback(args):
+    """`workspace update --rollback` — vuelve a la versión anterior al último
+    update y la deja fijada hasta que se publique una más nueva. Muestra qué
+    va a hacer y pide confirmación (salvo --yes)."""
+    import updater
+    e = updater.rollback_target(ROOT)
+    if not e:
+        print(f"  {DIM}{_t('update.rollback.none', 'No hay una actualización reciente a la que volver desde esta versión.')}{R}")
+        return 1
+    to_v = e.get("to_version") or e["to"][:7]
+    frm_v = e.get("from_version") or e["from"][:7]
+    when = (e.get("at") or "")[:16].replace("T", " ")
+    print("  " + _t("update.rollback.plan",
+                    "Volver de v{to} a v{frm} (la que tenías antes del update del {at}).",
+                    to=to_v, frm=frm_v, at=when))
+    print(f"  {DIM}" + _t("update.rollback.keeps",
+                          "Tus agentes, cerebros y ajustes no se tocan. La versión nueva "
+                          "queda en pausa hasta que publiquemos una más reciente.") + f"{R}")
+    if "--yes" not in args and "-y" not in args:
+        try:
+            if not sys.stdin.isatty():
+                print(f"  {DIM}" + _t("update.rollback.need_yes",
+                                      "(sin terminal interactiva: añade --yes para confirmar)") + f"{R}")
+                return 1
+            ans = input("  " + _t("update.rollback.confirm", "¿Continuar? [s/N]") + " ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            return 1
+        if ans not in ("s", "si", "sí", "y", "yes"):
+            return 1
+    out = updater.rollback(ROOT)
+    if out["ok"]:
+        print(f"  {C}✓{R} " + _t("update.rollback.done", "Listo: estás en v{v}.",
+                                  v=out.get("to_version") or out["to"][:7]))
+        return 0
+    msg = updater.reason_text(out["reason"]) if out["reason"] in updater.REASONS else out["reason"]
+    print(f"  {B}⚠{R} {msg}")
+    return 1
+
+
+def _changelog_section(version, lang=None):
+    """Viñetas de la sección `## <version>` del CHANGELOG del idioma activo
+    (CHANGELOG.md = español, CHANGELOG.en.md = inglés; si falta uno se usa el
+    otro). [] si no hay sección. Lectura pura, falla-suave."""
+    try:
+        lang = lang or (i18n.lang() if i18n else "es")
+    except Exception:
+        lang = "es"
+    names = (["CHANGELOG.en.md", "CHANGELOG.md"] if lang == "en"
+             else ["CHANGELOG.md", "CHANGELOG.en.md"])
+    for fn in names:
+        try:
+            with open(os.path.join(ROOT, fn), encoding="utf-8") as fh:
+                lines = fh.read().splitlines()
+        except OSError:
+            continue
+        out, inside = [], False
+        for ln in lines:
+            if ln.startswith("## "):
+                if inside:
+                    break
+                inside = ln[3:].strip().split(" ")[0].lstrip("v") == version
+                continue
+            if not inside:
+                continue
+            if ln.strip().startswith(("- ", "* ")):
+                out.append(ln.strip()[2:].strip())
+            elif out and ln.startswith("  ") and ln.strip():
+                out[-1] += " " + ln.strip()       # viñeta que sigue en la línea de abajo
+        if out:
+            return out
+    return []
+
+
+def cmd_version(args=None):
+    """`workspace version` (`--version`, `-V`) — qué versión corre ESTA máquina,
+    de dónde viene, su última actualización y sus ajustes. Para que un cliente
+    (y quien le da soporte) sepa exactamente qué tiene, sin abrir git."""
+    import platform
+    import updater
+    args = list(args or [])
+    cur = updater.current(ROOT)
+    v = cur.get("version") or "?"
+    if "--short" in args:
+        print(v)
+        return 0
+    print(f"  {C}{BO}" + _t("version.title", "Workspace v{v}", v=v) + f"{R}")
+    if cur.get("sha"):
+        print(f"  {DIM}" + _t("version.commit", "código: {sha} · rama {branch}",
+                              sha=cur["short"], branch=cur.get("branch") or "?") + f"{R}")
+    try:
+        import capabilities
+        osname = capabilities.os_label()
+    except Exception:
+        osname = "?"
+    print(f"  {DIM}" + _t("version.python", "Python {py} · {os}",
+                          py=platform.python_version(), os=osname) + f"{R}")
+    last = updater.last_update()
+    if last:
+        print(f"  {DIM}" + _t("version.last_update", "última actualización: {at} (v{frm} → v{to})",
+                              at=(last.get("at") or "")[:16].replace("T", " "),
+                              frm=last.get("from_version") or "?",
+                              to=last.get("to_version") or "?") + f"{R}")
+    h = updater.hold()
+    if h:
+        bad = h.get("bad_version") or h.get("bad", "")[:7]
+        if h.get("kind") == "manual":
+            print(f"  {B}" + _t("version.paused_manual", "⚠ volviste a la versión anterior: "
+                                "la v{v} queda en pausa hasta una más nueva", v=bad) + f"{R}")
+        else:
+            print(f"  {B}" + _t("version.held", "⚠ versión fijada: la v{v} no arrancó en esta "
+                                "máquina; esperando una más nueva", v=bad) + f"{R}")
+    try:
+        import migrate
+        ms = migrate.status()
+        print(f"  {DIM}" + _t("version.migrations", "ajustes aplicados: {n} · pendientes: {p}",
+                              n=len(ms["applied"]), p=len(ms["pending"])) + f"{R}")
+        if ms.get("failed"):
+            print(f"  {B}" + _t("version.migration_failed", "⚠ un ajuste falló: {id} — corre "
+                                "`workspace doctor`", id=ms["failed"]["id"]) + f"{R}")
+    except Exception:
+        pass
+    notes = _changelog_section(v)
+    if notes:
+        print("\n  " + _t("version.changes", "Novedades de esta versión:"))
+        for n in notes[:10]:
+            print(f"   · {n}")
+        print(f"  {DIM}" + _t("version.changelog_hint", "Historial completo: CHANGELOG.md") + f"{R}")
+    return 0
+
+
+def _apply_pending_migrations():
+    """Al abrir el hub: si una actualización dejó ajustes pendientes (p. ej. la
+    hizo una versión anterior del actualizador, o se corrió `git pull` a mano),
+    aplicarlos AQUÍ, a la vista: una línea y una pausa breve para leerla. Nunca
+    rompe el arranque. Silencioso si no hay nada."""
+    try:
+        import migrate
+        if not migrate.has_runnable_pending():
+            return
+        res = migrate.run_pending()
+        line = migrate.summary_line(res)
+        if line:
+            sys.stderr.write(f"\n  {B2}{line}{R}\n")
+            sys.stderr.flush()
+            import time
+            time.sleep(1.6)
+    except Exception:
+        pass
 
 
 def _menu_header():
@@ -966,46 +1214,13 @@ def _vis(s):
     # del recinto: un nombre coreano (누리) mal medido sobre-rellena la línea,
     # la envuelve (wrap) y descuadra el redibujo.
     return sum(_eaw(c) for c in _wsane(_strip_ansi(s)))
+# Ancho del bloque de texto de los fallbacks estáticos (picker sin tty).
+_BLOCK_W = 72
+
+
 def _ctr(s):
-    pad = max(0, ((render.W + 4) - _vis(s)) // 2)
+    pad = max(0, (_BLOCK_W - _vis(s)) // 2)
     return " " * pad + s
-def _rgt(s, margin=1):
-    """Alinea `s` a la DERECHA del bloque de contenido (content_w = render.W+4),
-    con un pequeño margen. Para el indicador de versión abajo-derecha del hub.
-    Respeta el ancho visual (ANSI/CJK). Si no cabe, no rellena (no rompe layout)."""
-    pad = max(0, (render.W + 4) - _vis(s) - margin)
-    return " " * pad + s
-def _shimmer(text, ph, base, hi):
-    """Barrido luminoso: una ventana brillante recorre el texto (animación de herramientas)."""
-    n = len(text); pos = ph % (n + 6)
-    return "".join((hi if abs(i - pos) <= 1 else base) + c for i, c in enumerate(text)) + R
-
-
-# ── Estrellas lejanas: campo ESTÁTICO y determinista por (fila,col). No anima → no
-#    parpadea ni rompe el TUI (se dibuja una vez en full_draw, el redraw no lo toca).
-#    Apagar con WORKSPACE_NO_STARS=1 (el env SIEMPRE gana) o `settings set ui.stars off`. ──
-if TH:
-    _STAR_DIM, _STAR_MID, _STAR_HI = TH.STAR_DIM, TH.STAR_MID, TH.STAR_HI
-else:
-    _STAR_DIM = [fg(236), fg(237), fg(239), fg(240)]  # tenues (la mayoría: "a lo lejos")
-    _STAR_MID = [fg(243), fg(246)]                    # medias
-    _STAR_HI = fg(251)                                # raras brillantes (acento)
-# Glifos del cielo. En Windows Terminal varios dingbats brillantes (✦ U+2726, ✧ U+2727,
-# rango 0x2600-0x27BF) se dibujan a DOBLE ancho mientras el cielo los cuenta como 1 celda →
-# descuadra los márgenes y deja "glitches" de estrellitas. En Windows usamos solo glifos
-# angostos garantizados (·, ⋆ U+22C6, *, +). Mac mantiene los dingbats (ahí miden 1).
-if os.name == "nt":
-    _GLYPH_D = ["·", "·", ".", "·", "·"]
-    _GLYPH_H = ["*", "⋆", "+", "·"]
-else:
-    _GLYPH_D = ["·", "·", "˙", ".", "·"]
-    _GLYPH_H = ["✦", "⋆", "✧", "*"]
-# un tema puede traer SUS glifos de cielo (p. ej. oficina-8bit: píxeles ASCII);
-# los overrides de los temas del repo son angostos-seguros en ambos OS.
-if GL.get("star_d"):
-    _GLYPH_D = list(GL["star_d"])
-if GL.get("star_h"):
-    _GLYPH_H = list(GL["star_h"])
 def _ui_setting_on(name):
     """Setting bool ui.* del store unificado (settings.py, misma raíz).
     Falla-suave → True (el look de siempre). El env WORKSPACE_NO_* se chequea
@@ -1015,37 +1230,6 @@ def _ui_setting_on(name):
         return _settings.enabled("ui." + name, default=True)
     except Exception:
         return True
-
-
-STARS = (not os.environ.get("WORKSPACE_NO_STARS")) and _ui_setting_on("stars")
-
-
-def _hsh(a, b):
-    x = ((a * 73856093) ^ (b * 19349663) ^ 0x9E3779B9) & 0xFFFFFFFF
-    x ^= x >> 13; x = (x * 0x85EBCA6B) & 0xFFFFFFFF; x ^= x >> 16
-    return x
-
-
-def _starline(width, row, mod=29, hi_floor=90):
-    """Una fila de cielo: puntos blancos dispersos, deterministas por (row, col).
-    `mod` controla la densidad (mayor = más ralo) y `hi_floor` cuántas son brillantes
-    (mayor = menos grandes); el caller los varía con la altura para dar profundidad."""
-    if width <= 0:
-        return ""
-    cells = []
-    for c in range(width):
-        h = _hsh(row, c)
-        if h % mod == 0:                                 # ~1/mod densidad → dispersas
-            t = (h >> 6) % 100
-            if t < 70:                                   # tenues (mayoría)
-                cells.append(_STAR_DIM[(h >> 10) % len(_STAR_DIM)] + _GLYPH_D[(h >> 14) % len(_GLYPH_D)] + R)
-            elif t < hi_floor:                           # medias
-                cells.append(_STAR_MID[(h >> 10) % len(_STAR_MID)] + "·" + R)
-            else:                                        # brillantes (raras, menos hacia abajo)
-                cells.append(_STAR_HI + _GLYPH_H[(h >> 14) % len(_GLYPH_H)] + R)
-        else:
-            cells.append(" ")
-    return "".join(cells)
 
 
 def _heartbeat_line():
@@ -1060,17 +1244,46 @@ def _heartbeat_line():
         st = heartbeat.state()
         mode = st.get("mode") or "?"
         if mode == "off":
-            return f"{DIM}latido  {GREY}off{DIM} · cola en espera{R}"
+            return (f"{DIM}{_t('hub.hb.label', 'latido')}  {GREY}off{DIM} · "
+                    f"{_t('hub.hb.queue_waiting', 'cola en espera')}{R}")
         b = st.get("budget") or {}
         pct = b.get("pct")
         uso = "?" if pct is None else f"{round(pct)}%"
-        ln = (f"{DIM}latido  {C}{mode}{DIM} · cola {C}{st.get('count', 0)}{DIM}"
-              f" · uso 5h {C}{uso}{R}")
+        ln = (f"{DIM}{_t('hub.hb.label', 'latido')}  {C}{mode}{DIM} · "
+              f"{_t('hub.hb.queue_word', 'cola')} {C}{st.get('count', 0)}{DIM}"
+              f" · {_t('hub.instr.usage5h', 'uso 5h')} {C}{uso}{R}")
         if b.get("ok") is not True:                  # tope alcanzado o dato desconocido
-            ln += f"{DIM} · {B}presupuesto en pausa{R}"
+            ln += f"{DIM} · {B}{_t('hub.hb.paused', 'presupuesto en pausa')}{R}"
         return ln
     except Exception:
         return ""
+
+
+def _code_stamp():
+    """(VERSION, HEAD) del código en disco — para saber si una actualización
+    cambió el código mientras el hub corría. Falla-suave → ("", "")."""
+    ver = head = ""
+    try:
+        with open(os.path.join(ROOT, "VERSION"), encoding="utf-8") as fh:
+            ver = fh.read().strip()
+    except Exception:
+        pass
+    try:
+        r = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"],
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=4)
+        head = (r.stdout or "").strip() if r.returncode == 0 else ""
+    except Exception:
+        pass
+    return (ver, head)
+
+
+def _restart_hub():
+    """Reabre el hub con el código nuevo (tras una actualización)."""
+    argv = [sys.executable, os.path.abspath(__file__)] + sys.argv[1:]
+    if os.name == "nt":   # Windows: exec no reemplaza el proceso (consola rota) → subprocess (igual que dispatch._exec)
+        sys.exit(subprocess.run(argv).returncode)
+    os.execv(sys.executable, argv)
 
 
 def _hub_version_text():
@@ -1113,7 +1326,17 @@ def _hub_version_text():
                 return 0
         if is_client:
             oks, short = g("rev-parse", "--short", "HEAD")
-            ver = "v" + short if oks and short else branch
+            try:                # versión legible (VERSION) antes que el sha
+                _vf = open(os.path.join(ROOT, "VERSION"), encoding="utf-8").read().strip()
+            except Exception:
+                _vf = ""
+            ver = ("v" + _vf) if _vf else ("v" + short if oks and short else branch)
+            try:                # versión fijada tras una vuelta atrás: no es "update
+                import updater  # disponible" — es una espera deliberada
+                if updater.hold():
+                    return (ver + " · " + _t("hub.ver.held", "versión fijada"), False)
+            except Exception:
+                pass
             if has_origin and _count("HEAD..origin/main") > 0:
                 update = True
                 return (ver + " · " + _t("hub.ver.update_available",
@@ -1182,6 +1405,11 @@ HB_TAGS = {"auto": "el cron lanza solo",
            "off": "latido apagado"}
 
 
+def _hb_tags():
+    """HB_TAGS en el idioma de la UI (HB_TAGS = la fuente ES)."""
+    return {m: _t("hub.hb.tag." + m, tag) for m, tag in HB_TAGS.items()}
+
+
 def _agent_now(brain, max_age_h=6):
     """Tarea EN VIVO de un agente (<brain>/STATE/now.json — la publica su
     adapter/status). {'task','state'} o None si no hay / viejo / roto.
@@ -1233,17 +1461,19 @@ def _latido_status(st, mode=None):
         mode = mode or st.get("mode") or "?"
         b = st.get("budget") or {}
         pct = b.get("pct")
-        uso = "uso 5h " + ("?" if pct is None else f"{round(pct)}%")
-        parts = [HB_TAGS.get(mode, ""), f"cola {st.get('count', 0)}"]
+        uso = _t("hub.hb.usage5h", "uso 5h {uso}",
+                 uso=("?" if pct is None else f"{round(pct)}%"))
+        parts = [_hb_tags().get(mode, ""),
+                 _t("hub.hb.queue", "cola {n}", n=st.get("count", 0))]
         nxt = st.get("next")
         if nxt and mode != "off":
             nxt = nxt if len(nxt) <= 30 else nxt[:29] + "…"
             parts.append(f"next {nxt}")
         parts.append(uso)
         if b.get("ok") is not True:                  # tope alcanzado o dato desconocido
-            parts.append("presupuesto en pausa")
+            parts.append(_t("hub.hb.paused", "presupuesto en pausa"))
         ln = " · ".join(p for p in parts if p)
-        if len(ln) > render.W and nxt:               # no desbordar el bloque (rompería el redraw)
+        if len(ln) > _BLOCK_W and nxt:               # no desbordar el bloque
             ln = " · ".join(p for p in parts if p and not p.startswith("next "))
         return ln
     except Exception:
@@ -1267,43 +1497,48 @@ def _motor_summary(agents):
     return "claude-code"
 
 
-def _franja(agents):
-    """Franja fina (reemplaza la caja gruesa): tagline + estado del harness, centrado."""
-    orn = f"{DK}{GSEP * 12}{C} {GORN} {DK}{GSEP * 12}{R}"
-    try:                                              # versión del harness (saber qué build corre un cliente)
-        _v = open(os.path.join(ROOT, "VERSION"), encoding="utf-8").read().strip()
-    except Exception:
-        _v = ""
-    tag = f"{DIM}{_t('hub.franja.tag', 'WORKSPACE · OS de agentes')}{(' · v' + _v) if _v else ''}{R}"
-    # Sin listas de nombres (agentes/cerebros) aquí: cada agente ya se rotula bajo
-    # su fuego. Solo el estado compacto del harness para no saturar ni desbordar.
-    # El motor ya NO va fijo: es el binding EFECTIVO (harnesses.binding) — con
-    # motores mezclados dice `N motores` y el detalle vive en la caja AGENTES.
-    l2 = (f"{DIM}{_t('hub.franja.engine', 'motor')}  {C}{_motor_summary(agents)}"
-          f"{DIM}{_t('hub.franja.engine_suffix', ' · sin API key · sync')}{R}")
-    out = [_ctr(orn), "", _ctr(tag), "", _ctr(l2)]
-    hb = _heartbeat_line()
-    if hb:
-        out.append(_ctr(hb))
-    return out
-
-
-def _wordmark_reflection():
-    """Franja-REFLEJO ░ bajo el wordmark del recinto clásico (toque de grises
-    2026-10-02): la silueta de las 2 últimas filas del ANSI Shadow en orden
-    espejo, B2 → DK desvaneciéndose — el mismo gesto que al socio le gustó en el
-    Tono y que ya viven los layouts `dia`/`centro` (hublayout.title_reflection).
-    Mismo centrado que render.wordmark_plain(). Falla-suave ABSOLUTA → []."""
+def _onboarding_hint():
+    """Aviso del hub si el onboarding quedó a medias (U07: pendientes
+    visibles al explorar, sin forzar). Falla-suave → ''."""
     try:
-        rows = render.WORD
-        pad = " " * max(0, ((render.W + 4) - max(len(r) for r in rows)) // 2)
-        out = []
-        for tint, row in ((B2, rows[-1]), (DK, rows[-2])):
-            sil = "".join(" " if ch == " " else "░" for ch in row)
-            out.append(f"{pad}{tint}{sil}{R}")
-        return out
+        import onboarding_tui
+        return onboarding_tui.resumen_pendiente()
     except Exception:
-        return []
+        return ""
+
+
+def _hub_agents():
+    """(agents, revision) para el hub desde el estado compartido (agent_state).
+    Cada entrada conserva el shape histórico (name/display/color/brain/
+    tagline/engine/engine_eff/engine_src/active) que consumen layouts y
+    drivers; `active` = lanzable. Los averiados llevan `status_label` (lo
+    pintan los layouts en lugar de «pronto») y `cause`/`repair`.
+    Falla-suave: sin agent_state → lista vacía (jamás agentes inventados)."""
+    try:
+        import agent_state
+        snap = agent_state.snapshot()
+    except Exception:
+        return [], None
+    out = []
+    for a in snap.for_hub():
+        ok = a.launchable
+        out.append({"name": a["name"], "id": a["id"],
+                    "display": a["display"],
+                    "color": a["color"] or AGENT_COLORS.get(a["name"], "red"),
+                    "brain": a["brain"],
+                    "tagline": a["tagline"] if ok else (a["cause"] or a["tagline"]),
+                    "engine": a["engine_default"] or "claude-code",
+                    "engine_eff": a["engine"],
+                    "engine_src": a["engine_source"],
+                    "status": a["status"],
+                    "status_label": "" if ok else agent_state.label(a["status"]),
+                    "cause": a["cause"], "repair": a["repair"],
+                    "active": ok})
+    for p in snap.planned:
+        out.append({"name": p, "display": p.capitalize(), "brain": "",
+                    "color": AGENT_COLORS.get(p, "red"), "tagline": "",
+                    "status": "planned", "active": False})
+    return out, snap.revision
 
 
 def _menu_machinery(tout):
@@ -1312,42 +1547,16 @@ def _menu_machinery(tout):
     _animated_loop_windows): aquí vive TODO lo que pinta y la semántica del menú
     (nav/activate/tick); en los drivers solo vive el mecanismo de teclado y el
     reloj. Misma salida en ambas plataformas."""
-    reg = registry()
-    # Registry de HARNESSES (harness-os): binding efectivo por agente + ciclo
-    # con la tecla `m`. Falla-suave ABSOLUTA: sin harnesses.py el hub queda
-    # exactamente como antes (sin selector; el engine mostrado = agent.json).
+    # Agentes del hub DERIVADOS del estado compartido (agent_state, U12/Z13):
+    # registrado ≠ lanzable. Un averiado se ve (con su causa) para repararlo,
+    # pero active=False → Enter no lo lanza a un exec fallido. La lista se
+    # RECONSTRUYE en tick() cuando la revisión del estado cambia (otra ventana
+    # cargó/quitó/reparó un agente) — ver _reload_agents.
     try:
         import harnesses as _harn
     except Exception:
         _harn = None
-    agents = []
-    for a in reg.get("agents", []):
-        m = _meta(a)
-        try:
-            brain = a.get("brain") or dispatch.resolve_brain(a["name"], m)
-        except Exception:
-            brain = ""
-        eng_default = m.get("engine") or a.get("engine") or "claude-code"
-        if _harn:
-            try:
-                eng_eff, eng_src = _harn.binding(a["name"], eng_default)
-            except Exception:
-                eng_eff, eng_src = eng_default, "agente"
-        else:
-            eng_eff, eng_src = eng_default, "agente"
-        agents.append({"name": a["name"],
-                       "display": m.get("display_hub", m.get("display", a["name"])),
-                       "color": m.get("color", AGENT_COLORS.get(a["name"], "red")),
-                       "brain": brain,
-                       "tagline": m.get("tagline", ""),
-                       "engine": eng_default,
-                       "engine_eff": eng_eff,      # binding EFECTIVO (lo que lanzará dispatch)
-                       "engine_src": eng_src,      # 'local' (per-máquina) | 'agente' (agent.json)
-                       "active": True})
-    for p in reg.get("planned", []):
-        agents.append({"name": p, "display": p.capitalize(), "brain": "",
-                       "color": AGENT_COLORS.get(p, "red"), "tagline": "",
-                       "active": False})
+    agents, _agents_rev = _hub_agents()
     NA = len(agents)
     # «Config» fuera del MENÚ (el socio 2026-10-02) — se rehace después; el
     # subsistema (config_tui) sigue vivo, solo no se lista. Ver items().
@@ -1362,24 +1571,32 @@ def _menu_machinery(tout):
     # tecla→ítem + display por sección + acciones (motor/info). Lo consumen
     # jump()/quick() (drivers) y lo PINTAN los layouts junto a cada opción.
     JUMP, JKEYS, AKEYS = _jump_map(agents, opts)
+    _JUMP_SET = set(JUMP)          # VIVO: _reload_agents lo actualiza en sitio
     hb = _hb_snapshot()                               # snapshot del latido (para el status vivo del layout)
-    # 3ª sección del recinto: CONFIGS rápidas (pins editables — ui.hub_pins).
-    # El id interno del grupo sigue siendo "latido" (legacy, invisible al
-    # socio) para no regar el ruteo; la sección se llama CONFIGS y hoy
-    # muestra/edita los pins (latido.mode es UNO de ellos). Se muestra si hay
-    # pins (por default los hay); sin pins la sección se OMITE (falla-suave).
+    # LANZADOR (hublayout): el hub oficial y único. Su PERSONALIZACIÓN sale
+    # de hublayout.lanzador_pins() — los pins de front y los pintados deben
+    # ser LA MISMA lista (cfg_focus indexa ambos).
+    try:
+        import hublayout as _hlz
+    except Exception:
+        _hlz = None
+    # El id interno del grupo de PERSONALIZACIÓN sigue siendo "latido"
+    # (legacy, invisible al socio) para no regar el ruteo. Sin pins el
+    # grupo se OMITE (falla-suave).
     def _pins_now():
-        """CONFIGS ancladas (ui.hub_pins) → [{key,label,value}]. Falla-suave
-        TOTAL: cualquier problema → []."""
+        """Pins de PERSONALIZACIÓN → [{key,label,value}]. Falla-suave TOTAL:
+        cualquier problema → []."""
         try:
+            if _hlz is not None:
+                return _hlz.lanzador_pins()
             import settings as _st
             return _st.hub_pins_resolved()
         except Exception:
             return []
 
     def _lang_opts():
-        """Opciones del cuadro IDIOMA → [(code, nombre_nativo, es_activo)].
-        Falla-suave TOTAL: sin i18n → [] (el cuadro se OMITE, jamás levanta)."""
+        """Opciones de IDIOMA → [(code, nombre_nativo, es_activo)].
+        Falla-suave TOTAL: sin i18n → [] (la sección se OMITE, jamás levanta)."""
         try:
             import i18n as _i18n
             active = _i18n.lang()
@@ -1387,23 +1604,7 @@ def _menu_machinery(tout):
         except Exception:
             return []
     groups = ["dioses", "tools"] + (["latido"] if _pins_now() else [])
-    # CALENDARIO: sección navegable propia, y solo si el LAYOUT activo la
-    # dibuja (hublayout marca `"cal": True` en su entrada del registro). Así
-    # `clasico` y `centro` no ganan una sección fantasma que no pintan.
-    # (`_laybox` se arma más abajo; aquí se resuelve el layout directo.)
-    # «idioma»: sección navegable PROPIA (cuadro bajo PERSONALIZACIÓN) — dos
-    # opciones ES/EN visibles, ◄► mueve el cursor y Enter aplica (i18n.set_lang)
-    # con flip EN VIVO. UNIVERSAL: va en TODOS los layouts (clasico/centro/dia)
-    # y en la ventana alta/doble, no solo en pantalla completa (regla dura del
-    # estilo TUI, 2026-10-05). Cada layout dibuja el cuadro bajo su caja de
-    # personalización/«TEMAS Y AJUSTES». Va ANTES de "cal" en el orden de ↑↓.
     groups.append("idioma")
-    try:                        # import local: `_hl` se importa mas abajo
-        import hublayout as _hl0
-        if (_hl0.active() or {}).get("cal"):
-            groups.append("cal")
-    except Exception:
-        pass
     # Estado mutable compartido (los drivers lo mutan vía nav/activate/tick):
     #   group índice en `groups` (dioses / tools / latido=CONFIGS) · gsel/asel
     #   selección · cfg_focus pin ENFOCADO en CONFIGS (cursor) · hb_mode/hb_focus
@@ -1422,30 +1623,23 @@ def _menu_machinery(tout):
         _lf0 = _langs0.index(_i18n0.lang()) if _i18n0.lang() in _langs0 else 0
     except Exception:
         _lf0 = 0
-    S = {"cal_off": 0, "cal_mode": "", "cal_buf": "", "cal_msg": "",
-         "group": _g0, "gsel": 0, "asel": 0, "ph": 0, "msg": "", "hb_msg": "",
+    S = {"group": _g0, "gsel": 0, "asel": 0, "ph": 0, "msg": _onboarding_hint(), "hb_msg": "",
          "hb_mode": _hb0, "cfg_focus": 0, "lang_focus": _lf0,
          "hb_focus": HB_MODES.index(_hb0) if _hb0 in HB_MODES else 0,
          "frame": 0, "ign_start": 0, "BH": 0, "row0": 0,
-         # frame de ANIMACIÓN de layouts con anim=True (centro): avanza a
-         # cadencia BAJA en tick() — los sprites solo cambian de glifo
-         "anim": 0,
+         # LANZADOR: nivel (None = raíz), búsqueda y fila de su lista
+         "lz_level": None, "lz_q": "", "lz_sel": 0,
          # indicador de versión abajo-derecha (calculado una vez por sesión, sin red)
          "ver_line": _hub_version_line()}
 
     def gk():
         return groups[S["group"]]
 
-    # ── LAYOUT del hub (hublayout.py — eje independiente del tema): con un
-    #    layout NO-clasico activo, el dibujo se delega a su renderer con los
-    #    MISMOS datos (agentes+estado, acciones, latido) y la MISMA semántica
-    #    de teclado (nav/activate intactos). clasico → lay=None y NADA del
-    #    camino nativo cambia (paridad por construcción). Falla-suave
-    #    ABSOLUTA: sin hublayout / renderer roto → recinto clásico. ──
-    try:
-        import hublayout as _hl
-    except Exception:
-        _hl = None
+    # ── El hub se dibuja con el LANZADOR (hublayout.render_lanzador) con los
+    #    datos de la sesión y la semántica de teclado de abajo. Falla-suave
+    #    ABSOLUTA: sin hublayout / renderer roto → la vista angosta de texto
+    #    (responsive_ui), que conserva todas las acciones. ──
+    _hl = _hlz
     _laybox = {"lay": None}
     try:
         _laybox["lay"] = _hl.active() if _hl else None
@@ -1453,7 +1647,7 @@ def _menu_machinery(tout):
         _laybox["lay"] = None
 
     _LAYP = TH
-    _LDATA = None            # solo existe con layout alternativo (ver abajo)
+    _LDATA = None
     if _laybox["lay"]:
         for ag in agents:                    # estado vivo (una vez por sesión)
             now = _agent_now(ag.get("brain")) or {}
@@ -1466,14 +1660,12 @@ def _menu_machinery(tout):
             B=B, B2=B2, C=C, WH=WH, DIM=DIM, DK=DK, GREY=GREY, R=R, BO=BO,
             INACTIVE=INACTIVE, INACTIVE_HB=INACTIVE_HB, ERR=ERR, GLYPHS=GL)
         _LDATA = {"agents": agents, "opts": opts, "hb": hb,
-                  "hb_modes": HB_MODES, "hb_tags": HB_TAGS,
+                  "hb_modes": HB_MODES, "hb_tags": _hb_tags(),
                   "version": _ver, "version_text": _hub_version_text()[0],
-                  # motor REAL en uso (antes iba fijo 'claude-code'): resumen
-                  # de los bindings efectivos; cycle_engine lo refresca.
+                  # motor REAL en uso: resumen de los bindings efectivos;
+                  # cycle_engine lo refresca.
                   "motor": _motor_summary(agents),
-                  # teclas de SALTO (1-9 · q) por sección: los layouts las
-                  # pintan JUNTO a cada opción (transparencia). Sin "keys" en
-                  # data (banner/tests) renderizan como siempre.
+                  # teclas de SALTO (1-9 · q): el lanzador las usa al buscar
                   "keys": JKEYS}
 
     def _lay_lines():
@@ -1485,28 +1677,15 @@ def _menu_machinery(tout):
         view = {"focus": gk(), "gsel": S["gsel"], "asel": S["asel"],
                 "hb_mode": S["hb_mode"], "hb_focus": S["hb_focus"],
                 "cfg_focus": S["cfg_focus"], "lang_focus": S["lang_focus"],
+                # LANZADOR: nivel (None = raíz), búsqueda y fila seleccionada
+                "lz_level": S.get("lz_level"), "lz_q": S.get("lz_q", ""),
+                "lz_sel": S.get("lz_sel", 0),
                 "msg": S["msg"], "hb_msg": S["hb_msg"],
-                # ALTO real: layouts que llenan la pantalla (cockpit) lo usan;
-                # los demás lo ignoran. El resize ya re-dibuja completo.
-                "h": S["term_h"],
-                # frame de animación (layouts anim=True — sprites del centro)
-                "anim": S.get("anim", 0),
-                # calendario navegable (layouts con "cal": True)
-                "cal_off": S.get("cal_off", 0),
-                "cal_mode": S.get("cal_mode", ""),
-                "cal_buf": S.get("cal_buf", ""),
-                "cal_msg": S.get("cal_msg", "")}
+                # ALTO real: el lanzador reparte cabecera/caja/chips en él
+                "h": S["term_h"]}
         lines = _laybox["lay"]["render"](_LDATA, view, _LAYP, S["term_w"])
         S["hit"] = tuple(view.get("hit") or ())
         return lines
-
-    def section_title(txt, on, hint=None):
-        if hint is None:
-            hint = _t("hub.classic.section_hint", "◄ ► elegir")
-        mark = f"{GPTR} " if on else "  "
-        body = f"{C}{BO}{mark}{txt}{R}" if on else f"{DK}{mark}{txt}{R}"
-        tail = f"   {DIM}{hint}{R}" if on else ""
-        return _ctr(body + tail)
 
     def cycle_pin():
         """Enter/espacio en CONFIGS: CICLA el valor del pin ENFOCADO
@@ -1524,8 +1703,7 @@ def _menu_machinery(tout):
         try:
             import settings as _st
             newv = _st.next_pin_value(p["key"])
-            disp = "on" if newv is True else ("off" if newv is False
-                                              else str(newv))
+            disp = _st.pin_value_display(p["key"], newv)
             # ui.autostart: además de persistir el bool, reescribe el bloque del
             # greeter del rc (install.set_terminal_autostart) para que el cambio
             # surta efecto en la próxima terminal. Falla-suave: si el rc está
@@ -1539,12 +1717,15 @@ def _menu_machinery(tout):
                 except Exception:
                     rc = ""
                 if not rc:
-                    S["hb_msg"] = (f"{p['label']} → {disp} (guardado · ajusta el "
-                                   f"rc a mano)")
+                    S["hb_msg"] = _t("hub.pin.saved_rc",
+                                     "{label} → {val} (guardado · ajusta el "
+                                     "rc a mano)", label=p["label"], val=disp)
                     return
-            S["hb_msg"] = f"{p['label']} → {disp} (guardado)"
+            S["hb_msg"] = _t("hub.pin.saved", "{label} → {val} (guardado)",
+                             label=p["label"], val=disp)
         except Exception:
-            S["hb_msg"] = f"no pude cambiar «{p['label']}» — queda igual"
+            S["hb_msg"] = _t("hub.pin.fail", "no pude cambiar «{label}» — queda "
+                             "igual", label=p["label"])
 
     def apply_lang():
         """Enter/espacio en el cuadro IDIOMA: aplica el idioma ENFOCADO
@@ -1587,184 +1768,58 @@ def _menu_machinery(tout):
             S["msg"] = _t("hub.redlight.fail",
                           "no pude cambiar la luz roja — queda igual")
 
-    # Divisor entre secciones con FADE de grises (toque 2026-10-02, mismo
-    # juego que el reflejo del Tono): el centro apenas más claro (GREY) y los
-    # extremos hundidos (DK) — la regla gana profundidad sin cambiar de ancho.
-    SEP = _ctr(f"{DK}{GSEP * 8}{GREY}{GSEP * 8}{DK}{GSEP * 8}{R}")
+    def _plain_lines():
+        """Bloque de TEXTO llano (sin layout): agentes y menú numerados. Es
+        la red si el renderer del lanzador falla en `--banner`/sin tty."""
+        L = ["WORKSPACE", ""]
+        for i, a in enumerate(agents):
+            L.append("  %s · %s" % (a.get("display") or a.get("name"),
+                                    a.get("engine_eff") or a.get("engine") or "?"))
+        L.append("")
+        for _tok, lbl in opts:
+            L.append("  " + lbl)
+        return L
 
     def block_lines():
-        """Bloque interactivo (centrado): DIOSES → HERRAMIENTAS → LATIDO.
-        Con un LAYOUT alternativo activo devuelve las líneas de ESE layout
-        (misma fuente para el hub interactivo y `--banner`)."""
+        """Bloque del hub: las líneas del LANZADOR (misma fuente para el hub
+        interactivo y `--banner`). Renderer roto → texto llano."""
         if _laybox["lay"]:
             try:
                 return _lay_lines()
             except Exception:
-                _laybox["lay"] = None        # layout roto → recinto clásico
-        return _classic_block_lines()
-
-    def _classic_block_lines():
-        """El bloque clásico de SIEMPRE (intacto — paridad del default).
-        Cada sección va dividida por un separador y tiene su PROPIO renglón de
-        avisos — la confirmación del latido jamás se cuela bajo HERRAMIENTAS.
-        Devuelve SIEMPRE el mismo nº de líneas (BH estable para el redraw)."""
-        # ── DIOSES (altar de urnas) ──
-        L = [section_title(_t("hub.section.gods", "DIOSES"), gk() == "dioses"), ""]
-        t = min(1.0, max(0, S["frame"] - S["ign_start"]) / 5.0)  # encendido en ~0.16s (refresco ~30fps)
-        ig = t * (2.0 - t)                              # ease-out: prende rápido y se asienta (agresivo)
-        L += render.altar(agents, S["gsel"], S["ph"], ig,
-                          keys=JKEYS.get("agents"))     # tecla de salto visible bajo cada urna
-        # Selector de HARNESS inline (harness-os): binding efectivo del agente
-        # seleccionado + hint de la tecla. SIEMPRE 1 línea (BH estable) — sin
-        # agentes va vacía. El punto distingue override local (●) de default
-        # del agent.json (sin marca).
-        if NA and gk() == "dioses":
-            _a = agents[S["gsel"]]
-            _e = _a.get("engine_eff") or _a.get("engine") or "?"
-            _loc = f" {C}●{R}" if _a.get("engine_src") == "local" else ""
-            L.append(_ctr(f"{DIM}{_t('hub.classic.engine_prefix', 'motor ▸ ')}{R}{C}{_e} ▾{R}{_loc}"
-                          f"  {DK}{_t('hub.classic.engine_change', 'm cambia')}{R}"))
-        else:
-            L.append("")
-        L.append(_ctr(f"{DIM}{S['msg']}{R}") if S["msg"] else "")   # aviso de DIOSES (urna no invocada)
-        # ── HERRAMIENTAS ──
-        L += ["", SEP, "", section_title(_t("hub.section.menu", "MENÚ"), gk() == "tools"), ""]
-        btns = []
-        for j, (tok, lbl) in enumerate(opts):
-            # tecla de SALTO visible dentro del botón («5 Ramas» … «q Terminal
-            # normal») — transparencia: el dígito vive junto a su opción.
-            k = JKEYS["opts"].get(j, "")
-            lbl = f"{k} {lbl}" if k else lbl
-            if j == S["asel"] and gk() == "tools":
-                # ACTIVO + foco: dorado brillante, negrita, shimmer luminoso
-                btns.append(f"{C}{BO}{GBL} {R}{_shimmer(lbl, S['ph'], C, WH)}{C}{BO} {GBR}{R}")
-            elif j == S["asel"]:
-                # ACTIVO sin foco: brackets dorados + texto blanco+negrita — inconfundible
-                btns.append(f"{C}{GBL} {BO}{WH}{lbl}{R}{C} {GBR}{R}")
-            else:
-                # INACTIVO con PROFUNDIDAD (grises, 2026-10-02): los vecinos
-                # inmediatos de la selección conservan el ámbar tenue; de dos
-                # lugares en adelante se hunden a gris oscuro — el menú se lee
-                # como un foco con penumbra alrededor, no una lista plana.
-                lejos = abs(j - S["asel"]) >= 2
-                btns.append(f"{INACTIVE_HB if lejos else INACTIVE}  {lbl}  {R}")
-        # Reflow ESTABLE de los botones: con teclas de salto + «Atajos» la
-        # fila única ya no cabe en content_w (desbordar rompe el redraw con
-        # drift). Corte por anchos visuales reales — el ancho de cada botón
-        # NO depende de la selección (lbl+4 siempre), así el nº de filas
-        # solo depende de opts (BH estable).
-        filas, fila, fw = [], [], 0
-        for b in btns:
-            bw = _vis(b)
-            extra = 2 if fila else 0
-            if fila and fw + extra + bw > content_w:
-                filas.append(fila); fila, fw = [], 0
-            fila.append(b); fw += bw + extra
-        if fila:
-            filas.append(fila)
-        for f in filas:
-            L.append(_ctr("  ".join(f)))
-        pins = _pins_now()
-        if pins:
-            # ── CONFIGS rápidas (pins EDITABLES — ui.hub_pins) ──────────────
-            # Reemplaza al radio del latido suelto: latido.mode es UN pin más.
-            # ◄► mueve el cursor entre pins · Enter/espacio CICLA el valor del
-            # enfocado (enum → siguiente choice · bool → on/off) y persiste.
-            # Falla-suave TOTAL y CONTEO ESTABLE (los pins de la sesión son
-            # fijos → el bloque no altera el BH del redraw; el ciclado solo
-            # cambia el TEXTO del valor, no el nº de líneas).
-            L += ["", SEP, ""]
-            focus = gk() == "latido"
-            L.append(section_title(_t("hub.section.personalization", "PERSONALIZACIÓN"), focus,
-                                   hint=_t("hub.classic.pers_hint", "◄ ► elige · Enter/espacio cambia")))
-            L.append("")
-            cf = S["cfg_focus"] % len(pins)
-            for i, p in enumerate(pins):
-                lab, val = p["label"], p["value"]
-                if focus and i == cf:
-                    # ENFOCADO: brackets dorados + valor brillante (mismo
-                    # lenguaje de foco que MENÚ y el ex-radio del latido).
-                    L.append(_ctr(f"{C}{BO}{GBL} {R}{DIM}{lab}  {R}"
-                                  f"{_shimmer(val, S['ph'], C, WH)}"
-                                  f"{C}{BO} {GBR}{R}"))
-                else:
-                    L.append(_ctr(f"{DK}▸ {DIM}{lab}  {C}{BO}{val}{R}"))
-            # confirmación/aviso de CONFIGS: renglón propio DENTRO de su
-            # sección (jamás colado bajo MENÚ) — SIEMPRE reservado (BH estable).
-            L.append(_ctr(f"{DIM}{S['hb_msg']}{R}") if S["hb_msg"] else "")
-            # (el hint «Config ▸ para más ajustes» se retiró con la entrada
-            #  Config del MENÚ — el socio 2026-10-02; la sección se rehará)
-        # ── IDIOMA · LANGUAGE (bajo PERSONALIZACIÓN) — en TODOS los layouts ──
-        _langs = _lang_opts()
-        if _langs:
-            L += ["", SEP, "", section_title(_t("hub.section.lang", "IDIOMA · LANGUAGE"),
-                                             gk() == "idioma",
-                                             hint=_t("hub.classic.lang_hint", "◄ ► elige · Enter cambia")), ""]
-            lf = S["lang_focus"] % len(_langs)
-            for i, (code, name, act) in enumerate(_langs):
-                marca = f"{C}●{R}" if act else f"{DK}·{R}"
-                if gk() == "idioma" and i == lf:
-                    L.append(_ctr(f"{C}{BO}{GBL} {R}{marca} "
-                                  f"{_shimmer(name, S['ph'], C, WH)}"
-                                  f"{C}{BO} {GBR}{R}"))
-                else:
-                    tinta = WH if act else DIM
-                    L.append(_ctr(f"{DK}▸ {R}{marca} {tinta}{name}{R}"))
-        L.append("")
-        # Indicador de versión ABAJO-DERECHA: rama + estado de sync/update. Siempre
-        # el mismo nº de líneas (BH estable) — si no hay git, la línea va vacía.
-        ver = S.get("ver_line", "")
-        L.append(_rgt(ver) if ver else "")
-        return L
+                _laybox["lay"] = None
+        return _plain_lines()
 
     # ╔══════════════════════════════════════════════════════════════════════╗
     # ║ NO TOCAR ESTA FÓRMULA DE PANTALLA (costó MUCHO afinarla, 2026-06-08).  ║
-    # ║ Banner pegado arriba + sin scrollbar en Terminal.app de Mac:           ║
     # ║   • clear = "\033[2J\033[3J\033[H"  EN ESTE ORDEN (pantalla→scroll-     ║
     # ║     back→home). El orden inverso (3J antes que 2J) corre el viewport.  ║
-    # ║   • imprimir EN FLUJO + redibujar con cursor-up "\033[{BH}A".          ║
-    # ║   • greeter = `workspace` directo (NADA de precmd/sleep/clear extra).    ║
-    # ║   • EVITAR DENTRO DEL FRAME: autowrap-off (\033[?7l), posicionamiento  ║
-    # ║     absoluto por fila, y \033[3J SUELTO o antes de 2J (rompen scroll). ║
-    # ║   • ALT-SCREEN (\033[?1049h): ahora SÍ se usa, pero SOLO como envoltura ║
-    # ║     en animated_menu (entrar/salir) para BLOQUEAR el scroll (pedido de  ║
-    # ║     el equipo, jun). El DIBUJO interno sigue estas reglas igual. Opt-out ║
-    # ║     WORKSPACE_NO_ALTSCREEN=1 si una terminal lo odia. Probar en Terminal.app.║
+    # ║   • redibujar con home + "\033[K" por línea — NUNCA \033[2J a media    ║
+    # ║     sesión, que deja basura en Terminal.app.                           ║
+    # ║   • ALT-SCREEN (\033[?1049h) SOLO como envoltura en animated_menu      ║
+    # ║     (entrar/salir) para BLOQUEAR el scroll. Opt-out                   ║
+    # ║     WORKSPACE_NO_ALTSCREEN=1 si una terminal lo odia.                  ║
     # ╚══════════════════════════════════════════════════════════════════════╝
     # (Windows Terminal honra esta MISMA fórmula — el driver Windows la usa tal cual.)
-    # REACTIVO AL ANCHO: margen izq = (ancho terminal − ancho contenido)/2 → centrado.
-    # Se recalcula en cada resize y se repinta. (Init: 2J3J; resize/redraw: home + \033[K
-    # en su lugar — NUNCA \033[2J a media sesión, que deja basura en Terminal.app.)
-    content_w = render.W + 4
-    # ancho mínimo utilizable: los layouts alternativos operan más angosto
-    # que el recinto clásico (que necesita content_w para su arte centrado).
-    S["min_w"] = (_hl.MIN_W if (_laybox["lay"] and _hl) else content_w)
+    # Ventana mínima para el hub completo = la caja FIJA del lanzador + su pie
+    # (hublayout.lanzador_min_size); por debajo, la vista angosta.
+    def _min_size():
+        try:
+            return _hl.lanzador_min_size(_LDATA)
+        except Exception:
+            return (40, 20)
+
+    content_w = _min_size()[0]
+    S["min_w"] = content_w
 
     def gsize():
         try:
             ts = os.get_terminal_size(tout.fileno())
             return ts.columns, ts.lines      # ANCHO REAL (centramos a él; ya no forzamos content_w)
         except Exception:
-            return content_w, 40
+            return max(content_w, 100), 40
 
     S["term_w"], S["term_h"] = gsize()
-
-    def _lm():
-        return " " * max(0, (S["term_w"] - content_w) // 2)
-
-    def _starwrap(ln, row):
-        """Envuelve una línea del banner en cielo: estrellas en los márgenes (y a
-        todo lo ancho si la línea va vacía), con un gutter limpio que no toca el texto."""
-        LM = _lm(); lmn = len(LM)
-        if not STARS:
-            return (LM + ln) if ln else ""
-        m = 25 + (row * 12) // max(1, S["term_h"])       # profundidad sutil: denso arriba → ralo abajo
-        hf = 90 + (row * 10) // max(1, S["term_h"])      # brillantes se desvanecen hacia abajo (10% → ~0%)
-        if not ln:                                       # línea vacía → cielo de ancho completo
-            return _starline(S["term_w"] - 1, row, m, hf)
-        body = ln + " " * max(0, content_w - _vis(ln))    # gutter limpio alrededor del banner
-        right = max(0, (S["term_w"] - 1) - lmn - content_w)
-        return _starline(lmn, row, m, hf) + body + _starline(right, row + 977, m, hf)
 
     def _narrow_draw(first):
         """Functional compact hub: same keyboard and actions, no width gate."""
@@ -1773,25 +1828,6 @@ def _menu_machinery(tout):
         S['narrow'] = False
         S['compact'] = True
         S['hit'] = ()                 # no stale mouse regions from rich layout
-        if _responsive.vertical(w, h):
-            if 'cal' in groups:
-                if gk() == 'cal':
-                    S['group'] = groups.index('tools')
-                groups.remove('cal')
-            row_width = w - 11
-            def keyed(label, key):
-                return _hl.pad(_hl.clip(label, max(1, row_width - len(key) - 2)), max(1, row_width - len(key))) + key
-            agent_rows = [keyed(a['display'] + ' · ' + a.get('engine_eff', '?'), str(JKEYS.get('agents', {}).get(i, ''))) for i,a in enumerate(agents)]
-            menu_rows = [keyed(label, str(JKEYS.get('opts', {}).get(i, ''))) for i,(_,label) in enumerate(opts)]
-            pin_rows = [str(p.get('label', p.get('key', ''))) + ' · ' + str(p.get('value', '')) for p in _pins_now()]
-            lang_rows = [('● ' if act else '· ') + name
-                         for _code, name, act in _lang_opts()]
-            lines = _responsive.vertical_hub(agent_rows, menu_rows, pin_rows, w, h,
-                        gk(), S['gsel'], S['asel'], S['cfg_focus'],
-                        langs=lang_rows, lang_idx=S['lang_focus'])
-            _responsive.paint(tout, lines, first)
-            S['BH'], S['row0'] = len(lines), 0
-            return S['BH']
         group = gk()
         rows, selected = [], 0
         if group == 'dioses':
@@ -1821,17 +1857,10 @@ def _menu_machinery(tout):
                             + ('● ' if act else '· ') + name)
             rows += ['', _t('hub.narrow.lang_hint',
                             'Enter cambia el idioma · Enter switches language')]
-        else:
-            import datetime as _dt
-            day = _dt.date.today() + _dt.timedelta(days=S['cal_off'])
-            rows = [str(day), _t('hub.narrow.cal_hint',
-                                 'Flechas: día/semana · Enter evento'),
-                    S.get('cal_buf', ''), S.get('cal_msg', '')]
         title = 'WORKSPACE · ' + {
             'dioses': _t('hub.section.agents', 'AGENTES'),
             'tools': _t('hub.section.menu', 'MENÚ'),
             'latido': _t('hub.section.configs', 'CONFIGS'),
-            'cal': _t('hub.section.calendar', 'CALENDARIO'),
             'idioma': _t('hub.section.lang', 'IDIOMA · LANGUAGE')}.get(group, group)
         _nav = "↑↓ %s · ◄► %s · Enter %s · q %s" % (
             _t('common.hint.section', 'sección'),
@@ -1847,17 +1876,13 @@ def _menu_machinery(tout):
         return S['BH']
 
     def _lay_full_draw(first):
-        """Pantalla completa de un LAYOUT alternativo. MISMA fórmula de
-        pantalla del recinto (2J3JH inicial · home + \\033[K después — ver el
-        recuadro de abajo); solo cambia el CONTENIDO. Sin cielo: la
-        estructura la dicta el layout (el cielo del clásico queda intacto).
-        Renderer roto → se anula el layout y se cae al recinto clásico."""
+        """Pantalla completa del LANZADOR (2J3JH inicial · home + \\033[K
+        después — ver el recuadro de arriba). Renderer roto → vista angosta."""
         try:
             lines = _lay_lines()
         except Exception:
             _laybox["lay"] = None
-            S["min_w"] = content_w
-            return full_draw(first)
+            return _narrow_draw(first)
         out = "\033[2J\033[3J\033[H" if first else "\033[H"
         row = 0
         for ln in lines:
@@ -1873,7 +1898,7 @@ def _menu_machinery(tout):
         return S["BH"]
 
     def sync_theme():
-        nonlocal _LAYP, SEP
+        nonlocal _LAYP
         import tuitheme
         p = tuitheme.palette()
         if p is globals().get('TH'):
@@ -1885,12 +1910,6 @@ def _menu_machinery(tout):
         for name, key in (('GPTR','pointer'),('GBL','bracket_l'),('GBR','bracket_r'),('GORN','orn'),('GSEP','sep')):
             globals()[name] = p.GLYPHS[key]
         _LAYP = p
-        SEP = _ctr(DK + GSEP * 8 + GREY + GSEP * 8 + DK + GSEP * 8 + R)
-        for role in ('B','B2','C','WH','DIM','DK','R','BO','WCOL','FIRE','OFF'):
-            if hasattr(p, role):
-                setattr(render, role, getattr(p, role))
-        render._TH, render._INACTIVE, render._GL = p, p.INACTIVE, p.GLYPHS
-        render._EMBER_REST = p.EMBER
         import theme
         if p.OSC:
             theme.apply_colors(p.OSC)
@@ -1900,85 +1919,30 @@ def _menu_machinery(tout):
 
     def full_draw(first=False):
         sync_theme()
-        if S["term_w"] < max(100, S["min_w"]) or S["term_h"] < 32:                     # demasiado angosta → pantalla segura
+        # hub completo solo si la ventana alcanza la caja FIJA del lanzador
+        mw, mh = _min_size()
+        if (not _laybox["lay"] or S["term_w"] < max(mw, S["min_w"])
+                or S["term_h"] < mh):                # chica / sin layout → vista angosta
             return _narrow_draw(first)
         S["narrow"] = False
         S["compact"] = False
-        if _laybox["lay"] and _laybox["lay"].get("cal") and "cal" not in groups:
-            groups.append("cal")
-        if _laybox["lay"]:
-            return _lay_full_draw(first)
-        _ac = JKEYS.get("acciones") or {}
-        # atajos clave BAJO el wordmark, legibles (tecla en acento, acción
-        # en gris — hublayout.keyline, el lenguaje de hints de todo el hub);
-        # sin hublayout cae a la línea DIM de siempre (falla-suave)
-        _act = {"motor": _t("common.hint.engine", "motor"),
-                "info": _t("common.hint.info", "información")}
-        _key = _t("common.hint.key", "tecla")
-        _pares = ([("↑↓", _t("common.hint.menu", "menú")),
-                   ("◄►", _t("common.hint.pick", "elige")),
-                   ("Enter", _t("common.hint.enter", "entra")),
-                   (_key, _t("common.hint.aim_open", "apunta/abre"))]
-                  + [(_ac[n], _act[n]) for n in ("motor", "info") if _ac.get(n)]
-                  + [("l", _t("common.hint.redlight", "luz roja")),
-                     ("q", _t("common.hint.terminal", "terminal"))])
-        if _hl:
-            hdr = _ctr(_hl.keyline(_hl.cols(TH), _pares,
-                                   max(20, S["term_w"] - 4)))
-        else:
-            _hx = "".join(f" · {_ac[n]} {_act[n]}" for n in ("motor", "info")
-                          if _ac.get(n))
-            hdr = _ctr(f"{DIM}↑↓ {_pares[0][1]} · ◄► {_pares[1][1]} · "
-                       f"Enter {_pares[2][1]} · "
-                       f"{_key} {_t('common.hint.aim_open', 'apunta/abre')}"
-                       f"{_hx} · l {_t('common.hint.redlight', 'luz roja')}"
-                       f" · q {_t('common.hint.terminal', 'terminal')}{R}")
-        upper = (list(render.wordmark_plain()) + _wordmark_reflection() + [""]
-                 + _franja(agents) + ["", hdr, ""])      # cielo + banner (+ reflejo ░ en grises)
-        lower = block_lines()                            # bloque interactivo: lo repinta redraw()
-        top = max(2, (S["term_h"] - (len(upper) + len(lower))) * 2 // 5)   # ~0.4
-        out = "\033[2J\033[3J\033[H" if first else "\033[H"
-        row = 0
-        for ln in ([""] * top) + upper:                  # cielo + banner
-            out += "\r\033[K" + _starwrap(ln, row) + "\r\n"; row += 1
-        S["row0"] = row                                  # fila absoluta donde arranca el bloque interactivo
-        for ln in lower:                                 # bloque interactivo (con cielo en sus márgenes)
-            out += "\r\033[K" + _starwrap(ln, row) + "\r\n"; row += 1
-        bottom_n = max(0, S["term_h"] - row - 1)         # relleno de cielo hasta el fondo (estático)
-        for _ in range(bottom_n):
-            out += "\r\033[K" + _starwrap("", row) + "\r\n"; row += 1
-        if bottom_n:
-            out += f"\033[{bottom_n}A"                   # estaciona el cursor justo tras `lower`
-        tout.write(out); tout.flush()
-        S["BH"] = len(lower)                             # alto del bloque que redraw() reescribe
-        return S["BH"]
+        return _lay_full_draw(first)
 
     def redraw():
-        if sync_theme():
+        if sync_theme() or S.get("compact"):
             return full_draw(first=False)
-        if S.get('compact'):
+        if S.get("narrow"):                          # pantalla angosta = estática
+            return
+        try:
+            lines = _lay_lines()
+        except Exception:
+            _laybox["lay"] = None                    # renderer roto → vista angosta
             return full_draw(first=False)
-
-        if S.get("narrow"):                          # pantalla angosta = estática, sin arte que repintar
-            return
-        if _laybox["lay"]:
-            try:
-                lines = _lay_lines()
-            except Exception:
-                _laybox["lay"] = None                # layout roto → recinto clásico
-                S["min_w"] = content_w
-                return full_draw(first=False)
-            if len(lines) != S["BH"]:                # altura cambió (defensa) → repintado completo
-                return full_draw(first=False)
-            tout.write(f"\033[{S['BH']}A")
-            for ln in lines:
-                tout.write("\r\033[K" + ln + "\r\n")
-            tout.flush()
-            return
-        tout.write(f"\033[{S['BH']}A")               # sube BH líneas y reescribe el bloque
-        r = S["row0"]
-        for ln in block_lines():
-            tout.write("\r\033[K" + _starwrap(ln, r) + "\r\n"); r += 1
+        if len(lines) != S["BH"]:                    # altura cambió (defensa) → repintado completo
+            return full_draw(first=False)
+        tout.write(f"\033[{S['BH']}A")
+        for ln in lines:
+            tout.write("\r\033[K" + ln + "\r\n")
         tout.flush()
 
     def check_resize():
@@ -1987,62 +1951,218 @@ def _menu_machinery(tout):
             S["term_w"], S["term_h"] = nw, nh
             full_draw(first=False)
 
+    def _reload_agents(force=False):
+        """Reconstruye la lista de agentes si el estado compartido cambió
+        (otra ventana/terminal cargó, quitó, reparó o re-enlazó un agente).
+        Conserva la selección por NOMBRE (no por índice) y muta en sitio las
+        estructuras que los drivers ya tienen (agents, JUMP, JKEYS, AKEYS).
+        Devuelve True si cambió algo."""
+        nonlocal NA, _agents_rev
+        try:
+            import agent_state
+            if not force and (_agents_rev is None
+                              or not agent_state.changed(_agents_rev)):
+                return False
+        except Exception:
+            return False
+        cur = agents[S["gsel"]]["name"] if agents and S["gsel"] < len(agents) else None
+        new, rev = _hub_agents()
+        if _laybox["lay"]:
+            for ag in new:
+                now = _agent_now(ag.get("brain")) or {}
+                ag["task"], ag["state"] = now.get("task", ""), now.get("state", "")
+        agents[:] = new
+        _agents_rev = rev
+        NA = len(agents)
+        names = [a["name"] for a in agents]
+        S["gsel"] = names.index(cur) if cur in names else 0
+        j, jk, ak = _jump_map(agents, opts)
+        JUMP.clear(); JUMP.update(j)
+        JKEYS.clear(); JKEYS.update(jk)
+        AKEYS.clear(); AKEYS.update(ak)
+        _JUMP_SET.clear(); _JUMP_SET.update(JUMP)
+        if _LDATA is not None:
+            _LDATA["motor"] = _motor_summary(agents)
+        if cur and cur not in names:
+            S["msg"] = _t("hub.agent.gone", "{name} ya no está registrado "
+                          "(cambió desde otra ventana)", name=cur)
+        return True
+
     def tick():
-        """Un paso del reloj (~30fps): resize + parpadeo de la llama + ignición."""
+        """Un paso del reloj (~30fps): resize, agentes cambiados en otra
+        ventana y tema cambiado. El lanzador no anima nada."""
         check_resize()
+        import time
+        # U12: el estado de agentes se revisa cada 2 s (firma barata por stat,
+        # sin red/login) — una carga/retiro en otra ventana aparece sin reiniciar.
+        if time.monotonic() - S.get("agents_checked_at", 0) >= 2:
+            S["agents_checked_at"] = time.monotonic()
+            if _reload_agents():
+                full_draw(first=False)
         if sync_theme():
             full_draw(first=False)
-        if _laybox["lay"]:
-            # layouts con anim=True (centro): avanza el frame de sprites a
-            # cadencia BAJA (~0.83s = 25 ticks) y redibuja el bloque — el
-            # MISMO redraw con cursor-up de un keypress, jamás full-screen
-            # de alta frecuencia (lección del cielo estático en Mac).
-            if _laybox["lay"].get("anim"):
-                S["frame"] += 1
-                if S["frame"] % 25 == 0:
-                    S["anim"] = S.get("anim", 0) + 1
-                    redraw()
-            return                                   # sin llama que animar
         S["frame"] += 1
-        flick = (S["frame"] % 3 == 0)                # la llama parpadea a ~10fps (constante)
-        if flick:
-            S["ph"] += 1
-        if flick or (S["frame"] - S["ign_start"]) <= 5:   # redibuja solo si cambió (parpadeo o ignición)
-            redraw()
+
+    def _lz():
+        """¿El hub se está dibujando con el LANZADOR? (no en la vista
+        angosta/vertical de respaldo, que conserva su semántica)."""
+        return bool(_laybox["lay"] and not S.get("compact")
+                    and _LDATA is not None)
+
+    # ── LANZADOR: una sola lista que se recorre (hublayout.lanzador_items).
+    #    Estado propio: lz_level (None = raíz · tools/latido/idioma), lz_q
+    #    (búsqueda) y lz_sel (fila). Las ACCIONES son las de siempre: antes
+    #    de ejecutar se apunta el grupo/índice de front (gsel/asel/cfg_focus/
+    #    lang_focus) y se llama a la misma rutina que usan los demás layouts.
+    def _lz_items():
+        return _hlz.lanzador_items(_LDATA, S.get("lz_level"),
+                                   S.get("lz_q", ""))
+
+    def _lz_reset_sel(prefer=None):
+        """Selección al primer seleccionable (o a la fila `prefer`)."""
+        its = _lz_items()
+        if prefer is not None:
+            for i, it in enumerate(its):
+                if (it.get("kind"), it.get("idx")) == prefer:
+                    S["lz_sel"] = i
+                    return
+        S["lz_sel"] = _hlz.lanzador_first(its)
+
+    def _lz_cur():
+        its = _lz_items()
+        i = S.get("lz_sel", 0)
+        if 0 <= i < len(its) and its[i].get("kind") in _hlz._LZ_SELECTABLE:
+            return its[i]
+        S["lz_sel"] = _hlz.lanzador_first(its)
+        i = S["lz_sel"]
+        return its[i] if 0 <= i < len(its) else {}
+
+    def _lz_point(it):
+        """Apunta el estado de front al ítem (para reusar las acciones)."""
+        k, i = it.get("kind"), it.get("idx")
+        if k == "agent":
+            S["group"] = groups.index("dioses"); S["gsel"] = i
+        elif k == "opt":
+            S["group"] = groups.index("tools"); S["asel"] = i
+        elif k == "pin" and "latido" in groups:
+            S["group"] = groups.index("latido"); S["cfg_focus"] = i
+        elif k == "lang":
+            S["group"] = groups.index("idioma"); S["lang_focus"] = i
+
+    def _lz_drill(g):
+        S["lz_level"], S["lz_q"] = g, ""
+        if g in groups:
+            S["group"] = groups.index(g)
+        _lz_reset_sel()
+
+    def _lz_activate():
+        """Enter en el lanzador: agente → lanza (rutina de siempre) · `›` →
+        entra al submenú · opción del menú → la abre · pin → lo cicla ·
+        idioma → lo aplica."""
+        it = _lz_cur()
+        k = it.get("kind")
+        if k == "sub":
+            _lz_drill(it["idx"])
+            return None
+        if k not in ("agent", "opt", "pin", "lang"):
+            return None
+        _lz_point(it)
+        return _activate_core()
+
+    def lz_key(ch):
+        """Tecla imprimible con el lanzador activo — regla «escribe primero»:
+        toda letra/carácter imprimible ESCRIBE en la búsqueda (los atajos de
+        una letra ceden). Excepciones con la búsqueda VACÍA: `q` sale y los
+        dígitos 1-9 apuntan/lanzan agentes (devuelve False → el driver sigue
+        con su ruteo de siempre). ⌫ borra. True = consumida."""
+        if not _lz() or not ch:
+            return False
+        q = S.get("lz_q", "")
+        if ch in ("\x7f", "\b", "\x08"):
+            if q:
+                S["lz_q"] = q[:-1]
+                S["msg"] = ""; S["hb_msg"] = ""
+                _lz_reset_sel()
+            return True
+        if not ch.isprintable() or ch in ("\t", "\r", "\n"):
+            return False
+        if not q and (ch in ("q", "Q") or ch.isdigit() or ch == " "):
+            return False
+        if len(q) < 40:
+            S["lz_q"] = q + ch
+            S["msg"] = ""; S["hb_msg"] = ""
+            _lz_reset_sel()
+        return True
+
+    def tab():
+        """Tab en el lanzador: INFORMACIÓN del agente seleccionado (la acción
+        `info` de siempre); en una fila `›`, entra. Fuera: no-op."""
+        if not _lz():
+            return
+        it = _lz_cur()
+        if it.get("kind") == "agent":
+            _lz_point(it)
+            agent_info()
+        elif it.get("kind") == "sub":
+            _lz_drill(it["idx"])
+
+    def back():
+        """Esc / ◄ en el lanzador: con búsqueda la limpia; en un submenú
+        regresa a la raíz (sobre la fila de ese submenú); en la raíz sin
+        búsqueda no hace nada. Fuera del lanzador: no-op (como siempre)."""
+        if not _lz():
+            return
+        S["msg"] = ""; S["hb_msg"] = ""
+        if S.get("lz_q"):
+            S["lz_q"] = ""
+            _lz_reset_sel()
+            return
+        lvl = S.get("lz_level")
+        if lvl:
+            S["lz_level"] = None
+            S["group"] = groups.index("dioses")
+            _lz_reset_sel(prefer=("sub", lvl))
+
+    def _lz_nav(d):
+        if d in ("up", "down"):
+            S["lz_sel"] = _hlz.lanzador_step(_lz_items(), S.get("lz_sel", 0),
+                                             -1 if d == "up" else +1)
+            it = _lz_cur()
+            if it.get("kind") == "agent":        # el agente apuntado ES gsel
+                S["group"] = groups.index("dioses"); S["gsel"] = it["idx"]
+                S["ign_start"] = S["frame"]
+        elif d == "left":
+            it = _lz_cur()
+            if it.get("kind") == "agent":        # ‹ motor › — ← = el anterior
+                _lz_point(it)
+                cycle_engine(-1)
+            else:
+                back()
+        elif d == "right":
+            it = _lz_cur()
+            if it.get("kind") == "sub":
+                _lz_drill(it["idx"])
+            elif it.get("kind") == "agent":      # → = el siguiente motor
+                _lz_point(it)
+                cycle_engine()
 
     def nav(d):
         """Flechas — misma semántica en ambas plataformas: ↑↓ sube/baja de
         sección (dioses → MENÚ → CONFIGS, con tope), ◄► anterior/siguiente
         dentro de la sección. En CONFIGS ◄► mueve el CURSOR entre pins — el
-        valor lo cicla Enter/espacio (activate/cycle)."""
+        valor lo cicla Enter/espacio (activate/cycle).
+        LANZADOR: UNA lista — ↑↓ la recorren, ◄ regresa (como Esc) y ► entra
+        a una fila `›` o cicla el motor del agente seleccionado."""
         S["msg"] = ""; S["hb_msg"] = ""
-        if S.get("cal_mode") == "add":
-            return                                   # escribiendo: flechas no navegan
-        if gk() == "cal" and d in ("up", "down"):
-            # dentro del calendario ↑↓ mueven de SEMANA; solo se sale de la
-            # sección cuando el salto se iría del mes (arriba por el borde
-            # de arriba, abajo por el de abajo) — igual que un calendario.
-            import datetime as _dt
-            hoy = _dt.date.today()
-            cur = hoy + _dt.timedelta(days=S["cal_off"])
-            nxt = cur + _dt.timedelta(days=-7 if d == "up" else 7)
-            if nxt.month == cur.month:
-                S["cal_off"] += -7 if d == "up" else 7
-                return
+        if _lz():
+            _lz_nav(d)
+            return
         if d == "up":
             S["group"] = max(0, S["group"] - 1)
         elif d == "down":
             S["group"] = min(len(groups) - 1, S["group"] + 1)
         elif d in ("left", "right"):
             step = -1 if d == "left" else +1
-            if gk() == "cal":
-                import datetime as _dt
-                hoy = _dt.date.today()
-                cur = hoy + _dt.timedelta(days=S["cal_off"])
-                nxt = cur + _dt.timedelta(days=step)
-                if nxt.month == cur.month:           # el mes es el límite
-                    S["cal_off"] += step
-                return
             if gk() == "dioses":
                 if NA:                                   # 0 agentes → altar vacío, no navegar (evita % 0)
                     S["gsel"] = (S["gsel"] + step) % NA; S["ign_start"] = S["frame"]
@@ -2062,16 +2182,44 @@ def _menu_machinery(tout):
 
     def activate():
         """Enter. Devuelve nombre/token a lanzar, o None si no se lanza nada
-        (urna aún no invocada; CONFIGS: Enter CICLA el pin enfocado)."""
+        (urna aún no invocada; CONFIGS: Enter CICLA el pin enfocado). Con el
+        LANZADOR, Enter actúa sobre la fila seleccionada de su lista."""
+        if _lz():
+            return _lz_activate()
+        return _activate_core()
+
+    def _activate_core():
+        """Enter sobre el grupo/índice enfocado (la semántica de siempre)."""
         if S.get("narrow"):                          # angosto: nada que ver → no lanzar a ciegas
             return None
         if gk() == "dioses":
             if NA == 0:                                  # harness sin agentes
-                S["msg"] = "sin agentes — ve a HERRAMIENTAS › Agregar agente"
+                S["msg"] = _t("hub.agent.none_go_add", "sin agentes — ve a "
+                              "HERRAMIENTAS › Agregar agente")
                 return None
-            if agents[S["gsel"]]["active"]:
-                return agents[S["gsel"]]["name"]
-            S["msg"] = f"{agents[S['gsel']]['display']} aún no se invoca — llega pronto."
+            a = agents[S["gsel"]]
+            if a["active"]:
+                # revalida contra el estado ACTUAL antes de lanzar: si otra
+                # ventana lo retiró/averió, cancelar con aviso (no redirigir).
+                try:
+                    import agent_state
+                    ok, cur, why = agent_state.revalidate(a.get("id") or a["name"], a.get("brain"))
+                    if ok and not cur.launchable:
+                        ok, why = False, agent_state.label(cur["status"])
+                except Exception:
+                    ok, why = True, ""
+                if ok:
+                    return a["name"]
+                S["msg"] = _t("hub.agent.not_launched", "{name}: {why} — no se "
+                              "lanza (revisa Agentes)", name=a["display"], why=why)
+                _reload_agents(force=True)
+                return None
+            if a.get("status") and a.get("status") != "planned":
+                S["msg"] = f"{a['display']}: {a.get('status_label') or a['status']}" + (
+                    f" — {a['repair']}" if a.get("repair") else "")
+                return None
+            S["msg"] = _t("hub.agent.not_yet", "{name} aún no se invoca — llega "
+                          "pronto.", name=a["display"])
             return None
         if gk() == "latido":
             cycle_pin()
@@ -2079,57 +2227,7 @@ def _menu_machinery(tout):
         if gk() == "idioma":
             apply_lang()
             return None
-        if gk() == "cal":
-            _cal_enter()
-            return None
         return opts[S["asel"]][0]
-
-    def _cal_fecha():
-        import datetime as _dt
-        return _dt.date.today() + _dt.timedelta(days=S.get("cal_off", 0))
-
-    def _cal_enter():
-        """Enter en el CALENDARIO: abre el alta o guarda lo escrito. El texto
-        acepta una hora al principio (`18:00 Junta con Miguel`) — se parte y
-        se guarda como hora del evento; sin hora, queda de día entero."""
-        if S.get("cal_mode") != "add":
-            S["cal_mode"], S["cal_buf"], S["cal_msg"] = "add", "", ""
-            return
-        txt = (S.get("cal_buf") or "").strip()
-        S["cal_mode"], S["cal_buf"] = "", ""
-        if not txt:
-            S["cal_msg"] = ""
-            return
-        hora = ""
-        primera = txt.split(" ", 1)
-        if len(primera) == 2 and ":" in primera[0]:
-            import re as _re
-            if _re.match(r"^\d{1,2}:\d{2}$", primera[0]):
-                hora, txt = primera[0], primera[1].strip()
-        try:
-            import personal
-            ok = personal.add_event(_cal_fecha().isoformat(), txt, hora)
-            S["cal_msg"] = ("guardado: %s" % txt[:40]) if ok \
-                else "no pude guardarlo"
-        except Exception:
-            S["cal_msg"] = "no pude guardarlo"
-
-    def key(ch):
-        """Teclas sueltas. Con el alta abierta el hub se vuelve un campo de
-        texto: TODO carácter imprimible entra al buffer (por eso los drivers
-        consultan `cal_mode` antes de tratar la `q` como salir)."""
-        if S.get("cal_mode") != "add":
-            return False
-        if ch in ("\x1b",):                          # Esc: cancelar
-            S["cal_mode"], S["cal_buf"], S["cal_msg"] = "", "", "cancelado"
-            return True
-        if ch in ("\x7f", "\b", "\x08"):             # borrar
-            S["cal_buf"] = S["cal_buf"][:-1]
-            return True
-        if ch and ch.isprintable() and len(S["cal_buf"]) < 80:
-            S["cal_buf"] += ch
-            return True
-        return True                                  # en modo alta, se traga
 
     def space():
         """Barra espaciadora — SOLO actúa en CONFIGS (cicla el pin enfocado,
@@ -2142,7 +2240,7 @@ def _menu_machinery(tout):
         elif gk() == "idioma":
             apply_lang()
 
-    def cycle_engine():
+    def cycle_engine(step=1):
         """Tecla `m` en AGENTES: cicla el HARNESS del agente seleccionado entre
         los instalados (harnesses.cycle) y lo PERSISTE per-máquina (settings
         agentes.<n>.engine — dispatch lo honra al lanzar; el agent.json del
@@ -2153,22 +2251,29 @@ def _menu_machinery(tout):
             return
         a = agents[S["gsel"]]
         if not a.get("active"):
-            S["msg"] = f"{a['display']} aún no se invoca — sin motor que elegir."
+            S["msg"] = _t("hub.agent.not_yet_engine", "{name} aún no se invoca "
+                          "— sin motor que elegir.", name=a["display"])
             return
         if _harn is None:
-            S["msg"] = "selector de motor no disponible (falta harnesses.py)"
+            S["msg"] = _t("hub.engine.no_selector", "selector de motor no "
+                          "disponible (falta harnesses.py)")
             return
         try:
-            res = _harn.cycle(a["name"], a.get("engine") or "claude-code")
+            res = _harn.cycle(a["name"], a.get("engine") or "claude-code",
+                              step=step)
         except Exception as e:
             res = {"ok": False, "error": f"{type(e).__name__}: {e}"}
         if not res.get("ok"):
-            S["msg"] = f"no pude cambiar el motor: {res.get('error', '?')}"
+            S["msg"] = _t("hub.engine.change_fail", "no pude cambiar el motor: "
+                          "{err}", err=res.get("error", "?"))
             return
         a["engine_eff"], a["engine_src"] = res["engine"], res["source"]
-        donde = ("guardado per-máquina" if res["source"] == "local"
-                 else "default del agente")
-        S["msg"] = f"motor de {a['display']} ▸ {res['engine']}  ({donde})"
+        donde = (_t("hub.engine.saved_local", "guardado per-máquina")
+                 if res["source"] == "local"
+                 else _t("hub.engine.agent_default", "default del agente"))
+        S["msg"] = _t("hub.engine.changed", "motor de {name} ▸ {engine}  "
+                      "({where})", name=a["display"], engine=res["engine"],
+                      where=donde)
         if _LDATA is not None:                       # refresca el pill/statusline
             _LDATA["motor"] = _motor_summary(agents)
 
@@ -2186,6 +2291,15 @@ def _menu_machinery(tout):
             return None
         kind, idx = t
         S["msg"] = ""; S["hb_msg"] = ""
+        if kind == "agent" and _lz():
+            ya = (S.get("lz_level") is None and not S.get("lz_q")
+                  and _lz_cur().get("kind") == "agent"
+                  and _lz_cur().get("idx") == idx)
+            S["lz_level"], S["lz_q"] = None, ""
+            _lz_reset_sel(prefer=("agent", idx))
+            S["group"] = groups.index("dioses")
+            S["gsel"] = idx; S["ign_start"] = S["frame"]
+            return activate() if ya else None
         if kind == "agent":
             ya = (gk() == "dioses" and S["gsel"] == idx)
             S["group"] = groups.index("dioses")
@@ -2206,18 +2320,22 @@ def _menu_machinery(tout):
         S["group"] = groups.index("dioses")     # el aviso vive en AGENTES
         a = agents[S["gsel"]]
         if not a.get("active"):
-            S["msg"] = f"{a['display']} aún no se invoca — llega pronto."
+            S["msg"] = _t("hub.agent.not_yet", "{name} aún no se invoca — llega "
+                          "pronto.", name=a["display"])
             return
         eng = a.get("engine_eff") or a.get("engine") or "?"
-        orig = "override local" if a.get("engine_src") == "local" \
-            else "default del agente"
+        orig = _t("hub.engine.local_override", "override local") \
+            if a.get("engine_src") == "local" \
+            else _t("hub.engine.agent_default", "default del agente")
         brain = (a.get("brain") or "").replace(os.path.expanduser("~"), "~") \
             or "—"
         now = _agent_now(a.get("brain")) or {}
         tarea = (now.get("task") or "").strip()
-        vivo = f"ahora: {tarea}" if tarea else "sin tarea viva"
-        S["msg"] = (f"{a['display']} ▸ motor {eng} ({orig}) · "
-                    f"cerebro {brain} · {vivo}")
+        vivo = (_t("hub.agent.now_task", "ahora: {task}", task=tarea) if tarea
+                else _t("hub.agent.no_live_task", "sin tarea viva"))
+        S["msg"] = _t("hub.agent.info", "{name} ▸ motor {eng} ({orig}) · "
+                      "cerebro {brain} · {live}", name=a["display"], eng=eng,
+                      orig=orig, brain=brain, live=vivo)
 
     def quick(ch):
         """Acción rápida re-mapeable (keybinds) sobre el agente APUNTADO —
@@ -2241,7 +2359,7 @@ def _menu_machinery(tout):
         regiones (clásico / layouts sin hit-map) → no-op, jamás lanza a
         ciegas. Escribiendo en el alta del calendario → no-op (no saltar a
         media captura)."""
-        if S.get("narrow") or S.get("cal_mode") == "add":
+        if S.get("narrow"):
             return None
         for (row, x0, x1, kind, idx) in S.get("hit") or ():
             if y - 1 != row or not (x0 <= x - 1 < x1):
@@ -2266,19 +2384,35 @@ def _menu_machinery(tout):
                 S["group"] = groups.index("idioma")
                 S["lang_focus"] = idx
                 apply_lang()
+            if kind == "lz":
+                # fila del LANZADOR: un agente se apunta y, ya apuntado, se
+                # lanza (contrato de siempre); cualquier otra fila entra /
+                # abre / cicla / aplica de un click.
+                its = _lz_items()
+                if not (0 <= idx < len(its)):
+                    return None
+                ya = (S.get("lz_sel") == idx)
+                S["lz_sel"] = idx
+                if its[idx].get("kind") == "agent":
+                    _lz_point(its[idx])
+                    S["ign_start"] = S["frame"]
+                    return activate() if ya else None
+                return activate()
+            if kind == "crumb":                  # migas de pan = regresar
+                back()
             return None
         return None
 
     return types.SimpleNamespace(S=S, agents=agents, opts=opts, groups=groups,
-                                 key=key,
                                  laybox=_laybox,
                                  block_lines=block_lines,
                                  gsize=gsize, full_draw=full_draw, redraw=redraw,
                                  tick=tick, nav=nav, activate=activate, space=space,
+                                 tab=tab, back=back, lz_key=lz_key,
                                  toggle_redlight=toggle_redlight,
                                  cycle_engine=cycle_engine, jump=jump,
                                  click=click, quick=quick, jkeys=JKEYS,
-                                 jump_set=frozenset(JUMP),
+                                 jump_set=_JUMP_SET,
                                  akeys=dict(AKEYS),
                                  akeys_set=frozenset(AKEYS))
 
@@ -2298,8 +2432,8 @@ def _animated_loop_unix(tin, M):
                 ch = _tty_key(tin); act = False
                 if ch == "\x1b":
                     a = _esc_tail(tin)      # ESC suelto → None (no congela la animación)
-                    if a is None and M.S.get("cal_mode") == "add":
-                        M.key("\x1b")                              # Esc cancela el alta
+                    if a is None:
+                        M.back()                                   # Esc suelto: lanzador → limpia/regresa
                     if a == "A": M.nav("up")                       # ↑ → dioses
                     elif a == "B": M.nav("down")                   # ↓ → herramientas
                     elif a == "D": M.nav("left")                   # ◄
@@ -2308,23 +2442,28 @@ def _animated_loop_unix(tin, M):
                         res = M.click(a[1], a[2])                  # click = saltar + entrar
                         if res is not None:
                             return res
+                elif M.lz_key(ch):                                 # lanzador: escribe en la búsqueda
+                    pass
+                elif ch == "\t":
+                    M.tab()                                            # Tab → info del agente (lanzador)
                 elif ch in ("\r", "\n"):
                     act = True
-                elif ch == " " and M.S.get("cal_mode") != "add":
+                elif ch == " ":
                     M.space()                                          # espacio → cicla pin en CONFIGS (no-op fuera)
                 elif ch and ch.lower() in M.akeys_set \
-                        and M.S.get("cal_mode") != "add":
-                    M.quick(ch.lower())                                # acción rápida: motor/info del apuntado (keybinds)
-                elif ch in M.jump_set and M.S.get("cal_mode") != "add":
+                       :
+                    result = M.quick(ch.lower())
+                    if result is not None:
+                        return result
+                    # Acción rápida del agente seleccionado (keybinds).
+                elif ch in M.jump_set:
                     res = M.jump(ch)                                   # salto directo (tecla visible junto al ítem)
                     if res is not None:
                         return res
-                elif ch in ("l", "L") and M.S.get("cal_mode") != "add":
+                elif ch in ("l", "L"):
                     M.toggle_redlight()                               # `l` → luz roja (modo noche) on/off EN VIVO
-                elif ch in ("q", "Q", "\x03") and M.S.get("cal_mode") != "add":
+                elif ch in ("q", "Q", "\x03"):
                     return "__shell__"                                 # q → Terminal normal
-                elif M.key(ch):                                        # alta del calendario: al buffer
-                    pass
                 if act:
                     res = M.activate()
                     if res is not None:
@@ -2343,7 +2482,7 @@ def _animated_loop_windows(M, max_frames=None):
     `max_frames` corta el loop tras N frames sin teclado — SOLO para pruebas
     automatizadas (None en uso real)."""
     import msvcrt, time
-    if not sys.stdin.isatty():
+    if not _interactive_console():
         return None   # sin consola interactiva (pipe/automation) → fallback estático, no girar a 30fps
     while True:
         if msvcrt.kbhit():
@@ -2354,23 +2493,30 @@ def _animated_loop_windows(M, max_frames=None):
                 elif a == "P": M.nav("down")                       # ↓ → herramientas
                 elif a == "K": M.nav("left")                       # ◄
                 elif a == "M": M.nav("right")                      # ►
+            elif M.lz_key(ch):                                     # lanzador: escribe en la búsqueda
+                pass
+            elif ch == "\t":
+                M.tab()                                            # Tab → info del agente (lanzador)
+            elif ch == "\x1b":
+                M.back()                                           # Esc → limpia/regresa (lanzador)
             elif ch in ("\r", "\n"):
                 act = True
-            elif ch == " " and M.S.get("cal_mode") != "add":
+            elif ch == " ":
                 M.space()                                          # espacio → cicla pin en CONFIGS (no-op fuera)
             elif ch and ch.lower() in M.akeys_set \
-                    and M.S.get("cal_mode") != "add":
-                M.quick(ch.lower())                                # acción rápida: motor/info del apuntado (keybinds)
-            elif ch in M.jump_set and M.S.get("cal_mode") != "add":
+                   :
+                result = M.quick(ch.lower())
+                if result is not None:
+                    return result
+                # Acción rápida del agente seleccionado (keybinds).
+            elif ch in M.jump_set:
                 res = M.jump(ch)                                   # salto directo (tecla visible junto al ítem)
                 if res is not None:
                     return res
-            elif ch in ("l", "L") and M.S.get("cal_mode") != "add":
+            elif ch in ("l", "L"):
                 M.toggle_redlight()                               # `l` → luz roja (modo noche) on/off EN VIVO
-            elif ch in ("q", "Q", "\x03") and M.S.get("cal_mode") != "add":
+            elif ch in ("q", "Q", "\x03"):
                 return "__shell__"                                 # q → Terminal normal
-            elif M.key(ch):                                        # alta del calendario: al buffer
-                pass
             if act:
                 res = M.activate()
                 if res is not None:
@@ -2389,7 +2535,7 @@ def _animated_menu_windows(max_frames=None):
     Windows Terminal la honra tal cual. Cualquier excepción la captura el caller
     (animated_menu) y degrada al picker estático."""
     import msvcrt  # noqa: F401 — si no hay consola Windows real, truena aquí (→ fallback)
-    if not sys.stdin.isatty():
+    if not _interactive_console():
         return None   # $PROFILE cargado en pipe/automation: no pintar ni animar nada
     tout = sys.stdout
     M = _menu_machinery(tout)
@@ -2405,13 +2551,10 @@ def _animated_menu_windows(max_frames=None):
         tout.write(R); tout.flush()             # nunca dejar atributos ANSI colgados
 
 
-def animated_menu(it, rows):
-    """Recinto de los dioses: wordmark + caja de info + menús de selección.
-    Orden: DIOSES (altar de urnas, ◄►, fuego por color), HERRAMIENTAS
-    (Dashboard / Doctor / Actualizar / Terminal, ◄►, barrido luminoso),
-    LATIDO (radio-group auto/manual/off de la cola — ◄► mueve el foco,
-    Enter aplica; solo aparece si heartbeat existe). ↑↓ cambia de menú.
-    Enter elige. Devuelve nombre/token o None.
+def animated_menu(it, rows=None):
+    """El hub interactivo: el LANZADOR (hublayout.render_lanzador) — una
+    lista de agentes y secciones que se filtra al escribir. Enter elige.
+    Devuelve nombre/token o None (`rows` se ignora: compatibilidad).
     El render es compartido (_menu_machinery); el input es por plataforma: Unix usa
     termios/tty/select sobre /dev/tty, Windows usa msvcrt sobre stdout. Cualquier
     falla devuelve None ⇒ main() cae al banner estático + run_picker."""
@@ -2465,24 +2608,30 @@ def _update_available(timeout=12):
     Cliente (distro) degrada igual: compara contra SU remoto; sin remoto/red → suave."""
     try:
         if not os.path.isdir(os.path.join(ROOT, ".git")):
-            return {"ok": False, "reason": "no es repo git (instalación por sync)"}
+            return {"ok": False, "reason": _t("cli.upd.reason.not_git",
+                                              "no es repo git (instalación por sync)")}
         rc, remotes, _ = _git(ROOT, "remote", timeout=8)
         if rc != 0 or not remotes:
-            return {"ok": False, "reason": "sin remote configurado"}
+            return {"ok": False, "reason": _t("cli.upd.reason.no_remote",
+                                              "sin remote configurado")}
         rc, branch, _ = _git(ROOT, "rev-parse", "--abbrev-ref", "HEAD", timeout=8)
         if rc != 0 or not branch or branch == "HEAD":
-            return {"ok": False, "reason": "rama no determinable (HEAD suelto)"}
+            return {"ok": False, "reason": _t("cli.upd.reason.detached",
+                                              "rama no determinable (HEAD suelto)")}
         # fetch SOLO esa rama (no bloquea el resto si falla)
         rc, _, err = _git(ROOT, "fetch", "--quiet", "origin", branch, timeout=timeout)
         if rc != 0:
             low = (err or "").lower()
             if any(k in low for k in ("could not resolve", "unable to access",
                                       "timeout", "connection", "offline")):
-                return {"ok": False, "reason": "sin conexión con origin (¿offline?)"}
-            return {"ok": False, "reason": "no se pudo verificar updates"}
+                return {"ok": False, "reason": _t("cli.upd.reason.offline",
+                                                  "sin conexión con origin (¿offline?)")}
+            return {"ok": False, "reason": _t("cli.upd.reason.unverified",
+                                              "no se pudo verificar updates")}
         rc, cnt, _ = _git(ROOT, "rev-list", "--count", "HEAD..origin/%s" % branch, timeout=8)
         if rc != 0:
-            return {"ok": False, "reason": "no se pudo comparar con origin"}
+            return {"ok": False, "reason": _t("cli.upd.reason.no_compare",
+                                              "no se pudo comparar con origin")}
         try:
             behind = int(cnt)
         except ValueError:
@@ -2498,7 +2647,8 @@ def _update_available(timeout=12):
                         commits.append((parts[0], parts[1]))
         return {"ok": True, "behind": behind, "branch": branch, "commits": commits}
     except FileNotFoundError:
-        return {"ok": False, "reason": "git no está instalado"}
+        return {"ok": False, "reason": _t("cli.upd.reason.no_git",
+                                          "git no está instalado")}
     except Exception as e:
         return {"ok": False, "reason": "%s" % e}
 
@@ -2508,35 +2658,47 @@ def _offer_update(interactive):
     ofrece. NO bloquea: si no se puede verificar, avisa suave y sigue. En NO
     interactivo (CI/instalación) NUNCA promptea — a lo mucho reporta que hay update.
     Devuelve el rc de cmd_update si se ejecutó, o None si no se actualizó."""
-    print(f"\n{DIM}  Buscando actualizaciones del harness…{R}")
+    print(f"\n{DIM}  " + _t("cli.offer.searching",
+                            "Buscando actualizaciones del harness…") + f"{R}")
     info = _update_available()
     if not info.get("ok"):
-        print(f"  {DIM}· no se pudo verificar updates ({info.get('reason','?')}) — sin problema, sigues como estás.{R}")
+        print(f"  {DIM}" + _t("cli.offer.unverified", "· no se pudo verificar "
+                               "updates ({reason}) — sin problema, sigues como "
+                               "estás.", reason=info.get('reason', '?')) + f"{R}")
         return None
     if info["behind"] <= 0:
-        print(f"  {C}·{R} {DIM}estás al día (rama {info['branch']}).{R}")
+        print(f"  {C}·{R} {DIM}" + _t("cli.offer.uptodate", "estás al día (rama "
+                                       "{branch}).", branch=info['branch']) + f"{R}")
         return None
 
     n = info["behind"]
-    print(f"  {B}↓ hay {n} actualización{'es' if n != 1 else ''} disponible{'s' if n != 1 else ''}{R} "
-          f"{DIM}(rama {info['branch']}):{R}")
+    _avail = (_t("cli.offer.available_one", "↓ hay 1 actualización disponible")
+              if n == 1 else
+              _t("cli.offer.available_many", "↓ hay {n} actualizaciones "
+                 "disponibles", n=n))
+    print(f"  {B}{_avail}{R} "
+          f"{DIM}(" + _t("cli.repo.branch", "rama {branch}", branch=info['branch'])
+          + f"):{R}")
     for sha, subj in info["commits"][:12]:
         print(f"      {C}{sha}{R}  {subj}")
     if n > len(info["commits"][:12]):
-        print(f"      {DIM}… y {n - 12} más{R}")
+        print(f"      {DIM}" + _t("cli.offer.more", "… y {n} más", n=n - 12) + f"{R}")
 
     if not interactive:
         # CI / instalación / pipe: NUNCA promptear. Solo informar.
-        print(f"  {DIM}· corre `workspace update` para aplicarla.{R}")
+        print(f"  {DIM}" + _t("cli.offer.run_update", "· corre `workspace update` "
+                               "para aplicarla.") + f"{R}")
         return None
 
     try:
-        ans = input(f"\n  {C}¿Actualizar ahora? [s/N]{R} ").strip().lower()
+        ans = input(f"\n  {C}" + _t("cli.offer.prompt", "¿Actualizar ahora? [s/N]")
+                    + f"{R} ").strip().lower()
     except (EOFError, KeyboardInterrupt):
         print()
         return None
     if ans not in ("s", "si", "sí", "y", "yes"):
-        print(f"  {DIM}· ok, no actualizo. Cuando quieras: `workspace update`.{R}")
+        print(f"  {DIM}" + _t("cli.offer.declined", "· ok, no actualizo. Cuando "
+                               "quieras: `workspace update`.") + f"{R}")
         return None
     print()
     # aplica la actualización (misma lógica que `workspace update`), SIN volver a
@@ -2563,13 +2725,17 @@ def _doctor_submenu():
         tok = actualizaciones_tui.run(version_text=_hub_version_text()[0])
     except Exception:
         # pantalla no disponible → el submenú plano de siempre (jamás crashea)
-        print(f"\n  {B}Actualizaciones{R} {DIM}— ¿qué quieres hacer?{R}\n")
-        print(f"    {C}1{R}  Revisar nomás      {DIM}— diagnóstico, no toca nada{R}")
-        print(f"    {C}2{R}  Revisar y reparar  {DIM}— arregla hooks, launchers, tema…{R}")
-        print(f"    {C}3{R}  Actualizar todo    {DIM}— trae lo nuevo + repara (recomendado){R}")
-        print(f"    {C}q{R}  Volver\n")
+        _o1 = _t("actualizaciones.fallback.o1", "Revisar nomás")
+        _o2 = _t("actualizaciones.fallback.o2", "Revisar y reparar")
+        _o3 = _t("actualizaciones.fallback.o3", "Actualizar todo")
+        print(f"\n  {B}{_t('actualizaciones.fallback.header', 'Actualizaciones')}{R} "
+              f"{DIM}{_t('actualizaciones.fallback.q', '— ¿qué quieres hacer?')}{R}\n")
+        print(f"    {C}1{R}  {_o1:<17}{DIM}{_t('actualizaciones.fallback.o1d', '— diagnóstico, no toca nada')}{R}")
+        print(f"    {C}2{R}  {_o2:<17}{DIM}{_t('actualizaciones.fallback.o2d', '— arregla hooks, launchers, tema…')}{R}")
+        print(f"    {C}3{R}  {_o3:<17}{DIM}{_t('actualizaciones.fallback.o3d', '— trae lo nuevo + repara (recomendado)')}{R}")
+        print(f"    {C}q{R}  {_t('actualizaciones.fallback.back', 'Volver')}\n")
         try:
-            ans = input(f"  {C}Opción [1]:{R} ").strip().lower()
+            ans = input(f"  {C}{_t('actualizaciones.fallback.prompt', 'Opción [1]:')}{R} ").strip().lower()
         except (EOFError, KeyboardInterrupt):
             print(); return None
         tok = {"q": None, "volver": None, "salir": None,
@@ -2595,13 +2761,24 @@ def cmd_doctor(args):
     from_update = "--from-update" in args
     doctor_args = [a for a in args if a != "--from-update"]
     rc = doctor.main(doctor_args)
+    # W-F11: `--check` es diagnóstico LOCAL — buscar updates hace `git fetch`,
+    # así que solo con verificación remota explícita (--remote/--fetch).
+    local_only = (("--check" in doctor_args or "-c" in doctor_args)
+                  and not ("--remote" in doctor_args or "--fetch" in doctor_args))
+    if local_only and not from_update:
+        print(f"\n  {DIM}" + _t("cli.doctor.local_only", "· updates del harness: "
+                                "sin consultar remoto (diagnóstico local). "
+                                "`workspace doctor --check --remote` o "
+                                "`workspace update` para verificarlo.") + f"{R}")
     # update-offer: solo fuera del flujo de `workspace update` (anti-recursión).
-    if not from_update:
+    if not from_update and not local_only:
         try:
             _offer_update(interactive=sys.stdin.isatty() and sys.stdout.isatty())
         except Exception as e:
             # fail-open absoluto: el doctor JAMÁS se rompe por el chequeo de update.
-            print(f"  {DIM}· chequeo de update omitido ({type(e).__name__}).{R}")
+            print(f"  {DIM}" + _t("cli.doctor.update_skipped", "· chequeo de "
+                                   "update omitido ({err}).",
+                                   err=type(e).__name__) + f"{R}")
     return rc
 
 
@@ -2621,16 +2798,31 @@ def cmd_repair(args=None):
     import doctor
     import install
     list(args or [])
+    # Ajustes registrados pendientes (migrate.py). `repair` es lo que el
+    # auto-update lanza tras traer código nuevo — también el de versiones
+    # anteriores al actualizador nuevo —, así una máquina que se actualizó con
+    # código viejo igual recibe sus ajustes con el código nuevo.
+    try:
+        import migrate
+        if migrate.has_runnable_pending():
+            line = migrate.summary_line(migrate.run_pending())
+            if line:
+                print(f"  {line}")
+    except Exception:
+        pass
     try:
         ctx = doctor.build_ctx()
     except Exception as e:
-        print(f"  {B}⚠{R} {DIM}no pude leer el registry de agentes "
-              f"({type(e).__name__}: {e}) — corre `workspace doctor`{R}")
+        print(f"  {B}⚠{R} {DIM}"
+              + _t("cli.repair.registry_fail", "no pude leer el registry de "
+                   "agentes ({err}) — corre `workspace doctor`",
+                   err=f"{type(e).__name__}: {e}") + f"{R}")
         return 0
     brains = doctor._resolved_brains(ctx)
     if not brains:
-        print(f"  {DIM}No hay cerebros resueltos que recablear. "
-              f"Corre `workspace doctor` para resolverlos.{R}")
+        print(f"  {DIM}" + _t("cli.repair.none", "No hay cerebros resueltos que "
+                               "recablear. Corre `workspace doctor` para "
+                               "resolverlos.") + f"{R}")
         return 0
     done, failed = [], []
     for a in ctx["agents"]:
@@ -2643,12 +2835,83 @@ def cmd_repair(args=None):
             done.append(name)
         except Exception as e:
             failed.append(f"{name} ({type(e).__name__})")
-    print(f"  {C}WORKSPACE repair{R} {DIM}— hooks recableados (settings.local.json){R}")
-    line = f"  {C}✓{R} {len(done)} cerebro(s): {', '.join(done) or '—'}"
+    print(f"  {C}WORKSPACE repair{R} {DIM}— "
+          + _t("cli.repair.head", "hooks recableados (settings.local.json)")
+          + f"{R}")
+    line = f"  {C}✓{R} " + _t("cli.repair.done", "{n} cerebro(s): {names}",
+                               n=len(done), names=', '.join(done) or '—')
     if failed:
-        line += f"   {B}⚠{R} {len(failed)} con error: {', '.join(failed)}"
+        line += f"   {B}⚠{R} " + _t("cli.repair.failed", "{n} con error: {names}",
+                                    n=len(failed), names=', '.join(failed))
     print(line)
     return 0
+
+
+def _oldest_supported_python():
+    """[[comando]] del Python 3.9 de esta máquina si existe (python3.9 o el
+    lanzador `py` de Windows), o []. Solo para el gate de release del equipo."""
+    import shutil
+    for cand in (["python3.9"], ["py", "-3.9"], ["py", "-V:3.9"]):
+        if not shutil.which(cand[0]):
+            continue
+        try:
+            r = subprocess.run(cand + ["-c", "import sys; print(sys.version_info[:2])"],
+                               capture_output=True, text=True, encoding="utf-8",
+                               errors="replace", timeout=20)
+            if r.returncode == 0 and "(3, 9)" in (r.stdout or ""):
+                return [cand]
+        except Exception:
+            continue
+    return []
+
+
+def _release_gate(ref, dist=None):
+    """(versión, [problemas]) para publicar `ref` a clientes. Problemas = cosas
+    que bloquean: VERSION ausente o no SemVer, sin sección en CHANGELOG.md /
+    CHANGELOG.en.md, el README público (dist/README.md) sin las novedades de
+    ESTA versión en los dos idiomas, o la misma versión ya publicada (tag
+    v<ver> en el distro). Lectura pura.
+
+    Por qué el README: es la portada que ve quien llega al repo público. Si
+    cada release no lo toca, se queda contando una versión vieja (pasó: decía
+    que las actualizaciones no eran opcionales cuando ya lo eran)."""
+    import re as _re
+    probs = []
+
+    def show(path):
+        r = subprocess.run(["git", "-C", ROOT, "show", "%s:%s" % (ref, path)],
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace")
+        return r.stdout if r.returncode == 0 else None
+
+    ver = (show("VERSION") or "").strip()
+    if not _re.match(r"^\d+\.\d+\.\d+$", ver):
+        probs.append("VERSION debe ser un número X.Y.Z (hoy: %r)." % ver)
+        return ver, probs
+    log = show("CHANGELOG.md") or ""
+    if not _re.search(r"^## v?%s\b" % _re.escape(ver), log, _re.M):
+        probs.append("CHANGELOG.md no tiene la sección `## %s` — describe qué cambia "
+                     "para el usuario antes de publicar." % ver)
+    log_en = show("CHANGELOG.en.md") or ""
+    if not _re.search(r"^## v?%s\b" % _re.escape(ver), log_en, _re.M):
+        probs.append("CHANGELOG.en.md no tiene la sección `## %s` — los clientes en "
+                     "inglés también leen las novedades." % ver)
+    readme = show("dist/README.md") or ""
+    v = _re.escape(ver)
+    for head, lang in ((r"^### What's new in v%s\s*$" % v, "What's new in v%s" % ver),
+                       (r"^### Novedades de la v%s\s*$" % v, "Novedades de la v%s" % ver)):
+        if not _re.search(head, readme, _re.M):
+            probs.append("el README público (dist/README.md) no tiene `### %s` — "
+                         "actualízalo con lo nuevo (y revisa que el resto siga siendo "
+                         "cierto) antes de publicar." % lang)
+    if dist and os.path.isdir(os.path.join(dist, ".git")):
+        r = subprocess.run(["git", "-C", dist, "rev-parse", "-q", "--verify",
+                            "refs/tags/v%s" % ver], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
+        if r.returncode == 0:
+            probs.append("la v%s ya se publicó — sube VERSION (y su sección del "
+                         "CHANGELOG) antes de otro release." % ver)
+    return ver, probs
 
 
 def cmd_release(args):
@@ -2745,14 +3008,33 @@ def cmd_release(args):
         print(f"  {DIM}Tienes cambios sin commitear (no afectan al release; "
               f"el release sale de `{ref}`).{R}")
 
-    print(f"  {B}Construyendo distro desde `{ref}` ({sha})…{R}")
+    # GATE de versión (patrón Omarchy/Try Omarchy): cada release lleva número
+    # nuevo y su sección en el CHANGELOG — es lo que el cliente ve en
+    # `workspace version` y en la pantalla Actualizaciones.
+    ver, problems = _release_gate(ref, dist)
+    if problems:
+        print(f"  {B}✗ El release no está listo:{R}")
+        for pr in problems:
+            print(f"    · {pr}")
+        return 1
+    print(f"  {B}Construyendo distro v{ver} desde `{ref}` ({sha})…{R}")
     env = dict(os.environ, DIR=dist)
     print(f"  {DIM}$ DIR={dist} bash make-dist.sh {ref}{R}")
     if not dry and subprocess.call(["bash", script, ref], env=env):
         print("WORKSPACE: make-dist falló (¿el gate anti-fuga? revisa arriba)."); return 1
+    # El árbol que recibirá el CLIENTE (sin tests ni herramientas de equipo)
+    # tiene que arrancar: es el mismo selftest que corre su actualizador.
+    # Con TU Python y, si está instalado, con el más viejo que soportamos (3.9):
+    # un cliente con 3.9 es justo quien rompería una sintaxis nueva.
+    if not dry and os.path.isfile(os.path.join(dist, "selftest.py")):
+        for py in [[sys.executable]] + _oldest_supported_python():
+            if subprocess.call(py + [os.path.join(dist, "selftest.py")]) != 0:
+                print("WORKSPACE: el distro NO pasa su selftest con %s (arriba el "
+                      "detalle) — no publico algo que no arranca en el cliente."
+                      % " ".join(py)); return 1
     run(["git", "-C", dist, "add", "-A"])
     if dry:
-        print(f"  {DIM}$ git -C {dist} commit -m 'release {sha}'{R}")
+        print(f"  {DIM}$ git -C {dist} commit -m 'release v{ver} ({sha})'{R}")
     else:
         # H3: `git commit` con nada staged sale rc!=0 IGUAL que un commit que
         # falla de verdad (identidad git / hook). Antes ambos caían al push, y un
@@ -2763,15 +3045,22 @@ def cmd_release(args):
             print(f"  {DIM}El distro no cambió desde el último release — nada "
                   f"nuevo que publicar.{R}")
         elif subprocess.call(["git", "-C", dist, "commit", "-m",
-                              f"release {sha}"]) != 0:
+                              f"release v{ver} ({sha})"]) != 0:
             print(f"\n  ✗ El commit del distro FALLÓ (identidad git / hook); "
                   f"no publico un release a medias.")
             return 1
-    rc = run(["git", "-C", dist, "push"])
+    # Etiqueta v<versión> en el distro y en el repo de equipo (local): así
+    # cualquiera sabe qué código corresponde a la versión que ve un cliente.
+    run(["git", "-C", dist, "tag", "-a", f"v{ver}", "-m", f"Workspace v{ver}"])
+    if not dry:
+        subprocess.call(["git", "-C", ROOT, "tag", "-a", f"v{ver}", ref,
+                         "-m", f"Workspace v{ver}"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    rc = run(["git", "-C", dist, "push", "--follow-tags"])
     if dry:
         print(f"\n  {DIM}(dry-run: no se ejecutó nada){R}")
     elif rc == 0:
-        print(f"\n  {C}✓ Distribución publicada{R} (release {sha}). "
+        print(f"\n  {C}✓ Distribución publicada{R} (v{ver} · {sha}). "
               "Los clientes la reciben con `workspace update`.")
     else:
         print(f"\n  ✗ El push falló (credenciales/red).")
@@ -4475,7 +4764,8 @@ def cmd_uninstall(args):
     import subprocess
     script = os.path.join(ROOT, "uninstall.py")
     if not os.path.isfile(script):
-        print("WORKSPACE: no encuentro uninstall.py en el harness.")
+        print(_t("cli.uninstall.missing",
+                 "WORKSPACE: no encuentro uninstall.py en el harness."))
         return 1
     return subprocess.call([sys.executable, script] + list(args or []))
 
@@ -4528,7 +4818,8 @@ def cmd_bus(args):
     try:
         import bus_daemon
     except Exception as e:
-        print("WORKSPACE: no pude cargar el bus automático (bus_daemon.py): %s" % e)
+        print(_t("cli.load_fail", "WORKSPACE: no pude cargar {what}: {err}",
+                 what="bus_daemon.py", err=e))
         return 1
     return bus_daemon.main(args)
 
@@ -4540,7 +4831,8 @@ def cmd_calendario(args):
     try:
         import calendario_tui
     except Exception as e:
-        print("WORKSPACE: no pude cargar calendario_tui.py: %s" % e)
+        print(_t("cli.load_fail", "WORKSPACE: no pude cargar {what}: {err}",
+                 what="calendario_tui.py", err=e))
         return 1
     return calendario_tui.run()
 
@@ -4553,20 +4845,22 @@ def cmd_tono(args):
     try:
         import personalidad
     except Exception as e:
-        print("WORKSPACE: no pude cargar personalidad.py: %s" % e)
+        print(_t("cli.load_fail", "WORKSPACE: no pude cargar {what}: {err}",
+                 what="personalidad.py", err=e))
         return 1
     return personalidad.main(args)
 
 
 def cmd_personal(kind, args):
     """`workspace foco [texto|--clear]` y `workspace agenda [add|rm|list]` — el
-    dato PERSONAL del socio (foco del día + agenda) que pinta la caja HOY del
-    layout `dia`. Store local per-máquina: ~/.claude/workspace/personal.json
+    dato PERSONAL del socio (foco del día + agenda) que muestra el Calendario.
+    Store local per-máquina: ~/.claude/workspace/personal.json
     (no se sincroniza, no lo ve nadie más). La lógica vive en personal.py."""
     try:
         import personal
     except Exception as e:
-        print("WORKSPACE: no pude cargar personal.py: %s" % e)
+        print(_t("cli.load_fail", "WORKSPACE: no pude cargar {what}: {err}",
+                 what="personal.py", err=e))
         return 1
     return personal.main([kind] + list(args))
 
@@ -4578,7 +4872,8 @@ def cmd_voice(args):
     try:
         import voice
     except Exception as e:
-        print("WORKSPACE: no pude cargar la voz (voice.py): %s" % e)
+        print(_t("cli.load_fail", "WORKSPACE: no pude cargar {what}: {err}",
+                 what="voice.py", err=e))
         return 1
     return voice.main(args)
 
@@ -4594,7 +4889,7 @@ def cmd_voice(args):
 def _mail_config_path():
     """Ruta del archivo de credenciales SMTP per-máquina (función, no constante:
     respeta el HOME parchado en tests). En Windows cae en el perfil del usuario."""
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace", "mail.json")
+    return os.path.join(_paths.state_dir(), "mail.json")
 
 
 def _mail_load_creds():
@@ -4615,15 +4910,14 @@ def _mail_load_creds():
         port = 587
     if not user or not passwd:
         msg = (
-            f"{B}✗ Faltan credenciales SMTP.{R}\n"
-            f"  {DIM}El correo sale por SMTP de Gmail con una App Password "
-            f"(2FA activado), NO tu contraseña normal.{R}\n"
-            f"  {DIM}Crea una en: https://myaccount.google.com/apppasswords{R}\n\n"
-            f"  Configúralas de UNA de estas formas:\n"
-            f"    1) {C}workspace mail --setup{R}  {DIM}(te las pide y crea "
-            f"~/.claude/workspace/mail.json con permisos 0600){R}\n"
-            f"    2) variables de entorno {C}WORKSPACE_SMTP_USER{R} y "
-            f"{C}WORKSPACE_SMTP_PASS{R}\n"
+            f"{B}{_t('mail.creds.missing', '✗ Faltan credenciales SMTP.')}{R}\n"
+            f"  {DIM}{_t('mail.creds.why', 'El correo sale por SMTP de Gmail con una App Password (2FA activado), NO tu contraseña normal.')}{R}\n"
+            f"  {DIM}{_t('mail.creds.create', 'Crea una en: https://myaccount.google.com/apppasswords')}{R}\n\n"
+            f"  {_t('mail.creds.ways', 'Configúralas de UNA de estas formas:')}\n"
+            f"    1) {C}workspace mail --setup{R}  {DIM}"
+            f"{_t('mail.creds.way1', '(te las pide y crea ~/.claude/workspace/mail.json con permisos 0600)')}{R}\n"
+            f"    2) {_t('mail.creds.way2', 'variables de entorno')} {C}WORKSPACE_SMTP_USER{R} "
+            f"{_t('mail.creds.and', 'y')} {C}WORKSPACE_SMTP_PASS{R}\n"
         )
         return None, msg
     return {"user": user, "pass": passwd, "host": host, "port": port}, None
@@ -4670,32 +4964,30 @@ def _mail_parse_recipients(values):
 def _mail_setup(user=None, passwd=None, host=None, port=None):
     """`workspace mail --setup` — crea ~/.claude/workspace/mail.json (0600) con la
     App Password. Toma valores de flags o, si faltan, los pide por prompt."""
-    print(f"{B}WORKSPACE · configurar correo (SMTP){R}")
-    print(f"  {DIM}Necesitas una App Password de Google (con 2FA activado), "
-          f"no tu contraseña normal.{R}")
-    print(f"  {DIM}Crear: https://myaccount.google.com/apppasswords{R}\n")
+    print(f"{B}{_t('mail.setup.title', 'WORKSPACE · configurar correo (SMTP)')}{R}")
+    print(f"  {DIM}{_t('mail.setup.need', 'Necesitas una App Password de Google (con 2FA activado), no tu contraseña normal.')}{R}")
+    print(f"  {DIM}{_t('mail.setup.create', 'Crear: https://myaccount.google.com/apppasswords')}{R}\n")
     try:
         # Solo se piden interactivamente los campos REQUERIDOS (user + pass);
         # host/port toman default Gmail salvo que se pasen por flag. Así
         # `workspace mail --setup --user X --pass Y` es no-interactivo.
         if not user:
-            user = input("  Correo (user) [ej. tucorreo@dominio.com]: ").strip()
+            user = input(_t("mail.setup.ask_user", "  Correo (user) [ej. tucorreo@dominio.com]: ")).strip()
         if not passwd:
             import getpass
-            passwd = getpass.getpass("  App Password (16 chars, no se muestra): ").strip()
+            passwd = getpass.getpass(_t("mail.setup.ask_pass", "  App Password (16 chars, no se muestra): ")).strip()
     except (EOFError, KeyboardInterrupt):
-        print("\n  cancelado.")
+        print("\n  " + _t("mail.setup.cancelled", "cancelado."))
         return 1
     host = host or "smtp.gmail.com"
     port = port or 587
     if not user or not passwd:
-        print(f"  {B}✗ Falta el correo o la App Password — no escribí nada.{R}")
+        print(f"  {B}{_t('mail.setup.missing', '✗ Falta el correo o la App Password — no escribí nada.')}{R}")
         return 2
     path = _mail_save_creds(user, passwd, host or "smtp.gmail.com", port or 587)
-    print(f"\n  {C}✓ Guardado en {path}{R} {DIM}(permisos 0600, per-máquina, "
-          f"fuera de git){R}")
-    print(f"  {DIM}Prueba: workspace mail --to {user} --subject ping "
-          f"--body hola --dry-run{R}")
+    print(f"\n  {C}{_t('mail.setup.saved', '✓ Guardado en {path}', path=path)}{R} "
+          f"{DIM}{_t('mail.setup.saved_note', '(permisos 0600, per-máquina, fuera de git)')}{R}")
+    print(f"  {DIM}{_t('mail.setup.try', 'Prueba: workspace mail --to {user} --subject ping --body hola --dry-run', user=user)}{R}")
     return 0
 
 
@@ -4725,14 +5017,12 @@ def _mail_send(creds, sender, recipients, subject, body):
             server.login(creds["user"], creds["pass"])
         except smtplib.SMTPAuthenticationError as e:
             return False, (
-                f"{B}✗ Autenticación rechazada por el servidor.{R}\n"
-                f"  {DIM}¿Es una App Password válida (2FA activado), no tu "
-                f"contraseña normal? Regenera en "
-                f"https://myaccount.google.com/apppasswords{R}\n"
+                f"{B}{_t('mail.send.auth', '✗ Autenticación rechazada por el servidor.')}{R}\n"
+                f"  {DIM}{_t('mail.send.auth_hint', '¿Es una App Password válida (2FA activado), no tu contraseña normal? Regenera en https://myaccount.google.com/apppasswords')}{R}\n"
                 f"  {DIM}({type(e).__name__}){R}")
         server.sendmail(sender, recipients, msg.as_string())
     except smtplib.SMTPException as e:
-        return False, (f"{B}✗ Error enviando el correo{R} "
+        return False, (f"{B}{_t('mail.send.error', '✗ Error enviando el correo')}{R} "
                        f"{DIM}({type(e).__name__}: {e}){R}")
     finally:
         try:
@@ -4758,6 +5048,11 @@ _MAIL_USAGE = (
 )
 
 
+
+def _mail_usage():
+    """Uso de `workspace mail` en el idioma de la UI (fuente: _MAIL_USAGE)."""
+    return _t("mail.usage", _MAIL_USAGE)
+
 def cmd_mail(args):
     """`workspace mail` — envía correo por SMTP de Gmail (App Password, sin OAuth).
 
@@ -4765,7 +5060,7 @@ def cmd_mail(args):
     credenciales viven SOLO per-máquina (env o ~/.claude/workspace/mail.json)."""
     args = list(args or [])
     if "--help" in args or "-h" in args:
-        print(_MAIL_USAGE)
+        print(_mail_usage())
         return 0
 
     # ── parseo manual (controla return codes; consistente con el resto) ──
@@ -4776,7 +5071,8 @@ def cmd_mail(args):
 
     def _val(i, flag):
         if i + 1 >= len(args):
-            raise ValueError(f"{flag} requiere un valor")
+            raise ValueError(_t("mail.err.needs_value", "{flag} requiere un valor",
+                                flag=flag))
         return args[i + 1]
 
     try:
@@ -4805,12 +5101,13 @@ def cmd_mail(args):
             elif a == "--port":
                 port_flag = _val(i, a); i += 2
             else:
-                print(f"WORKSPACE: opción desconocida '{a}'\n")
-                print(_MAIL_USAGE)
+                print(_t("mail.err.unknown_opt",
+                         "WORKSPACE: opción desconocida '{opt}'", opt=a) + "\n")
+                print(_mail_usage())
                 return 2
     except ValueError as e:
         print(f"WORKSPACE: {e}\n")
-        print(_MAIL_USAGE)
+        print(_mail_usage())
         return 2
 
     if setup:
@@ -4818,15 +5115,16 @@ def cmd_mail(args):
 
     # ── cuerpo: --body directo o --body-file ──
     if body is not None and body_file is not None:
-        print("WORKSPACE: usa --body O --body-file, no ambos.")
+        print(_t("mail.err.body_both", "WORKSPACE: usa --body O --body-file, no ambos."))
         return 2
     if body_file is not None:
         try:
             with open(os.path.expanduser(body_file), encoding="utf-8") as fh:
                 body = fh.read()
         except OSError as e:
-            print(f"WORKSPACE: no pude leer --body-file '{body_file}' "
-                  f"({type(e).__name__}: {e})")
+            print(_t("mail.err.body_file",
+                     "WORKSPACE: no pude leer --body-file '{path}' ({err})",
+                     path=body_file, err="%s: %s" % (type(e).__name__, e)))
             return 2
 
     recipients = _mail_parse_recipients(to_vals)
@@ -4838,8 +5136,9 @@ def cmd_mail(args):
     if body is None:
         missing.append("--body / --body-file")
     if missing:
-        print(f"WORKSPACE: faltan {', '.join(missing)}\n")
-        print(_MAIL_USAGE)
+        print(_t("mail.err.missing", "WORKSPACE: faltan {what}",
+                 what=", ".join(missing)) + "\n")
+        print(_mail_usage())
         return 2
 
     # ── credenciales (también define el remitente por default) ──
@@ -4851,23 +5150,23 @@ def cmd_mail(args):
 
     # ── preview (siempre) ──
     preview = body if len(body) <= 500 else body[:500] + "…"
-    print(f"{B}── correo ──{R}")
-    print(f"  {DIM}de:     {R}{sender}")
-    print(f"  {DIM}para:   {R}{', '.join(recipients)}")
-    print(f"  {DIM}asunto: {R}{subject}")
-    print(f"  {DIM}cuerpo:{R}")
+    print(f"{B}{_t('mail.preview.title', '── correo ──')}{R}")
+    print(f"  {DIM}{_t('mail.preview.from', 'de:     ')}{R}{sender}")
+    print(f"  {DIM}{_t('mail.preview.to', 'para:   ')}{R}{', '.join(recipients)}")
+    print(f"  {DIM}{_t('mail.preview.subject', 'asunto: ')}{R}{subject}")
+    print(f"  {DIM}{_t('mail.preview.body', 'cuerpo:')}{R}")
     for line in (preview.splitlines() or [""]):
         print(f"    {line}")
 
     if dry:
-        print(f"\n  {DIM}(dry-run: no se envió nada){R}")
+        print(f"\n  {DIM}{_t('mail.preview.dry', '(dry-run: no se envió nada)')}{R}")
         return 0
 
     ok, send_err = _mail_send(creds, sender, recipients, subject, body)
     if not ok:
         print("\n" + send_err)
         return 1
-    print(f"\n  {C}✓ Enviado a {', '.join(recipients)}{R}")
+    print(f"\n  {C}{_t('mail.sent', '✓ Enviado a {to}', to=', '.join(recipients))}{R}")
     return 0
 
 
@@ -5247,6 +5546,35 @@ def cmd_panel(args):
     return panel.run(argv=["panel"] + list(args))
 
 
+def cmd_agentes(args):
+    """`workspace agentes [descubrir|reubicar|estado]` (Z03/U03).
+      descubrir [--root <ruta>] [--json]  candidatos + sugerencias de reparación,
+                                          SIN registrar nada (agentsreg discover)
+      descubrir --register                registra explícitamente los NUEVOS
+      reubicar <agente> <ruta> [--force]  repara la ruta del cerebro (override
+                                          por máquina; no toca el cerebro)
+      estado [--json]                     estado compartido (agent_state)
+      (sin subcomando)                    pantalla Agentes (TTY) o estado (sin TTY)"""
+    args = list(args or [])
+    sub = args[0].lower() if args else ""
+    import agentsreg
+    if sub in ("descubrir", "discover", "buscar"):
+        return agentsreg.main(["discover"] + args[1:])
+    if sub in ("reubicar", "relocate", "reparar"):
+        if len(args) < 3:
+            print(_t("cli.agentes.relocate_usage", "uso: workspace agentes "
+                     "reubicar <agente> <ruta> [--force]"))
+            return 2
+        return agentsreg.main(["relocate"] + args[1:])
+    import agent_state
+    if sub in ("estado", "status", "list", "ls") or not (
+            sys.stdin.isatty() and sys.stdout.isatty()):
+        return agent_state.main([a for a in args[1:] if a == "--json"]
+                                if sub else [])
+    import agents_tui
+    return agents_tui.main(args)
+
+
 def cmd_split(args):
     """`workspace split [agente]` — terminal PARTIDA (opt-in): una ventana con
     el chat del agente a la izquierda y la pipeline en vivo (`wf board`) a
@@ -5262,9 +5590,14 @@ def cmd_split(args):
     if args and args[0] in ("reap", "limpiar", "--reap"):
         plan = any(a in ("--plan", "--dry-run") for a in args[1:])
         reaped, killed = multiplexer.reap_orphans(plan=plan)
-        verbo = "reapear" if plan else "reapeadas"
-        print("WORKSPACE split reap: %d sesión(es) %s · %d grupo(s) huérfano(s) %s"
-              % (len(reaped), verbo, killed, "por matar" if plan else "matados"))
+        if plan:
+            print(_t("cli.split.reap_plan", "WORKSPACE split reap: {n} sesión(es) "
+                     "reapear · {k} grupo(s) huérfano(s) por matar",
+                     n=len(reaped), k=killed))
+        else:
+            print(_t("cli.split.reap_done", "WORKSPACE split reap: {n} sesión(es) "
+                     "reapeadas · {k} grupo(s) huérfano(s) matados",
+                     n=len(reaped), k=killed))
         for s in reaped:
             print("  · " + s)
         return 0
@@ -5285,46 +5618,220 @@ _DEV_CMDS = {
 }
 
 
-def _usage():
-    """Uso CLI de `workspace` (sin abrir la TUI). Un renglón por comando.
-    Los comandos de DEV/EQUIPO (flujo de ramas, release, dev panel, paridad) solo
-    se listan en una build de DEV (_has_dev_panel); el cliente ve solo producto."""
-    product = (
-        "uso: workspace [comando]\n"
-        "\n"
-        "  (sin comando)       abre el recinto (menú interactivo de agentes)\n"
-        "  doctor [--check]    diagnóstico / reparación del harness\n"
-        "  update              actualiza el harness (pull + doctor)\n"
-        "  repair              re-renderiza los hooks de cada cerebro\n"
-        "  proyectos [stop]    app «Proyectos»: mapa de todos tus proyectos + agente\n"
-        "  eval <agente>       corre el golden set del agente\n"
-        "  wf                  workflows declarativos (new · list · run · status · resume · stats)\n"
-        "  split [agente]      terminal partida (tmux o herdr): chat | wf board (opt-in;\n"
-        "                      para TODO chat del hub: settings set ui.split on;\n"
-        "                      backend: settings set ui.split_backend auto|tmux|herdr)\n"
-        "  foco [texto]        el foco del día (lo pinta la caja HOY del layout dia)\n"
-        "  agenda [add|rm]     tu agenda local (eventos con fecha/hora)\n"
-        "  tono                pantalla del TONO de los agentes (diales 1-5)\n"
-        "  onboarding          flujo guiado de primer uso (motores · apariencia · agente)\n"
-        "  calendario          editor de agenda (mes + alta/edicion/baja)\n"
-        "  mail                enviar correo (SMTP per-máquina; default --dry-run)\n"
-        "  uninstall           desinstala WORKSPACE de esta máquina\n")
-    dev = (
-        "  dev                 panel de developer (versiones / ramas)\n"
-        "  board               tablero del dev panel (agentes-first)\n"
-        "  feature | integrate | promote | release | publish   flujo de ramas\n"
-        "  worktree | wt       worktrees con dueño (list · rm · pool · prune)\n"
-        "  parity-check        checklist de paridad Mac/Windows\n")
-    meta = (
-        "  --banner            imprime banner + menú estático (no interactivo)\n"
-        "  -h, --help          este uso\n")
-    return product + (dev if _has_dev_panel() else "") + meta
+def _resolve_handler(word):
+    """Handler del subcomando `word` (cualquier nombre/alias del catálogo) o
+    None si no existe. Falla-suave: sin comandos.py → None (uso + exit 2)."""
+    try:
+        import comandos
+        cid = comandos.resolve(word)
+    except Exception:
+        return None
+    return _dispatch_table().get(cid) if cid else None
+
+
+def _run_onboarding(_args):
+    # Onboarding de primer uso, re-ejecutable a mano (onboarding_tui.py).
+    try:
+        import onboarding_tui
+        return onboarding_tui.run(force=True)
+    except Exception as e:
+        print(_t("cli.unavailable", "{what} no disponible ({err})",
+                 what="onboarding", err=f"{type(e).__name__}: {e}"))
+        return 0
+
+
+def _run_dev(args):
+    # `dev setup` = onboarding de DESARROLLO (U11); `dev` a secas = panel.
+    if args[:1] == ["setup"]:
+        import dev_setup
+        return dev_setup.main(args[1:])
+    return cmd_dev(args)
+
+
+def _run_module(modname, fn="main", pass_args=True):
+    """Handler perezoso: importa `modname` solo al correr el comando."""
+    def _h(args):
+        mod = __import__(modname)
+        return getattr(mod, fn)(args) if pass_args else getattr(mod, fn)()
+    return _h
+
+
+def _dispatch_table():
+    """{id del catálogo (comandos.py): handler(args) → exit code}. ÚNICA tabla
+    de ruteo de front.main: los NOMBRES (ES/EN/alias, incluidos los viejos)
+    viven en el catálogo; aquí solo qué corre cada id. Se arma en cada
+    llamada (lookup tardío: los tests parchean front.cmd_*). El lint
+    (comandos.check + tests/test_comandos_catalog.py) exige catálogo ⇔ tabla."""
+    return {
+        "help": lambda a: (print(_usage()) or 0),
+        "comandos": lambda a: cmd_comandos(a),
+        "update": lambda a: cmd_update(a),
+        "version": lambda a: cmd_version(a),
+        # Ajustes registrados que viajan con cada actualización (migrate.py).
+        "migrate": _run_module("migrate"),
+        "doctor": lambda a: cmd_doctor(a),
+        # `repair`/`fix`: subset rápido del doctor — re-renderiza SOLO los
+        # hooks de cada cerebro (dispatch.maybe_autoupdate spawnea justo esto).
+        "repair": lambda a: cmd_repair(a),
+        "configurar-desarrollo": _run_module("dev_setup"),     # U11
+        # Migración recuperable del harness viejo: --plan por default;
+        # --apply / --retire / --rollback explícitos (migrate_legacy.py).
+        "migrar-legado": _run_module("migrate_legacy"),
+        "uninstall": lambda a: cmd_uninstall(a),
+        "agentes": lambda a: cmd_agentes(a),
+        # Niveles de personalidad de los agentes (tono.*) — ver personalidad.py.
+        "tono": lambda a: cmd_tono(a),
+        "onboarding": _run_onboarding,
+        # Dato PERSONAL del socio: el FOCO del día y la AGENDA (los muestra
+        # el Calendario). Local a esta máquina (personal.py).
+        "foco": lambda a: cmd_personal("foco", a),
+        "agenda": lambda a: cmd_personal("agenda", a),
+        "calendario": lambda a: cmd_calendario(a),
+        # App «Proyectos» (pantalla completa, puerto propio) — la abre el hub o esto.
+        "proyectos": lambda a: cmd_proyectos(a),
+        # Enviar correo por SMTP (Gmail App Password). Acción HACIA AFUERA: el
+        # default seguro es --dry-run; las credenciales viven per-máquina.
+        "mail": lambda a: cmd_mail(a),
+        # Workflows declarativos (workflows/MAPA.md): specs congelados + runner.
+        "wf": lambda a: cmd_wf(a),
+        # Terminal PARTIDA (opt-in): solo se entra escribiendo `workspace split`.
+        "split": lambda a: cmd_split(a),
+        "eval": lambda a: cmd_eval(a),
+        # ── ocultos (rutean, no se anuncian) ──
+        "versiones": _run_module("git_tui", "run", pass_args=False),
+        # Backend del Centro de Control (dash/centro/).
+        "centro": lambda a: cmd_centro(a),
+        # Dictado por voz global (local, whisper.cpp).
+        "voz": lambda a: cmd_voice(a),
+        # Delegación autónoma segura (bus automático v1, opt-in).
+        "bus": lambda a: cmd_bus(a),
+        "memoria": _run_module("session_continuity"),
+        # Pane derecho del split (panel.py; lo corre mux.right_pane_cmd()).
+        "panel": lambda a: cmd_panel(a),
+        # ── DEV/EQUIPO (el gate _DEV_CMDS corta antes en la build de cliente) ──
+        "parity-check": lambda a: cmd_parity_check(a),
+        "dev": _run_dev,
+        "board": lambda a: cmd_board(a),
+        # Flujo de ramas (feature → main → stable): imprime cada git que corre.
+        "feature": lambda a: cmd_feature(a),
+        "integrate": lambda a: cmd_integrate(a),
+        "promote": lambda a: cmd_promote(a),
+        "release": lambda a: cmd_release(a),
+        "publish": lambda a: cmd_publish(a),
+        # Worktrees con DUEÑO (el dashboard de DEV los marca "en uso").
+        "worktree": lambda a: cmd_worktree(a),
+    }
+
+
+def _comandos_dev_mode():
+    try:
+        import dev_tui
+        return dev_tui.is_dev()
+    except Exception:
+        return False
+
+
+def cmd_comandos(args):
+    """`workspace comandos` — el catálogo único, para gente y para agentes:
+      (sin args)      pantalla Comandos (con consola) · uso en texto (sin ella)
+      --json          catálogo estable para agentes de IA (ambos idiomas)
+      --markdown      capítulo del manual, derivado (--lang es|en opcional)
+      --check         lint: catálogo ⇔ ruteo, resúmenes ES/EN, colisiones
+      --all           (con --json/--markdown) incluye ocultos y desarrollo"""
+    import comandos
+    lang = None
+    if "--lang" in args:
+        i = args.index("--lang")
+        lang = args[i + 1] if i + 1 < len(args) else None
+    dev = _has_dev_panel() and ("--all" in args or _comandos_dev_mode())
+    if "--check" in args:
+        probs = comandos.check(_dispatch_table().keys(), _DEV_CMDS)
+        for p in probs:
+            print("✗ " + p)
+        if not probs:
+            print(_t("cli.comandos.check_ok", "✓ catálogo de comandos sano "
+                     "({n} comandos)", n=len(comandos.all_commands())))
+        return 1 if probs else 0
+    if "--json" in args:
+        print(json.dumps(comandos.as_json(lang, dev=dev, hidden="--all" in args),
+                         ensure_ascii=False, indent=2))
+        return 0
+    if "--markdown" in args or "--md" in args:
+        # El Markdown es el capítulo del MANUAL público: sin comandos del equipo
+        # salvo que se pidan explícitamente con --all.
+        sys.stdout.write(comandos.as_markdown(lang, dev=_has_dev_panel() and "--all" in args))
+        return 0
+    if args:
+        sys.stderr.write(_t("cli.comandos.usage", "uso: workspace comandos "
+                            "[--json | --markdown | --check]") + "\n")
+        return 2
+    if not _interactive_console():
+        print(_usage())
+        return 0
+    try:
+        import comandos_tui
+        rc = comandos_tui.run(standalone=True)
+        return rc if isinstance(rc, int) else 0
+    except Exception as e:
+        print(_t("cli.unavailable", "{what} no disponible ({err})",
+                 what="comandos", err=f"{type(e).__name__}: {e}"))
+        print(_usage())
+        return 0
+
+
+def _usage(lang=None):
+    """Uso CLI de `workspace` (sin abrir la TUI), DERIVADO del catálogo único
+    (comandos.py): un renglón por comando, agrupado, en el idioma de la UI.
+    Los comandos de DEV/EQUIPO (flujo de ramas, release, dev panel, paridad)
+    solo se listan en una build de DEV (_has_dev_panel); el cliente ve solo
+    producto. Nadie lista comandos a mano aquí: agregar uno = su ficha en
+    comandos.py + su handler en _dispatch_table (el lint de tests lo exige)."""
+    import comandos
+    return comandos.usage_text(lang, dev=_has_dev_panel())
+
+
+def _interactive_console():
+    """¿stdin Y stdout son una consola interactiva REAL? (_console.interactive:
+    en Windows NUL engaña a isatty() — se exige GetConsoleMode). Es la puerta
+    del hub/picker: sin consola real NO se dibuja ni se espera teclado (W-F04).
+    Falla-suave: módulo ausente → isatty de ambos (comportamiento anterior)."""
+    try:
+        import _console
+        return _console.interactive()
+    except Exception:
+        try:
+            return sys.stdin.isatty() and sys.stdout.isatty()
+        except Exception:
+            return False
+
+
+def _headless_exit():
+    """Contrato NO interactivo del hub (`workspace` sin subcomando con stdin o
+    stdout redirigidos — pipe, archivo, NUL, CI): salida DETERMINISTA, sin
+    picker msvcrt bloqueante ni animación. Devuelve el exit code:
+      · vino del GREETER (perfil de shell cargado por un script/automation)
+        → 0 en silencio: el shell sigue y no ensucia la salida del script;
+      · invocación directa → aviso + uso en stderr y 2 (como un comando
+        mal usado: el hub necesita terminal)."""
+    if os.environ.get("WORKSPACE_GREETER"):
+        return 0
+    sys.stderr.write(
+        _t("cli.headless", "WORKSPACE: el menú necesita una terminal "
+           "interactiva (stdin/stdout redirigidos o sin consola).") + "\n"
+        + "  " + _t("cli.headless_hint", "Vista estática: workspace --banner · "
+                    "comandos: workspace --help") + "\n\n"
+        + _usage())
+    sys.stderr.flush()
+    return 2
 
 
 def _tty_out():
     """Stream del fallback estático del menú: /dev/tty si es ABRIBLE — existir
     no basta: en cron/headless `open()` truena con OSError (Errno 6, device not
-    configured) aunque el nodo exista. Falla-suave → stderr."""
+    configured) aunque el nodo exista. Falla-suave → stderr. En Windows,
+    stderr: "/dev/tty" sería el archivo C:/dev/tty."""
+    if os.name == "nt":
+        return sys.stderr
     try:
         return open("/dev/tty", "w")
     except OSError:
@@ -5363,9 +5870,6 @@ def main():
         secret_store.load_into_env()
     except Exception:
         pass
-    if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help", "help", "ayuda"):
-        print(_usage())
-        sys.exit(0)
     # ── Build de CLIENTE: gate de la superficie DEV/EQUIPO ──
     # Los comandos de _DEV_CMDS (flujo de ramas, release/publish, dev panel,
     # tablero, paridad) dependen de archivos que NO viajan a la distro (p.ej.
@@ -5374,105 +5878,25 @@ def main():
     # En build de DEV (_has_dev_panel) pasan tal cual, sin cambio de conducta.
     if (len(sys.argv) > 1 and sys.argv[1] in _DEV_CMDS and not _has_dev_panel()):
         sys.stderr.write(
-            f"WORKSPACE: '{sys.argv[1]}' es un comando de desarrollo, "
-            f"no disponible en esta instalación.\n\n" + _usage())
+            _t("cli.dev_only", "WORKSPACE: '{cmd}' es un comando de desarrollo, "
+               "no disponible en esta instalación.", cmd=sys.argv[1])
+            + "\n\n" + _usage())
         sys.exit(2)
-    if len(sys.argv) > 1 and sys.argv[1] in ("parity-check", "parity", "paridad"):
-        sys.exit(cmd_parity_check(sys.argv[2:]))
-    if len(sys.argv) > 1 and sys.argv[1] in ("update", "--update", "up"):
-        sys.exit(cmd_update(sys.argv[2:]))
-    if len(sys.argv) > 1 and sys.argv[1] in ("versiones", "ramas"):
-        import git_tui
-        sys.exit(git_tui.run())
-    if len(sys.argv) > 1 and sys.argv[1] == "dev":
-        sys.exit(cmd_dev(sys.argv[2:]))
-    # App «Proyectos» (pantalla completa, puerto propio) — la abre el hub o esto.
-    if len(sys.argv) > 1 and sys.argv[1] in ("proyectos", "proyecto", "mapa"):
-        sys.exit(cmd_proyectos(sys.argv[2:]))
-    # API de terminal del tablero del dev panel (agentes-first). Solo-dev.
-    if len(sys.argv) > 1 and sys.argv[1] in ("board", "tablero"):
-        sys.exit(cmd_board(sys.argv[2:]))
-    # Backend del Centro de Control: misiones (3 fases) + estado agregado +
-    # delegación estructurada por el bus. La lógica vive en dash/centro/.
-    if len(sys.argv) > 1 and sys.argv[1] == "centro":
-        sys.exit(cmd_centro(sys.argv[2:]))
-    if len(sys.argv) > 1 and sys.argv[1] in ("doctor", "--doctor", "doc"):
-        sys.exit(cmd_doctor(sys.argv[2:]))
-    # `repair`/`fix`: subset rápido del doctor — re-renderiza SOLO los hooks de
-    # cada cerebro (cierra la deriva de un pull/branch-switch). El auto-render
-    # tras un pull con cambios (dispatch.maybe_autoupdate) spawnea justo esto.
-    if len(sys.argv) > 1 and sys.argv[1] in ("repair", "fix"):
-        sys.exit(cmd_repair(sys.argv[2:]))
-    if len(sys.argv) > 1 and sys.argv[1] in ("eval", "evals"):
-        sys.exit(cmd_eval(sys.argv[2:]))
-    # Dictado por voz global (local, whisper.cpp): toggle grabar→transcribir→pegar.
-    # Se enlaza a un atajo de teclado del sistema; cubre todos los chats de agente.
-    if len(sys.argv) > 1 and sys.argv[1] in ("voice", "voz", "dictado"):
-        sys.exit(cmd_voice(sys.argv[2:]))
-    # Delegación autónoma segura (bus automático v1): daemon que atiende el bus
-    # solo para agentes opt-in, con enforcement por construcción (sandbox+read-only).
-    if len(sys.argv) > 1 and sys.argv[1] in ("bus",):
-        sys.exit(cmd_bus(sys.argv[2:]))
-    # Dato PERSONAL del socio: el FOCO del día y la AGENDA que pinta la caja
-    # HOY del layout `dia`. Local a esta máquina (personal.py).
-    if len(sys.argv) > 1 and sys.argv[1] in ("foco", "focus"):
-        sys.exit(cmd_personal("foco", sys.argv[2:]))
-    if len(sys.argv) > 1 and sys.argv[1] == "agenda":
-        sys.exit(cmd_personal("agenda", sys.argv[2:]))
-    # Niveles de personalidad de los agentes (tono.*) — ver personalidad.py.
-    if len(sys.argv) > 1 and sys.argv[1] in ("tono", "personalidad"):
-        sys.exit(cmd_tono(sys.argv[2:]))
-    # Onboarding de primer uso, re-ejecutable a mano (onboarding_tui.py).
-    if len(sys.argv) > 1 and sys.argv[1] in ("onboarding", "bienvenida"):
-        try:
-            import onboarding_tui
-            sys.exit(onboarding_tui.run(force=True))
-        except Exception as e:
-            print(f"onboarding no disponible ({type(e).__name__}: {e})")
-            sys.exit(0)
-    if len(sys.argv) > 1 and sys.argv[1] in ("calendario", "cal"):
-        sys.exit(cmd_calendario(sys.argv[2:]))
-    if len(sys.argv) > 1 and sys.argv[1] in ("uninstall", "--uninstall", "remove"):
-        sys.exit(cmd_uninstall(sys.argv[2:]))
-    if len(sys.argv) > 1 and sys.argv[1] == "release":
-        sys.exit(cmd_release(sys.argv[2:]))
-    if len(sys.argv) > 1 and sys.argv[1] == "publish":
-        sys.exit(cmd_publish(sys.argv[2:]))
-    # Enviar correo por SMTP (Gmail App Password). Acción HACIA AFUERA: el
-    # default seguro es --dry-run; las credenciales viven per-máquina.
-    if len(sys.argv) > 1 and sys.argv[1] == "mail":
-        sys.exit(cmd_mail(sys.argv[2:]))
-    # Flujo de ramas (feature → main → stable): le ahorra tecleo al socio e imprime
-    # cada git que corre (para que vea el git real mientras lo aprende).
-    if len(sys.argv) > 1 and sys.argv[1] == "feature":
-        sys.exit(cmd_feature(sys.argv[2:]))
-    if len(sys.argv) > 1 and sys.argv[1] == "integrate":
-        sys.exit(cmd_integrate(sys.argv[2:]))
-    # Worktrees con DUEÑO: toma una rama en un worktree aparte y registra qué
-    # agente la trabaja (el dashboard de DEV la marca "en uso").
-    if len(sys.argv) > 1 and sys.argv[1] in ("worktree", "wt"):
-        sys.exit(cmd_worktree(sys.argv[2:]))
-    if len(sys.argv) > 1 and sys.argv[1] == "promote":
-        sys.exit(cmd_promote(sys.argv[2:]))
-    # Workflows declarativos (workflows/MAPA.md): specs congelados + runner
-    # con verify determinista por paso — hermano del flujo de ramas.
-    if len(sys.argv) > 1 and sys.argv[1] in ("wf", "workflow", "workflows"):
-        sys.exit(cmd_wf(sys.argv[2:]))
-    # Panel del pane derecho del split (ui.split_pane=panel): superficie con
-    # menú (Pipeline / Bus / Config / Delegar) + identidad del agente. Vive en
-    # panel.py; extensible en panel.VIEWS. Lo corre mux.right_pane_cmd().
-    if len(sys.argv) > 1 and sys.argv[1] in ("panel", "menu"):
-        sys.exit(cmd_panel(sys.argv[2:]))
-    # Terminal PARTIDA (opt-in): chat + pipeline en vivo en una ventana tmux.
-    # NO toca el arranque default — solo se entra escribiendo `workspace split`.
-    if len(sys.argv) > 1 and sys.argv[1] == "split":
-        sys.exit(cmd_split(sys.argv[2:]))
-    # ── CLI hygiene: un subcomando DESCONOCIDO imprime uso y sale con 2 — NUNCA
-    #    cae a la TUI interactiva (un typo o un script headless no deben terminar
-    #    dentro del recinto, y sin tty eso tronaba). `--banner` sí sigue al hub.
+    # ── Subcomandos: nombre/alias → id (catálogo comandos.py) → handler
+    #    (_dispatch_table). Una sola puerta: aquí no se compara sys.argv[1] a
+    #    mano (el lint de tests lo vigila), así ayuda, pantalla y ruteo no
+    #    pueden divergir. `--banner` no es subcomando: sigue al hub.
     if len(sys.argv) > 1 and sys.argv[1] != "--banner":
-        sys.stderr.write(f"WORKSPACE: comando desconocido '{sys.argv[1]}'\n\n" + _usage())
-        sys.exit(2)
+        handler = _resolve_handler(sys.argv[1])
+        # CLI hygiene: un subcomando DESCONOCIDO imprime uso y sale con 2 —
+        # NUNCA cae a la TUI interactiva (un typo o un script headless no
+        # deben terminar dentro del recinto, y sin tty eso tronaba).
+        if handler is None:
+            sys.stderr.write(_t("cli.unknown_cmd", "WORKSPACE: comando "
+                                "desconocido '{cmd}'", cmd=sys.argv[1])
+                             + "\n\n" + _usage())
+            sys.exit(2)
+        sys.exit(handler(sys.argv[2:]))
     # ── Ventana de PREVIEW del dev-panel: hazte a un lado ──
     # El greeter de ~/.zshrc corre ESTE hub (el de main, ruta absoluta del
     # launcher) en cada shell interactiva de login — también en la ventana que
@@ -5484,6 +5908,13 @@ def main():
     # («hub»). Solo aplica cuando nos invocó el greeter (WORKSPACE_GREETER).
     if "--banner" not in sys.argv and _greeter_preview_skip():
         return
+    # ── Contrato NO interactivo (W-F04/Z19): sin consola real en stdin Y stdout
+    #    (pipe cerrado, archivo, NUL — que en Windows engaña a isatty) el hub NO
+    #    arranca: ni onboarding, ni OSC de tema, ni altar, ni picker msvcrt que
+    #    espera teclado para siempre. `--banner` sigue siendo la vista estática.
+    #    Va ANTES de onboarding/theme para no escribir nada al stdout redirigido.
+    if "--banner" not in sys.argv and not _interactive_console():
+        sys.exit(_headless_exit())
     # ── ONBOARDING de primer uso (repo público): sin flag, sin agentes y con
     #    TTY → flujo guiado ANTES del hub (onboarding_tui.maybe_run decide con
     #    sus propias guardas — subcomando/--banner, env, flag, adopción); si
@@ -5498,6 +5929,7 @@ def main():
                      + sys.argv[1:])
     except Exception:
         pass
+    _apply_pending_migrations()                   # ajustes de una actualización, a la vista
     # El harness arranca VACÍO de agentes: es un producto que se distribuye a clientes
     # y ellos conectan sus PROPIOS cerebros explícitamente ("Agregar agente → cargar
     # ruta"). NO auto-descubrimos cerebros del disco al bootear (eso metía un agente
@@ -5510,50 +5942,11 @@ def main():
     else:
         theme.apply("workspace")                    # olympo: el recinto dorado de siempre
     _set_term_title("WORKSPACE")                  # la pestaña dice WORKSPACE, no el proceso
-    # Aviso si la ventana es muy angosta: el hub (altar/banner) se dibuja a ~content_w
-    # columnas; en una terminal más chica el arte se envuelve y "se rompe". La app de
-    # escritorio ya abre la Terminal dimensionada; esto cubre el lanzamiento manual.
-    try:
-        _cols = os.get_terminal_size().columns
-        if _cols < render.W + 4:
-            sys.stderr.write(
-                f"\n  {B2}"
-                + _t("hub.narrow.too_small",
-                     "⚠ Tu terminal mide {cols} columnas; el hub necesita "
-                     "≥{need}.", cols=_cols, need=render.W + 4)
-                + f"{R} "
-                + _t("hub.narrow.too_small2",
-                     "Agranda o maximiza la ventana para que el diseño no se "
-                     "rompa.") + "\n")
-    except Exception:
-        pass
     it = items()
-    rows = build_info_rows()
     if "--banner" in sys.argv:
-        # LAYOUT alternativo activo (WORKSPACE_LAYOUT / ui.layout): el banner
-        # estático ES el layout — así cada estructura se prueba sin tty
-        # (`WORKSPACE_LAYOUT=hud python3 front.py --banner`). Con el default
-        # `clasico` NO se entra aquí: el banner de siempre, byte-idéntico.
-        _lay_on = False
-        try:
-            import hublayout as _hl_banner
-            _lay_on = _hl_banner.active() is not None
-        except Exception:
-            _lay_on = False
-        if _lay_on:
-            try:
-                print("\n".join(_menu_machinery(sys.stdout).block_lines()))
-                return
-            except Exception:
-                pass                                 # falla-suave → banner clásico
-        print(render.banner_str(rows))
-        hb = _heartbeat_line()
-        if hb:
-            print("\n" + _ctr(hb))
-        print("\n" + _menu_header() + "\n")
-        # Vista ESTÁTICA del menú interactivo (mismas secciones y orden que el
-        # recinto animado: DIOSES → HERRAMIENTAS → LATIDO) — para pruebas.
-        # Falla-suave: si la machinery truena, cae a la lista plana del picker.
+        # Vista ESTÁTICA del hub (el lanzador sin tty) — para pruebas y para
+        # ver el hub sin abrirlo. Falla-suave: si la machinery truena, cae a
+        # la lista plana del picker.
         try:
             print("\n".join(_menu_machinery(sys.stdout).block_lines()))
         except Exception:
@@ -5563,11 +5956,12 @@ def main():
         print()
         return
     while True:
-        name = animated_menu(it, rows)            # altar de urnas (devuelve nombre/token)
-        if name is None:                          # fallback: sin tty / Windows / WORKSPACE_NO_ANIM
+        name = animated_menu(it)                  # el lanzador (devuelve nombre/token)
+        if name is None:                          # fallback: sin tty / WORKSPACE_NO_ANIM
             t = _tty_out()                        # /dev/tty ABRIBLE o stderr (headless no truena)
             hb = _heartbeat_line()
-            t.write(render.banner_str(rows) + ("\n\n" + _ctr(hb) if hb else "")
+            t.write("\n" + _ctr(f"{C}{BO}WORKSPACE{R}")
+                    + ("\n\n" + _ctr(hb) if hb else "")
                     + "\n\n" + _menu_header() + "\n\n"); t.flush()
             name = it[run_picker(it)][0]
         sys.stdout.write("\033[2J\033[3J\033[H"); sys.stdout.flush()   # limpia menú + scrollback al salir
@@ -5576,30 +5970,51 @@ def main():
         # vivo (jamás crashea el boot). El recinto se reconstruye al re-entrar
         # al loop → relee el registry (un agente recién agregado ya aparece).
         loopback = {"__config__": ("config", "config_tui"),
-                    "__ramas__": ("github", "github_tui"),
-                    "__devmap__": ("dev", "dev_tui"),
-                    "__keybinds__": ("atajos", "keybinds_tui"),
-                    "__add_agent__": ("agregar agente", "add_agent_tui"),
-                    "__agentes__": ("agentes", "agents_tui"),
-                    "__motores__": ("motores", "engines_tui")}
+                    "__devmap__": (_t("menu.comandos.label", "Comandos").lower(),
+                                   "comandos_tui"),
+                    "__keybinds__": (_t("menu.keybinds.label", "Atajos").lower(),
+                                     "keybinds_tui"),
+                    "__add_agent__": (_t("menu.add_agent.label",
+                                         "Agregar agente").lower(),
+                                      "add_agent_tui"),
+                    "__agentes__": (_t("menu.agents.label", "Agentes").lower(),
+                                    "agents_tui"),
+                    "__motores__": (_t("menu.engines.label", "Motores").lower(),
+                                    "engines_tui"),
+                    # Calendario, Tono y Actualizaciones también REGRESAN al
+                    # hub (Esc/q): antes salían al shell (pedido del socio
+                    # 2026-10-12: «Esc regresa al hub en todas las secciones»).
+                    "__cal__": (_t("menu.cal.label", "Calendario").lower(),
+                                lambda: cmd_calendario([])),
+                    "__tono__": (_t("menu.tono.label", "Tono").lower(),
+                                 lambda: cmd_tono([])),
+                    "__doctor__": (_t("menu.updates.label",
+                                      "Actualizaciones").lower(),
+                                   _doctor_submenu)}
         if name not in loopback:
             break
-        label, modname = loopback[name]
+        label, target = loopback[name]
+        stamp = _code_stamp() if name == "__doctor__" else None
+        theme.HOSTED = True                       # la sección deja el tema puesto al volver
         try:
-            __import__(modname).run()
+            if callable(target):
+                target()
+            else:
+                __import__(target).run()
         except Exception as e:
-            print(f"{DIM}{label} no disponible ({type(e).__name__}: {e}) — "
-                  f"el menú sigue normal{R}")
+            print(f"{DIM}" + _t("cli.loopback_fail", "{what} no disponible "
+                                 "({err}) — el menú sigue normal", what=label,
+                                 err=f"{type(e).__name__}: {e}") + f"{R}")
+        finally:
+            theme.HOSTED = False
+        # Si Actualizaciones instaló código nuevo, este proceso sigue con el
+        # VIEJO en memoria: se reabre el hub en vez de volver a él.
+        if stamp is not None and _code_stamp() != stamp:
+            _restart_hub()
     if name == "__dev__":                         # abrir el panel de DEV (versiones/ramas) y al shell
         theme.reset(); cmd_dev([]); return
     if name == "__proyectos__":                   # abrir la app «Proyectos» y al shell
         theme.reset(); cmd_proyectos([]); return
-    if name == "__cal__":                         # editor de calendario
-        theme.reset(); cmd_calendario([]); return
-    if name == "__tono__":                        # pantalla del TONO de los agentes
-        theme.reset(); cmd_tono([]); return
-    if name == "__doctor__":                      # submenú: el socio ELIGE qué hacer
-        theme.reset(); _doctor_submenu(); return
     if name == "__shell__":                       # "Terminal normal" / q → salir al shell
         theme.reset(); return                     # restaura colores por defecto en el shell
     launch(name)                                  # launch() limpia y lanza el agente (aplica SU tema)

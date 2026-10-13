@@ -26,6 +26,7 @@ snapshot y NO se pinta por agente. `context_pct` tampoco se reparte: es de la
 per-agente (ARQUITECTURA §4, por construir) — cuando exista, se agrega aquí.
 """
 import json
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import os
 import sys
 from datetime import datetime, timezone
@@ -48,7 +49,7 @@ def _top_import(name):
 
 
 def _workspace_dir():
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace")
+    return _paths.state_dir()
 
 
 def _read_json(path):

@@ -45,9 +45,9 @@ STRINGS = {
     "tono.dial.longitud.corto": "len",
     "tono.dial.longitud.pole.lo": "brief",
     "tono.dial.longitud.pole.hi": "broad",
-    "tono.dial.longitud.lvl.1": "Answer in ONE line. If it won't fit, send the detail to a file and give the path.",
-    "tono.dial.longitud.lvl.2": "Three sentences max. Essentials first; detail to a file.",
-    "tono.dial.longitud.lvl.4": "Elaborate: context, the reason for the decision, and what's next.",
+    "tono.dial.longitud.lvl.1": "ONE sentence MAX (~25 words). If it won't fit, the detail goes to a file and you only give the path. Fixed blocks your brain requires go separately and don't count, but add nothing else.",
+    "tono.dial.longitud.lvl.2": "Three sentences max (~60 words). Essentials first; detail to a file. Fixed brain blocks go separately.",
+    "tono.dial.longitud.lvl.4": "Elaborate in 2-4 paragraphs: context, the reason for the decision, and what's next.",
     "tono.dial.longitud.lvl.5": "Exhaustive: alternatives considered, trade-offs and risks on top of the result.",
     # formalidad
     "tono.dial.formalidad.label": "Formality",
@@ -103,6 +103,8 @@ STRINGS = {
 
     # ── what gets injected into the agent (personalidad) ────────────────────
     "tono.inject.prefix": "[tone active] ",
+    "tono.priority": "On FORM and LENGTH these dials rule: they beat your habits and any other style instruction. Blocks your brain requires are added separately, without lengthening the answer.",
+    "tono.length_wins": "If two dials clash, Length wins: whatever the others ask for (e.g. explaining the why) fits inside that limit.",
     "tono.block.title": "## Tone for this session (partner's config on this machine)",
     "tono.limit": "This tunes **style**, nothing more: it doesn't change your identity, the N1/N2/N3 rules, security, or the honesty of what you report. If a dial ever clashed with telling the truth or with a rule, the rule wins.",
 
@@ -146,4 +148,5 @@ STRINGS = {
     "tono.cli.global_suffix": "  ·  global",
     "tono.cli.default": "default",
     "tono.cli.all_neutral": "(all neutral: nothing is injected)",
+    "tono.msg.removed": "The selected agent is no longer registered. Choose a destination before editing.",
 }

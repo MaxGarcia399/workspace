@@ -11,14 +11,14 @@ ya las incluye).
 
 ```
 themes/
-  mono/                 ← default del HUB (ui.theme); olympo vive EMBEBIDO en
+  mono/                 ← B/N de alto contraste; olympo vive EMBEBIDO en
     theme.json             los motores (hubtheme._FALLBACK / tuitheme._OLYMPO),
     web.css                ya sin carpeta (poda 2026-10-02)
   cyberpunk/            ← skin completo (tokens + layout + animación),
     theme.json             retuneado 2026-10-02: neones a tono joya
     web.css
   rose/ durazno/ lavanda/ salvia/ bruma/   ← la familia rosé (acento pastel
-    theme.json                                sobre carbón; rose = referencia)
+    theme.json                                sobre carbón; bruma = DEFAULT del hub)
     web.css
   oficina-8bit/ observatorio/ estudio/   ← skins de mockup (solo dev panel;
     theme.json                              estudio = tema CLARO)
@@ -30,7 +30,7 @@ themes/
 El switcher del HUB (ui.theme) está curado a `settings._TUI_THEMES` =
 mono · cyberpunk · rose · durazno · lavanda · salvia · bruma (sincronizada
 con `hubtheme.TUI_PENDIENTES`). Temas borrados en la poda 2026-10-02:
-olympo, papel, slate, bosque — un id de esos guardado en config cae a `mono`.
+olympo, papel, slate, bosque — un id de esos guardado en config cae a `bruma`.
 
 **Agregar un tema = dropear `themes/<id>/theme.json`** (y opcional `web.css`).
 Sin tocar `hubtheme.py`, `dashboard.py` ni el shell — se descubre solo, igual
@@ -50,7 +50,9 @@ cae al default, falla-suave).
     "tokens": { … },            // ver tabla — TODO opcional, fallback al :root
     "css": "web.css"            // skin opcional (nombre de archivo en este dir)
   },
-  "tui": { … }                  // paleta ANSI del recinto — ver sección TUI
+  "tui": { … },                 // paleta ANSI del recinto — ver sección TUI
+  "palette": { … }              // paleta SEMÁNTICA (opcional) — fuente de las
+                                //  plantillas; ver "Paleta semántica" abajo
 }
 ```
 
@@ -124,15 +126,87 @@ el cielo sigue ESTÁTICO y la fórmula de pantalla de `front.py` no se toca
 ## Selección (precedencia env > store > default)
 
 1. `WORKSPACE_THEME=<id>` (env — gana siempre; ideal para probar).
-2. `ui.theme` en el store unificado: `python3 settings.py set ui.theme <id>`,
-   el menú **Config › Tema del harness** del recinto, o el **switcher del dev
-   panel** (persiste vía `POST /api/theme`, guard Y1).
-3. Default: `olympo`.
+2. El store unificado — DOS ajustes independientes:
+   - `ui.theme` = el **hub/TUI** (`python3 settings.py set ui.theme <id>`, el
+     menú **Config › Tema del hub**, el pin del hub, el onboarding);
+   - `ui.web_theme` = el **dev panel web** (su switcher, `POST /api/theme`).
+3. Default — **uno por superficie, y uno solo en código**:
+   - hub/TUI: **`bruma`** = `tuitheme.DEFAULT_ID` = default de `ui.theme` en
+     `settings.py` (lo que ve una instalación nueva). Un id guardado que ya no
+     existe en `themes/` también cae a `bruma`.
+   - dev panel: `olympo` = `hubtheme.DEFAULT_ID` (el `:root` del shell, sin
+     overrides — herramienta de equipo, no viaja a clientes).
 
-Web y TUI leen el MISMO id — cambiar el tema en el panel también re-tematiza
-el recinto en el siguiente arranque (`workspace`).
+Falla-suave absoluta: un id inexistente se salta al siguiente candidato (y al
+final al default); un manifiesto corrupto o una clave inválida → el valor del
+dorado embebido (`olympo`) para esa clave. El TUI jamás se rompe por un tema.
+`tests/test_theme_render.py` vigila que código, settings y este README digan
+el mismo default.
 
-Falla-suave absoluta: id inexistente o manifiesto corrupto → `olympo`.
+## Paleta semántica: una fuente, todas las superficies (`theme_render.py`)
+
+Un tema puede declarar un bloque **`palette`** (ADITIVO, opcional) con colores
+con nombre; de ahí salen, por **plantilla** (`templates/theme/*.json.tpl`), el
+bloque `tui`, los `web.tokens`, el fondo/tinta OSC de la terminal y el tema
+DENTRO de cada motor:
+
+```jsonc
+"palette": {
+  "background": "#161a21", "foreground": "#e1e7f0", "accent": "#a9bfdd",
+  "accent_2": "#c9a9ba",   "muted": "#9fabc0",     "faint": "#6a7488",
+  "surface": "#1c212a",    "border": "#303948",    "cursor": "#a9bfdd",
+  "success": "#8fc3a8",    "warning": "#dcba84",   "danger": "#dd7d88",
+  "info": "#8fb8d8"        // todo opcional: lo ausente se deriva por mezcla
+}
+```
+
+- **Un tema nuevo puede ser SOLO `palette`**: tuitheme y hubtheme le generan
+  `tui` y `web.tokens`. Si además trae `tui`/`web.tokens`, **lo explícito
+  gana** clave a clave (lo hecho a mano manda).
+- **Los temas existentes no cambian**: sin `palette`, tuitheme/hubtheme pintan
+  exactamente lo de siempre. Su paleta (para plantillas de motor y para
+  agentes que los referencian) se DERIVA de lo que ya declaran (`web.tokens`
+  → `tui.osc` → `tui.roles` → `swatches`).
+- Plantillas: `osc` · `tui` · `web` · `engine-<motor>`. Sintaxis mínima, sin
+  lógica: `{{ clave }}`, `{{ mix a b 15% }}` (a mezclado 15% hacia b),
+  `{{ alpha clave 0.12 }}` (rgba). Una plantilla que falla o no produce JSON
+  NO escribe nada.
+- **Motores** (`theme_render.ENGINES`): `claude-code` →
+  `engine-claude-code.json.tpl` (el `~/.claude/themes/<n>.json` que se activa
+  con `custom:<n>`). **Codex y Antigravity: hook vacío a propósito** — su
+  formato de tema in-app no está documentado/verificado; esos motores reciben
+  solo los colores de terminal (OSC), que sirven con cualquier CLI.
+  **Agregar un motor = dropear su plantilla y anotarla en `ENGINES`**, sin
+  tocar ningún tema.
+- **Agentes**: `agent_admin.write_agent_theme` renderiza el tema del agente
+  (terminal + in-app) desde UNA paleta — la de su color, o la de un tema del
+  hub con `hub_theme=<id>`. Una entrada de `themes.local.json` puede ser
+  `{"theme": "<id>", "bg": …, "fg": …}`: `theme.py` hereda el fondo/tinta del
+  tema del hub mientras exista (bg/fg = copia para versiones viejas y
+  respaldo). Las paletas por agente de siempre (`themes.json`,
+  `themes.local.json`, `themes-cc/<agente>.json`) siguen idénticas.
+- **Escritura atómica**: `theme_render.stage_write` escribe todo a temporales
+  y reemplaza de un golpe; si algo falla, lo anterior queda intacto.
+- **Lo hecho a mano gana**: lo que generamos queda registrado (sha256) en
+  `<estado>/theme-render.json`; si después editas el archivo (p. ej.
+  `~/.claude/themes/<agente>.json` o `<estado>/themes-cc/<agente>.json`), ni la
+  creación de agentes ni `install` lo vuelven a pisar. Un archivo de una versión
+  anterior (sin registro) se presume generado y se actualiza como siempre.
+- **Hook `theme-set`** (opcional): `<estado>/hooks/theme-set.py` (cualquier OS)
+  o `theme-set` ejecutable (POSIX) / `theme-set.cmd|.bat` (Windows). Corre tras
+  cada cambio de `ui.theme` con el id nuevo como argumento, sin bloquear el
+  hub, muerto a los 10 s; si falla no pasa nada. Apagarlo:
+  `WORKSPACE_NO_THEME_HOOK=1`.
+- Presets de prueba `prueba`/`midas`/`midas2` salieron de `themes.json` (eran
+  agentes de prueba colados antes de que los temas de agente fueran
+  per-máquina). Si una máquina tiene un agente con ese nombre,
+  `theme_render.adopt_legacy_presets(nombres)` copia su paleta a
+  `themes.local.json` (idempotente; pensado para el runner de migraciones).
+
+```bash
+python3 theme_render.py bruma                     # paleta semántica derivada
+python3 theme_render.py bruma engine-claude-code  # render de una plantilla
+```
 
 ## Probar un tema
 

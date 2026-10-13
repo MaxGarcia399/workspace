@@ -47,12 +47,15 @@ Degradación grácil (jamás rompe el arranque):
 Subcomando:
   split [agente] [--right N] [--plan] [--pick]
     --right N   ancho del pane derecho en % (20–60; default 42)
-    --plan      imprime los comandos tmux sin ejecutar nada
+    --plan      imprime los comandos tmux sin ejecutar nada (alias --dry-run).
+                En CUALQUIER OS y backend: inspecciona y reporta, jamás
+                spawn/exec ni fallback al arranque normal (Z18 / W-F03).
     --pick      fuerza el picker de workspaces (ignora la sesión más reciente)
 
 Cero dependencias (stdlib, Python 3.9+).
 """
 import sys, os, subprocess, shutil, signal, time
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable or "python3"
@@ -116,7 +119,7 @@ def parse_args(argv):
     i = 0
     while i < len(argv or []):
         a = argv[i]
-        if a == "--plan":
+        if a in ("--plan", "--dry-run"):      # --dry-run = alias (mismo contrato)
             plan = True
         elif a == "--pick":
             force_pick = True
@@ -251,7 +254,7 @@ def left_cmd(agent, wid, name, session):
 def ctl_base():
     """La raíz de los ctl dirs (~/.claude/workspace/split-ctl) SIN crear nada —
     para que el reaper la recorra sin ensuciarla con un dir sonda."""
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace",
+    return os.path.join(_paths.state_dir(),
                         "split-ctl")
 
 
@@ -496,8 +499,21 @@ def fallback(agent, reason):
     os.execvp(PY, [PY, DISPATCH, agent])
 
 
+def plan_note_windows(agent):
+    """Modo plan en Windows: el split real NO aplica (sin multiplexer) y el
+    arranque real iría a la sesión sencilla. El plan lo REPORTA — jamás la
+    abre (antes el guard de Windows corría antes que el plan y `split --plan`
+    lanzaba la sesión: un comando de inspección con efectos, W-F03)."""
+    print("  [plan] Windows: el split real cae a la sesión sencilla → "
+          + _q(PY) + " " + _q(DISPATCH) + " " + str(agent)
+          + "  (no se ejecuta)")
+    print("  [plan] armado de referencia Mac/Linux:")
+
+
 def split(argv=None):
-    """`workspace split [agente]` — arma la terminal partida (o cae con gracia)."""
+    """`workspace split [agente]` — arma la terminal partida (o cae con gracia).
+    CONTRATO --plan: se evalúa ANTES que cualquier guard de plataforma/entorno;
+    en plan nada spawnea, hace exec ni cae al fallback (tests/test_plan_inert)."""
     agent, pct, plan, force_pick = parse_args(argv or [])
     if not agent:
         agent = default_agent()
@@ -507,9 +523,12 @@ def split(argv=None):
         return 2
 
     # Degradación grácil — cualquier impedimento → arranque normal, con aviso.
+    # En plan los guards solo se REPORTAN (el plan sigue y no lanza nada).
     if os.name == "nt":
-        return fallback(agent, "el modo split usa tmux (Mac/Linux); "
-                               "en Windows va la sesión sencilla")
+        if not plan:
+            return fallback(agent, "el modo split usa tmux (Mac/Linux); "
+                                   "en Windows va la sesión sencilla")
+        plan_note_windows(agent)
     if not have_tmux() and not plan:
         return fallback(agent, "el modo split necesita tmux "
                                "(en Mac:  brew install tmux)")
@@ -538,7 +557,7 @@ def split(argv=None):
         rc = tx.run(cmd)
         if rc != 0 and cmd and cmd[0] == "split-window":
             rc = tx.run(legacy_split(cmd))      # tmux viejo: -l N% → -p N
-        if rc != 0:
+        if rc != 0 and not plan:
             # tmux falló a medio armado → limpiar el intento y abrir normal
             subprocess.run(["tmux", "kill-session", "-t", session],
                            capture_output=True)

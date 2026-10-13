@@ -54,8 +54,10 @@ agents live inside someone else's product. Workspace takes the opposite bet.
 - **You own the brain.** Each agent's knowledge lives in plain, legible files you
   keep — portable, inspectable, versionable. Not a vector database you can't read.
 - **You choose the engine.** The loop that talks to the model is pluggable. It
-  runs on Claude Code today; other engines plug in **without reinventing the
-  agent's identity.** Switch models — paid, free, or local — without starting over.
+  runs today on **Claude Code, Codex and Antigravity** (each through its own
+  official CLI and your own login); other engines plug in **without reinventing
+  the agent's identity.** Not every engine can do everything yet — the
+  [compatibility matrix](manual/en/compatibility.md) says exactly what works where.
 - **You stay in control.** Credentials are per-machine and never touch the repo.
   The harness fails soft — a broken piece never takes down your session.
 
@@ -70,10 +72,11 @@ independence comes from the pluggable engine, not from re-implementing the hard 
 - **Per-agent brains** — knowledge as folders of Markdown (identity, memory,
   skills, sessions). Readable, editable, yours.
 - **Pluggable engines** — a documented contract (`engines/CONTRACT.md`); adding an
-  engine is dropping a file. Claude Code and Codex ship today.
+  engine is dropping a file. Claude Code, Codex and Antigravity ship today
+  ([what works with each](manual/en/compatibility.md)).
 - **Workflows** — declarative, multi-step procedures with a deterministic spine
   (`workflows/`): review code, create an agent, build a feature.
-- **Doctor** — a 15-phase self-diagnosis and repair (`workspace doctor`).
+- **Doctor** — a phase-by-phase self-diagnosis and repair (`workspace doctor`).
 - **Memory distillation** — background curation of long-term memory from session
   transcripts, with secret/PII gates.
 - **Evals** — run an agent against a golden set in a sandbox and track results.
@@ -105,7 +108,7 @@ agents/         # registry + one folder per agent (agent.json)
 hooks/          # event listeners (session start/end, …)
 workflows/      # declarative multi-step procedures
 install.py      # per-machine installer (writes only to your machine)
-doctor.py       # 15-phase diagnose / repair
+doctor.py       # phase-by-phase diagnose / repair
 ```
 
 Brains do **not** live in this repo — each agent's brain is its own folder that
@@ -126,11 +129,34 @@ git clone https://github.com/MaxGarcia399/workspace.git ~/Desktop/Workspace
 python3 ~/Desktop/Workspace/install.py
 ```
 
+**Windows (PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/MaxGarcia399/workspace/main/setup.ps1 -OutFile $env:TEMP\workspace-setup.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File $env:TEMP\workspace-setup.ps1
+```
+
+Or clone and run the installer:
+
+```powershell
+git clone https://github.com/MaxGarcia399/workspace.git "$env:LOCALAPPDATA\Workspace"
+python "$env:LOCALAPPDATA\Workspace\install.py"
+```
+
+On Windows the default location is `%LOCALAPPDATA%\Workspace`. **Do not install
+under OneDrive** (a redirected Desktop/Documents counts): both `setup.ps1` and the
+installer refuse cloud-synced paths, because sync locks break the harness. The
+installer creates `workspace.cmd` in `%USERPROFILE%\.local\bin`, so the command
+works in cmd.exe, PowerShell and the VS Code terminal; open a new terminal after
+installing.
+
 The installer is **per-machine**: it drops the `workspace` command, wires the
 hooks, and writes only to your machine's local config — never to the shared repo.
 
-**Requirements:** Python 3, Git, and an engine CLI (today: **Claude Code**,
-logged in with your subscription).
+**Requirements:** Python 3.9+, Git, and at least one engine CLI logged in with
+your own account: **Claude Code** (`claude`), **Codex** (`codex`) or
+**Antigravity** (`agy`). Claude Code is the most integrated today. On Windows use
+`python` (not `python3`).
 
 ### Quickstart
 
@@ -139,6 +165,48 @@ workspace            # open the menu (pick an agent or a tool)
 workspace doctor     # diagnose / repair the install
 workspace --help     # every command
 ```
+
+### Updates
+
+Workspace keeps itself up to date, and **you choose how**:
+
+- **Automatic** (the default): when you open an agent, at most once every 6 hours, it
+  installs the new version, with a safety net. First it checks that the new
+  version starts on your computer. If it doesn't, Workspace goes back to the one you had.
+- **Notify only:** once a day it tells you a new version is out; you install
+  it with `workspace update` when you want.
+- **Off:** it never checks on its own.
+
+Change it in the hub (**Updates** screen, key `a`) or with
+`workspace update --auto auto|notify|off`. Whatever you pick, `workspace update`
+installs on demand and `workspace update --rollback` takes you back. Updates
+only change Workspace's code: your agents, brains and settings stay as they are.
+More in [the manual](manual/en/updates.md).
+
+### What's new in v0.2.0
+
+- **A new hub, the Launcher:** one box with your agents and a menu that filters as you type;
+  ← → switch an agent's engine. The box keeps its size, so the window can be as small as it.
+- **Updates with a safety net, and optional.** Before using a new version,
+  Workspace checks that it starts on your computer and goes back by itself if
+  it doesn't. You choose whether updates are automatic, notify-only or off.
+- **`workspace version`** shows your version and what changed; **`workspace doctor --bundle`**
+  builds a diagnostic ZIP with your personal data blanked out.
+- **Commands in Spanish and English**, a Commands screen that searches (`/`) and runs, and
+  a user manual in `manual/`.
+- **A safer install and uninstall:** the installer checks your computer before touching
+  anything; uninstalling shows what goes and what stays, and offers a backup.
+
+Full list: [CHANGELOG.en.md](CHANGELOG.en.md).
+
+### Manual
+
+The user manual lives in [`manual/`](manual/README.md) — short chapters in
+[English](manual/en/README.md) and [Spanish](manual/es/README.md): install, first
+run, the hub, engines, themes, updates, troubleshooting, uninstall and privacy.
+What Workspace stands for, in ten lines: [the manifesto](manual/MANIFESTO.md).
+Found a security problem? See [SECURITY.md](SECURITY.md) — please don't open a
+public issue.
 
 ### Design principles
 
@@ -192,8 +260,10 @@ apuesta por lo contrario.
   legibles que conservas — portables, inspeccionables, versionables. No una base
   vectorial que no puedes leer.
 - **Eliges el motor.** El bucle que habla con el modelo es enchufable. Hoy corre
-  sobre Claude Code; otros motores se enchufan **sin reinventar la identidad del
-  agente.** Cambias de modelo —de pago, gratis o local— sin empezar de cero.
+  sobre **Claude Code, Codex y Antigravity** (cada uno con su CLI oficial y tu
+  propia sesión); otros motores se enchufan **sin reinventar la identidad del
+  agente.** No todos los motores pueden todo todavía — la
+  [matriz de compatibilidad](manual/es/compatibilidad.md) dice qué funciona dónde.
 - **Mantienes el control.** Las credenciales son por-máquina y jamás tocan el
   repo. El harness falla-suave — una pieza rota nunca tumba tu sesión.
 
@@ -208,10 +278,11 @@ La independencia viene del motor enchufable, no de reimplementar la parte difíc
 - **Cerebros por agente** — el conocimiento como carpetas de Markdown (identidad,
   memoria, skills, sesiones). Legible, editable, tuyo.
 - **Motores enchufables** — un contrato documentado (`engines/CONTRACT.md`);
-  agregar un motor es soltar un archivo. Claude Code y Codex ya vienen incluidos.
+  agregar un motor es soltar un archivo. Claude Code, Codex y Antigravity ya
+  vienen incluidos ([qué funciona con cada uno](manual/es/compatibilidad.md)).
 - **Workflows** — procedimientos declarativos de varios pasos con un espinazo
   determinista (`workflows/`): revisar código, crear un agente, construir features.
-- **Doctor** — autodiagnóstico y reparación en 15 fases (`workspace doctor`).
+- **Doctor** — autodiagnóstico y reparación por fases (`workspace doctor`).
 - **Destilado de memoria** — curación en segundo plano de la memoria de largo
   plazo desde los transcripts, con gates de secretos/PII.
 - **Evals** — corre un agente contra un golden set en un sandbox y guarda resultados.
@@ -246,7 +317,7 @@ agents/         # registry + una carpeta por agente (agent.json)
 hooks/          # listeners por evento (inicio/fin de sesión, …)
 workflows/      # procedimientos declarativos de varios pasos
 install.py      # instalador per-máquina (solo escribe en tu máquina)
-doctor.py       # diagnóstico / reparación en 15 fases
+doctor.py       # diagnóstico / reparación por fases
 ```
 
 Los cerebros **no** viven en este repo — el cerebro de cada agente es su propia
@@ -267,11 +338,33 @@ git clone https://github.com/MaxGarcia399/workspace.git ~/Desktop/Workspace
 python3 ~/Desktop/Workspace/install.py
 ```
 
+**Windows (PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/MaxGarcia399/workspace/main/setup.ps1 -OutFile $env:TEMP\workspace-setup.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File $env:TEMP\workspace-setup.ps1
+```
+
+O clona y corre el instalador:
+
+```powershell
+git clone https://github.com/MaxGarcia399/workspace.git "$env:LOCALAPPDATA\Workspace"
+python "$env:LOCALAPPDATA\Workspace\install.py"
+```
+
+En Windows la ubicación por default es `%LOCALAPPDATA%\Workspace`. **No lo instales
+bajo OneDrive** (un Escritorio/Documentos redirigido cuenta): `setup.ps1` y el
+instalador rechazan rutas sincronizadas a la nube porque los bloqueos del sync rompen
+el harness. El instalador crea `workspace.cmd` en `%USERPROFILE%\.local\bin`, así que
+el comando funciona en cmd.exe, PowerShell y la terminal de VS Code; abre una terminal
+nueva al terminar.
+
 El instalador es **per-máquina**: deja el comando `workspace`, cablea los hooks y
 solo escribe en la config local de tu máquina — nunca en el repo compartido.
 
-**Requisitos:** Python 3, Git, y un CLI de motor (hoy: **Claude Code**, con sesión
-iniciada en tu suscripción).
+**Requisitos:** Python 3.9+, Git, y al menos un CLI de motor con tu propia sesión
+iniciada: **Claude Code** (`claude`), **Codex** (`codex`) o **Antigravity** (`agy`).
+Hoy Claude Code es el más integrado. En Windows usa `python` (no `python3`).
 
 ### Inicio rápido
 
@@ -280,6 +373,49 @@ workspace            # abre el menú (elige un agente o una herramienta)
 workspace doctor     # diagnostica / repara la instalación
 workspace --help     # todos los comandos
 ```
+
+### Actualizaciones
+
+Workspace se mantiene al día solo, y **tú eliges cómo**:
+
+- **Automáticas** (de inicio): al abrir un agente, como mucho una vez cada 6 horas,
+  instala la versión nueva, con red de seguridad. Antes comprueba que esa versión
+  arranca en tu computadora. Si no arranca, Workspace vuelve a la que tenías.
+- **Solo avisar:** una vez al día te dice que hay versión nueva; la instalas con
+  `workspace update` cuando quieras.
+- **Apagadas:** nunca consulta por su cuenta.
+
+Se cambia en el hub (pantalla **Actualizaciones**, tecla `a`) o con
+`workspace update --auto auto|notify|off`. Elijas lo que elijas, `workspace update`
+instala cuando lo pides y `workspace update --rollback` te regresa. Una actualización
+solo cambia el código de Workspace: tus agentes, cerebros y ajustes se quedan como están.
+Más en [el manual](manual/es/actualizaciones.md).
+
+### Novedades de la v0.2.0
+
+- **Un hub nuevo, el Lanzador:** una caja con tus agentes y un menú que se filtra al
+  escribir; ← → cambian el motor de un agente. La caja no cambia de tamaño, así que la
+  ventana puede ser tan chica como ella.
+- **Actualizaciones con red de seguridad, y opcionales.** Antes de usar una versión
+  nueva, Workspace comprueba que arranca en tu computadora y, si no, vuelve sola a la
+  anterior. Tú eliges si las actualizaciones son automáticas, solo avisan o están apagadas.
+- **`workspace version`** muestra tu versión y qué cambió; **`workspace doctor --bundle`**
+  arma un ZIP de diagnóstico con tus datos personales tachados.
+- **Comandos en español e inglés**, una pantalla Comandos que busca (`/`) y ejecuta, y un
+  manual de uso en `manual/`.
+- **Instalar y desinstalar más seguros:** el instalador revisa tu computadora antes de
+  tocar nada; desinstalar muestra qué se va y qué se queda, y ofrece un respaldo.
+
+Lista completa: [CHANGELOG.md](CHANGELOG.md).
+
+### Manual
+
+El manual de usuario vive en [`manual/`](manual/README.md) — capítulos cortos en
+[español](manual/es/README.md) e [inglés](manual/en/README.md): instalar, primer
+arranque, el hub, motores, temas, actualizaciones, diagnóstico, desinstalar y
+privacidad. Lo que Workspace defiende, en diez líneas: [el manifiesto](manual/MANIFIESTO.md).
+¿Encontraste un problema de seguridad? Lee [SECURITY.md](SECURITY.md) — por favor
+no abras un issue público.
 
 ### Principios de diseño
 

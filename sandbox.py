@@ -216,10 +216,24 @@ def build_write_profile(clone_dir, deny_read_extra=None):
     deny_read = [os.path.join(home, d) for d in _DENY_READ_UNDER_HOME]
     deny_read.append(claude)
     deny_read += list(deny_read_extra or [])
+    # ARCHIVOS sueltos de $HOME (no dirs): `(subpath "~/.claude")` matchea el DIR y
+    # sus descendientes, NO el hermano `~/.claude.json` — donde el CLI guarda
+    # oauthAccount, el historial de prompts por proyecto y `mcpServers` (cuyos
+    # bloques `env` suelen llevar API keys de terceros). Sin esto quedaba LEGIBLE
+    # pese a que el comentario de arriba promete "TODO ~/.claude denegado": el
+    # agente write-scoped conserva Read → lo copiaba al working-tree → entraba al
+    # diff que el daemon publica → Obsidian-sync al equipo. Van con `(literal ...)`
+    # porque son archivos, no subárboles.
+    deny_read_files = [claude + ".json", claude + ".json.backup",
+                       # tokens de git en texto plano (credential.helper store)
+                       os.path.join(home, ".git-credentials")]
     claude_allow = [os.path.join(claude, p) for p in _CLAUDE_AUTH_ALLOW]
     wsub = "\n".join('    (subpath "%s")' % _sb_path(p) for p in allow_write)
     gsub = "\n".join('    (subpath "%s")' % _sb_path(p) for p in deny_write_git)
     dsub = "\n".join('    (subpath "%s")' % _sb_path(p) for p in deny_read)
+    if deny_read_files:
+        dsub += "\n" + "\n".join('    (literal "%s")' % _sb_path(p)
+                                 for p in deny_read_files)
     asub = "\n".join('    (path "%s")' % _sb_path(p) for p in claude_allow)
     return (
         "(version 1)\n"

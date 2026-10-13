@@ -39,17 +39,39 @@ mismo contrato que dash/dev/_git.py). Los datos se leen al entrar y al actuar
 Cero dependencias (stdlib, Python 3.9+). Mac y Windows.
 """
 import json
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import os
 import re
 import subprocess
 import sys
 import time
+from theme import screen as _theme_screen  # fondo/tinta del tema
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 import hublayout as HL                                          # noqa: E402
+
+
+def _t(key, es, **kw):
+    """i18n lado cliente, falla-suave: `key` en el idioma activo (catálogo
+    lang/<code>/versiones.py); sin i18n / clave faltante → el español inline
+    `es` (paridad exacta). .format(**kw) falla-suave."""
+    s = es
+    try:
+        import i18n
+        v = i18n.t(key)
+        if v != key:
+            s = v
+    except Exception:
+        s = es
+    if kw:
+        try:
+            return s.format(**kw)
+        except Exception:
+            return s
+    return s
 
 US = "\x1f"
 # Windows: sin consola, cada git hijo abriría una ventana. No-op en POSIX.
@@ -66,6 +88,34 @@ def _repo():
     return os.environ.get("WORKSPACE_DEV_GIT_ROOT") or ROOT
 
 
+_AGO_PART = re.compile(r"^(\d+) (second|minute|hour|day|week|month|year)s?$")
+_AGO_ES = {"second": ("{n} segundo", "{n} segundos"),
+           "minute": ("{n} minuto", "{n} minutos"),
+           "hour": ("{n} hora", "{n} horas"),
+           "day": ("{n} día", "{n} días"),
+           "week": ("{n} semana", "{n} semanas"),
+           "month": ("{n} mes", "{n} meses"),
+           "year": ("{n} año", "{n} años")}
+
+
+def ago_text(s):
+    """La fecha relativa de git (`%cr`, siempre en inglés: «3 hours ago»,
+    «1 year, 2 months ago») en el idioma de la UI. Formato raro → tal cual."""
+    s = (s or "").strip()
+    if not s.endswith(" ago"):
+        return s
+    parts = []
+    for p in s[:-4].split(", "):
+        m = _AGO_PART.match(p.strip())
+        if not m:
+            return s
+        n, unit = int(m.group(1)), m.group(2)
+        one, many = _AGO_ES[unit]
+        parts.append(_t("versiones.ago.%s.%s" % (unit, "one" if n == 1 else "many"),
+                        one if n == 1 else many, n=n))
+    return _t("versiones.ago.wrap", "hace {x}", x=", ".join(parts))
+
+
 def _git(args, repo=None, timeout=10):
     """(ok, stdout, stderr). Falla-suave: git ausente/timeout → (False,…)."""
     try:
@@ -75,7 +125,7 @@ def _git(args, repo=None, timeout=10):
         return (p.returncode == 0, (p.stdout or "").strip(),
                 (p.stderr or "").strip())
     except FileNotFoundError:
-        return (False, "", "git no está disponible")
+        return (False, "", _t("versiones.map.no_git", "git no está disponible"))
     except Exception as e:
         return (False, "", str(e))
 
@@ -126,7 +176,7 @@ def _owners():
     """Registry de dueños de worktree (~/.claude/workspace/worktree-owners.json
     — lo escriben `workspace worktree` y los hooks). {} si falta/corrupto."""
     try:
-        p = os.path.join(os.path.expanduser("~"), ".claude", "workspace",
+        p = os.path.join(_paths.state_dir(),
                          "worktree-owners.json")
         with open(p, encoding="utf-8") as fh:
             d = json.load(fh)
@@ -138,7 +188,7 @@ def _owners():
 def _owner_clear(branch):
     """Quita la entrada de `branch` del registry (atómico, falla-suave)."""
     try:
-        p = os.path.join(os.path.expanduser("~"), ".claude", "workspace",
+        p = os.path.join(_paths.state_dir(),
                          "worktree-owners.json")
         with open(p, encoding="utf-8") as fh:
             d = json.load(fh)
@@ -175,7 +225,9 @@ def snapshot(repo=None):
     repo = repo or _repo()
     ok, out, _ = _git(["rev-parse", "--is-inside-work-tree"], repo)
     if not (ok and out == "true"):
-        return {"error": "no es un repositorio git (o git no está disponible)",
+        return {"error": _t("versiones.map.not_repo",
+                            "no es un repositorio git (o git no está "
+                            "disponible)"),
                 "repo": repo, "nombre": os.path.basename(repo.rstrip("/\\"))}
 
     ok, out, _ = _git(["rev-parse", "--abbrev-ref", "HEAD"], repo)
@@ -303,26 +355,34 @@ def _switch(S, rama):
     árbol limpio, no tomada en worktree. Devuelve el mensaje del pie."""
     D = S["D"]
     if rama["remote_only"]:
-        return ("`%s` solo existe en origin — tráela con git antes de usarla"
-                % rama["name"])
+        return _t("versiones.map.sw.remote_only",
+                  "`{b}` solo existe en origin — tráela con git antes de "
+                  "usarla", b=rama["name"])
     if rama["current"]:
-        return "ya estás en %s" % rama["name"]
+        return _t("versiones.map.sw.already", "ya estás en {b}", b=rama["name"])
     if rama["wt"]:
-        return ("`%s` está tomada en un worktree (%s) — tu checkout no se "
-                "mueve; ábrela con o" % (rama["name"], rama["wt"]["agent"]))
+        return _t("versiones.map.sw.in_wt",
+                  "`{b}` está tomada en un worktree ({a}) — tu checkout no se "
+                  "mueve; ábrela con o", b=rama["name"], a=rama["wt"]["agent"])
     ok, status, _ = _git(["status", "--porcelain"], D["repo"])
     if not ok:
-        return "no pude confirmar si el árbol está limpio — no cambio de rama"
+        return _t("versiones.map.sw.unsure",
+                  "no pude confirmar si el árbol está limpio — no cambio de "
+                  "rama")
     dirty_count = len(status.splitlines())
     if dirty_count:
-        return ("tienes %d cambio%s sin commitear — commit o stash antes de "
-                "cambiar de rama" % (dirty_count,
-                                     "" if dirty_count == 1 else "s"))
+        return (_t("versiones.map.sw.dirty1",
+                   "tienes {n} cambio sin commitear — commit o stash antes "
+                   "de cambiar de rama", n=dirty_count) if dirty_count == 1
+                else _t("versiones.map.sw.dirty",
+                        "tienes {n} cambios sin commitear — commit o stash "
+                        "antes de cambiar de rama", n=dirty_count))
     ok, _, err = _git(["switch", rama["name"]], D["repo"])
     if not ok:
-        return "git switch falló: %s" % ((err or "?").splitlines()[0][:60])
+        return _t("versiones.map.sw.failed", "git switch falló: {e}",
+                  e=(err or "?").splitlines()[0][:60])
     _refresh(S)
-    return "ahora estás en %s ✓" % rama["name"]
+    return _t("versiones.map.sw.ok", "ahora estás en {b} ✓", b=rama["name"])
 
 
 def _crear(S, buf):
@@ -334,28 +394,34 @@ def _crear(S, buf):
     if txt.startswith("fix "):
         kind, txt = "fix", txt[4:].strip()
     if not txt:
-        return "cancelado — sin nombre no hay rama"
+        return _t("versiones.map.new.noname",
+                  "cancelado — sin nombre no hay rama")
     if not _SLUG_RE.match(txt):
-        return ("nombre inválido: kebab-case (minúsculas, dígitos, guiones — "
-                "ej. menu-de-archivo)")
+        return _t("versiones.map.new.invalid",
+                  "nombre inválido: kebab-case (minúsculas, dígitos, guiones "
+                  "— ej. menu-de-archivo)")
     branch = "%s/%s" % (kind, txt)
     if _has_ref("refs/heads/%s" % branch, D["repo"]):
-        return "la rama `%s` ya existe" % branch
+        return _t("versiones.map.new.exists", "la rama `{b}` ya existe",
+                  b=branch)
     base = "main" if _has_ref("main", D["repo"]) else (
         "origin/main" if _has_ref("origin/main", D["repo"]) else "")
     if not base:
-        return "no hay main (ni origin/main) desde donde crear la rama"
+        return _t("versiones.map.new.nomain",
+                  "no hay main (ni origin/main) desde donde crear la rama")
     ok, _, err = _git(["branch", branch, base], D["repo"])
     if not ok:
-        return "git branch falló: %s" % ((err or "?").splitlines()[0][:60])
+        return _t("versiones.map.new.failed", "git branch falló: {e}",
+                  e=(err or "?").splitlines()[0][:60])
     _refresh(S)
     # dejar el cursor sobre la rama recién nacida (se ve lo que se hizo)
     for i, (kind_, obj) in enumerate(_items(S["D"])):
         if kind_ == "rama" and obj["name"] == branch:
             S["si"] = i
             break
-    return "rama %s creada desde %s ✓ (Enter para cambiarte a ella)" \
-        % (branch, base)
+    return _t("versiones.map.new.ok",
+              "rama {b} creada desde {base} ✓ (Enter para cambiarte a ella)",
+              b=branch, base=base)
 
 
 def _liberar(S, wt):
@@ -368,38 +434,46 @@ def _liberar(S, wt):
         return guard
     ok, _, err = _git(["worktree", "remove", wt["path"]], D["repo"])
     if not ok:
-        return "no pude liberarlo: %s" % ((err or "?").splitlines()[0][:60])
+        return _t("versiones.map.rel.failed", "no pude liberarlo: {e}",
+                  e=(err or "?").splitlines()[0][:60])
     _git(["worktree", "prune"], D["repo"])
     _owner_clear(wt["branch"])
     _refresh(S)
-    return "worktree de %s liberado ✓ — la rama sigue viva" % wt["branch"]
+    return _t("versiones.map.rel.ok",
+              "worktree de {b} liberado ✓ — la rama sigue viva",
+              b=wt["branch"])
 
 
 def _guard_liberar(wt):
     """Por qué NO se puede liberar este worktree (None = adelante). La regla
     de oro del reaper: jamás remover trabajo sin commitear ni estado dudoso."""
     if wt["pool"]:
-        return ("es del pool tibio — devuélvelo desde el dev panel o con "
-                "`workspace worktree`")
+        return _t("versiones.map.rel.pool",
+                  "es del pool tibio — devuélvelo desde el dev panel o con "
+                  "`workspace worktree`")
     if wt["clean"] is None:
-        return "no pude confirmar si está limpio — no lo toco"
+        return _t("versiones.map.rel.unsure",
+                  "no pude confirmar si está limpio — no lo toco")
     if wt["clean"] is False:
-        return "tiene cambios sin commitear — no se libera (no perder trabajo)"
+        return _t("versiones.map.rel.dirty",
+                  "tiene cambios sin commitear — no se libera (no perder "
+                  "trabajo)")
     return None
 
 
 def _revelar(path):
     """Abre la carpeta en el explorador del SO. Falla-suave."""
     if not path or not os.path.isdir(path):
-        return "la carpeta ya no existe"
+        return _t("versiones.map.dir.gone", "la carpeta ya no existe")
     try:
         cmd = (["open", path] if sys.platform == "darwin" else
                ["explorer", path] if os.name == "nt" else ["xdg-open", path])
         subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL)
-        return "carpeta abierta: %s" % path
+        return _t("versiones.map.dir.opened", "carpeta abierta: {p}", p=path)
     except Exception as e:
-        return "no pude abrir la carpeta: %s" % e
+        return _t("versiones.map.dir.fail", "no pude abrir la carpeta: {e}",
+                  e=e)
 
 
 def _refresh(S):
@@ -482,25 +556,35 @@ def _fila_estado(S, K, w):
     D = S["D"]
     if D.get("error"):
         return HL.clip(" %s%s%s" % (K["DK"], D["error"], K["R"]), w - 1)
-    limpio = ("%s%s limpio%s" % (K["OK"], K["CHECK"], K["R"]) if not D["dirty"]
-              else "%s±%d sin commitear%s" % (K["BAD"], D["dirty_count"],
-                                              K["R"]))
+    limpio = ("%s%s %s%s" % (K["OK"], K["CHECK"],
+                             _t("versiones.map.st.clean", "limpio"), K["R"])
+              if not D["dirty"]
+              else "%s±%s%s" % (K["BAD"],
+                                _t("versiones.map.st.dirty",
+                                   "{n} sin commitear", n=D["dirty_count"]),
+                                K["R"]))
     trozos = ["%s%s %s%s%s" % (K["C"] + K["BO"], K["BRANCH"],
                                D["current"] or "detached", K["R"], ""),
               limpio,
-              "%s%d ramas%s" % (K["GREY"], len(D["tronco"])
-                                + len(D["features"]), K["R"]),
-              "%s%d árbol%s%s" % (K["GREY"], len(D["wts"]),
-                                  "" if len(D["wts"]) == 1 else "es",
-                                  K["R"])]
+              "%s%s%s" % (K["GREY"], _t("versiones.map.st.branches",
+                                         "{n} ramas", n=len(D["tronco"])
+                                         + len(D["features"])), K["R"]),
+              "%s%s%s" % (K["GREY"],
+                          _t("versiones.map.st.tree1", "{n} árbol",
+                             n=len(D["wts"])) if len(D["wts"]) == 1
+                          else _t("versiones.map.st.trees", "{n} árboles",
+                                  n=len(D["wts"])), K["R"])]
     if D["unpushed"]:
-        trozos.append("%s↑%d sin publicar a origin%s"
-                      % (K["B"] + K["BO"], D["unpushed"], K["R"]))
+        trozos.append("%s↑%s%s" % (K["B"] + K["BO"], _t(
+            "versiones.map.st.unpushed", "{n} sin publicar a origin",
+            n=D["unpushed"]), K["R"]))
     if D["ready"]:
-        trozos.append("%s%d por promover a stable%s"
-                      % (K["B2"], D["ready"], K["R"]))
+        trozos.append("%s%s%s" % (K["B2"], _t(
+            "versiones.map.st.ready", "{n} por promover a stable",
+            n=D["ready"]), K["R"]))
     fila = " " + (" %s·%s " % (K["DK"], K["R"])).join(trozos)
-    leg = "%sr refresca%s" % (K["DK"], K["R"])
+    leg = "%s%s%s" % (K["DK"], _t("versiones.map.st.refresh", "r refresca"),
+                      K["R"])
     hueco = (w - 1) - HL.vis(fila) - HL.vis(leg) - 1
     if hueco > 1:
         fila += " " * hueco + leg
@@ -524,7 +608,7 @@ def _fila_rama(S, K, b, i, iw):
         extra = " %s⌂%s%s" % (K["B2"], "" if ag == "?" else ag, K["R"])
     elif b["current"] and S["D"]["dirty"]:
         extra = " %s±%d%s" % (K["BAD"], S["D"]["dirty_count"], K["R"])
-    ago = "%s%s%s" % (K["DK"], b["ago"], K["R"]) if b["ago"] else ""
+    ago = "%s%s%s" % (K["DK"], ago_text(b["ago"]), K["R"]) if b["ago"] else ""
     ln = " %s %s %s%s%s %s%s" % (cur, mark, ncol, HL.pad(nombre, nw), K["R"],
                                  HL.pad(delta, 7), extra)
     hueco = iw - HL.vis(ln) - HL.vis(ago)
@@ -541,7 +625,8 @@ def _fila_wt(S, K, wt, i, iw):
     nw = max(12, min(20, iw - 20))
     ncol = (K["WH"] + K["BO"]) if sel else K["GREY"]
     est = ("%s%s%s" % (K["OK"], K["CHECK"], K["R"]) if wt["clean"] is True
-           else "%s±sucio%s" % (K["BAD"], K["R"]) if wt["clean"] is False
+           else "%s±%s%s" % (K["BAD"], _t("versiones.map.wt.dirty", "sucio"),
+                            K["R"]) if wt["clean"] is False
            else "%s?%s" % (K["DK"], K["R"]))
     dueno = "%s%s%s" % (K["B2"], "—" if wt["agent"] == "?" else wt["agent"],
                         K["R"])
@@ -572,11 +657,11 @@ def _ventana(K, lineas, marca, ih, iw):
         start = max(0, end - ih)
     out = list(lineas[start:end])
     if start > 0:
-        out[0] = HL.clip(" %s↑ %d más arriba%s" % (K["DK"], start, K["R"]),
-                         iw)
+        out[0] = HL.clip(" %s↑ %s%s" % (K["DK"], _t(
+            "versiones.map.more_up", "{n} más arriba", n=start), K["R"]), iw)
     if end < n:
-        out[-1] = HL.clip(" %s↓ %d más abajo%s" % (K["DK"], n - end, K["R"]),
-                          iw)
+        out[-1] = HL.clip(" %s↓ %s%s" % (K["DK"], _t(
+            "versiones.map.more_down", "{n} más abajo", n=n - end), K["R"]), iw)
     return out
 
 
@@ -585,49 +670,58 @@ def _cuerpo_mapa(S, K, iw):
     Devuelve (líneas, nº de línea de la fila seleccionada) para la ventana."""
     D = S["D"]
     out, i, marca = [], 0, 0
-    out.append(_divisor(K, "principal · main / stable", iw, tono=0))
+    out.append(_divisor(K, _t("versiones.map.g.trunk",
+                              "principal · main / stable"), iw, tono=0))
     for b in D["tronco"]:
         if i == S["si"]:
             marca = len(out)
         out.append(_fila_rama(S, K, b, i, iw))
         i += 1
     if not D["tronco"]:
-        out.append(HL.clip(" %ssin main — repo raro%s" % (K["DK"], K["R"]),
-                           iw))
+        out.append(HL.clip(" %s%s%s" % (K["DK"], _t(
+            "versiones.map.g.nomain", "sin main — repo raro"), K["R"]), iw))
     out.append("")
-    out.append(_divisor(K, "en desarrollo", iw, tono=2))
+    out.append(_divisor(K, _t("versiones.map.g.dev", "en desarrollo"), iw,
+                        tono=2))
     for b in D["features"]:
         if i == S["si"]:
             marca = len(out)
         out.append(_fila_rama(S, K, b, i, iw))
         i += 1
     if not D["features"]:
-        out.append(HL.clip(" %sninguna — n crea una desde main%s"
-                           % (K["DIM"], K["R"]), iw))
+        out.append(HL.clip(" %s%s%s" % (K["DIM"], _t(
+            "versiones.map.g.nofeat", "ninguna — n crea una desde main"),
+            K["R"]), iw))
     out.append("")
-    out.append(_divisor(K, "carpetas separadas", iw, tono=4))
+    out.append(_divisor(K, _t("versiones.map.g.wts", "carpetas separadas"),
+                        iw, tono=4))
     for wt in D["wts"]:
         if i == S["si"]:
             marca = len(out)
         out.append(_fila_wt(S, K, wt, i, iw))
         i += 1
     if not D["wts"]:
-        out.append(HL.clip(" %sninguno — cada agente trabaja su rama en un "
-                           "árbol aparte%s" % (K["DIM"], K["R"]), iw))
+        out.append(HL.clip(" %s%s%s" % (K["DIM"], _t(
+            "versiones.map.g.nowts", "ninguno — cada agente trabaja su rama "
+            "en un árbol aparte"), K["R"]), iw))
     return out, marca
 
 
 def _cuerpo_nueva(S, K, iw):
     """Caja derecha en modo ALTA: el campo + la transparencia de qué pasará."""
-    out = [HL.clip(" %snueva rama — nace de main%s" % (K["DIM"], K["R"]), iw),
+    out = [HL.clip(" %s%s%s" % (K["DIM"], _t("versiones.map.n.head",
+                                         "nueva rama — nace de main"),
+                                K["R"]), iw),
            HL.clip(" %s%s%s %s%s%s█%s" % (K["C"] + K["BO"], K["PTR"], K["R"],
                                           K["WH"], S["buf"],
                                           K["C"] + K["BO"], K["R"]), iw),
            ""]
-    for ln in ("kebab-case → feat/<nombre> · «fix <nombre>» → fix/…",
-               "no cambia tu rama actual ni toca tus archivos",
-               "reversible: git branch -d la borra",
-               "Enter crea · Esc cancela"):
+    for ln in (_t("versiones.map.n.l1",
+                  "kebab-case → feat/<nombre> · «fix <nombre>» → fix/…"),
+               _t("versiones.map.n.l2",
+                  "no cambia tu rama actual ni toca tus archivos"),
+               _t("versiones.map.n.l3", "reversible: git branch -d la borra"),
+               _t("versiones.map.n.l4", "Enter crea · Esc cancela")):
         for sub in _wrap(ln, max(8, iw - 4)):
             out.append(HL.clip(" %s·%s %s%s%s" % (K["DK"], K["R"], K["DIM"],
                                                   sub, K["R"]), iw))
@@ -646,7 +740,7 @@ def _det_rama(S, K, b, iw, full=2):
                                                _wrap(b["subject"],
                                                      max(8, iw - 12))[0],
                                                K["R"]), iw))
-        out.append(HL.clip("   %s%s%s" % (K["DK"], b["ago"], K["R"]), iw))
+        out.append(HL.clip("   %s%s%s" % (K["DK"], ago_text(b["ago"]), K["R"]), iw))
     out.append("")
     # el delta EN PALABRAS (transparencia: nada de ↑↓ crípticos)
     base = b["base"] or "main"
@@ -654,34 +748,47 @@ def _det_rama(S, K, b, iw, full=2):
     if b["name"] == "main":
         out.append(HL.clip(" %s↑%s %s%s%s" % (
             K["C"], K["R"], K["GREY"],
-            ("%d commits sin publicar a origin" % b["ahead"]) if b["ahead"]
-            else "todo publicado en origin", K["R"]), iw))
+            _t("versiones.map.d.unpushed", "{n} commits sin publicar a "
+               "origin", n=b["ahead"]) if b["ahead"]
+            else _t("versiones.map.d.pushed", "todo publicado en origin"),
+            K["R"]), iw))
         if b["behind"]:
-            out.append(HL.clip(" %s↓%s %sorigin trae %d que no tienes — "
-                               "haz pull%s" % (K["B2"], K["R"], K["GREY"],
-                                               b["behind"], K["R"]), iw))
+            out.append(HL.clip(" %s↓%s %s%s%s" % (
+                K["B2"], K["R"], K["GREY"],
+                _t("versiones.map.d.behind_origin",
+                   "origin trae {n} que no tienes — haz pull", n=b["behind"]),
+                K["R"]), iw))
         if S["D"]["ready"]:
-            out.append(HL.clip(" %s◦%s %s%d listos para promover a stable%s"
-                               % (K["B2"], K["R"], K["GREY"], S["D"]["ready"],
-                                  K["R"]), iw))
+            out.append(HL.clip(" %s◦%s %s%s%s" % (
+                K["B2"], K["R"], K["GREY"],
+                _t("versiones.map.d.ready", "{n} listos para promover a "
+                   "stable", n=S["D"]["ready"]), K["R"]), iw))
     else:
         out.append(HL.clip(" %s↑%s %s%s%s" % (
             K["C"], K["R"], K["GREY"],
-            ("%d commits propios por integrar" % b["ahead"]) if b["ahead"]
-            else "no añade nada sobre %s" % base, K["R"]), iw))
+            _t("versiones.map.d.own", "{n} commits propios por integrar",
+               n=b["ahead"]) if b["ahead"]
+            else _t("versiones.map.d.nothing", "no añade nada sobre {base}",
+                    base=base), K["R"]), iw))
         out.append(HL.clip(" %s↓%s %s%s%s" % (
             K["B2"], K["R"], K["GREY"],
-            ("%d detrás de %s" % (b["behind"], base)) if b["behind"]
-            else "al día con %s" % base, K["R"]), iw))
+            _t("versiones.map.d.behind", "{n} detrás de {base}",
+               n=b["behind"], base=base) if b["behind"]
+            else _t("versiones.map.d.uptodate", "al día con {base}",
+                    base=base), K["R"]), iw))
     # qué CAMBIA (solo features; main no se compara contra sí mismo)
     if b["name"] != "main" and not b["remote_only"]:
         d = _diff_resumen(S, b)
         if d and d["n"]:
             out.append("")
-            out.append(_divisor(K, "qué cambia", iw, tono=3))
-            out.append(HL.clip(" %s%d archivo%s · %s+%d%s %s−%d%s"
-                               % (K["WH"], d["n"],
-                                  "" if d["n"] == 1 else "s", K["OK"],
+            out.append(_divisor(K, _t("versiones.map.d.changes",
+                                      "qué cambia"), iw, tono=3))
+            out.append(HL.clip(" %s%s · %s+%d%s %s−%d%s"
+                               % (K["WH"],
+                                  _t("versiones.map.d.file1", "{n} archivo",
+                                     n=d["n"]) if d["n"] == 1 else
+                                  _t("versiones.map.d.files", "{n} archivos",
+                                     n=d["n"]), K["OK"],
                                   d["added"], K["R"], K["BAD"], d["removed"],
                                   K["R"]), iw))
             if full >= 2:
@@ -692,25 +799,29 @@ def _det_rama(S, K, b, iw, full=2):
                                           K["R"], K["OK"], a, K["R"],
                                           K["BAD"], r, K["R"]), iw))
                 if d["n"] > len(d["files"]):
-                    out.append(HL.clip("  %s… y %d más%s"
-                                       % (K["DK"], d["n"] - len(d["files"]),
-                                          K["R"]), iw))
+                    out.append(HL.clip("  %s… %s%s" % (
+                        K["DK"], _t("versiones.map.d.and_more", "y {n} más",
+                                    n=d["n"] - len(d["files"])), K["R"]), iw))
     # quién la tiene
     out.append("")
-    out.append(_divisor(K, "quién", iw, tono=4))
+    out.append(_divisor(K, _t("versiones.map.d.who", "quién"), iw, tono=4))
     if b["wt"]:
-        quien = ("de %s" % b["wt"]["agent"] if b["wt"]["agent"] != "?"
-                 else "sin dueño registrado")
-        out.append(HL.clip(" %s⌂%s %sen un worktree %s%s%s%s — o abre su "
-                           "carpeta" % (K["B2"], K["R"], K["GREY"],
-                                        K["B"] + K["BO"], quien,
-                                        K["R"], K["GREY"]) + K["R"], iw))
+        quien = (_t("versiones.map.d.of", "de {a}", a=b["wt"]["agent"])
+                 if b["wt"]["agent"] != "?"
+                 else _t("versiones.map.d.noowner", "sin dueño registrado"))
+        out.append(HL.clip(" %s⌂%s %s%s %s%s%s%s — %s" % (
+            K["B2"], K["R"], K["GREY"],
+            _t("versiones.map.d.in_wt", "en un worktree"), K["B"] + K["BO"],
+            quien, K["R"], K["GREY"],
+            _t("versiones.map.d.or_open", "o abre su carpeta")) + K["R"], iw))
     elif b["remote_only"]:
-        out.append(HL.clip(" %ssolo en origin — nadie la tiene local%s"
-                           % (K["DK"], K["R"]), iw))
+        out.append(HL.clip(" %s%s%s" % (K["DK"], _t(
+            "versiones.map.d.remote_only",
+            "solo en origin — nadie la tiene local"), K["R"]), iw))
     else:
-        out.append(HL.clip(" %slibre — nadie la trabaja ahora%s"
-                           % (K["DK"], K["R"]), iw))
+        out.append(HL.clip(" %s%s%s" % (K["DK"], _t(
+            "versiones.map.d.free", "libre — nadie la trabaja ahora"),
+            K["R"]), iw))
     if full < 1:
         return out
     # commits recientes
@@ -720,29 +831,34 @@ def _det_rama(S, K, b, iw, full=2):
     rec = recent[b["ref"]]
     if rec:
         out.append("")
-        out.append(_divisor(K, "commits recientes", iw, tono=5))
+        out.append(_divisor(K, _t("versiones.map.d.recent",
+                                  "commits recientes"), iw, tono=5))
         for c in rec:
             out.append(HL.clip(" %s%s%s %s%s%s %s%s%s"
                                % (K["B2"], c["sha"], K["R"], K["GREY"],
                                   _wrap(c["subject"],
                                         max(8, iw - 20))[0], K["R"],
-                                  K["DK"], c["ago"], K["R"]), iw))
+                                  K["DK"], ago_text(c["ago"]), K["R"]), iw))
     if full < 2:
         return out
     # qué hace cada tecla SOBRE ESTA rama (se dice antes de tocar)
     out.append("")
-    out.append(_divisor(K, "acciones", iw))
+    out.append(_divisor(K, _t("versiones.map.d.actions", "acciones"), iw))
     acc = []
     if b["current"]:
-        acc.append("ya estás aquí — ↑↓ recorre las demás")
+        acc.append(_t("versiones.map.a.here",
+                      "ya estás aquí — ↑↓ recorre las demás"))
     elif b["wt"]:
-        acc.append("Enter no mueve tu checkout (vive en un worktree)")
-        acc.append("o abre su carpeta")
+        acc.append(_t("versiones.map.a.wt",
+                      "Enter no mueve tu checkout (vive en un worktree)"))
+        acc.append(_t("versiones.map.a.open", "o abre su carpeta"))
     elif b["remote_only"]:
-        acc.append("solo lectura: existe en origin, no local")
+        acc.append(_t("versiones.map.a.ro",
+                      "solo lectura: existe en origin, no local"))
     else:
-        acc.append("Enter te cambia a esta rama (si tu árbol está limpio)")
-    acc.append("n crea una rama nueva desde main")
+        acc.append(_t("versiones.map.a.switch",
+                      "Enter te cambia a esta rama (si tu árbol está limpio)"))
+    acc.append(_t("versiones.map.a.new", "n crea una rama nueva desde main"))
     for ln in acc:
         for sub in _wrap(ln, max(8, iw - 4)):
             out.append(HL.clip(" %s·%s %s%s%s" % (K["DK"], K["R"], K["DIM"],
@@ -756,24 +872,30 @@ def _det_wt(S, K, wt, iw, full=2):
     out = [HL.clip(" %s⌂ %s%s" % (K["B"] + K["BO"],
                                   os.path.basename(wt["path"].rstrip("/\\")),
                                   K["R"]), iw), ""]
-    est = ("limpio — sin cambios sin commitear" if wt["clean"] is True else
-           "con cambios sin commitear" if wt["clean"] is False else
-           "estado indeterminado")
+    est = (_t("versiones.map.w.clean", "limpio — sin cambios sin commitear")
+           if wt["clean"] is True else
+           _t("versiones.map.w.dirty", "con cambios sin commitear")
+           if wt["clean"] is False else
+           _t("versiones.map.w.unknown", "estado indeterminado"))
     ecol = K["OK"] if wt["clean"] is True else (
         K["BAD"] if wt["clean"] is False else K["DK"])
-    filas = [("rama", wt["branch"], K["WH"]),
-             ("dueño", ("sin registrar" if wt["agent"] == "?"
-                        else wt["agent"])
-              + ((" — desde %s" % wt["since"][:10])
+    filas = [(_t("versiones.map.w.branch", "rama"), wt["branch"], K["WH"]),
+             (_t("versiones.map.w.owner", "dueño"),
+              (_t("versiones.map.w.unreg", "sin registrar")
+               if wt["agent"] == "?" else wt["agent"])
+              + ((" — " + _t("versiones.map.w.since", "desde {d}",
+                             d=wt["since"][:10]))
                  if wt["since"] else ""), K["GREY"]),
-             ("estado", est, ecol),
-             ("pool", "tibio (se devuelve, no se borra)" if wt["pool"]
-              else "no — árbol normal", K["GREY"])]
+             (_t("versiones.map.w.state", "estado"), est, ecol),
+             ("pool", _t("versiones.map.w.pool_warm",
+                         "tibio (se devuelve, no se borra)") if wt["pool"]
+              else _t("versiones.map.w.pool_no", "no — árbol normal"),
+              K["GREY"])]
     for et, val, col in filas:
         out.append(HL.clip(" %s%s%s %s%s%s" % (K["DK"], HL.pad(et, 7),
                                                K["R"], col, val, K["R"]), iw))
     out.append("")
-    out.append(_divisor(K, "ruta", iw, tono=3))
+    out.append(_divisor(K, _t("versiones.map.w.path", "ruta"), iw, tono=3))
     ruta = wt["path"].replace(os.path.expanduser("~"), "~")
     paso = max(8, iw - 2)            # sin espacios no hay wrap: va en trozos
     for ln in [ruta[i:i + paso] for i in range(0, len(ruta), paso)][:2]:
@@ -781,21 +903,24 @@ def _det_wt(S, K, wt, iw, full=2):
     if full < 1:
         return out
     out.append("")
-    out.append(_divisor(K, "acciones", iw))
+    out.append(_divisor(K, _t("versiones.map.d.actions", "acciones"), iw))
     guard = _guard_liberar(wt)
-    acc = ["o / Enter abre la carpeta en el explorador"]
+    acc = [_t("versiones.map.w.a.open",
+              "o / Enter abre la carpeta en el explorador")]
     if guard:
-        acc.append("x no aplica: %s" % guard)
+        acc.append(_t("versiones.map.w.a.noapply", "x no aplica: {g}", g=guard))
     else:
-        acc.append("x lo libera (la rama sigue viva; pide confirmación)")
+        acc.append(_t("versiones.map.w.a.release",
+                      "x lo libera (la rama sigue viva; pide confirmación)"))
     for ln in acc:
         for sub in _wrap(ln, max(8, iw - 4)):
             out.append(HL.clip(" %s·%s %s%s%s" % (K["DK"], K["R"], K["DIM"],
                                                   sub, K["R"]), iw))
     if full >= 2:
         out.append("")
-        for ln in _wrap("liberar un worktree NUNCA borra commits: solo quita "
-                        "la copia de trabajo y des-fija la rama.",
+        for ln in _wrap(_t("versiones.map.w.note",
+                           "liberar un worktree NUNCA borra commits: solo "
+                           "quita la copia de trabajo y des-fija la rama."),
                         max(8, iw - 4)):
             out.append(HL.clip(" %s%s%s" % (K["DIM"], ln, K["R"]), iw))
     return out
@@ -806,11 +931,12 @@ def _map_render(S, w, h):
     D = S["D"]
     L = [""]
     # mismo wordmark del hub (centrado) — cambiar de vista, no de app
-    bt = HL.big_title(K, w, h, indent=" ", compact=(h < 30), center=True)
+    bt = HL.big_title(K, w, h, indent=" ", compact=(h < 30), center=True, word=HL.section_word("versiones"))
     L += bt
     if len(bt) > 1:
-        L += HL.title_reflection(K, w, indent=" ", center=True)
-    sub = "ramas — el git del harness: tronco · features · treehouse"
+        L += HL.title_reflection(K, w, indent=" ", center=True, word=HL.section_word("versiones"))
+    sub = _t("versiones.map.sub",
+             "ramas — el git del harness: tronco · features · treehouse")
     L.append(" " * max(0, ((w - 1) - HL.vis(sub)) // 2)
              + "%s%s%s" % (K["DIM"], sub, K["R"]))
     L.append("%s%s%s%s%s" % (K["B2"], K["BOX"][5] * 3, K["DK"],
@@ -829,11 +955,13 @@ def _map_render(S, w, h):
         ew = (w - 1) - 5                         # ancho interior de la caja
         cuerpo = [HL.clip(" %s%s%s" % (K["BAD"], D["error"], K["R"]), ew),
                   "",
-                  HL.clip(" %sruta: %s%s" % (K["DK"], D.get("repo", "?"),
-                                             K["R"]), ew),
-                  HL.clip(" %sq vuelve al menú · r reintenta%s"
-                          % (K["DIM"], K["R"]), ew)]
-        for ln in HL.full_box("RAMAS", cuerpo, K, (w - 1) - 1,
+                  HL.clip(" %s%s%s" % (K["DK"], _t(
+                      "versiones.map.e.path", "ruta: {p}",
+                      p=D.get("repo", "?")), K["R"]), ew),
+                  HL.clip(" %s%s%s" % (K["DIM"], _t(
+                      "versiones.map.e.hint", "q vuelve al menú · r reintenta"),
+                      K["R"]), ew)]
+        for ln in HL.full_box(_t("versiones.map.box.branches", "RAMAS"), cuerpo, K, (w - 1) - 1,
                               min(avail - 2, len(cuerpo) + 2), True,
                               border=K["C"]):
             L.append(HL.clip(" " + ln, w - 1))
@@ -842,25 +970,29 @@ def _map_render(S, w, h):
         bi, marca = _cuerpo_mapa(S, K, lw - 4)
         # degradación honesta: primero los archivos del diff y las teclas,
         # luego commits recientes — el mapa y el delta esencial jamás
-        bd, t_der = [], "DETALLE"
+        _det = _t("versiones.map.box.detail", "DETALLE")
+        bd, t_der = [], _det
         for full in (2, 1, 0):
             if S["modo"] == "new":
-                bd, t_der = _cuerpo_nueva(S, K, rw - 4), "NUEVA RAMA"
+                bd, t_der = _cuerpo_nueva(S, K, rw - 4), _t(
+                    "versiones.map.box.new", "NUEVA RAMA")
             elif sel and sel[0] == "rama":
                 bd = _det_rama(S, K, sel[1], rw - 4, full=full)
-                t_der = "DETALLE · %s" % sel[1]["name"]
+                t_der = "%s · %s" % (_det, sel[1]["name"])
             elif sel and sel[0] == "wt":
                 bd = _det_wt(S, K, sel[1], rw - 4, full=full)
-                t_der = "DETALLE · ⌂ %s" % os.path.basename(
-                    sel[1]["path"].rstrip("/\\"))
+                t_der = "%s · ⌂ %s" % (_det, os.path.basename(
+                    sel[1]["path"].rstrip("/\\")))
             else:
-                bd = [HL.clip(" %snada que ver — repo vacío%s"
-                              % (K["DK"], K["R"]), rw - 4)]
+                bd = [HL.clip(" %s%s%s" % (K["DK"], _t(
+                    "versiones.map.empty", "nada que ver — repo vacío"),
+                    K["R"]), rw - 4)]
             need = (len(bi) + len(bd) + 4) if apilado \
                 else (max(len(bi), len(bd)) + 2)
             if need <= avail or S["modo"] == "new":
                 break
-        t_izq = "RAMAS · %s" % D["nombre"]
+        t_izq = "%s · %s" % (_t("versiones.map.box.branches", "RAMAS"),
+                             D["nombre"])
         if apilado:                              # ── angosto: APILADO ──
             # presupuesto EXACTO (el pie nunca se come): el mapa recibe ~55%
             # del alto con ventana; el detalle lo que quede (mínimo 3 filas)
@@ -886,19 +1018,23 @@ def _map_render(S, w, h):
                                  + (der[i] if i < len(der) else ""), w - 1))
     L.append("")
     if S["modo"] == "confirm" and S.get("pend"):
-        L.append(" %s⚠ liberar el árbol de %s — Enter confirma · Esc "
-                 "cancela%s" % (K["BAD"] + K["BO"], S["pend"]["branch"],
-                                K["R"]))
+        L.append(" %s⚠ %s%s" % (K["BAD"] + K["BO"], _t(
+            "versiones.map.confirm", "liberar el árbol de {b} — Enter "
+            "confirma · Esc cancela", b=S["pend"]["branch"]), K["R"]))
     elif S.get("msg"):
         L.append(" %s%s%s" % (K["B2"], S["msg"], K["R"]))
     else:
         L.append("")
-    hint = ("escribe el nombre · Enter crea · Esc cancela"
+    hint = (_t("versiones.map.h.new",
+               "escribe el nombre · Enter crea · Esc cancela")
             if S["modo"] == "new" else
-            "↑↓ elige · Enter/c cambia · n nueva · o carpeta · x libera · "
-            "r refresca · q vuelve al menú")
+            _t("versiones.map.h.nav",
+               "↑↓ elige · Enter/c cambia · n nueva · o carpeta · x libera · "
+               "r refresca · q vuelve al menú"))
     if w < 90 and S["modo"] != "new":
-        hint = "↑↓ elige · Enter cambia · n nueva · o abre · x libera · r · q vuelve"
+        hint = _t("versiones.map.h.nav_short",
+                  "↑↓ elige · Enter cambia · n nueva · o abre · x libera · r · "
+                  "q vuelve")
     L.append(" %s%s%s" % (K["DK"], hint, K["R"]))
     # ALTURA ESTABLE: siempre h-1 líneas exactas (pie anclado abajo) — así el
     # redraw jamás deja líneas rancias de un frame más alto, y la pantalla no
@@ -918,7 +1054,8 @@ def _map_action(S, key):
 
     if S["modo"] == "new":                       # ── capturando el nombre ──
         if key == "\x1b":
-            S["modo"], S["buf"], S["msg"] = "nav", "", "cancelado"
+            S["modo"], S["buf"], S["msg"] = "nav", "", _t(
+                "versiones.map.m.cancel", "cancelado")
         elif key in ("\r", "\n"):
             buf = S["buf"]
             S["modo"], S["buf"] = "nav", ""
@@ -934,10 +1071,12 @@ def _map_action(S, key):
         if key in ("\r", "\n"):
             wt = S.get("pend")
             S["modo"], S["pend"] = "nav", None
-            S["msg"] = _liberar(S, wt) if wt else "nada que liberar"
+            S["msg"] = _liberar(S, wt) if wt else _t(
+                "versiones.map.m.nothing_rel", "nada que liberar")
         elif key not in ("", None):
             S["modo"], S["pend"] = "nav", None
-            S["msg"] = "cancelado — el worktree queda como estaba"
+            S["msg"] = _t("versiones.map.m.rel_cancel",
+                          "cancelado — el worktree queda como estaba")
         return True
 
     if key in ("q", "Q", "\x1b", "\x03"):
@@ -948,7 +1087,7 @@ def _map_action(S, key):
         S["si"] = (S["si"] + 1) % max(1, len(its))
     elif key in ("r", "R"):
         _refresh(S)
-        S["msg"] = "estado releído de git ✓"
+        S["msg"] = _t("versiones.map.m.reread", "estado releído de git ✓")
     elif key in ("n", "N"):
         S["modo"], S["buf"] = "new", ""
     elif key in ("\r", "\n", "c", "C"):
@@ -957,19 +1096,22 @@ def _map_action(S, key):
         elif sel and sel[0] == "wt":
             S["msg"] = _revelar(sel[1]["path"])
         else:
-            S["msg"] = "nada seleccionado"
+            S["msg"] = _t("versiones.map.m.nosel", "nada seleccionado")
     elif key in ("o", "O"):
         if sel and sel[0] == "wt":
             S["msg"] = _revelar(sel[1]["path"])
         elif sel and sel[0] == "rama" and sel[1]["wt"]:
             S["msg"] = _revelar(sel[1]["wt"]["path"])
         else:
-            S["msg"] = "esta rama no tiene worktree — no hay carpeta aparte"
+            S["msg"] = _t("versiones.map.m.nowt",
+                          "esta rama no tiene worktree — no hay carpeta "
+                          "aparte")
     elif key in ("x", "X"):
         wt = (sel[1] if sel and sel[0] == "wt" else
               (sel[1]["wt"] if sel and sel[0] == "rama" else None))
         if not wt:
-            S["msg"] = "x libera worktrees — esto no tiene uno"
+            S["msg"] = _t("versiones.map.m.x_nowt",
+                          "x libera worktrees — esto no tiene uno")
         else:
             guard = _guard_liberar(wt)
             if guard:
@@ -1103,11 +1245,14 @@ def _listado():
     """Sin terminal interactiva: al menos imprime el estado plano."""
     D = snapshot()
     if D.get("error"):
-        print("ramas: %s (%s)" % (D["error"], D.get("repo", "?")))
+        print(_t("versiones.map.l.error", "ramas: {e} ({p})", e=D["error"],
+                 p=D.get("repo", "?")))
         return 1
-    print("repo %s · en %s · %s" % (
-        D["nombre"], D["current"] or "detached",
-        "limpio" if not D["dirty"] else "±%d sin commitear" % D["dirty_count"]))
+    print(_t("versiones.map.l.head", "repo {r} · en {b} · {s}",
+             r=D["nombre"], b=D["current"] or "detached",
+             s=_t("versiones.map.st.clean", "limpio") if not D["dirty"]
+             else "±" + _t("versiones.map.st.dirty", "{n} sin commitear",
+                           n=D["dirty_count"])))
     for b in D["tronco"] + D["features"]:
         print(" %s %-24s ↑%d ↓%d  %s  %s%s" % (
             "●" if b["current"] else "·", b["name"], b["ahead"], b["behind"],
@@ -1117,11 +1262,13 @@ def _listado():
         print(" ⌂ %-24s %s  %s  %s" % (
             os.path.basename(wt["path"].rstrip("/\\")), wt["branch"],
             wt["agent"],
-            "limpio" if wt["clean"] else "sucio" if wt["clean"] is False
-            else "?"))
+            _t("versiones.map.st.clean", "limpio") if wt["clean"]
+            else _t("versiones.map.wt.dirty", "sucio")
+            if wt["clean"] is False else "?"))
     return 0
 
 
+@_theme_screen
 def run():
     """Abre la pantalla. Sin tty cae al listado de texto; nunca truena."""
     S = {"D": snapshot(), "diff": {}, "si": 0, "msg": "", "modo": "nav",

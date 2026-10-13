@@ -125,6 +125,27 @@ def create(ctx, step):
             "retriable": False}
 
 
+def validate_definition(ctx, step):
+    """Paso det (Z23): la definición del agente recién creado/cargado pasa el
+    validador ÚNICO (agent_schema) — el mismo que usa el estado compartido
+    para marcar invalid_config. Errores = permanente (re-correr no arregla)."""
+    if ctx.get("dry"):
+        return {"ok": True, "detail": "validaría la definición (dry)"}
+    brain = _resolve_brain(ctx)
+    if not brain:
+        return {"ok": False, "detail": "sin cerebro que validar", "retriable": False}
+    import agent_schema
+    import agentsreg
+    errs, warns = agent_schema.validate_file(agentsreg.agent_json_path(brain))
+    if errs:
+        return {"ok": False, "retriable": False,
+                "detail": "definición inválida: " + "; ".join(errs),
+                "artifacts": {"definition_errors": errs}}
+    return {"ok": True,
+            "detail": "definición válida" + (" (avisos: %s)" % "; ".join(warns) if warns else ""),
+            "artifacts": {"definition_errors": []}}
+
+
 # Anatomía MÍNIMA del cerebro (derivada de 02-BRAIN-FORMAT.md — el contrato
 # por ROLES): identidad inmutable (BOOT/), ensamblador (CLAUDE.md), identidad
 # portátil (.workspace/agent.json) y la capa HOT de STATE/. El 02 tolera el
@@ -191,7 +212,9 @@ def verify_brain(ctx, step):
     try:
         import json as _json
         ajp = os.path.join(brain, ".workspace", "agent.json")
-        defn = _json.load(open(ajp, encoding="utf-8")) if os.path.isfile(ajp) else {}
+        if os.path.isfile(ajp):
+            with open(ajp, encoding="utf-8") as _fh:
+                defn = _json.load(_fh)
         for key in ("theme", "session_env", "session_id_env"):
             if not str(defn.get(key) or "").strip():
                 gaps.append("agent.json sin `%s`" % key)

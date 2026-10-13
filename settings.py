@@ -39,6 +39,7 @@ borrar este archivo deja todo como estaba (los consumidores lo importan
 falla-suave).
 """
 import json
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import os
 import re
 import sys
@@ -71,7 +72,7 @@ _SENTINEL = object()
 
 # ── rutas (funciones, no constantes: respetan HOME parchado en tests) ──────
 def _workspace_dir():
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace")
+    return _paths.state_dir()
 
 
 def store_path():
@@ -147,14 +148,18 @@ def _engine_choices():
 
 
 def _agent_choices():
-    """Agentes del registry (agents/registry.json). Falla-suave → lista fija."""
+    """Agentes que ve el socio (registry EFECTIVO menos los de SISTEMA).
+    SSOT: dispatch.visible_agents() — import perezoso
+    para no ciclar (dispatch importa settings). Antes esto leía registry.json
+    crudo y caía a ['zenith','atlas'] (2), que había drifteado del fallback de
+    config_tui (['zenith','atlas','argus'], 3) y además no filtraba 'doctor'."""
     try:
-        reg = _read_json(os.path.join(ROOT, "agents", "registry.json"))
-        names = [a.get("name", "") for a in reg.get("agents", [])
+        import dispatch
+        names = [a.get("name", "") for a in dispatch.visible_agents()
                  if a.get("name")]
-        return names or ["zenith", "atlas"]
+        return names
     except Exception:
-        return ["zenith", "atlas"]
+        return []
 
 
 def _theme_choices():
@@ -190,7 +195,8 @@ def _theme_choices_live():
 # distintos. OJO: esta lista va SINCRONIZADA con hubtheme.TUI_PENDIENTES
 # (lo que el picker del hub oculta); si divergen, el socio elige un tema que
 # settings rechaza en silencio (bug documentado en test_settings).
-_TUI_THEMES = ("rose", "mono", "cyberpunk",
+# 2026-10-12: entra `blanco` (mono invertido: fondo blanco, todo negro).
+_TUI_THEMES = ("rose", "mono", "blanco", "cyberpunk",
                "durazno", "lavanda", "salvia", "bruma")
 
 
@@ -218,25 +224,6 @@ def _tui_theme_choices_live():
 # VALIDACIÓN de ui.web_theme queda PERMISIVA (todo tema instalado, como el
 # ui.theme viejo) — el socio solo elige desde el switcher curado, pero un tema
 # vía env/directo no se rechaza. Reusa _theme_choices/_theme_choices_live.
-
-
-def _layout_choices():
-    """Layouts del hub SEGÚN EL REGISTRO (hublayout.available() — NUNCA
-    hardcodeados aquí). Falla-suave → solo el default."""
-    try:
-        import hublayout
-        ids = [L["id"] for L in hublayout.available()]
-        return ids or ["clasico"]
-    except Exception:
-        return ["clasico"]
-
-
-def _layout_choices_live():
-    """Layouts consultados EN VIVO al validar (mismo patrón que ui.theme:
-    el registro manda, el snapshot `choices` es solo display). Import lazy
-    (hublayout importa settings también lazy — sin ciclo)."""
-    import hublayout
-    return [L["id"] for L in hublayout.available()]
 
 
 # Palabras que marcan un setting como INSEGURO para anclar al hub (nunca se
@@ -391,8 +378,8 @@ SETTINGS_SCHEMA = (
 
     # ── agentes ──
     {"key": "agentes.default_agent", "group": "agentes",
-     "label": "Agente por default", "type": "enum", "default": "zenith",
-     "choices": tuple(_agent_choices()), "scaffold": True,
+     "label": "Agente por default", "type": "enum", "default": "",
+     "choices": ("",), "choices_fn": lambda: ("",) + tuple(_agent_choices()), "scaffold": True,
      "help": "Agente preseleccionado en el recinto/picker de WORKSPACE.",
      "applies": "futuro: front.py preseleccionará esta urna."},
     {"key": "agentes.auto_mode", "group": "agentes",
@@ -407,6 +394,21 @@ SETTINGS_SCHEMA = (
              "Reversible en vivo: aplica al siguiente lanzamiento.",
      "applies": "engines/claude_code.launch() agrega el flag al comando; un "
                 "--permission-mode explícito del socio siempre gana."},
+    {"key": "agentes.hidden", "group": "agentes",
+     "label": "Agentes ocultos del hub", "type": "list", "default": [],
+     "member_ok": lambda s: bool(re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,31}", s)),
+     "help": "Agentes registrados que NO se muestran en el hub (siguen "
+             "cargados: cerebro, sesiones y preferencias intactos). Se "
+             "gestiona desde Agentes › ocultar/mostrar.",
+     "applies": "agent_state (estado compartido): status hidden → fuera del hub, "
+                "visible en Agentes."},
+    {"key": "modelos.enabled_engines", "group": "modelos",
+     "label": "Motores habilitados en el atajo M", "type": "list", "default": [],
+     "member_ok": lambda s: bool(re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,31}", s)),
+     "help": "Motores que ofrece la tecla M del hub al ciclar (vacío = todos "
+             "los instalados con binario en PATH). Independiente de instalar, "
+             "desinstalar o iniciar sesión.",
+     "applies": "harnesses.cycle / Motores (U09)."},
     {"key": "agentes.transport", "group": "agentes",
      "label": "Transporte de sync por agente", "type": "map", "default": {},
      "delegated": True, "readonly": True,
@@ -414,14 +416,10 @@ SETTINGS_SCHEMA = (
      "applies": "paths.local.json → transport (dispatch.brain_transport); editar AHÍ, no aquí."},
 
     # ── ui ──
-    {"key": "ui.stars", "group": "ui", "label": "Cielo estrellado",
-     "type": "bool", "default": True,
-     "help": "Campo de estrellas estático del recinto (front.py).",
-     "applies": "front.py; env WORKSPACE_NO_STARS=1 gana."},
     {"key": "ui.anim", "group": "ui", "label": "Animaciones",
      "type": "bool", "default": True,
-     "help": "Menú animado del recinto y banner animado (sin esto: estático + picker).",
-     "applies": "front.py + banner/render.py; env WORKSPACE_NO_ANIM=1 gana."},
+     "help": "Hub interactivo (el lanzador). Apagado: lista estática + picker numerado.",
+     "applies": "front.animated_menu; env WORKSPACE_NO_ANIM=1 gana."},
     {"key": "ui.autostart", "group": "ui", "label": "Abrir al abrir la terminal",
      "type": "bool", "default": False,
      "help": "Si cada terminal nueva abre el menú de Workspace (greeter del rc) "
@@ -469,6 +467,14 @@ SETTINGS_SCHEMA = (
                 "hex) con este nivel; el control de la sección TEMA del config "
                 "y el pin del hub lo cambian EN VIVO (la paleta se memoiza por "
                 "nivel, así el hub re-resuelve al siguiente frame)."},
+    {"key": "ui.titles", "group": "ui", "label": "Títulos grandes",
+     # Prueba del socio 2026-10-12: ver el programa SIN los títulos grandes
+     # (wordmark) en ninguna pantalla — solo el contenido.
+     "type": "bool", "default": True,
+     "help": "Los títulos grandes (el wordmark WORKSPACE y el de cada sección). "
+             "OFF = solo el contenido; el subtítulo pequeño se queda.",
+     "applies": "hublayout.big_title()/title_reflection() devuelven [] "
+                "si está OFF."},
     {"key": "ui.redlight", "group": "ui", "label": "Luz roja (modo noche)",
      # Pin bool (default off → paleta intocada para toda instalación). Cuando
      # está ON, tuitheme remapea TODA la paleta a un rojo/ámbar cálido nocturno
@@ -511,18 +517,6 @@ SETTINGS_SCHEMA = (
      "applies": "hubtheme.resolve_id() lo lee para servir el skin del dev panel "
                 "(dashboard.py --dev); POST /api/theme lo persiste (dash/dev/"
                 "temas.py). El hub/TUI NO lo usa (usa ui.theme)."},
-    {"key": "ui.layout", "group": "ui", "label": "Layout del hub",
-     "type": "enum", "default": "dia",
-     # mismo patrón que ui.theme: snapshot al import para display, validación
-     # EN VIVO contra el registro (hublayout.available()) — nada hardcodeado.
-     "choices": tuple(_layout_choices()), "choices_fn": _layout_choices_live,
-     "help": "ESTRUCTURA del hub (front.py) — eje INDEPENDIENTE del tema: "
-             "cualquier layout combina con cualquier tema. dia = calendario + "
-             "pulso (default); clasico = el recinto centrado de siempre. "
-             "env WORKSPACE_LAYOUT gana siempre (probar sin persistir).",
-     "applies": "hublayout.resolve_id() → front.py dibuja el hub con la "
-                "estructura del layout activo; el picker de Config (sección "
-                "LAYOUT) persiste aquí."},
     {"key": "ui.split", "group": "ui", "label": "Terminal partida",
      "type": "bool", "default": False,
      "help": "Al elegir agente en el hub, el chat abre PARTIDO: chat a la "
@@ -556,20 +550,9 @@ SETTINGS_SCHEMA = (
      "applies": "mux.right_pane_cmd() elige board (wf board --persist) vs "
                 "panel (front.py panel --agent). Extensible: se agregan "
                 "vistas en panel.VIEWS."},
-    {"key": "ui.emblem", "group": "ui", "label": "Emblema del banner",
-     "type": "enum", "default": "default",
-     "choices": ("default", "minimal", "none"), "scaffold": True,
-     "help": "Variante del emblema/escudo del banner.",
-     "applies": "futuro: banner/render.py."},
-    {"key": "ui.info_rows", "group": "ui", "label": "Filas de info del banner",
-     "type": "str", "default": "", "scaffold": True,
-     "help": "CSV de filas a mostrar bajo el banner (vacío = todas).",
-     "applies": "futuro: front.build_info_rows()."},
     {"key": "ui.hub_pins", "group": "ui", "label": "Configs ancladas al hub",
-     # Default SOLO el tema (pedido del socio 2026-10-02): la sección del hub se
-     # llama ahora PERSONALIZACIÓN y es para tema/colores/customizables.
-     # Layout y latido siguen vivos (settings/config TUI/CLI) — quien los
-     # quiera de vuelta en el hub puede re-anclarlos desde la Config.
+     # La sección PERSONALIZACIÓN del lanzador: tema/colores/customizables
+     # (pedido del socio 2026-10-02).
      "type": "list",
      "default": ["ui.theme", "ui.background", "ui.brightness", "ui.redlight",
                  "ui.autostart"],
@@ -578,12 +561,22 @@ SETTINGS_SCHEMA = (
              "sección PERSONALIZACIÓN para acceso rápido — label + valor "
              "actual, sin entrar a la Config completa. Solo enum/bool SEGUROS "
              "(nada de paths/credenciales); keys inexistentes o inseguras se "
-             "omiten. Máx 5 (espacio del recinto).",
-     "applies": "hublayout.hub_pins_lines() → el bloque de la sección "
-                "PERSONALIZACIÓN en el recinto clásico (front.py) y en el "
-                "layout centro."},
+             "omiten. Máx 5.",
+     "applies": "hublayout.lanzador_pins() → el submenú PERSONALIZACIÓN "
+                "del lanzador."},
 
     # ── otros ──
+    {"key": "otros.auto_update", "group": "otros",
+     "label": "Actualizaciones automáticas", "type": "enum", "default": "auto",
+     "choices": ("auto", "notify", "off"),
+     "help": "auto = se instalan solas al lanzar un agente (máx. cada 6 h), con "
+             "red de seguridad: si la versión nueva no arranca, vuelve sola a la "
+             "anterior · notify = solo avisa que hay versión nueva (una vez al "
+             "día) y tú decides · off = no consulta nada por su cuenta. En los "
+             "tres casos `workspace update` instala cuando tú quieras. env "
+             "WORKSPACE_NO_AUTOUPDATE=1 gana (= off).",
+     "applies": "updater.auto_mode() → dispatch.maybe_autoupdate (al lanzar un "
+                "agente) y la fase 3 del doctor (solo instala en auto)."},
     {"key": "otros.update_channel", "group": "otros",
      "label": "Canal de actualización", "type": "enum", "default": "stable",
      "choices": ("stable", "main"), "delegated": True,
@@ -672,7 +665,47 @@ def _agent_engine_entries():
 
 SETTINGS_SCHEMA = SETTINGS_SCHEMA + _agent_model_entries() + _agent_engine_entries()
 
-_BY_KEY = {s["key"]: s for s in SETTINGS_SCHEMA}
+class _SchemaIndex(dict):
+    """Índice del schema con claves DINÁMICAS por agente resueltas en RUNTIME
+    (U12): `agentes.<n>.engine|model` de un agente cargado DESPUÉS de importar
+    este módulo (otra ventana, onboarding, Agentes) valida igual que uno que
+    ya estaba — antes la entrada solo existía si el agente estaba en el
+    registry al importar, y el binding de un agente nuevo se perdía."""
+    _DYN = re.compile(r"^agentes\.([a-z0-9][a-z0-9_-]{0,31})\.(engine|model)$")
+
+    def _dynamic(self, key):
+        m = self._DYN.match(key) if isinstance(key, str) else None
+        if not m or m.group(1) in ("default_agent", "auto_mode", "transport",
+                                   "hidden"):
+            return None
+        nice = m.group(1).capitalize()
+        if m.group(2) == "engine":
+            return {"key": key, "group": "agentes", "label": "Motor de %s" % nice,
+                    "type": "str", "default": "",
+                    "help": "Override del MOTOR de %s per-máquina." % nice,
+                    "applies": "dispatch.py precedencia motor (agentes.<n>.engine)."}
+        return {"key": key, "group": "agentes", "label": "Modelo de %s" % nice,
+                "type": "str", "default": "",
+                "help": "Override del modelo de %s." % nice,
+                "applies": "engines/claude_code.launch() --model."}
+
+    def get(self, key, default=None):
+        v = dict.get(self, key)
+        if v is None:
+            v = self._dynamic(key)
+        return default if v is None else v
+
+    def __contains__(self, key):
+        return dict.__contains__(self, key) or self._dynamic(key) is not None
+
+    def __missing__(self, key):
+        v = self._dynamic(key)
+        if v is None:
+            raise KeyError(key)
+        return v
+
+
+_BY_KEY = _SchemaIndex((s["key"], s) for s in SETTINGS_SCHEMA)
 
 
 # ── sub-registro de JOBS/crons conocidos ───────────────────────────────────
@@ -1002,11 +1035,41 @@ def _pin_display(spec, val):
         return ""
 
 
+def _ui_t(key, es):
+    """Texto de la UI vía i18n con el español del schema como red: sin i18n
+    o sin clave → `es` (idéntico a hoy). Solo para PINTAR; el store y los
+    valores guardados no cambian con el idioma."""
+    try:
+        import i18n
+        v = i18n.t(key)
+        return es if v == key else v
+    except Exception:
+        return es
+
+
+def pin_label(key):
+    """Etiqueta de un setting EN EL IDIOMA DE LA UI (settings_ui.label.<key>);
+    fallback: el label del schema. Nunca levanta."""
+    spec = _BY_KEY.get(key) or {}
+    return _ui_t("settings_ui.label." + str(key), spec.get("label") or key)
+
+
+def pin_value_display(key, val):
+    """Valor de un pin listo para pintar, en el idioma de la UI: los choices
+    con traducción (settings_ui.choice.<key>.<valor>) se traducen; ids de
+    marca (temas, motores) y on/off quedan tal cual. Nunca levanta."""
+    spec = _BY_KEY.get(key) or {}
+    disp = _pin_display(spec, val)
+    if spec.get("type") == "enum" and isinstance(val, str) and val:
+        return _ui_t("settings_ui.choice.%s.%s" % (key, val), disp)
+    return disp
+
+
 def hub_pins_resolved():
     """Las CONFIGS ancladas al hub (ui.hub_pins) resueltas a
     [{key, label, value}] — value ya formateado para pintar. Vive AQUÍ (no en
-    hublayout) para que el recinto clásico las muestre SIN depender de
-    hublayout (paridad del default). Falla-suave TOTAL: sin store / pin
+    hublayout) para que el hub y la vista angosta las muestren SIN depender de
+    hublayout. Falla-suave TOTAL: sin store / pin
     inexistente / valor ilegible → se OMITE (jamás levanta). El schema ya
     garantizó que la lista es segura (enum/bool, nada de paths)."""
     out = []
@@ -1025,8 +1088,8 @@ def hub_pins_resolved():
                 val = get(k)
             except Exception:
                 continue
-            out.append({"key": k, "label": spec.get("label") or k,
-                        "value": _pin_display(spec, val)})
+            out.append({"key": k, "label": pin_label(k),
+                        "value": pin_value_display(k, val)})
     except Exception:
         return []
     return out
@@ -1165,6 +1228,14 @@ def set(key, value):   # noqa: A001 — nombre pedido por la API pública
     set_stored(key, v)
     if key.startswith("latido."):
         _sync_heartbeat_json(key, v)
+    if key == "ui.theme":
+        # hook theme-set del usuario (opcional, estilo Omarchy): <estado>/hooks/
+        # theme-set(.py). No bloquea (timeout en hilo) y jamás rompe el set.
+        try:
+            import theme_render
+            theme_render.run_theme_set_hook(v)
+        except Exception:
+            pass
     return v
 
 

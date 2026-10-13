@@ -43,6 +43,10 @@ REGISTRY = {
     "agent.create":             ("workflows.steps.agent", "create"),
     "agent.verify_brain":       ("workflows.steps.agent", "verify_brain"),
     "agent.brand":              ("workflows.steps.agent", "brand"),
+    "agent.validate_definition": ("workflows.steps.agent", "validate_definition"),
+    # prevención Z23 (ronda Windows 2026-10) — workflows/steps/contracts.py
+    "contracts.prevention":     ("workflows.steps.contracts", "prevention"),
+    "contracts.plan":           ("workflows.steps.contracts", "plan"),
 }
 
 # Contrato del NAMESPACE de artefactos (v1.4): claves que cada paso det
@@ -72,6 +76,9 @@ PRODUCES = {
     "agent.create":             ("agent_name", "agent_brain"),
     "agent.verify_brain":       ("brain_ok", "brain_gaps"),
     "agent.brand":              ("banner_path", "statusline_path", "dashboard_path"),
+    "agent.validate_definition": ("definition_errors",),
+    "contracts.prevention":     ("prevention_rc",),
+    "contracts.plan":           (),
 }
 
 # Registro dinámico (tests con pasos mock; consumidores que inyectan pasos

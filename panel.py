@@ -31,6 +31,26 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 
+def _t(key, es, **kw):
+    """i18n lado cliente, falla-suave: `key` en el idioma activo (catálogo
+    lang/<code>/panel.py); sin i18n / clave faltante → el español inline `es`
+    (paridad exacta). .format(**kw) falla-suave."""
+    s = es
+    try:
+        import i18n
+        v = i18n.t(key)
+        if v != key:
+            s = v
+    except Exception:
+        s = es
+    if kw:
+        try:
+            return s.format(**kw)
+        except Exception:
+            return s
+    return s
+
+
 def fg(n):
     return "\033[38;5;%dm" % n
 
@@ -167,16 +187,13 @@ def _resolve_brain(agent):
     # fallback cuando no hay --agent (correr `workspace panel` suelto).
     if agent:
         try:
-            import dispatch
-            reg = dispatch.load_registry() if hasattr(dispatch, "load_registry") else {}
-            # el registry es {version, agents:[{name, brain}, …], planned} —
-            # los agentes son una LISTA, no un dict top-level
-            ags = reg.get("agents", []) if isinstance(reg, dict) else []
-            for a in ags:
-                if isinstance(a, dict) and (a.get("name") or "").lower() == agent:
-                    p = a.get("brain") or a.get("path")
-                    if p:
-                        return os.path.abspath(os.path.expanduser(p))
+            # Z20: el resolver CANÓNICO (override por máquina > registro por
+            # máquina > def committeada) — antes se leía `brain` crudo del
+            # registry e ignoraba overrides y agentes committeados.
+            import brain_resolver
+            res = brain_resolver.resolve_agent(str(agent).lower())
+            if res is not None and res.path:
+                return res.path
         except Exception:
             pass
     b = os.environ.get("WORKSPACE_BRAIN")
@@ -187,7 +204,8 @@ def _resolve_brain(agent):
 
 def _identity(agent, brain):
     """{display, emoji, color(256), tagline} — best-effort."""
-    ident = {"display": (agent or "agente").capitalize(), "emoji": "",
+    ident = {"display": (agent or _t("panel.agent", "agente")).capitalize(),
+             "emoji": "",
              "tagline": "", "col": ACC}
     try:
         import agent_brand
@@ -328,13 +346,13 @@ def _wf_rel(iso, now=None):
     if s < 0:
         return ""
     if s < 90:
-        return "hace %ds" % int(s)
+        return _t("panel.rel.s", "hace {n}s", n=int(s))
     if s < 5400:
-        return "hace %dm" % int(s / 60)
+        return _t("panel.rel.m", "hace {n}m", n=int(s / 60))
     if s < 86400:
-        return "hace %dh" % int(s / 3600)
+        return _t("panel.rel.h", "hace {n}h", n=int(s / 3600))
     if s < 172800:
-        return "ayer"
+        return _t("panel.rel.yesterday", "ayer")
     return "%dd" % int(s / 86400)
 
 
@@ -362,7 +380,7 @@ def _wf_active_lines(state, w, h):
     name = str(state.get("workflow", "?"))
     ver = "v%s" % state.get("version", "?")
     dry = state.get("dry")
-    drytag = (BAD + "dry: SÍ" + R) if dry else (FAINT + "dry: no" + R)
+    drytag = (BAD + _t("panel.wf.dry_yes", "dry: SÍ") + R) if dry else (FAINT + "dry: no" + R)
     left = TEXT + BOLD + _clip(name, inner - 14) + R + " " + MID + ver + R
     out.append(LM + left + _pad_right(_strip(left), inner, drytag))
 
@@ -376,7 +394,7 @@ def _wf_active_lines(state, w, h):
     out.append("")
 
     if not steps:
-        out.append(LM + FAINT + "sin pasos" + R)
+        out.append(LM + FAINT + _t("panel.wf.no_steps", "sin pasos") + R)
         return out
 
     cur = state.get("current", -1)
@@ -408,7 +426,8 @@ def _wf_active_lines(state, w, h):
             # ── LA CAJA: el paso actual, protagonista imposible de perder ──
             waiting = (sstat == "waiting_human")
             bcol = MID if waiting else ACCENT
-            tag = "TE TOCA A TI" if waiting else "AQUÍ VAMOS"
+            tag = _t("panel.wf.your_turn", "TE TOCA A TI") if waiting \
+                else _t("panel.wf.here", "AQUÍ VAMOS")
             bw = inner - 2                     # ancho interior (entre los ┃)
 
             def _boxrow(interior, bcol=bcol, bw=bw):
@@ -427,7 +446,7 @@ def _wf_active_lines(state, w, h):
             blk.append(_boxrow(hrow))
             det = (_safe(st.get("detail")) or "").split("·")[0].strip()
             dur = front._wf_step_dur(st)
-            sub = "     " + FAINT + _clip(det or "trabajando…", bw - 14) + R
+            sub = "     " + FAINT + _clip(det or _t("panel.wf.working", "trabajando…"), bw - 14) + R
             if dur:
                 sub += FAINT + "  ⏱ " + dur + R
             blk.append(_boxrow(sub))
@@ -441,11 +460,11 @@ def _wf_active_lines(state, w, h):
             if dur:
                 right = FAINT + dur + R
             elif sstat == "waiting_human":
-                right = MID + "en espera" + R
+                right = MID + _t("panel.wf.waiting", "en espera") + R
             elif sstat == "pending":
-                right = FAINT + "pendiente" + R
+                right = FAINT + _t("panel.wf.pending", "pendiente") + R
             elif sstat == "rejected":
-                right = BAD + "rechazado" + R
+                right = BAD + _t("panel.wf.rejected_step", "rechazado") + R
             row = LM + gcol + glyph + R + " " + ncol + _clip(label, inner - 14) + R
             blk.append(row + _pad_right(_strip(row) + " ", w - 1, right))
         blocks.append(blk)
@@ -461,26 +480,32 @@ def _wf_active_lines(state, w, h):
     rail_h = min(3, 1 + max(0, (h - used) // gaps))
 
     if lo > 0:
-        out.append(LM + FAINT + "  ⋮ %d paso%s antes" % (lo, "" if lo == 1 else "s") + R)
+        out.append(LM + FAINT + "  ⋮ " + (
+            _t("panel.wf.before1", "{n} paso antes", n=lo) if lo == 1
+            else _t("panel.wf.before", "{n} pasos antes", n=lo)) + R)
     for j, blk in enumerate(blocks):
         out.extend(blk)
         if j < len(blocks) - 1:
             out.extend([LM + agent_rail + "┃" + R] * rail_h)
     if hi < len(steps):
         rem = len(steps) - hi
-        out.append(LM + FAINT + "  ⋮ %d más" % rem + R)
+        out.append(LM + FAINT + "  ⋮ " + _t("panel.more", "{n} más", n=rem) + R)
 
     # ── desenlace terminal ──
     if status == "done":
         out.append("")
-        out.append(LM + OK + "✓ %d / %d · completado" % (done, total)
-                   + (" en " + front._wf_run_elapsed(state) if front._wf_run_elapsed(state) else "") + R)
+        _el = front._wf_run_elapsed(state)
+        out.append(LM + OK + "✓ %d / %d · " % (done, total)
+                   + (_t("panel.wf.done_in", "completado en {t}", t=_el) if _el
+                      else _t("panel.wf.done_word", "completado")) + R)
     elif status in ("failed", "rejected"):
         bad_i = next((i for i, s in enumerate(steps)
                       if s.get("status") in ("fail", "rejected")), None)
         who = _safe(steps[bad_i].get("id")) if bad_i is not None else ""
         out.append("")
-        out.append(LM + ERR + "✗ se detuvo" + (" en «%s»" % who if who else "") + R)
+        out.append(LM + ERR + "✗ " + (
+            _t("panel.wf.stopped_at", "se detuvo en «{s}»", s=who) if who
+            else _t("panel.wf.stopped", "se detuvo")) + R)
     return out
 
 
@@ -494,7 +519,7 @@ def _pad_right(plain_left, width, right_colored):
 
 def _wf_idle_lines(runs, w, h):
     """SIN run activo (diseño Iris §C): runs recientes limpios + invitación."""
-    out = [LM + MID + "runs recientes" + R, ""]
+    out = [LM + MID + _t("panel.wf.recent", "runs recientes") + R, ""]
     inner = max(20, w - 2)
     cap = max(1, min(len(runs), h - 6))
     import front
@@ -512,8 +537,8 @@ def _wf_idle_lines(runs, w, h):
                 + "  " + MID + ver + R + "  " + FAINT + rel + R)
         out.append(left + _pad_right(_strip(left) + " ", w - 1, prog))
     out += ["", LM + RULE + "┈" * inner + R, ""]
-    inv1 = "corre un workflow y aquí lo verás"
-    inv2 = "crecer paso a paso, en vivo."
+    inv1 = _t("panel.wf.inv1", "corre un workflow y aquí lo verás")
+    inv2 = _t("panel.wf.inv2", "crecer paso a paso, en vivo.")
     out.append(_center(FAINT + inv1 + R, w))
     out.append(_center(FAINT + inv2 + R + " " + ACCENT + "✦" + R, w))
     return out
@@ -552,25 +577,30 @@ def _view_pipeline(ctx, w, h):
             state = None
     if state and (state.get("steps") or state.get("status") == "running"):
         stt = state.get("status")
-        badge = {"running": HI + _SPIN[_tick()] + " corriendo" + R,
-                 "paused_human": MID + "⏸ te toca a ti" + R,
-                 "done": OK + "✓ completado" + R,
-                 "failed": ERR + "✗ falló" + R,
-                 "rejected": BAD + "⊗ rechazado" + R}.get(stt, GREY + str(stt) + R)
+        badge = {"running": HI + _SPIN[_tick()] + " "
+                 + _t("panel.wf.b.running", "corriendo") + R,
+                 "paused_human": MID + "⏸ "
+                 + _t("panel.wf.b.paused", "te toca a ti") + R,
+                 "done": OK + "✓ " + _t("panel.wf.done_word", "completado") + R,
+                 "failed": ERR + "✗ " + _t("panel.wf.b.failed", "falló") + R,
+                 "rejected": BAD + "⊗ " + _t("panel.wf.rejected_step",
+                                             "rechazado") + R
+                 }.get(stt, GREY + str(stt) + R)
         head = _title("workflows", w, badge)
         try:
             return head + _wf_active_lines(state, w, max(6, h - 2))
         except Exception as e:
-            return head + [LM + WARN + "run activo (detalle no disponible): %s"
-                           % str(e)[:40] + R]
-    head = _title("workflows", w, GREY + "○ en reposo" + R)
+            return head + [LM + WARN + _t(
+                "panel.wf.active_err", "run activo (detalle no disponible): {e}",
+                e=str(e)[:40]) + R]
+    head = _title("workflows", w, GREY + _t("panel.wf.idle", "○ en reposo") + R)
     try:
         runs = wf.list_runs(limit=12)
     except Exception:
         runs = []
     if not runs:
-        return head + ["", _center(FAINT + "aún no corre ningún workflow" + R, w),
-                       _center(FAINT + "corre uno y aparece aquí, en vivo " + R
+        return head + ["", _center(FAINT + _t("panel.wf.none", "aún no corre ningún workflow") + R, w),
+                       _center(FAINT + _t("panel.wf.none2", "corre uno y aparece aquí, en vivo ") + R
                                + ACCENT + "✦" + R, w)]
     return head + _wf_idle_lines(runs, w, max(6, h - 2))
 
@@ -584,22 +614,24 @@ def _view_bus(ctx, w, h):
     import messages
     if not ctx.agent:
         return _title("bus", w) + [
-            "", _center(FAINT + "abre el panel con --agent para ver tu inbox" + R, w)]
+            "", _center(FAINT + _t("panel.bus.need_agent", "abre el panel con --agent para ver tu inbox") + R, w)]
     try:
         pend = messages.inbox(ctx.brain, ctx.agent) or []
     except Exception:
         pend = []
-    badge = (HI + BOLD + "%d nuevo%s" % (len(pend), "" if len(pend) == 1 else "s")
-             + R) if pend else GREY + "vacío" + R
+    badge = (HI + BOLD + (_t("panel.bus.new1", "{n} nuevo", n=len(pend))
+                          if len(pend) == 1 else
+                          _t("panel.bus.new", "{n} nuevos", n=len(pend)))
+             + R) if pend else GREY + _t("panel.bus.empty", "vacío") + R
     out = _title("bus · inbox", w, badge)
     if not pend:
-        out += ["", _center(FAINT + "nada por atender ✓" + R, w)]
+        out += ["", _center(FAINT + _t("panel.bus.clear", "nada por atender ✓") + R, w)]
         return out
     out.append("")
     cap = max(1, (h - 5) // 4)                  # ~4 filas por mensaje
     for m in pend[:cap]:
         who = _safe(m.get("from")) or "?"
-        subj = _safe(m.get("subject")) or "(sin asunto)"
+        subj = _safe(m.get("subject")) or _t("panel.bus.nosubj", "(sin asunto)")
         ap = (BAD + BOLD + "ok?" + R) if m.get("requires_approval") else ""
         head = LM + HI + "●" + R + " " + TEXT + BOLD + _clip(who, w - 10) + R
         out.append(head + (_pad_right(_strip(head) + " ", w - 1, ap) if ap else ""))
@@ -612,9 +644,9 @@ def _view_bus(ctx, w, h):
         out.append("")
     left = len(pend) - cap
     if left > 0:
-        out.append(LM + GREY + "○ %d más" % left + R)
+        out.append(LM + GREY + "○ " + _t("panel.more", "{n} más", n=left) + R)
     out.append("")
-    out.append(LM + FAINT + "responder: en el chat · el bus sincroniza solo" + R)
+    out.append(LM + FAINT + _t("panel.bus.reply", "responder: en el chat · el bus sincroniza solo") + R)
     return out
 
 
@@ -624,13 +656,15 @@ def _view_config(ctx, w, h):
     del agente (autoreferencia). Nada aquí es accionable → tonos apagados."""
     import settings
     col = (ctx.ident or {}).get("col") or ACCENT
-    disp = _safe((ctx.ident or {}).get("display")) or (ctx.agent or "agente").capitalize()
+    disp = _safe((ctx.ident or {}).get("display")) or (
+        ctx.agent or _t("panel.agent", "agente")).capitalize()
     emj = _safe((ctx.ident or {}).get("emoji"))
     brain = ctx.brain or ""
     home = os.path.expanduser("~")
     if brain.startswith(home):
         brain = "~" + brain[len(home):]
-    rows = [("agente", col + disp + ((" " + emj) if emj else "") + R)]
+    rows = [(_t("panel.cfg.agent", "agente"),
+             col + disp + ((" " + emj) if emj else "") + R)]
     # color legible desde agent.json (best-effort), pintado en su propio color
     try:
         import json
@@ -641,10 +675,12 @@ def _view_config(ctx, w, h):
             rows.append(("color", col + _safe(c) + R))
     except Exception:
         pass
-    rows.append(("cerebro", TEXT + _clip(brain, w - 14) + R))
-    for k, lbl in [("ui.split", "split"), ("ui.split_pane", "pane der."),
-                   ("ui.split_backend", "backend"), ("latido.mode", "latido"),
-                   ("ui.theme", "tema")]:
+    rows.append((_t("panel.cfg.brain", "cerebro"), TEXT + _clip(brain, w - 14) + R))
+    for k, lbl in [("ui.split", "split"),
+                   ("ui.split_pane", _t("panel.cfg.pane", "pane der.")),
+                   ("ui.split_backend", "backend"),
+                   ("latido.mode", _t("panel.cfg.heartbeat", "latido")),
+                   ("ui.theme", _t("panel.cfg.theme", "tema"))]:
         try:
             v = settings.get(k, None)
         except Exception:
@@ -653,10 +689,10 @@ def _view_config(ctx, w, h):
             continue
         vcol = OK if v in (True, "on", "auto", "panel") else TEXT
         rows.append((lbl, vcol + str(v) + R))
-    out = _title("config", w, GREY + "solo lectura" + R)
+    out = _title("config", w, GREY + _t("panel.cfg.ro", "solo lectura") + R)
     for lbl, val in rows:
         out.append(LM + MID + lbl.ljust(10) + R + " " + val)
-    out += ["", LM + FAINT + "┈ se edita en workspace config / agent.json" + R]
+    out += ["", LM + FAINT + _t("panel.cfg.edit", "┈ se edita en workspace config / agent.json") + R]
     return out
 
 
@@ -664,16 +700,19 @@ def _view_delegar(ctx, w, h):
     """Delegar (diseño Iris §E3): a QUIÉN mandarle una tarea por el bus — lista
     de agentes del equipo, misma gramática (▸/número) que Sesiones. El envío se
     hace desde el chat ('dile a X…'); aquí está el mapa + el comando honesto."""
-    out = _title("delegar", w, FAINT + "manda una tarea" + R)
+    out = _title(_t("panel.del.title", "delegar"), w,
+                 FAINT + _t("panel.del.badge", "manda una tarea") + R)
     col = (ctx.ident or {}).get("col") or ACCENT
     out.append("")
-    out.append(LM + MID + "¿a quién?" + R)
+    out.append(LM + MID + _t("panel.del.who", "¿a quién?") + R)
     out.append("")
     agents = []
     try:
         import dispatch
         reg = dispatch.load_registry() if hasattr(dispatch, "load_registry") else {}
-        for a in (reg.get("agents", []) if isinstance(reg, dict) else []):
+        # SSOT: visible_agents() descuenta los de SISTEMA (doctor) — no tiene
+        # sentido delegar una tarea por el bus al Workspace Doctor.
+        for a in dispatch.visible_agents(reg):
             nm = _safe(a.get("name"))
             if nm and nm.lower() != (ctx.agent or ""):
                 agents.append((nm, _safe(a.get("scope") or a.get("tagline") or "")))
@@ -685,9 +724,9 @@ def _view_delegar(ctx, w, h):
             line += "   " + FAINT + _clip(role, w - _vw(nm) - 10) + R
         out.append(_clip(line, w))
     if not agents:
-        out.append(LM + FAINT + "(sin otros agentes registrados)" + R)
-    out += ["", LM + FAINT + "en el chat: «dile a <agente> que…» — yo mando "
-            "el bus" + R]
+        out.append(LM + FAINT + _t("panel.del.none", "(sin otros agentes registrados)") + R)
+    out += ["", LM + FAINT + _t("panel.del.how", "en el chat: «dile a <agente> "
+                                "que…» — yo mando el bus") + R]
     return out
 
 
@@ -697,9 +736,17 @@ def _view_delegar(ctx, w, h):
 # try/except: los tests de render (y una máquina sin herdr) corren igual.
 # ═══════════════════════════════════════════════════════════════════════════
 def _socio(brain):
-    """El socio del cerebro: `<brain>/.claude/socio.local` (strip().lower()).
-    Fallback: si `<brain>/STATE/sessions/` tiene EXACTAMENTE un subdir, ese.
-    Cualquier fallo → ''."""
+    """El socio del cerebro. SSOT: delega en sessions_registry.socio() — la MISMA
+    resolución que usa el store de sesiones (socio.local → env WORKSPACE_SOCIO →
+    única subcarpeta de STATE/sessions sin prefijo _/.). Antes panel.py tenía su
+    propia copia que OMITÍA el paso env y NO excluía `_migracion`, así que para el
+    mismo cerebro el panel y las escrituras de sesión podían resolver socios
+    distintos. Fallback inline sólo si el módulo no está (falla-suave → '')."""
+    try:
+        import sessions_registry
+        return sessions_registry.socio(brain)
+    except Exception:
+        pass
     try:
         p = os.path.join(brain, ".claude", "socio.local")
         if os.path.isfile(p):
@@ -707,14 +754,6 @@ def _socio(brain):
                 s = fh.read().strip().lower()
             if s:
                 return s
-    except Exception:
-        pass
-    try:
-        sd = os.path.join(brain, "STATE", "sessions")
-        subs = [d for d in os.listdir(sd)
-                if os.path.isdir(os.path.join(sd, d))]
-        if len(subs) == 1:
-            return subs[0]
     except Exception:
         pass
     return ""
@@ -836,11 +875,11 @@ def _view_sesiones(ctx, w, h):
     open_now = data.get("open_now") or []
     col = (ctx.ident or {}).get("col") or ACCENT
     closing = getattr(ctx, "close_mode", False)
-    badge = (BAD + BOLD + "¿cuál cierro? 1-9 · esc" + R) if closing \
-        else GREY + "x cerrar" + R
-    out = _title("sesiones", w, badge)
+    badge = (BAD + BOLD + _t("panel.ses.which", "¿cuál cierro? 1-9 · esc") + R) \
+        if closing else GREY + _t("panel.ses.xclose", "x cerrar") + R
+    out = _title(_t("panel.ses.title", "sesiones"), w, badge)
     if not rows:
-        out += ["", _center(FAINT + "sin sesiones todavía" + R, w)]
+        out += ["", _center(FAINT + _t("panel.ses.none", "sin sesiones todavía") + R, w)]
         # NO retorna: la cola (abiertas ahora + aviso de solo-lectura del
         # backend) se pinta igual — el loop de filas simplemente no itera.
     # presupuesto: título (2) + colas (abiertas ahora / aviso solo-lectura)
@@ -850,7 +889,7 @@ def _view_sesiones(ctx, w, h):
     num, shown, skipped = 0, 0, 0
     for r in rows:
         wid = r.get("wid")
-        name = _safe(r.get("name")) or "(sin nombre)"
+        name = _safe(r.get("name")) or _t("panel.ses.noname", "(sin nombre)")
         estado = _safe(r.get("estado"))
         act = _safe(r.get("actualizada"))
         if shown >= cap:                       # cap por ALTURA del pane
@@ -859,7 +898,7 @@ def _view_sesiones(ctx, w, h):
         if not r.get("switchable"):
             # sin wid local → no switcheable: tenue, sin letra
             out.append(_clip(LM + FAINT + "  · " + name
-                             + " (en otra máquina — no local)" + R, w))
+                             + _t("panel.ses.remote", " (en otra máquina — no local)") + R, w))
             shown += 1
             continue
         num += 1
@@ -893,7 +932,7 @@ def _view_sesiones(ctx, w, h):
                 out.append("       " + _clip(e, max(1, w - 8)))
                 shown += 1
     if skipped:
-        out.append(LM + FAINT + "  ⋮ +%d más" % skipped + R)
+        out.append(LM + FAINT + "  ⋮ +" + _t("panel.more", "{n} más", n=skipped) + R)
     # crear nueva sesión — CLICKEABLE (hit ("new",)); la tecla `n` hace lo
     # mismo. El loop la ejecuta con _new_session (registra el workspace + monta
     # el pane en él por el controlador persistente). Solo tiene sentido dentro
@@ -902,34 +941,37 @@ def _view_sesiones(ctx, w, h):
     out.append("")
     if os.environ.get("HERDR_SESSION"):
         hits[len(out)] = ("new",)
-        out.append(_clip(LM + ACCENT + "＋" + R + " " + TEXT + "nueva sesión"
-                         + R + "   " + FAINT + "n o click" + R, w))
+        out.append(_clip(LM + ACCENT + "＋" + R + " " + TEXT
+                         + _t("panel.ses.new", "nueva sesión")
+                         + R + "   " + FAINT + _t("panel.ses.n_click", "n o click")
+                         + R, w))
     else:
-        out.append(_clip(LM + FAINT + "＋ nueva sesión: abre el split herdr "
-                         + "para crear desde aquí" + R, w))
+        out.append(_clip(LM + FAINT + _t(
+            "panel.ses.new_out", "＋ nueva sesión: abre el split herdr para "
+            "crear desde aquí") + R, w))
     if open_now:
         out.append("")
-        out.append(LM + MID + "abiertas ahora" + R)
+        out.append(LM + MID + _t("panel.ses.open_now", "abiertas ahora") + R)
         letters = "abcdefghij"
         li = 0
         for s in open_now:
             nm = _safe(s.get("name")) or "?"
             if s.get("own"):
                 out.append(_clip(LM + "  " + ACCENT + "·" + R + " " + TEXT + nm
-                                 + R + "  " + HI + "← estás aquí" + R, w))
+                                 + R + "  " + HI + _t("panel.ses.here", "← estás aquí") + R, w))
                 continue
             lt = letters[li % len(letters)]
             li += 1
             if s.get("attached"):
                 out.append(_clip(LM + FAINT + "  " + lt + " · " + nm
-                                 + " (attacheada)" + R, w))
+                                 + _t("panel.ses.attached", " (attacheada)") + R, w))
             else:
                 hits[len(out)] = ("close", s.get("name"))
                 out.append(_clip(LM + ACCENT + "  " + lt + R + " · " + TEXT + nm
                                  + R + " " + FAINT + "(detached)" + R, w))
     if not os.environ.get("HERDR_SESSION"):
         out.append("")
-        out.append(LM + FAINT + "cambio de sesión: en el split herdr" + R)
+        out.append(LM + FAINT + _t("panel.ses.switch_in_split", "cambio de sesión: en el split herdr") + R)
     ctx.hits_rel = hits
     return out
 
@@ -976,7 +1018,7 @@ def _sess_key(ctx, k, w, h):
         if 0 <= idx < len(sw):
             r = sw[idx]
             if r.get("wid") == ctx.current_wid:
-                ctx.notice = "ya estás en esa sesión"
+                ctx.notice = _t("panel.ses.already", "ya estás en esa sesión")
             else:
                 ctx.pending_switch = (r.get("wid"), r.get("name"))
             return True
@@ -1001,7 +1043,7 @@ def _sess_click(ctx, x, y, w, h):
                 ctx.close_mode = False         # en modo-cerrar no se switchea
                 return True
             if hit[1] == ctx.current_wid:
-                ctx.notice = "ya estás en esa sesión"
+                ctx.notice = _t("panel.ses.already", "ya estás en esa sesión")
             else:
                 ctx.pending_switch = (hit[1], hit[2])
             return True
@@ -1010,7 +1052,7 @@ def _sess_click(ctx, x, y, w, h):
                 ctx.close_mode = False
                 ctx.notice = _close_session(ctx, hit[1])
             else:
-                ctx.notice = "x arma el modo cerrar"
+                ctx.notice = _t("panel.ses.xarm", "x arma el modo cerrar")
             return True
         return False
     except Exception:
@@ -1076,16 +1118,16 @@ def _controller_switch(ctx, wid, name, killpg=None):
         # ── guards (el nt PRIMERO: os.killpg no existe en Windows y
         #    `killpg = os.killpg` daría AttributeError con notice equivocada) ──
         if os.name == "nt":
-            return False, "switch solo en Mac/Linux"
+            return False, _t("panel.op.mac_only", "switch solo en Mac/Linux")
         if killpg is None:
             killpg = os.killpg
         session = os.environ.get("HERDR_SESSION")
         if not session:
-            return False, "fuera del split herdr — solo lectura"
+            return False, _t("panel.op.outside", "fuera del split herdr — solo lectura")
         try:
             import mux
         except Exception:
-            return False, "switch falló: mux no disponible"
+            return False, _t("panel.op.no_mux", "switch falló: mux no disponible")
         ctl = mux.ctl_dir(session)
 
         # ── pgid del grupo del chat vigente (lo publica el controlador) ──
@@ -1099,9 +1141,9 @@ def _controller_switch(ctx, wid, name, killpg=None):
         except Exception:
             pgid = 0
         if pgid <= 0:
-            return False, "no encuentro el chat (¿sesión vieja? reabrí el split)"
+            return False, _t("panel.op.no_chat", "no encuentro el chat (¿sesión vieja? reabrí el split)")
         if pgid == os.getpgrp():               # guard anti-suicidio
-            return False, "pgid sospechoso — no toco nada"
+            return False, _t("panel.op.pgid", "pgid sospechoso — no toco nada")
 
         # ── pedir el switch: desired.json = {wid, name} (atómico) ──
         mux._write_desired(ctl, wid, name)
@@ -1125,12 +1167,12 @@ def _controller_switch(ctx, wid, name, killpg=None):
                     os.remove(os.path.join(ctl, "desired.json"))
             except Exception:
                 pass
-            return False, "no pude cambiar el chat: " + str(e)[:40]
+            return False, _t("panel.op.chat_fail", "no pude cambiar el chat: {e}", e=str(e)[:40])
 
         # ── verificación best-effort: ¿la sesión herdr sigue viva? ──
         import multiplexer
         if not multiplexer.session_running(session, dict(os.environ)):
-            return False, "la sesión se cerró — reabrí el split"
+            return False, _t("panel.op.closed", "la sesión se cerró — reabrí el split")
 
         # ── commit ──
         ctx.current_wid, ctx.current_ws = wid, name
@@ -1138,7 +1180,7 @@ def _controller_switch(ctx, wid, name, killpg=None):
         _stamp_opened(ctx, wid)
         return True, None
     except Exception as e:
-        return False, "switch falló: " + str(e)[:60]
+        return False, _t("panel.op.switch_fail", "switch falló: {e}", e=str(e)[:60])
 
 
 def _switch_left(ctx, wid, name, runner=None, killpg=None, sleep=None):
@@ -1156,15 +1198,15 @@ def _switch_left(ctx, wid, name, runner=None, killpg=None, sleep=None):
     try:
         # ── guards del switch (el nt PRIMERO: ver _controller_switch) ──
         if os.name == "nt":
-            return "switch solo en Mac/Linux"
+            return _t("panel.op.mac_only", "switch solo en Mac/Linux")
         if not os.environ.get("HERDR_SESSION"):
-            return "fuera del split herdr — solo lectura"
+            return _t("panel.op.outside", "fuera del split herdr — solo lectura")
         if wid == ctx.current_wid:
-            return "ya estás en esa sesión"
+            return _t("panel.ses.already", "ya estás en esa sesión")
         ok, msg = _controller_switch(ctx, wid, name, killpg=killpg)
-        return ("cambiado → " + str(name)) if ok else msg
+        return _t("panel.op.switched", "cambiado → {n}", n=name) if ok else msg
     except Exception as e:
-        return "switch falló: " + str(e)[:60]
+        return _t("panel.op.switch_fail", "switch falló: {e}", e=str(e)[:60])
 
 
 def _register_workspace(ctx, wid, name, now=None):
@@ -1223,9 +1265,9 @@ def _new_session(ctx, name=None, wid=None, killpg=None, now=None):
     try:
         # ── guards del split (antes de generar/registrar nada) ──
         if os.name == "nt":
-            return "sesión nueva solo en Mac/Linux"
+            return _t("panel.op.new_mac", "sesión nueva solo en Mac/Linux")
         if not os.environ.get("HERDR_SESSION"):
-            return "fuera del split herdr — solo lectura"
+            return _t("panel.op.outside", "fuera del split herdr — solo lectura")
 
         # ── identidad de la sesión nueva (name legible + wid fresco) ──
         if now is None:
@@ -1236,22 +1278,23 @@ def _new_session(ctx, name=None, wid=None, killpg=None, now=None):
             stamp = now().strftime("%d %b %H:%M")     # ej. "08 jul 14:03"
         except Exception:
             stamp = ""
-        name = _safe(name) or (("sesión " + stamp).strip() if stamp
-                               else "sesión nueva")
+        name = _safe(name) or (_t("panel.op.sess_stamp", "sesión {s}",
+                                  s=stamp).strip() if stamp
+                               else _t("panel.op.sess_new", "sesión nueva"))
         if not wid:
             import uuid
             wid = str(uuid.uuid4())
 
         # ── registrar el workspace (atómico) ──
         if not _register_workspace(ctx, wid, name, now=now):
-            return "no pude registrar la sesión nueva"
+            return _t("panel.op.reg_fail", "no pude registrar la sesión nueva")
 
         # ── montar el pane en ella por el controlador persistente ──
         ok, msg = _controller_switch(ctx, wid, name, killpg=killpg)
         ctx.cache_sesiones = None              # la lista ganó una entrada
-        return ("nueva sesión → " + str(name)) if ok else msg
+        return _t("panel.op.created", "nueva sesión → {n}", n=name) if ok else msg
     except Exception as e:
-        return "no pude crear la sesión: " + str(e)[:60]
+        return _t("panel.op.create_fail", "no pude crear la sesión: {e}", e=str(e)[:60])
 
 
 def _close_session(ctx, sess):
@@ -1262,26 +1305,31 @@ def _close_session(ctx, sess):
     try:
         sess = str(sess or "")
         if not sess:
-            return "sesión inválida"
+            return _t("panel.op.invalid", "sesión inválida")
         if sess == os.environ.get("HERDR_SESSION"):
-            return "esa es esta ventana — cerrá el chat izquierdo"
+            return _t("panel.op.this_window", "esa es esta ventana — cerrá el chat izquierdo")
         import multiplexer
         try:
             attached = multiplexer._attach_client_sessions()
         except Exception:
             attached = set()
         if sess in attached:
-            return "tiene ventana abierta — cerrala desde ahí"
+            return _t("panel.op.has_window", "tiene ventana abierta — cerrala desde ahí")
         try:
             multiplexer.herdr_teardown(sess, multiplexer._session_env(sess))
-            msg = "cerrada " + sess
+            msg = _t("panel.op.closed_ok", "cerrada {s}", s=sess)
         except Exception:
-            msg = "no pude cerrar " + sess
+            msg = _t("panel.op.close_fail", "no pude cerrar {s}", s=sess)
         ctx.cache_sesiones = None              # invalidar: la lista cambió
         ctx.close_mode = False
         return msg
     except Exception:
-        return "no pude cerrar " + str(sess)[:40]
+        return _t("panel.op.close_fail", "no pude cerrar {s}", s=str(sess)[:40])
+
+
+def _view_label(v):
+    """Etiqueta de la tab en el idioma activo (el label ES es la fuente)."""
+    return _t("panel.tab." + v["key"], v["label"])
 
 
 VIEWS = [
@@ -1306,7 +1354,7 @@ def _tab_spans(w):
     spans = []
     col = 1 + len(LM)                           # tras el margen izq → col 2
     for i, v in enumerate(VIEWS):
-        wv = _vw("%d %s" % (i + 1, v["label"]))
+        wv = _vw("%d %s" % (i + 1, _view_label(v)))
         spans.append((col, wv))
         col += wv + 2                           # separador de 2 espacios
     return spans
@@ -1317,7 +1365,7 @@ def _header(ctx, w, active):
     subrayado dorado bajo la tab activa (el 'estás aquí' de una pestaña física).
     Saneo en el punto de render (defensa en profundidad; _safe idempotente)."""
     ident = ctx.ident
-    disp = _safe(ident.get("display")) or "Agente"
+    disp = _safe(ident.get("display")) or _t("panel.agent_cap", "Agente")
     emj = _safe(ident.get("emoji"))
     tg = _safe(ident.get("tagline"))
     col = ident.get("col") or ACCENT
@@ -1334,7 +1382,7 @@ def _header(ctx, w, active):
     # fila 3 · tabs: activa en HI bold, resto GREY; número pegado al nombre
     cells = []
     for i, v in enumerate(VIEWS):
-        seg = "%d %s" % (i + 1, v["label"])
+        seg = "%d %s" % (i + 1, _view_label(v))
         cells.append((HI + BOLD if i == active else GREY) + seg + R)
     tabs = _clip(LM + "  ".join(cells), w)
     # fila 4 · subrayado-segmento: corrida de ─ en accent SOLO bajo la activa
@@ -1373,8 +1421,10 @@ def render(ctx, w, h, active):
     global."""
     _apply_theme()                                 # colores del tema activo
     head = _header(ctx, w, active)
-    hint = VIEWS[active].get("hint") or \
-        ("1-%d o click · ←→/Tab · prefix+→ enfoca" % len(VIEWS))
+    hint = (_t("panel.hint." + VIEWS[active]["key"], VIEWS[active]["hint"])
+            if VIEWS[active].get("hint") else
+            _t("panel.hint.global", "1-{n} o click · ←→/Tab · prefix+→ enfoca",
+               n=len(VIEWS)))
     notice = _safe(getattr(ctx, "notice", "") or "")
     foot = [""]
     if notice:
@@ -1385,8 +1435,8 @@ def render(ctx, w, h, active):
     try:
         body = VIEWS[active]["render"](ctx, w, budget) or []
     except Exception as e:
-        body = ["", "  " + WARN + "vista '%s' falló: %s" % (VIEWS[active]["key"],
-                str(e)[:60]) + R]
+        body = ["", "  " + WARN + _t("panel.view_fail", "vista '{v}' falló: {e}",
+                                     v=VIEWS[active]["key"], e=str(e)[:60]) + R]
     # relativo (0-based dentro del body) → absoluto (1-based del frame); las
     # filas clipadas por el presupuesto no dejan hits fantasma
     ctx.hits = {len(head) + 1 + rel: acc
@@ -1606,7 +1656,8 @@ def run(agent=None, argv=None, is_tty=None, max_ticks=None,
             if getattr(ctx, "pending_switch", None):
                 swid, sname = ctx.pending_switch
                 ctx.pending_switch = None
-                ctx.notice = "cambiando a %s…" % _safe(sname)
+                ctx.notice = _t("panel.op.switching", "cambiando a {n}…",
+                                n=_safe(sname))
                 lines = render(ctx, w, h, active)
                 if lines != prev_lines:
                     prev_n = _paint(lines, prev_n, out)
@@ -1617,7 +1668,7 @@ def run(agent=None, argv=None, is_tty=None, max_ticks=None,
             #    trabajo pesado (registrar + montar el pane), todo en alt-screen
             if getattr(ctx, "pending_new", None):
                 ctx.pending_new = None
-                ctx.notice = "creando sesión nueva…"
+                ctx.notice = _t("panel.op.creating", "creando sesión nueva…")
                 lines = render(ctx, w, h, active)
                 if lines != prev_lines:
                     prev_n = _paint(lines, prev_n, out)

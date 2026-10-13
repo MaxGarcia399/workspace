@@ -4,7 +4,7 @@ FUENTE (español). Cada cadena es el literal EXACTO que keybinds_tui mostraba
 hardcodeado → sin `ui.lang` el default queda byte-idéntico. Ver `lang/README.md`.
 
 Frontera de módulo (deliberada):
-  · Las LABELS del MENÚ (GitHub/Dev/Calendario/…) NO se definen aquí: vienen de
+  · Las LABELS del MENÚ (Dev/Calendario/…) NO se definen aquí: vienen de
     `front.menu_entries` ya traducido (keybinds las deriva). Se referencian.
   · Las labels/descripciones de `agente N`, `ciclar motor`, `detalle del agente`
     y las descripciones del menú viven hardcodeadas en `keybinds.py` (fuera de
@@ -87,12 +87,29 @@ STRINGS = {
 
     # ── descripciones del MENÚ (keybinds._MENU_DESCS — copia byte-idéntica;
     #    Dev queda fuera: es dev-only, stripeado del distro, se queda en ES) ──
-    "atajos.desc.menu_github": "abre tus repos: mapa local de ramas + "
-                               "PRs/issues/releases vía gh",
     "atajos.desc.menu_cal": "abre el editor de agenda a pantalla completa",
     "atajos.desc.menu_tono": "abre los diales de personalidad de tus agentes",
     "atajos.desc.menu_keys": "abre esta pantalla — re-mapea cualquiera de "
                              "estas teclas",
     "atajos.desc.menu_updates": "revisar · reparar · actualizar el harness",
     "atajos.desc.menu_addagent": "crear o cargar un agente nuevo",
+    "atajos.desc.menu_comandos": "abre la referencia de comandos de la terminal",
+    "atajos.desc.menu_agents": "abre la configuración y el cerebro de cada "
+                               "agente: config, árbol real, skills, rutas y "
+                               "ciclo de vida (solo lectura)",
+    "atajos.desc.menu_auto": "abre «{label}» — {tag}",
+    "atajos.desc.menu_auto_bare": "abre «{label}»",
+
+    # ── mensajes de keybinds.set_key/clear/reset_all (y su listado CLI) ──────
+    "atajos.kb.unknown": "acción desconocida",
+    "atajos.kb.invalid": "tecla inválida — debe ser UN carácter imprimible",
+    "atajos.kb.reserved": "«{k}» está reservada (q sale · t/a/e/x/f/d/n/p son "
+                          "de otras pantallas)",
+    "atajos.kb.taken": "«{k}» ya la usa {label} — libérala primero",
+    "atajos.kb.save_fail_reg": "no pude guardar el registro — queda igual",
+    "atajos.kb.save_fail": "no pude guardar — queda igual",
+    "atajos.kb.saved": "{label} → «{k}» · guardado ✓",
+    "atajos.kb.cleared": "{label} → default «{k}» ✓",
+    "atajos.kb.reset_all": "todas las teclas en default ✓",
+    "atajos.kb.list_head": "atajos del hub (per-máquina: {ruta})",
 }

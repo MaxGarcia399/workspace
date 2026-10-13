@@ -65,6 +65,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -515,7 +516,9 @@ def run_official_cli_interactive(cli, brain=None, argv=None, behaviors=None,
     if not exe:
         raise InteractiveError("%s no está en PATH (binario %r)"
                                % (cli, info["binary"]))
-    payload = {"source": "startup", "engine": cli}
+    started = time.time()
+    run_id = uuid.uuid4().hex
+    payload = {"source": "startup", "engine": cli, "session_id": run_id}
     kw = {}
     if brain:
         payload["cwd"] = str(brain)
@@ -537,8 +540,15 @@ def run_official_cli_interactive(cli, brain=None, argv=None, behaviors=None,
         run = runner or subprocess.call
         rc = run(cmd, env=env, cwd=str(brain) if brain else None)
     finally:
-        neutral_hooks.on_session_end(
-            dict(payload, source="exit"), **kw)
+        end_payload = dict(payload, source="exit")
+        try:
+            import session_continuity
+            end_payload = session_continuity.close_payload(
+                str(brain or os.getcwd()), cli, started, payload, run_id)
+        except Exception as exc:
+            print("WORKSPACE: captura de continuidad pendiente (%s)" % exc,
+                  file=sys.stderr)
+        neutral_hooks.on_session_end(end_payload, **kw)
     return rc
 
 

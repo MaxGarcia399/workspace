@@ -124,6 +124,10 @@ def create_clone(repo, agent, msg_id):
         if rc != 0:
             raise DiffCaptureError("git checkout -b falló: %s" % _scrub(err)[:200])
         rc, base_sha, _ = _git(["rev-parse", "HEAD"], cwd=clone_dir)
+        # El clon no conserva `origin` apuntando al repo real: el aislamiento
+        # que promete este módulo incluye no saber a dónde empujar (auditoría
+        # 2026-07). El diff se toma del propio clon; no se necesita el remoto.
+        _git(["remote", "remove", "origin"], cwd=clone_dir)
         # TMPDIR del agente DENTRO del clon (para que git escriba su temporal
         # confinado por el seatbelt, no fuera).
         os.makedirs(os.path.join(clone_dir, ".tmp"), exist_ok=True)
@@ -156,7 +160,19 @@ def capture_diff(clone_dir, base_sha):
             out["branch"] = branch
         # stage TODO lo que el agente escribió (untracked incluido) → el diff-gate
         # ve su trabajo completo aunque no haya hecho commit.
-        rc_add, _, _ = _git_capture(["add", "-A"], cwd=clone_dir)
+        # `--force` es OBLIGATORIO (auditoría 2026-07): sin él, `add -A` honra
+        # .gitignore y (1) el trabajo del agente en rutas ignoradas (*.log, dist/…)
+        # se PIERDE en silencio — si solo escribió ahí, files_changed queda vacío,
+        # el caller toma la rama "answered-no-diff" y cleanup() destruye el clon;
+        # y (2) el agente conserva Write y .gitignore vive en el working-tree (no
+        # bajo .git, que sí es read-only por sandbox), así que plantando
+        # `*\n!.gitignore` se volvía INVISIBLE al diff-gate Y al scan de hardblock.
+        # En un clon efímero el working-tree solo tiene lo commiteado + lo que
+        # escribió el agente, así que --force no arrastra basura preexistente.
+        # El TMPDIR del agente (.tmp, lo crea create_clone) queda FUERA: con
+        # --force se colaría al diff publicado cualquier temporal sobreviviente.
+        rc_add, _, _ = _git_capture(["add", "-A", "--force", "--", ".",
+                                     ":(exclude).tmp"], cwd=clone_dir)
         base = base_sha or _EMPTY_TREE
         rc, diff, _ = _git_capture(["diff", "--cached", "--no-ext-diff", base], cwd=clone_dir)
         # hardblock sobre el diff COMPLETO (sin truncar) antes de recortar a 200KB.
@@ -245,11 +261,19 @@ def sweep_stale(ttl_seconds=TTL_SECONDS):
 # git). Esto es detección EXTRA: si el diff/transcripción huele a push/main-stable/
 # credenciales/financiero/destructivo/N3 → el daemon killpg + escala sin abrir el
 # diff-gate. Es una red, no el control primario (Argus).
+# Cada alternativa se ancla según su PROPIO primer/último carácter: un `\b`
+# envolvente (como antes) exige un carácter de palabra junto a la coincidencia
+# y mataba en silencio todo patrón que empieza o termina en `-`, `/`, `:` o `=`
+# (llaves RSA/EC/PGP, /etc/passwd, fork-bomb, dd if=/…, --force suelto).
+# `[^\n]*` en vez de `.*` con DOTALL: no escanea el diff entero (auditoría
+# 2026-07).
 _HARDBLOCK_RX = re.compile(
-    r"\b(git\s+push|remote\s+add|force[- ]?push|--force\b|origin/(main|stable)"
-    r"|rm\s+-rf|mkfs|dd\s+if=|:\s*\(\)\s*\{|/etc/(passwd|shadow)"
-    r"|AKIA[0-9A-Z]{16}|-----BEGIN\b.*PRIVATE KEY|\bsk-(ant|proj|live)"
-    r"|BEGIN OPENSSH PRIVATE KEY)\b", re.IGNORECASE | re.DOTALL)
+    r"(\bgit\s+push\b|\bremote\s+add\b|\bforce[- ]?push\b"
+    r"|--force(?:-with-lease)?(?![\w-])|\borigin/(?:main|stable)\b"
+    r"|\brm\s+-rf\b|\bmkfs\b|\bdd\s+if=|:\s*\(\)\s*\{"
+    r"|/etc/(?:passwd|shadow)\b|\bAKIA[0-9A-Z]{16}\b"
+    r"|-----BEGIN[^\n]*PRIVATE KEY|\bsk-(?:ant|proj|live)"
+    r"|BEGIN OPENSSH PRIVATE KEY)", re.IGNORECASE)
 
 
 def hardblock_match(*texts):

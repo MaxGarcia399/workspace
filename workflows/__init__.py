@@ -109,6 +109,7 @@ spec inválido o paso desconocido levantan ValueError/KeyError ANTES de correr
 nada — un pipeline a medias validar no existe.
 """
 import contextlib as _contextlib
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import datetime as _dt
 import difflib as _difflib
 import json as _json
@@ -174,7 +175,7 @@ def backoff_delay(attempt, base=_BACKOFF_BASE, cap=_BACKOFF_CAP, rand=None):
 def runs_dir():
     """Estado per-máquina de los runs (función, no constante: respeta el
     HOME parchado en tests herméticos — misma regla que _worktrees)."""
-    return _os.path.join(_os.path.expanduser("~"), ".claude", "workspace",
+    return _os.path.join(_paths.state_dir(),
                          "workflows", "runs")
 
 
@@ -867,7 +868,7 @@ def _run_lock(run_id):
     pausados tras re-leer bajo el lock)."""
     path = run_path(run_id) + ".lock"        # run_path ya sanea el run-id
     _os.makedirs(_os.path.dirname(path), exist_ok=True)
-    fh = open(path, "a+")
+    fh = open(path, "a+", encoding="utf-8")
     try:
         if _fcntl is not None:
             _fcntl.flock(fh.fileno(), _fcntl.LOCK_EX)

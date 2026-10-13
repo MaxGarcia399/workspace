@@ -26,6 +26,12 @@ import os
 import shutil
 import sys
 
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
+import legacy  # noqa: E402  (literales de la instalación anterior)
+
 META = {"name": "antigravity", "needs": ["agy"], "auth": "subscription"}
 CAPABILITIES = {
     "launch": "wrapper", "inject_context": "project-doc", "mcp": True,
@@ -39,19 +45,19 @@ CAPABILITIES = {
 
 #: Primera línea EXACTA del GEMINI.md generado — detector de "es nuestro".
 _GEMINI_MARK = "<!-- WORKSPACE:GENERATED antigravity-context v1 -->"
-#: Marca pre-rename (OLYMPUS→Workspace 2026-10): los cerebros existentes aún
-#: la traen; sin reconocerla el doc generado parecía "del socio" y la memoria
-#: caía al primer prompt visible. Solo se LEE; se escribe siempre la nueva.
-_GEMINI_MARK_LEGACY = "<!-- OLYMPUS:GENERATED antigravity-context v1 -->"
+#: Marca de la instalación anterior (pre-rename 2026-10): los cerebros
+#: existentes aún la traen; sin reconocerla el doc generado parecía "del socio"
+#: y la memoria caía al primer prompt visible. Solo se LEE; se escribe siempre
+#: la nueva.
+_GEMINI_MARK_LEGACY = legacy.GEMINI_GEN_MARK
 #: Marcas del bloque de SESIÓN (pestaña activa) dentro del GEMINI.md.
 #: Se quitan por LÍNEA completa — contenido con `-->` adentro no las rompe.
 _SESSION_START = "<!-- WORKSPACE:SESSION start — contexto de la pestaña activa; se regenera en cada launch -->"
 _SESSION_END = "<!-- WORKSPACE:SESSION end -->"
-#: Variantes pre-rename (solo LECTURA: huérfanos de corridas OLYMPUS también
-#: deben poder limpiarse — había reales en los cerebros).
-_SESSION_STARTS = (_SESSION_START,
-                   "<!-- OLYMPUS:SESSION start — contexto de la pestaña activa; se regenera en cada launch -->")
-_SESSION_ENDS = (_SESSION_END, "<!-- OLYMPUS:SESSION end -->")
+#: Variantes pre-rename (solo LECTURA: huérfanos de corridas de la instalación
+#: anterior también deben poder limpiarse — había reales en los cerebros).
+_SESSION_STARTS = (_SESSION_START, legacy.SESSION_START)
+_SESSION_ENDS = (_SESSION_END, legacy.SESSION_END)
 
 
 def status():
@@ -335,7 +341,13 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
     try:
         from engines import _ui
         import sessions_registry as _reg
+        from engines import claude_code as _cc
+        cfg.setdefault("_engine", "antigravity")
+        if not (preselect and preselect.get("wid")):
+            _cc.session_preflight(cfg, "antigravity")
         tab = _ui.pick_tab(cfg, preselect=preselect)
+        if not tab:
+            _cc.warn_no_tab(_cc.LAST_PICK_ERROR)
         if tab:
             wid, wname = tab
             _ui.export_tab_env(cfg, wid, wname)
@@ -344,8 +356,16 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
             if resume_cid and not _conversation_exists(resume_cid):
                 resume_cid = ""
             session_blk = _reg.session_doc_block(brain, wname)
-    except Exception:
+    except Exception as e:
+        # U04/Z04: la causa se ve y se traza (antes: chat sin pestaña en silencio)
         tab, resume_cid, session_blk = None, "", ""
+        try:
+            from engines import claude_code as _cc
+            err = "no pude preparar la pestaña (%s: %s)" % (type(e).__name__, e)
+            _cc._session_log(cfg, "antigravity", err)
+            _cc.warn_no_tab(err)
+        except Exception:
+            pass
 
     # Inyección INVISIBLE por doc de proyecto. GEMINI.md PROPIO del socio →
     # su contenido no se pisa: el bloque de sesión va ANEXADO al final
@@ -399,8 +419,23 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
                 pass
 
     before_cid = _vendor_conversation_for(brain)
+    # U10: barra mínima (agy no tiene statusline propia) — solo datos reales.
+    try:
+        from engines import _ui as _bar
+        _mode = next((args[i + 1] for i, x in enumerate(args[:-1]) if x == "--mode"), "")
+        _perms = ", ".join(p for p in (_mode, "sandbox" if "--sandbox" in args else "")
+                           if p) or "los del CLI (agy)"
+        _bar_fields = _bar.status_fields(
+            cfg, tab, engine_label=os.environ.get("WORKSPACE_ENGINE_LABEL") or "Antigravity",
+            perms=_perms,
+            saving=("pestaña %s → STATE/sessions" % tab[1]) if tab else "sin pestaña (no se guarda memoria)")
+        _bar.show_status_bar(_bar_fields)
+    except Exception:
+        _bar = None
     rc = interactive.run_official_cli_interactive(
         "antigravity", brain=brain, argv=args, context_sink=save_context)
+    if _bar is not None:
+        _bar.clear_title()
 
     # Limpieza (session_end): el bloque de sesión era de ESTA corrida —
     # generado O anexado al doc del socio, se quita igual (strip). Un crash

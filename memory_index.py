@@ -24,6 +24,7 @@ CLI:
     python3 memory_index.py --brain "/ruta/CEREBRO" --status
 """
 import os
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import re
 import sqlite3
 import sys
@@ -57,7 +58,7 @@ MAX_BODY_CHARS = 40_000   # cota por documento (cola de costo del índice)
 
 # ── paths del índice (DERIVADO, fuera del cerebro) ──────────────────────────
 def index_root():
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace", "index")
+    return os.path.join(_paths.state_dir(), "index")
 
 
 def db_path(brain):

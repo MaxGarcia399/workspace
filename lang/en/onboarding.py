@@ -7,6 +7,8 @@ STRINGS = {
     "onboarding.etapa.motores": "engines",
     "onboarding.etapa.apariencia": "appearance",
     "onboarding.etapa.agente": "agent",
+    'onboarding.pendiente_hub': 'setup unfinished ({p}) — continue with: workspace onboarding',
+    'onboarding.reanudado': 'picking up where you left off',
 
     # divisors shared across steps
     "onboarding.div.tu_eleccion": "your choice",
@@ -204,21 +206,16 @@ STRINGS = {
     "onboarding.gcal.title_r": "OPTIONAL",
     "onboarding.gcal.div_pasos": "how",
     "onboarding.gcal.already": "Google Calendar is already connected ✓",
-    "onboarding.gcal.step1": "Open Google Calendar on the web "
-                             "(calendar.google.com).",
-    "onboarding.gcal.step2": "On the calendar you want: Settings and sharing.",
-    "onboarding.gcal.step3": "Scroll to “Integrate calendar”.",
-    "onboarding.gcal.step4": "Copy the “Secret address in iCal format” (ends "
-                             "in .ics).",
-    "onboarding.gcal.step5": "Come back here and press Enter: you'll paste it "
-                             "on a normal line.",
+    "onboarding.gcal.step1": 'Press Enter and choose “Connect with Google in your browser”.',
+    "onboarding.gcal.step2": 'Choose your Google account and allow reading events.',
+    "onboarding.gcal.step3": 'Return to Workspace: the session renews automatically.',
+    "onboarding.gcal.step4": 'You can also connect with an iCal URL.',
+    "onboarding.gcal.step5": 'The first connection needs the Workspace OAuth client.',
     "onboarding.gcal.changes_p": "Workspace READS your events (read-only) and "
                                  "shows them in the hub calendar. It never "
                                  "writes to your agenda.",
     "onboarding.gcal.div_seguro": "safe",
-    "onboarding.gcal.seguro_p": "Only that iCal URL is stored, on your machine; "
-                               "it's never printed on screen. You can remove it "
-                               "anytime from the calendar.",
+    "onboarding.gcal.seguro_p": 'The Google session or iCal URL stays on your machine. Remove the connection from Calendar at any time.',
     "onboarding.gcal.prompt_url": "Paste the “Secret address in iCal format” "
                                   "(empty Enter = cancel):",
     "onboarding.gcal.prompt_label": "Label (optional, Enter = auto): ",
@@ -251,6 +248,12 @@ STRINGS = {
                                       "“Add agent”.",
     "onboarding.resumen.adelante_p2": "Repeat this flow: "
                                       "`workspace onboarding`.",
+    "onboarding.resumen.div_teclas": "the keys that matter",
+    "onboarding.resumen.tecla_abrir": "opens the hub from any terminal",
+    "onboarding.resumen.tecla_atajos": "Shortcuts — every key, remappable",
+    "onboarding.resumen.tecla_comandos": "Commands — what each command does",
+    "onboarding.resumen.tecla_salir": "leaves the hub to your terminal",
+    "onboarding.resumen.sin_tecla": "no key",
 
     # ephemeral messages (footer, S["msg"])
     "onboarding.msg.default_saved": "default engine: {motor} · saved ✓",
@@ -280,4 +283,17 @@ STRINGS = {
                                "· q skips",
     "onboarding.hints.gcal": "Enter connects · Esc skips · q quits",
     "onboarding.hints.resumen": "Enter — to the hub",
+
+    # valor mostrado de ui.background + avisos de CLI (auditoría i18n)
+    'onboarding.fondo_val.tema': 'theme',
+    'onboarding.fondo_val.negro': 'black',
+    'onboarding.fondo_val.grafito': 'graphite',
+    'onboarding.fondo_val.azul': 'blue',
+    'onboarding.fondo_val.verde': 'green',
+    'onboarding.fondo_val.violeta': 'violet',
+    'onboarding.fondo_val.personalizado': 'custom',
+    'onboarding.cli.ya_corrio': 'onboarding already ran here — to repeat: workspace onboarding',
+    'onboarding.cli.no_tty': 'onboarding needs an interactive terminal.',
+    'onboarding.cli.no_tty2': 'open `workspace` in a terminal and run: workspace onboarding',
+    'onboarding.probe_fail': 'check failed: {err}',
 }

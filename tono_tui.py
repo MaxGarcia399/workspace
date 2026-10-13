@@ -11,7 +11,7 @@ decía QUÉ hace cada dial. Tres direcciones, en orden de importancia:
   2. **Embonar con WORKSPACE**: mismo esqueleto que `calendario_tui` — el
      wordmark del hub, la paleta del TEMA activo (tuitheme), las cajas
      `full_box` y los sliders `━━●──` con el gradiente del wordmark
-     (idénticos al panel TONO del layout `dia`). Entrar aquí es cambiar de
+     (los diales de personalidad). Entrar aquí es cambiar de
      vista, no de app.
   3. **Transparencia**: el panel derecho dice qué ajusta el dial (los 5
      niveles, con el actual marcado), qué se le inyecta al agente (el texto
@@ -33,6 +33,7 @@ Cero dependencias (stdlib, Python 3.9+). Mac y Windows.
 import os
 import sys
 import time
+from theme import screen as _theme_screen  # fondo/tinta del tema
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 if ROOT not in sys.path:
@@ -65,7 +66,7 @@ def _t(key, es, **kw):
     return s
 
 # Los diales agrupados por lo que gobiernan — MISMOS grupos que el panel
-# TONO del layout `dia` (hublayout._DIA_TONO_GRUPOS): la pantalla y el panel
+# TONO (antes compartido con el layout `dia`, ya retirado): la pantalla y el panel
 # deben contar la misma historia. Si cambian allá, cambiar aquí.
 GRUPOS = (("trato", ("amabilidad", "franqueza", "sarcasmo", "humor")),
           ("forma", ("longitud", "formalidad", "tecnicismo", "emojis")),
@@ -161,6 +162,23 @@ def _divisor(K, txt, w, tono=-1):
 def _destinos():
     """GLOBAL + los agentes registrados (misma fuente que el hub)."""
     return [None] + sorted(P.agentes_registrados())
+
+
+def _sync_destinos(S):
+    """Refresh profile destinations while retaining identity, never an index."""
+    old = S.get('dests') or [None]
+    selected = old[S.get('di', 0) % len(old)]
+    fresh = _destinos()
+    S['dests'] = fresh
+    if selected in fresh:
+        S['di'] = fresh.index(selected)
+    else:
+        S['di'] = 0
+        S['preset'] = ''
+        # A key already in flight must not now edit GLOBAL or another agent.
+        S['destination_invalidated'] = True
+        S['msg'] = _t('tono.msg.removed',
+                      'El agente seleccionado ya no está registrado. Elige un destino antes de editar.')
 
 
 def _nombre(dest):
@@ -336,6 +354,7 @@ def _fila_destinos(S, K, w):
 
 
 def render(S, w, h):
+    _sync_destinos(S)
     K = _K()
     dests = S["dests"]
     dest = dests[S["di"] % len(dests)]
@@ -344,7 +363,7 @@ def render(S, w, h):
     L = HL.screen_header(K, w, h,
                          _t("tono.header.subtitle",
                             "tono — cómo te hablan tus agentes"),
-                         hints=pares)
+                         hints=pares, word=HL.section_word('tono'))
     L.append(_fila_destinos(S, K, w))
     L.append("")
     top = len(L)
@@ -354,7 +373,7 @@ def render(S, w, h):
     # los adornos en orden: grupos del listado → la letra chica del panel.
     lw = (w - 1) if apilado else max(34, min(42, (w - 6) * 44 // 100))
     rw = (w - 1) if apilado else (w - 1) - lw - 3
-    avail = max(8, (h - 1) - top - 3)
+    avail = max(8, (h - 1) - top - 5)
     bi = bd = None
     # degradación: primero cede la letra chica (cómo funciona), luego los
     # encabezados de grupo, al final la sección de inyección — la escalera
@@ -395,13 +414,20 @@ def render(S, w, h):
         L.append(" %s%s%s" % (K["B2"], S["msg"], K["R"]))
     else:
         L.append("")
-    L.append(HL.foot_hints(K, pares, w))
+    L.extend(HL.instruction_buttons(K, pares, w-1))
     return [HL.clip(x, w - 1) for x in L[:h - 1]]
 
 
 # ── acciones ───────────────────────────────────────────────────────────────
 def _accion(S, key):
     """Devuelve False para salir. Cada cambio se guarda al instante."""
+    _sync_destinos(S)
+    if key in ('q', '\x1b', '\x03'):
+        return False
+    if S.pop('destination_invalidated', False):
+        S['msg'] = _t('tono.msg.removed',
+                      'El agente seleccionado ya no está registrado. Elige un destino antes de editar.')
+        return True
     dests = S["dests"]
     dest = dests[S["di"] % len(dests)]
     orden = _orden()
@@ -535,6 +561,7 @@ def _run_windows(S):
     return 0
 
 
+@_theme_screen
 def run():
     """Abre la pantalla. Sin terminal interactiva cae al listado de texto."""
     S = {"dests": _destinos(), "di": 0, "si": 0, "msg": "", "preset": ""}

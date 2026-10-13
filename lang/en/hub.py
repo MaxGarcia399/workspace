@@ -3,8 +3,8 @@
 
 STRINGS = {
     # ── hub menu (front.menu_entries) ───────────────────────────────────────
-    "menu.github.label": "GitHub",
-    "menu.github.tag": "your repos: local branches + PRs, issues and releases",
+    "menu.comandos.label": "Commands",
+    "menu.comandos.tag": "what you can type in the terminal",
     "menu.cal.label": "Calendar",
     "menu.cal.tag": "your day's agenda, editable full-screen",
     "menu.tono.label": "Tone",
@@ -13,54 +13,35 @@ STRINGS = {
     "menu.keybinds.tag": "remap the hub's quick keys",
     "menu.updates.label": "Updates",
     "menu.updates.tag": "check · repair · update",
+    "menu.agents.label": "Agents",
+    "menu.agents.tag": "each agent's configuration and brain",
     "menu.add_agent.label": "Add agent",
     "menu.add_agent.tag": "create or load an agent",
     "menu.shell.label": "Normal terminal",
     "menu.shell.tag": "your usual shell · key q",
 
     # ── hub LANGUAGE box ────────────────────────────────────────────────────
-    "hub.idioma.hint": "Enter switches",
 
     # ── SECTION TITLES (uppercase) ──────────────────────────────────────────
-    "hub.section.gods": "AGENTS",
     "hub.section.agents": "AGENTS",
     "hub.section.menu": "MENU",
     "hub.section.personalization": "PERSONALIZATION",
-    "hub.section.settings": "THEMES & SETTINGS",
-    "hub.section.today": "TODAY",
-    "hub.section.tone": "TONE",
-    "hub.section.branches": "BRANCHES",
-    "hub.section.details": "DETAILS",
-    "hub.section.activity": "ACTIVITY",
-    "hub.section.monitor_live": "MONITOR · live",
     "hub.section.lang": "IDIOMA · LANGUAGE",
     "hub.section.configs": "SETTINGS",
-    "hub.section.calendar": "CALENDAR",
-    "hub.section.upcoming": "upcoming",
     # titles with counter/name
-    "hub.title.agents_n": "AGENTS · {n}",
-    "hub.title.branches_n": "BRANCHES · {n}",
-    "hub.title.tone_named": "TONE · {name}",
 
     # ── subtitle/build ──────────────────────────────────────────────────────
-    "hub.build.control_center": "control center",
 
     # ── empty ───────────────────────────────────────────────────────────────
-    "hub.empty.agents": "no agents — MENU ▸ Add agent",
 
     # ── SETTINGS / pins ─────────────────────────────────────────────────────
-    "hub.cfg.enter_changes": "Enter changes",
-    "hub.cfg.pick_change": "◄► pick · Enter/space change",
-    "hub.cfg.config_edit": "Config ▸ to edit",
     "hub.pin.background": "background",
     "hub.pin.theme": "theme",
     "hub.pin.brightness": "brightness",
     "hub.pin.redlight": "red light",
     "hub.pin.autostart": "autostart",
-    "hub.pin.layout": "layout",
     "hub.pin.heartbeat": "heartbeat",
     "hub.pin.split": "split",
-    "hub.pin.stars": "stars",
     "hub.pin.anim": "anim",
     # red light toggle notice (recinto key `l`)
     "hub.redlight.on": "red light ON — night mode",
@@ -69,37 +50,17 @@ STRINGS = {
 
     # ── instrument bar / monitor (centro) ───────────────────────────────────
     "hub.instr.usage5h": "5h use",
-    "hub.instr.paused": "PAUSED",
-    "hub.instr.cap": "cap",
-    "hub.monitor.budget": "budget",
-    "hub.monitor.commits": "commits",
-    "hub.monitor.peak": "peak",
-    "hub.monitor.tile.branches": "branches",
-    "hub.monitor.tile.wt": "wt",
-    "hub.monitor.tile.queue": "queue",
-    "hub.monitor.tile.agents": "agents",
     "hub.act.bus_n": "bus {n}",
     "hub.act.git_n": "git {n}",
-    "hub.act.pending": "· pending",
 
     # ── heartbeat (hb_brief / latido_lines) ─────────────────────────────────
-    "hub.hb.brief": "heartbeat {mode} · queue {count} · 5h use {uso}",
-    "hub.hb.budget_paused": " · budget paused",
     "hub.hb.queue": "queue {n}",
     "hub.hb.usage5h": "5h use {uso}",
     "hub.hb.paused": "budget paused",
 
     # ── DETAILS panel (centro) ──────────────────────────────────────────────
-    "hub.det.idle_notask": "○ idle · no task published",
-    "hub.det.soon": "· soon",
-    "hub.det.bus_pending": "bus {n} pending",
-    "hub.det.missions": "missions",
 
     # ── OPERATIONS strip (centro) ───────────────────────────────────────────
-    "hub.strip.missions": "missions",
-    "hub.strip.energy": "energy",
-    "hub.strip.warn_one": "warning",
-    "hub.strip.warn_many": "warnings",
 
     # ── TONE (dia mini-panel): group headers ────────────────────────────────
     "hub.tono.group.manner": "manner",
@@ -107,71 +68,20 @@ STRINGS = {
     "hub.tono.group.work": "work",
 
     # ── mini calendar (dia TODAY panel) ─────────────────────────────────────
-    "hub.cal.nothing": "nothing",
-    "hub.cal.due": "▪ due",
-    "hub.cal.allday": "all day",
-    "hub.cal.overdue_one": "overdue",
-    "hub.cal.overdue_many": "overdue",
-    "hub.cal.nothing_more": "nothing more",
-    "hub.cal.nothing_today": "nothing this day",
-    "hub.cal.add_hint": "start with 18:00 to set a time  ·  "
-                        "Enter saves  ·  Esc cancels",
-    "hub.cal.more_n": "+{n} more",
-    "hub.cal.enter_add": "Enter adds an event here",
-    "hub.date.week": "week",
-    "hub.date.day": "day",
 
     # ── selected agent row (_dia_sel_rows) ──────────────────────────────────
-    "hub.sel.last": "last",
-    "hub.sel.last_when": "last · {when}",
-    "hub.sel.no_task": "no task",
 
     # ── version indicator (front._hub_version_text) ─────────────────────────
     "hub.ver.update_available": "update available",
     "hub.ver.uptodate": "up to date",
+    "hub.ver.held": "version pinned",
     "hub.ver.behind_update": "↓{n} update",
     "hub.ver.ahead_unpushed": "↑{n} unpushed",
 
     # ── banner strip (front._franja) ────────────────────────────────────────
     # classic banner box (banner/render.py — leak: no "del equipo")
-    "hub.banner.head": "WORKSPACE · agent OS",
-    "hub.banner.foot": "type an agent's name to enter directly · "
-                       "workspace for this menu",
 
-    "hub.franja.tag": "WORKSPACE · agent OS",
-    "hub.franja.engine": "engine",
-    "hub.franja.engine_suffix": " · no API key · sync",
     "hub.franja.engines_n": "{n} engines",
-
-    # ── hero / hub empty-state (front.build_info_rows) ──────────────────────
-    "hub.hero.h.harness": "The harness",
-    "hub.hero.k.agents": "agents",
-    "hub.hero.k.engine": "engine",
-    "hub.hero.soon_paren": "(soon)",
-    "hub.hero.engine_default": "claude-code · Anthropic (no API key)",
-    "hub.hero.engine_per_agent": "  (per agent — key m)",
-    "hub.hero.k.brains": "brains",
-    "hub.hero.k.autoclose": "auto-close",
-    "hub.hero.v.capture": "active session capture",
-    "hub.hero.v.config_first": "set up your first agent",
-    "hub.hero.h.setup": "Your setup",
-    "hub.hero.k.user": "user",
-    "hub.hero.k.machine": "machine",
-    "hub.hero.k.base": "base",
-    "hub.hero.v.base": "installer + workspace doctor ✓",
-    "hub.hero.h.howto": "How to enter",
-    "hub.hero.k.menu": "menu",
-    "hub.hero.v.menu": "pick an agent below ↓",
-    "hub.hero.k.direct": "direct",
-    "hub.hero.v.direct": "type its name: {name}",
-    "hub.hero.agent_generic": "your-agent",
-
-    # ── classic hub (front._classic_block_lines) ────────────────────────────
-    "hub.classic.section_hint": "◄ ► pick",
-    "hub.classic.pers_hint": "◄ ► pick · Enter/space change",
-    "hub.classic.lang_hint": "◄ ► pick · Enter change",
-    "hub.classic.engine_prefix": "engine ▸ ",
-    "hub.classic.engine_change": "m changes",
 
     # ── tall/split window (responsive_ui.vertical_hub) ──────────────────────
     "hub.fullscreen_notice": "Full screen: full experience",
@@ -183,10 +93,64 @@ STRINGS = {
     "hub.narrow.agents_hint": "m engine · Enter opens · i info",
     "hub.narrow.cfg_hint": "Enter changes · settings available in the menu",
     "hub.narrow.lang_hint": "Enter switches language · Enter cambia el idioma",
-    "hub.narrow.cal_hint": "Arrows: day/week · Enter event",
     "hub.narrow.window_title": "WORKSPACE",
-    "hub.narrow.too_small": "⚠ Your terminal is {cols} columns; the hub needs "
-                            "≥{need}.",
-    "hub.narrow.too_small2": "Enlarge or maximize the window so the layout "
-                             "doesn't break.",
+
+    # ── hub notices + heartbeat (front/_menu_machinery, hublayout) ──
+    'hub.agent.gone': '{name} is no longer registered (changed from another window)',
+    'hub.agent.info': '{name} ▸ engine {eng} ({orig}) · brain {brain} · {live}',
+    'hub.agent.no_live_task': 'no live task',
+    'hub.agent.none_go_add': 'no agents — go to TOOLS › Add agent',
+    'hub.agent.not_launched': '{name}: {why} — not launching (check Agents)',
+    'hub.agent.not_yet': "{name} can't be summoned yet — coming soon.",
+    'hub.agent.not_yet_engine': "{name} can't be summoned yet — no engine to pick.",
+    'hub.agent.now_task': 'now: {task}',
+    'hub.agent.soon_tag': 'coming soon',
+    'hub.engine.agent_default': "agent's default",
+    'hub.engine.change_fail': "couldn't change the engine: {err}",
+    'hub.engine.changed': "{name}'s engine ▸ {engine}  ({where})",
+    'hub.engine.local_override': 'local override',
+    'hub.engine.no_selector': 'engine selector unavailable (harnesses.py missing)',
+    'hub.engine.saved_local': 'saved per machine',
+    'hub.hb.label': 'heartbeat',
+    'hub.hb.queue_waiting': 'queue on hold',
+    'hub.hb.queue_word': 'queue',
+    'hub.hb.tag.auto': 'the cron launches on its own',
+    'hub.hb.tag.manual': 'the cron only notifies, you launch',
+    'hub.hb.tag.off': 'heartbeat off',
+    'hub.pin.fail': "couldn't change «{label}» — left as is",
+    'hub.pin.saved': '{label} → {val} (saved)',
+    'hub.pin.saved_rc': '{label} → {val} (saved · adjust your rc by hand)',
+    'hub.phase.plan': 'plan',
+    'hub.phase.exec': 'exec',
+    'hub.phase.review': 'review',
+    'hub.phase.done': 'done',
+    # small window / viewport (responsive_ui)
+    'hub.viewport.back': 'q back',
+    'hub.viewport.scroll': 'Ctrl+B/F scrolls',
+    'hub.frame.hint': '↑↓ section · ◄► pick · Enter · q',
+    'hub.size.title': 'RESIZE THE WINDOW',
+    'hub.size.horizontal': 'Horizontal: 100 columns × 36 rows',
+    'hub.size.vertical': 'Vertical:    72 columns × 50 rows',
+    'hub.size.yours': 'Your window: {w} columns × {h} rows',
+    'hub.size.enlarge': 'Enlarge the window or go full screen.',
+    'hub.size.returns': 'The section comes back on its own once it fits.',
+    'hub.size.back_hub': 'q / Esc: back to the hub',
+    'hub.size.enlarge_short': 'Enlarge the window',
+    'hub.size.h_short': '100 × 36 horizontal',
+    'hub.size.v_short': '72 × 50 vertical',
+    'hub.size.back': 'q / Esc: back',
+    # ── layout LANZADOR (hublayout.render_lanzador) ──
+    'hub.lanzador.root': 'WORKSPACE',
+    'hub.lanzador.search_ph': 'search…',
+    'hub.lanzador.no_results': 'no results',
+    'hub.lanzador.empty': 'no agents — Menu › Add agent',
+    'hub.lanzador.hint.type_key': 'abc',
+    'hub.lanzador.hint.search': 'search',
+    'hub.lanzador.hint.erase': 'erase',
+    'hub.lanzador.hint.clear': 'clear',
+    'hub.lanzador.hint.back2': 'back',
+    'hub.lanzador.tab.menu': 'Menu',
+    'hub.lanzador.tab.personalization': 'Personalization',
+    'hub.lanzador.tab.lang': 'Language',
+    'hub.layout.lanzador': 'Launcher — agents at the center, minimal',
 }

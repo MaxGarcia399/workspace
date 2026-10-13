@@ -43,6 +43,7 @@ amputable: borrar este archivo no rompe nada más (todos sus consumidores lo
 importan falla-suave).
 """
 import datetime
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import hashlib
 import json
 import os
@@ -72,7 +73,7 @@ _QUIET_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)-([01]?\d|2[0-3]):([0-5]\d)$
 
 # ── rutas (funciones, no constantes: respetan HOME parchado en tests) ──────
 def _workspace_dir():
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace")
+    return _paths.state_dir()
 
 
 def config_path():

@@ -100,6 +100,7 @@ eventos jamás tumba al caller; un cerebro sin git solo pierde F3. Amputable
 (C10): borrar este archivo apaga el loop; nada más lo importa.
 """
 import argparse
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import datetime
 import json
 import os
@@ -153,7 +154,7 @@ ESTADO_ORDEN = ("posible_regresion", "candidata_archivar",
 #  F1 — skills-events.jsonl (índice local append-only + cursor)
 # ══════════════════════════════════════════════════════════════════════════
 def _loop_dir(enc):
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace",
+    return os.path.join(_paths.state_dir(),
                         "skill-loop", enc)
 
 

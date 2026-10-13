@@ -84,8 +84,19 @@ def _stdin():
         return {}
 
 
+def _state_dir():
+    """Dir de estado per-máquina vía el resolver único (`paths.py`, en la raíz
+    de WORKSPACE = padre de hooks/). append (no insert) para no alterar qué
+    módulo homónimo de hooks/ gana en sys.path."""
+    _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _root not in sys.path:
+        sys.path.append(_root)
+    import paths
+    return paths.state_dir()
+
+
 def _workspace_dir():
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace")
+    return _state_dir()
 
 
 def _throttle_path(brain):
@@ -275,7 +286,7 @@ def main():
     env["WORKSPACE_REVIEW_RUNNING"] = "1"     # rompe la recursión en el claude hijo
     env["WORKSPACE_NO_AUTOUPDATE"] = "1"
     try:
-        runlog = open(os.path.join(logdir, "_run.log"), "a")
+        runlog = open(os.path.join(logdir, "_run.log"), "a", encoding="utf-8")
     except Exception:
         runlog = subprocess.DEVNULL
     # Detached cross-platform: start_new_session es POSIX-only (en Windows lanza

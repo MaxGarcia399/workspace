@@ -200,7 +200,8 @@ def _invoke_claude_code(prompt, *, model, timeout, cwd, tools, exe_override,
         return False, "fallo al invocar: %s" % e
     out = r.stdout.decode("utf-8", errors="replace")
     if r.returncode != 0:
-        err = r.stderr.decode("utf-8", errors="replace")[:300]
+        # Official CLIs may report auth/quota errors on stdout, not stderr.
+        err = (r.stderr.decode("utf-8", errors="replace").strip() or out.strip())[:300]
         return False, "exit %d: %s" % (r.returncode, err)
     return True, out
 
@@ -217,18 +218,30 @@ def _run_killgroup(cmd, cwd, env, timeout):
                              stdin=subprocess.DEVNULL, start_new_session=True)
     except Exception as e:
         return False, "fallo al invocar: %s" % e
-    try:
-        out_b, err_b = p.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
+    def _kill_tree():
         try:
             os.killpg(os.getpgid(p.pid), signal.SIGKILL)   # mata el grupo
-        except (OSError, ProcessLookupError):
+        except Exception:                                  # Windows / ya muerto
             try:
                 p.kill()
             except Exception:
                 pass
-        p.communicate()
+        try:
+            p.communicate(timeout=10)      # un nieto fugado no cuelga al daemon
+        except Exception:
+            pass
+
+    try:
+        out_b, err_b = p.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_tree()
         return False, "timeout: grupo de procesos matado (killpg) tras %ss" % timeout
+    except BaseException:
+        # Ctrl-C / SIGTERM del daemon: el grupo vive en su PROPIA sesión y no
+        # recibe la señal — sin esto quedaba huérfano escribiendo sobre un
+        # clon que el caller borra (auditoría 2026-07).
+        _kill_tree()
+        raise
     out = (out_b or b"").decode("utf-8", errors="replace")
     if p.returncode != 0:
         err = (err_b or b"").decode("utf-8", errors="replace")[:300]
@@ -291,7 +304,7 @@ def _invoke_codex(prompt, *, model, timeout, cwd, tools, exe_override,
 
 # ── backend: stub (sin LLM — switching demostrable + doble de pruebas) ────
 def _invoke_stub(prompt, *, model, timeout, cwd, tools, exe_override,
-                 wrapper=None):
+                 wrapper=None, env_extra=None, kill_group=False):
     """Responde sin LLM: WORKSPACE_HEADLESS_STUB_FILE (path) >
     WORKSPACE_HEADLESS_STUB_OUTPUT (texto inline) > eco del prompt. No tiene
     tools por construcción — cumple tools="none" trivialmente. `wrapper` se
@@ -366,6 +379,19 @@ register_backend("stub", _invoke_stub,
 
 
 # ── el contrato ────────────────────────────────────────────────────────────
+def _invoke_kwargs(fn):
+    """Nombres de kwargs que acepta un invoke de backend (vacío si no se
+    puede inspeccionar)."""
+    try:
+        import inspect
+        ps = inspect.signature(fn).parameters
+        if any(p.kind == p.VAR_KEYWORD for p in ps.values()):
+            return {"env_extra", "kill_group"}
+        return set(ps)
+    except Exception:
+        return set()
+
+
 def run_headless(prompt, *, backend=DEFAULT_BACKEND, model=None, cwd=None,
                  tools=TOOLS_NONE, timeout=DEFAULT_TIMEOUT,
                  exe_override=None, wrapper=None, env_extra=None,
@@ -395,10 +421,24 @@ def run_headless(prompt, *, backend=DEFAULT_BACKEND, model=None, cwd=None,
             "— destilación/generación exigen LLM sin manos (contenido no "
             "confiable / artefacto generado). Backend rechazado; verifica/usa "
             "un backend con can_disable_tools=True." % (backend, tools))
+    if tools == TOOLS_WRITE_SCOPED and not wrapper:
+        # La jaula del SO es el control PRIMARIO de un agente que ESCRIBE:
+        # sin wrapper correría desnudo con auto-aprobación de edits.
+        raise HeadlessSecurityError(
+            "tools=%r exige wrapper de sandbox del SO — un agente que ESCRIBE "
+            "no corre sin jaula." % tools)
     extra = {"wrapper": wrapper} if wrapper is not None else {}
+    accepts = _invoke_kwargs(b["invoke"])
     if env_extra is not None:         # solo backends exec lo aceptan (claude-code)
-        extra["env_extra"] = env_extra
+        if "env_extra" in accepts:
+            extra["env_extra"] = env_extra
     if kill_group:
+        if "kill_group" not in accepts:
+            # fail-closed: perder el killpg de un agente que escribe no se
+            # ignora en silencio (antes: TypeError que tumbaba al daemon).
+            raise HeadlessSecurityError(
+                "el backend %r no soporta kill_group (matar el grupo de un "
+                "agente que escribe) — rechazado." % backend)
         extra["kill_group"] = True
     return b["invoke"](prompt, model=model, timeout=timeout, cwd=cwd,
                        tools=tools, exe_override=exe_override, **extra)

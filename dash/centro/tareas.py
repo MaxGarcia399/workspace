@@ -45,6 +45,7 @@ phase="exec" EXPLÍCITA (queda en history como "creada-directa-a-exec"); el
 default siempre es "plan".
 """
 import functools
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import json
 import os
 import threading
@@ -72,7 +73,7 @@ except Exception:                         # sin olock → degrada a sin-lock
 
 # ── rutas (funciones, no constantes: respetan HOME parchado en tests) ───────
 def _workspace_dir():
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace")
+    return _paths.state_dir()
 
 
 def taskboard_path():

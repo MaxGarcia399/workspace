@@ -3,7 +3,7 @@
 
 La entrada CONFIG del menú `workspace` (front.py) invoca `run()` de este módulo;
 vive aparte para no inflar ni arriesgar front.py (cambio quirúrgico allá).
-El grueso (latido/crons/budget/modelo/hooks/tema/layout/pins) se lee/escribe
+El grueso (latido/crons/budget/modelo/hooks/tema/pins) se lee/escribe
 por settings.py (get/set/jobs) — el store unificado per-máquina
 (~/.claude/workspace/settings.json). Las secciones CUENTAS y ROUTING usan la
 capa por TIERS aparte, SIN bypasear su seguridad:
@@ -77,14 +77,11 @@ SIETE secciones (tier SIMPLE) + el lugar de AVANZADO (scaffold, v2):
                   para el TUI, NUNCA hardcodeados; los pendientes siguen
                   usables vía WORKSPACE_THEME/ui.theme directo — ↑↓ o número
                   1-9 eligen, Enter aplica y persiste, Esc cancela; Espacio
-                  cicla como cualquier enum) + ui.stars / ui.anim (toggles).
+                  cicla como cualquier enum) + ui.anim (toggle).
                   Tema roto en themes/ → el motor ya lo filtra; sin motor →
                   snapshot del schema; jamás crashea.
-  7. LAYOUT     — ESTRUCTURA del hub: ui.layout con el MISMO picker (kind
-                  "layout" reusa el plumbing del de tema — Enter abre la
-                  lista del REGISTRO hublayout.available(), ↑↓/1-9/Enter
-                  aplica y persiste, Esc cancela). Eje INDEPENDIENTE del
-                  tema: cualquier layout combina con cualquier tema.
+  7. CHAT       — pantalla partida al abrir un agente (ui.split) y su
+                  backend. El hub tiene UN solo layout (el lanzador).
   ·  AVANZADO   — placeholder del tier avanzado (v2) — solo el lugar.
 
 UX por item: label claro + valor actual + origen (store/env/default/delegado);
@@ -120,6 +117,7 @@ teclado solo orquestan). stdlib, Python 3.9+, Mac/Windows.
 """
 import os
 import sys
+from theme import screen as _theme_screen  # fondo/tinta del tema
 
 sys.dont_write_bytecode = True
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -403,14 +401,17 @@ def _specs():
 
 
 def _agents():
-    """Agentes del registry (mismo orden). Falla-suave → trío conocido."""
+    """Agentes del perfil (mismo orden); un perfil vacío no inventa agentes."""
     try:
         import dispatch
+        # SSOT: visible_agents() descuenta los de SISTEMA (doctor) igual que el
+        # hub — antes esta pantalla usaba load_registry() crudo y el socio podía
+        # configurarle motor/modelo a `doctor`, que no es un agente del equipo.
         names = [str(a.get("name", "")) for a in
-                 dispatch.load_registry().get("agents", []) if a.get("name")]
-        return names or ["zenith", "atlas", "argus"]
+                 dispatch.visible_agents() if a.get("name")]
+        return names
     except Exception:
-        return ["zenith", "atlas", "argus"]
+        return []
 
 
 def _routing_tasks():
@@ -523,23 +524,6 @@ def _engine_model_choices(engine):
     return ("",) + MODEL_CHOICES
 
 
-def _engine_account_ok(engine):
-    """(ok, account_name): ¿la cuenta que respalda al motor está conectada?
-    stub/local sin cuenta → (True, ''). Falla-suave → (True, '') (no bloquea
-    si no se puede verificar)."""
-    prov = _ENGINE_ACCOUNT.get(engine)
-    if not prov or _connectors is None or _model_resolver is None:
-        return True, ""
-    try:
-        p, errs = _model_resolver.load_provider(prov)
-        if errs or not p:
-            return True, prov
-        st = _connectors.provider_status(p)
-        return bool(st.get("ok")), prov
-    except Exception:
-        return True, prov
-
-
 def _engine_ready(engine):
     """¿El motor puede EJECUTAR agentes HOY? Instalado (engines/*.py) Y —si el
     motor expone available()— que ÉL lo confirme (p. ej. codex necesita `codex
@@ -632,25 +616,6 @@ def _themes():
         pass
     spec = _specs().get("ui.theme") or {}
     ids = [str(c) for c in (spec.get("choices") or ()) if c] or ["olympo"]
-    return [(i, i.capitalize()) for i in ids]
-
-
-def _layouts():
-    """[(id, label)] de los layouts del hub SEGÚN EL REGISTRO
-    (hublayout.available() — en vivo, clasico primero; NUNCA hardcodeados).
-    Mismo patrón que _themes(): falla-suave doble — sin hublayout →
-    snapshot `choices` del schema de ui.layout; sin schema → ('clasico',)."""
-    try:
-        import hublayout
-        out = [(str(L["id"]), str(L.get("label") or "") or
-                str(L["id"]).capitalize())
-               for L in hublayout.available() if L.get("id")]
-        if out:
-            return out
-    except Exception:
-        pass
-    spec = _specs().get("ui.layout") or {}
-    ids = [str(c) for c in (spec.get("choices") or ()) if c] or ["clasico"]
     return [(i, i.capitalize()) for i in ids]
 
 
@@ -803,7 +768,7 @@ def build_sections():
     try:
         agents = _agents()
     except Exception:                                # doble cinturón: jamás
-        agents = ["zenith", "atlas", "argus"]        # tumba la pantalla
+        agents = []                                  # no inventar un roster
     eng_map = _agent_engine_map()
     mods = []
     n_over = 0
@@ -974,18 +939,12 @@ def build_sections():
                         "bloque del greeter en ~/.zshrc. env WORKSPACE_NO_GREETER=1 "
                         "lo desactiva pase lo que pase.")),
                 _item_for(
-                    "ui.stars", env="WORKSPACE_NO_STARS",
-                    label=_t("personalizacion.stars.label", "Cielo estrellado"),
-                    help_override=_t(
-                        "personalizacion.stars.help",
-                        "Campo de estrellas estático del recinto (front.py).")),
-                _item_for(
                     "ui.anim", env="WORKSPACE_NO_ANIM",
                     label=_t("personalizacion.anim.label", "Animaciones"),
                     help_override=_t(
                         "personalizacion.anim.help",
-                        "Menú animado del recinto y banner animado (sin esto: "
-                        "estático + picker)."))]
+                        "Hub interactivo (sin esto: lista estática + "
+                        "picker numerado)."))]
     # el sub muestra el tema EFECTIVO (env WORKSPACE_THEME > store > olympo)
     eff = th_it["value"]
     try:
@@ -1002,23 +961,10 @@ def build_sections():
                  "sub": _t("personalizacion.section.sub_active",
                            "activo {name}", name=eff_label),
                  "items": ui_items})
-    # ── 7 · LAYOUT (estructura del hub — ui.layout con PICKER, eje
-    #    INDEPENDIENTE del tema: cualquier layout combina con cualquier
-    #    tema). Reusa el plumbing del picker de tema (kind + campo "themes"
-    #    con las opciones (id, label) — mismo modo "pick"). ──
-    layouts = _layouts()
-    ly_it = _item_for("ui.layout", kind="layout", label="Layout del hub",
-                      env="WORKSPACE_LAYOUT",
-                      choices=[l[0] for l in layouts])
-    ly_it["themes"] = tuple(layouts)
-    eff_l = ly_it["value"]
-    try:
-        import hublayout
-        eff_l = hublayout.resolve_id()
-    except Exception:
-        pass
+    # ── 7 · CHAT (pantalla partida al abrir un agente). El hub tiene un
+    #    solo layout (el lanzador) desde 2026-10-12. ──
     # ui.split — toggle para el SOCIO (sin `settings set`): mismo patrón
-    # bool que ui.stars/ui.anim, persiste vía settings como cualquier
+    # bool que ui.anim, persiste vía settings como cualquier
     # toggle. El gate vive SOLO en front.launch (post-menú) — el hub/menú
     # JAMÁS cambian por esto (regla #1; golden test en test_split_hub.py).
     sp_it = _item_for("ui.split",
@@ -1036,13 +982,10 @@ def build_sections():
                       env="WORKSPACE_SPLIT_BACKEND",
                       extra_help="auto = herdr si está instalado y "
                                  "responde, si no tmux.")
-    secs.append({"id": "layout", "title": "LAYOUT",
-                 "desc": "estructura del hub y del chat "
-                         "(independiente del tema)",
-                 "sub": "activo %s%s" % (
-                     _theme_label(layouts, eff_l),
-                     " · chat partido" if sp_it["value"] else ""),
-                 "items": [ly_it, sp_it, bk_it]})
+    secs.append({"id": "layout", "title": "CHAT",
+                 "desc": "cómo se abre el chat de un agente",
+                 "sub": "chat partido" if sp_it["value"] else "chat normal",
+                 "items": [sp_it, bk_it]})
     # ── 8 · CONFIGS DEL HUB (selector de pins: qué anclar al recinto para
     #    cambio rápido — edita ui.hub_pins; solo settings SEGUROS enum/bool,
     #    tope máx 5). El recinto (front.py/hublayout) los muestra EDITABLES
@@ -1058,6 +1001,21 @@ def build_sections():
                          "(Espacio ancla/quita · máx %d)" % cap,
                  "sub": "%d/%d anclados" % (n_pinned, cap),
                  "items": pin_items})
+    # ── ACTUALIZACIONES (¿se actualiza solo? — elección del usuario) ──
+    up_it = _item_for(
+        "otros.auto_update", env="WORKSPACE_NO_AUTOUPDATE",
+        label=_t("config.auto_update.label", "Actualizaciones automáticas"),
+        help_override=_t(
+            "config.auto_update.help",
+            "auto = se instalan solas al lanzar un agente, con red de seguridad "
+            "(si la versión nueva no arranca, vuelve sola a la anterior) · "
+            "notify = solo te avisa, una vez al día, y tú decides · off = no "
+            "consulta nada por su cuenta. En los tres casos `workspace update` "
+            "instala cuando tú quieras. env WORKSPACE_NO_AUTOUPDATE=1 gana (= off)."))
+    secs.append({"id": "actualizaciones", "title": "ACTUALIZACIONES",
+                 "desc": "si Workspace se actualiza solo o solo te avisa",
+                 "sub": "off (env)" if up_it["env_on"] else str(up_it["value"]),
+                 "items": [up_it]})
     # ── AVANZADO (scaffold v2 — solo el lugar, sin opciones aún) ──
     secs.append({"id": "avanzado", "title": "AVANZADO",
                  "desc": "tier avanzado — reservado para v2",
@@ -1249,7 +1207,7 @@ def handle_key(S, ch):
             _toggle(S, it)
         elif kind == "pin":
             _toggle_pin(S, it)                       # ancla/quita del hub
-        elif kind in ("theme", "layout"):
+        elif kind == "theme":
             _open_pick(S, it)                        # Enter abre el PICKER
         elif kind == "account":
             _open_connect(S, it)                     # asistente guiado
@@ -1267,7 +1225,7 @@ def handle_key(S, ch):
         if it is None:
             return None
         kind = it["kind"]
-        if kind in ("bool", "job", "enum", "model", "theme", "layout",
+        if kind in ("bool", "job", "enum", "model", "theme",
                     "route", "engine"):
             _toggle(S, it)
         elif kind == "pin":
@@ -1376,13 +1334,13 @@ def _toggle(S, it):
             refresh(S)
             _mark_saved(S, it["key"])
         return
-    if kind in ("enum", "model", "theme", "layout", "route"):
+    if kind in ("enum", "model", "theme", "route"):
         ch = list(it["choices"] or ())
         if not ch:
             return
         cur = it["value"]
         nxt = ch[(ch.index(cur) + 1) % len(ch)] if cur in ch else ch[0]
-        if kind in ("theme", "layout"):
+        if kind == "theme":
             _set_theme(S, it, nxt)
             return
         if kind == "route":                          # config_engine tier A
@@ -1429,15 +1387,12 @@ def _bump_bright(S, it, delta):
 # ── PICKER de tema (kind "theme": Enter abre lista · ↑↓/1-9 · Enter aplica) ─
 
 def _pick_themes(S):
-    """[(id, label)] del item pickeable BAJO EL CURSOR (tema O layout — el
+    """[(id, label)] del item pickeable BAJO EL CURSOR (el tema — el
     picker solo se abre ahí; ambos kinds guardan sus opciones en el campo
     "themes"). Falla-suave: item raro/sin lista → lista viva del motor."""
     it = current_item(S)
-    if it is not None and it.get("kind") in ("theme", "layout") \
-            and it.get("themes"):
+    if it is not None and it.get("kind") == "theme" and it.get("themes"):
         return list(it["themes"])
-    if it is not None and it.get("kind") == "layout":
-        return _layouts()
     return _themes()
 
 
@@ -1453,20 +1408,14 @@ def _open_pick(S, it):
 
 
 def _set_theme(S, it, tid):
-    """Aplica y persiste ui.theme / ui.layout (settings.set valida contra el
+    """Aplica y persiste ui.theme (settings.set valida contra el
     registro VIVO del motor — un id recién desaparecido avisa SIN escribir).
     Feedback honesto de CUÁNDO se ve el cambio, por kind."""
     ok, v = _apply_set(S, it["key"], tid)
     if ok:
         opts = list(it.get("themes") or ())
-        lbl = _theme_label(opts or (_layouts() if it.get("kind") == "layout"
-                                    else _themes()), v)
-        if it.get("kind") == "layout":
-            S["status"] = _t(
-                "personalizacion.saved.layout",
-                "guardado: layout → {label} ({id}) — el hub se dibuja así al "
-                "reabrirse (workspace)", label=lbl, id=v) + _env_note(it)
-        else:
+        lbl = _theme_label(opts or _themes(), v)
+        if True:
             S["status"] = _t(
                 "personalizacion.saved.theme",
                 "guardado: tema → {label} ({id}) — el recinto lo pinta al "
@@ -1487,7 +1436,7 @@ def _commit_pick(S):
         S["status"] = "no hay temas instalados (themes/ vacío)"
         return
     it = current_item(S)
-    if it is None or it.get("kind") not in ("theme", "layout"):
+    if it is None or it.get("kind") != "theme":
         S["status"] = "picker cerrado — sin cambios"
         return
     _set_theme(S, it, themes[idx][0])
@@ -1610,6 +1559,10 @@ def _connect_key(S, ch):
         stx = c.get("status") or {}
         low = ch.lower()
         if low == "i" and not stx.get("cli_present") and stx.get("install_cmd"):
+            if stx.get("install_missing"):           # U02: prereq ausente →
+                S["status"] = ("falta %s para instalar — instálalo primero"
+                               % ", ".join(stx["install_missing"]))
+                return None                          # no se confirma a ciegas
             c["step"] = "cli_confirm"
         elif low == "l" and stx.get("login_cmd"):
             _request_shell(S, "login", stx.get("login_cmd"),
@@ -1697,7 +1650,7 @@ def _do_validation(S, provider, key):
     except Exception as e:
         res = {"ok": False, "kind": "network",
                "detail": "la validación falló: %s" % e}
-    saved = _persist_validation(S, res, key)
+    saved = _persist_validation(S, res, key, provider)
     c = S.get("connect") or {}
     c["result"], c["step"] = res, "result"
     if saved:
@@ -1707,17 +1660,28 @@ def _do_validation(S, provider, key):
             refresh(S)
 
 
-def _persist_validation(S, res, key):
-    """Guarda la key SEGÚN el veredicto: auth-fail ⇒ NO se guarda; verificada
-    o inconclusa (red/endpoint) ⇒ se guarda al secret_store per-máquina +
-    os.environ (para reflejar 'conectada' ya). Sin key (revalidación) ⇒ nada.
-    El valor JAMÁS a settings ni al log."""
-    c = S.get("connect") or {}
-    stx = c.get("status") or {}
+# Veredictos del ping que SÍ guardan la key: verificada, o inconclusa por
+# red/endpoint. Lista BLANCA: auth (rechazada), blocked (el vet de seguridad
+# rechazó el provider, p. ej. key por http plano), unsupported, no_key… NO
+# guardan (auditoría 2026-07: antes solo se cortaba en 'auth').
+_PERSIST_KINDS = ("ok", "unverified", "http", "network")
+
+
+def _persist_validation(S, res, key, provider=None):
+    """Guarda la key SEGÚN el veredicto (_PERSIST_KINDS) al secret_store
+    per-máquina + os.environ (para reflejar 'conectada' ya). Sin key
+    (revalidación) ⇒ nada. El valor JAMÁS a settings ni al log.
+    El NOMBRE de la env-var sale del provider que SE VALIDÓ (`provider`), no
+    del panel vivo: si el socio cambió de cuenta mientras el ping estaba en
+    vuelo, la key de uno no se guarda como credencial de otro."""
+    if provider:
+        stx = _cstatus(provider) or {}
+    else:
+        stx = (S.get("connect") or {}).get("status") or {}
     names = stx.get("env_vars") or []
     if not key or not names or _secret_store is None:
         return False
-    if res.get("kind") == "auth":                    # credencial rechazada
+    if res.get("kind") not in _PERSIST_KINDS:
         return False
     name = names[0]
     r = _secret_store.set_secret(name, key)
@@ -2043,7 +2007,7 @@ def _fmt_val(it):
                   "blocked": ("rechazada", RED),
                   "unknown": ("—", DIM)}
         return labels.get(stx.get("state", "unknown"), (str(v), DIM))
-    if it["kind"] in ("theme", "layout"):            # nombre legible + id
+    if it["kind"] == "theme":            # nombre legible + id
         lbl = _theme_label(list(it.get("themes") or ()), v)
         return (("%s · %s" % (lbl, v)) if lbl != str(v) else str(v)), WH
     if it["key"] == "ui.background":                 # opción traducida (PERSONAL.)
@@ -2203,7 +2167,7 @@ def _detail_lines(S, it, rw):
         out.append(_cell(segs, rw))
     # tema/layout: PICKER — una línea por opción (nombre legible + id),
     # numerado. En pick el ▸ resalta el candidato; el radio, el PERSISTIDO.
-    if it["kind"] in ("theme", "layout"):
+    if it["kind"] == "theme":
         themes = list(it.get("themes") or ())
         picking = (S.get("mode") == "pick")
         just = (it["key"] == S.get("saved_key"))
@@ -2309,9 +2273,7 @@ def _right_lines(S, rw, rows):
         L.append(_cell([("  nuevo valor ›  ", B2), (S.get("buf", ""), WH),
                         ("▌", C), (hint, GREY)], rw))
     elif S.get("mode") == "pick":
-        what = (_t("personalizacion.pick.what_layout", "layout")
-                if (sel_it or {}).get("kind") == "layout"
-                else _t("personalizacion.pick.what_theme", "tema"))
+        what = _t("personalizacion.pick.what_theme", "tema")
         L.append(_cell([(_t("personalizacion.pick.prompt",
                             "  elegir {what} ›  ", what=what), B2),
                         (_t("personalizacion.pick.hint",
@@ -2383,7 +2345,8 @@ def _connect_lines(S, rw, rows):
     elif step == "result":
         res = c.get("result") or {}
         kind = res.get("kind")
-        okc = GREEN if res.get("ok") else (RED if kind == "auth" else B)
+        okc = GREEN if res.get("ok") else (
+            RED if kind == "auth" or kind not in _PERSIST_KINDS else B)
         mark = "●" if res.get("ok") else ("○" if kind == "auth" else "◐")
         body("%s %s" % (mark, res.get("detail") or ""), okc)
         gap()
@@ -2392,6 +2355,11 @@ def _connect_lines(S, rw, rows):
         elif kind == "auth":
             body("La credencial fue rechazada — NO se guardó. Revisa la key "
                  "y reintenta.", RED)
+        elif kind not in _PERSIST_KINDS:
+            # blocked (el vet de seguridad rechazó el provider), unsupported,
+            # no_key…: la key NO se guardó — jamás decir «Debería servir».
+            body("La key NO se guardó: este proveedor no pasó la revisión de "
+                 "seguridad o no se puede conectar así.", RED)
         else:
             body("La key se guardó per-máquina, pero no pude verificarla "
                  "(sin endpoint de verificación o sin red). Debería servir.",
@@ -2409,6 +2377,10 @@ def _connect_lines(S, rw, rows):
         if step == "cli":
             if not present and stx.get("install_cmd"):
                 body("Instalar:  %s" % " ".join(stx["install_cmd"]), C)
+                if stx.get("install_source"):
+                    body("Fuente oficial: %s" % stx["install_source"], DIM)
+                if stx.get("install_missing"):
+                    body("Falta: %s — instálalo antes" % ", ".join(stx["install_missing"]), B)
             if stx.get("login_cmd"):
                 body("Login:     %s" % " ".join(stx["login_cmd"]), C)
             if present:
@@ -2422,8 +2394,11 @@ def _connect_lines(S, rw, rows):
             body("¿Instalar el CLI de %s?" % c.get("provider"), WH + BO)
             body("Voy a correr:  %s" % " ".join(stx.get("install_cmd") or []),
                  C)
-            body("(se ejecuta en tu terminal, requiere npm — con tu "
-                 "confirmación explícita)", DIM)
+            if stx.get("install_source"):
+                body("Fuente oficial: %s" % stx["install_source"], DIM)
+            if stx.get("install_note"):
+                body(stx["install_note"], DIM)
+            body("(se ejecuta en tu terminal, con tu confirmación explícita)", DIM)
             actions = "Enter sí, instalar · Esc no"
 
     # pad + fila de acciones al fondo (dentro del marco)
@@ -2603,9 +2578,9 @@ def render_lines(S, w, h):
                + "═" * max(0, inner - len(title) - 4 - hint_w) + "╗" + R)
     else:
         top = (B + "╔" + title + "═" * max(0, inner - len(title)) + "╗" + R)
+    lines = [top]
     left = _left_lines(S, rows, lw)
     right = _right_lines(S, rw, rows)
-    lines = [top]
     for i in range(rows):
         lines.append(B + "║" + R + left[i] + B2 + "┃" + R + right[i]
                      + B + "║" + R)
@@ -2818,6 +2793,7 @@ def _run_windows(max_ticks=None):
         tout.flush()
 
 
+@_theme_screen
 def run():
     """Punto de entrada desde front.py (entrada CONFIG del menú). Falla-suave
     ABSOLUTA: cualquier problema → mensaje amable, jamás rompe el menú."""

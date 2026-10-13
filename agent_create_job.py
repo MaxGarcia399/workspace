@@ -32,6 +32,7 @@ solo se salta el pulido). Jamás se mata el hilo.
 Cero dependencias (stdlib, Python 3.9+). Mac y Windows. Falla-suave SIEMPRE.
 """
 import io
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import json
 import os
 import sys
@@ -83,7 +84,7 @@ _EST = None
 
 # ── persistencia (~/.claude/workspace/create-job.json) ─────────────────────────
 def state_path():
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace",
+    return os.path.join(_paths.state_dir(),
                         "create-job.json")
 
 
@@ -157,7 +158,8 @@ def _pid_alive(pid):
 def steps_skeleton():
     """[{key, label, st, note}] fresco desde agent_admin.CREATE_STEPS (fuente
     única: si el backend gana un paso, aquí aparece solo)."""
-    return [{"key": k, "label": lbl, "st": "pend", "note": ""}
+    return [{"key": k, "label": _t("addagent.step.%s" % k, lbl),
+             "st": "pend", "note": ""}
             for k, lbl in agent_admin.CREATE_STEPS]
 
 

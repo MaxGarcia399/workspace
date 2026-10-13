@@ -37,7 +37,7 @@ def _t(key, es):
 
 @functools.lru_cache(maxsize=1)
 def font():
-    tree = ast.parse((Path(__file__).parent / 'templates/agent/workspace/brand/agent-banner.py').read_text())
+    tree = ast.parse((Path(__file__).parent / 'templates/agent/workspace/brand/agent-banner.py').read_text(encoding='utf-8'))
     for node in tree.body:
         if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'FONT' for t in node.targets):
             return ast.literal_eval(node.value)
@@ -99,7 +99,7 @@ def picker_frame(items, selected, width, height, box_w=None, left=None):
                      (('↑↓', _t('greeter.hint.choose', 'elige')),
                       ('Enter', _t('greeter.hint.open', 'abre')),
                       ('1-9', _t('greeter.hint.direct', 'directo')),
-                      ('Ctrl+C', _t('greeter.hint.quit', 'sale'))),
+                      ('Esc', _t('greeter.hint.back', 'regresa'))),
                      max(10, pw - 2))
     if hint:
         rows.append(' '*(left + max(0, (pw - H.vis(hint)) // 2)) + hint)
@@ -127,9 +127,32 @@ def export_context(cfg):
         'tagline': cfg.get('tagline',''),
         'banner': (cfg.get('_scripts') or {}).get('banner','')})
 
+_BOX_TOPS = ("\u256d", "\u250c", "\u2554", "\u250f")    # ╭ ┌ ╔ ┏
+
+
+def title_only(lines):
+    """Del banner del agente, SOLO el título (el wordmark): se corta en la
+    primera caja (la de skills/características). Pedido del socio
+    2026-10-12: el menú de sesiones lleva el título y la caja de sesiones,
+    nada más. Sin caja → el banner tal cual (sin líneas vacías al final)."""
+    out = []
+    for ln in lines:
+        if H._plain(ln).lstrip().startswith(_BOX_TOPS):
+            break
+        out.append(ln)
+    while out and not H._plain(out[-1]).strip():
+        out.pop()
+    return out
+
+
+# Elección «regresar» del menú de sesiones (Esc): el panel la imprime y el
+# motor reabre el hub (o sale al shell si no se vino del hub).
+BACK = "BACK"
+
+
 def session_screen(items, selected, width, height, context, banner=''):
     # Keep a full illustration only when both dimensions allow the picker.
-    illustrated = banner.splitlines()
+    illustrated = title_only(banner.splitlines())
     bw = max(map(H.vis,illustrated),default=0)
     box_w = box_left = None
     if illustrated and bw < width and len(illustrated) <= height-12:
@@ -139,7 +162,7 @@ def session_screen(items, selected, width, height, context, banner=''):
         box_w = bw        # la caja SESIONES hereda ancho+margen del banner:
                           # los dos marcos quedan ALINEADOS (bloque único)
     else:
-        top = heading(context['name'],context.get('tagline',''),width)
+        top = heading(context['name'],'',width)       # solo el título
     spare = max(1,height-1-len(top)-4)
     rows = picker_frame(items,selected,width,spare+20,box_w=box_w,left=box_left)
     return [H.clip(x,width-1) for x in (top+rows)[:height-1]]
@@ -216,8 +239,10 @@ def live_picker(items, script):
                         key = {b'A':'up',b'B':'down'}.get(os.read(inp.fileno(),1),'')
             if key in ('\r','\n'):
                 return selected
-            if key == '\x03':
-                return len(items)-1
+            if key == '\x1b':               # Esc suelto: de vuelta al hub
+                return BACK
+            if key == '\x03':                # Ctrl+C: salir, NO «+ Sesión nueva»
+                return BACK
             if key == 'up':
                 selected = (selected-1)%len(items)
             elif key == 'down':

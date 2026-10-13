@@ -22,7 +22,6 @@ STRINGS = {
     "personalizacion.brightness.label": "Brillo",
     "personalizacion.redlight.label": "Luz roja (modo noche)",
     "personalizacion.autostart.label": "Abrir al abrir la terminal",
-    "personalizacion.stars.label": "Cielo estrellado",
     "personalizacion.anim.label": "Animaciones",
 
     # ── textos explicativos (qué hace cada control) ─────────────────────────
@@ -51,10 +50,8 @@ STRINGS = {
         "con el comando `workspace` (default, menos invasivo). Reescribe el "
         "bloque del greeter en ~/.zshrc. env WORKSPACE_NO_GREETER=1 lo desactiva "
         "pase lo que pase.",
-    "personalizacion.stars.help":
-        "Campo de estrellas estático del recinto (front.py).",
     "personalizacion.anim.help":
-        "Menú animado del recinto y banner animado (sin esto: estático + picker).",
+        "Hub interactivo (sin esto: lista estática + picker numerado).",
 
     # ── opciones del fondo (el valor GUARDADO sigue siendo el id crudo) ─────
     "personalizacion.background.opt.tema": "tema",
@@ -67,7 +64,6 @@ STRINGS = {
 
     # ── picker de tema/layout (prompt + hint del pie) ───────────────────────
     "personalizacion.pick.what_theme": "tema",
-    "personalizacion.pick.what_layout": "layout",
     "personalizacion.pick.prompt": "  elegir {what} ›  ",
     "personalizacion.pick.hint":
         "↑↓ o 1-9 eligen · Enter aplica y guarda · Esc cancela",
@@ -77,9 +73,6 @@ STRINGS = {
     "personalizacion.saved.theme":
         "guardado: tema → {label} ({id}) — el recinto lo pinta al reabrirse; "
         "el panel web al refrescar",
-    "personalizacion.saved.layout":
-        "guardado: layout → {label} ({id}) — el hub se dibuja así al reabrirse "
-        "(workspace)",
 
     # ── control de BRILLO (slider + muestra en vivo + estados) ──────────────
     "personalizacion.brightness.softer": "− apagado",

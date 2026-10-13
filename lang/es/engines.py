@@ -232,7 +232,38 @@ STRINGS = {'engines.agent': 'Agente: {name} · a cambia · u asigna motor',
  'engines.wizard.unverified': 'No pude verificar la conexión. Enter termina; luego puedes '
                               'revalidar.',
  'engines.wizard.validating': 'Validando la conexión…',
+ 'engines.hint.refresh': 'Recargar motores',
+ 'engines.refreshed': 'Motores recargados · login sin verificar. Si falta un CLI recién instalado, abre otra terminal.',
+ 'engines.official_source': 'Fuente oficial: {url}',
  'engines.word': 'MOTORES',
  'engines.yes': 'Registrada',
  'menu.engines.label': 'Motores',
- 'menu.engines.tag': 'estado, capacidades y conexiones'}
+ 'menu.engines.tag': 'estado, capacidades y conexiones',
+ 'engines.hint.m_toggle': 'Habilitar en M',
+ 'engines.m_on': 'en el atajo M',
+ 'engines.m_off': 'fuera del atajo M',
+ 'engines.m_all': 'M ofrece todos los instalados',
+ 'engines.m_saved': 'Atajo M actualizado',
+ 'engines.m_failed': 'No se pudo guardar el atajo M',
+ 'engines.path_added': 'PATH actualizado (+{n} carpetas de una terminal nueva)'}
+
+# ── engine_install: notas de receta y diagnósticos (pantalla Motores) ───────
+STRINGS.update({
+    "motores.inst.note.git_win": "Git for Windows es opcional (habilita la "
+                                 "herramienta Bash).",
+    "motores.inst.note.node22": "requiere Node.js 22+; sin sudo",
+    "motores.inst.note.codex_win": "la doc oficial no publica instalador "
+                                   "nativo para Windows; npm requiere Node.js "
+                                   "instalado.",
+    "motores.inst.not_in_path": "el instalador terminó bien pero `{b}` no está "
+                                "en el PATH de esta terminal — usa Recargar (r) "
+                                "o abre una terminal nueva",
+    "motores.inst.missing": "falta {m} para correr el instalador",
+    "motores.inst.failed": "el instalador terminó con código {rc} — revisa la "
+                           "salida arriba (red, permisos o proxy) y la guía "
+                           "oficial: {u}",
+    "motores.inst.d.none": "sin instalador oficial registrado para {e}",
+    "motores.inst.d.source": "Fuente oficial: {u} (verificada {d})",
+    "motores.inst.d.cmd": "Comando: {c}",
+    "motores.inst.d.miss": "Falta: {m} — instálalo antes",
+})

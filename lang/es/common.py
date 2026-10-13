@@ -13,31 +13,16 @@ STRINGS = {
     "common.hint.enter": "entra",
     "common.hint.terminal": "terminal",
     "common.hint.move": "mueve",
-    "common.hint.jump": "salta",
     "common.hint.quit": "sale",
     "common.hint.engine": "motor",
     "common.hint.info": "información",
     "common.hint.menu": "menú",
-    "common.hint.aim_open": "apunta/abre",
-    "common.hint.key": "tecla",
-    "common.hint.redlight": "luz roja",
 
     # ── estado de un agente (semáforo + palabra) ────────────────────────────
-    "common.status.active": "activo",
-    "common.status.in_use": "en uso",
-    "common.status.ready": "listo",
-    "common.status.soon": "pronto",
-    "common.status.idle": "idle",
     "common.status.working": "trabajando",
     "common.status.running": "en curso",
 
     # ── git (estado del repo, de un vistazo) ────────────────────────────────
-    "common.git.clean": "limpio",
-    "common.git.dirty_mark": "± sucio",
-    "common.git.clean_short": "limpio",
-    "common.git.dirty_short": "±sucio",
-    "common.git.uptodate": "al día con origin",
-    "common.git.vs_origin": "vs origin",
 
     # ── antigüedad relativa ─────────────────────────────────────────────────
     "common.ago.sec": "hace {n}s",

@@ -37,6 +37,7 @@ Uso:
     python3 proyectos_import.py --apply --force   # reimporta (duplica nombres)
 """
 import itertools
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import json
 import math
 import os
@@ -66,7 +67,7 @@ STAGGER = NODE_H + 34.0
 
 def board_path():
     """El tablero viejo. Solo lectura — esta ruta jamás se escribe aquí."""
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace",
+    return os.path.join(_paths.state_dir(),
                         "board", "board.json")
 
 

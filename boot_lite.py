@@ -483,25 +483,19 @@ def write_digest(brain: str, digest: str, out_path: Optional[str] = None) -> str
     dest = os.path.abspath(dest)
 
     # ── GATE 🔴: verificar que no estamos escribiendo a zonas protegidas ──
+    # SSOT: se deriva de CANONICAL_PROTECTED. Antes el gate recomputaba BOOT/ y
+    # MEMORY.md inline y la constante era fantasma (agregarle una ruta NO
+    # extendía la protección). Cada entrada protege el path exacto y, si es un
+    # directorio, todo lo que cuelga de él.
     brain_abs = os.path.abspath(brain)
-    boot_abs  = os.path.join(brain_abs, "BOOT")
-    mem_abs   = os.path.join(brain_abs, "STATE", "MEMORY.md")
-
-    # Normalizar para comparación cross-platform
     dest_norm = os.path.normcase(dest)
-    boot_norm = os.path.normcase(boot_abs)
-    mem_norm  = os.path.normcase(mem_abs)
-
-    if dest_norm.startswith(boot_norm + os.sep) or dest_norm == boot_norm:
-        raise ValueError(
-            f"GATE 🔴 VIOLADO: el digest no puede escribirse dentro de BOOT/.\n"
-            f"  Destino rechazado: {dest}"
-        )
-    if dest_norm == mem_norm:
-        raise ValueError(
-            f"GATE 🔴 VIOLADO: el digest no puede sobrescribir STATE/MEMORY.md.\n"
-            f"  Destino rechazado: {dest}"
-        )
+    for rel in CANONICAL_PROTECTED:
+        prot_norm = os.path.normcase(os.path.join(brain_abs, rel))
+        if dest_norm == prot_norm or dest_norm.startswith(prot_norm + os.sep):
+            raise ValueError(
+                f"GATE 🔴 VIOLADO: el digest no puede escribirse en zona "
+                f"protegida ({rel}).\n  Destino rechazado: {dest}"
+            )
 
     # Crear directorio si no existe (normal para STATE/)
     os.makedirs(os.path.dirname(dest), exist_ok=True)

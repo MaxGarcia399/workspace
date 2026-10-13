@@ -101,7 +101,33 @@ class Handler(BaseHTTPRequestHandler):
         port = self.server.server_address[1]
         return {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
 
+    # Tope del cuerpo que se DESCARTA al rechazar (ver _drain_rejected_body).
+    _DRAIN_MAX = 16 * 1024 * 1024
+
+    def _drain_rejected_body(self):
+        """Lee y descarta el cuerpo de una petición rechazada antes de responder.
+        En Windows, cerrar un socket con datos SIN LEER en el buffer manda RST:
+        el cliente ve ConnectionAbortedError (WinError 10053) en vez del 403.
+        Acotado (_DRAIN_MAX): más grande → no se lee y se cierra igual.
+        Falla-suave; la conexión se cierra tras la respuesta."""
+        self.close_connection = True
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except (TypeError, ValueError):
+            return
+        if not 0 < n <= self._DRAIN_MAX:
+            return
+        try:
+            while n > 0:
+                chunk = self.rfile.read(min(n, 64 * 1024))
+                if not chunk:
+                    break
+                n -= len(chunk)
+        except Exception:
+            pass
+
     def _deny(self, why):
+        self._drain_rejected_body()
         # Para /api/* el cuerpo es JSON: el front parsea la respuesta como JSON
         # y un text/plain aquí reventaba en Safari como «SyntaxError: The string
         # did not match the expected pattern» en vez de un error legible.

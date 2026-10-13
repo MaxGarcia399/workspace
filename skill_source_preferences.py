@@ -1,5 +1,6 @@
 """Fuentes por máquina: catálogos conocidos y repos públicos elegidos por el dueño."""
 import json
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import os
 from pathlib import Path
 import re
@@ -20,17 +21,28 @@ PRESETS = (
 MAX_REPOS = 12
 
 
+def _t(key, es):
+    """i18n falla-suave: los errores de fuentes los ve el cliente (mensaje de
+    «Agregar agente»). Sin i18n → el español inline, idéntico."""
+    try:
+        import i18n
+        v = i18n.t(key)
+        return v if v != key else es
+    except Exception:
+        return es
+
+
 def normalize_repo(value):
     """Sólo owner/repo o URL HTTPS del repo raíz. Nunca git/ssh/auth/refs arbitrarios."""
     raw = str(value).strip()
     if "://" in raw:
         url = urlsplit(raw)
         if url.scheme != "https" or url.hostname != "github.com" or url.username or url.password or url.port or url.query or url.fragment:
-            raise ValueError("usa https://github.com/autor/repositorio, sin credenciales")
+            raise ValueError(_t("addagent.prefs.err.https", "usa https://github.com/autor/repositorio, sin credenciales"))
         raw = url.path.strip("/")
     raw = raw.removesuffix(".git") if hasattr(raw, "removesuffix") else raw[:-4] if raw.endswith(".git") else raw
     if not REPO_RX.fullmatch(raw) or any(p in (".", "..") for p in raw.split("/")):
-        raise ValueError("usa autor/repositorio o su URL raíz de GitHub")
+        raise ValueError(_t("addagent.prefs.err.repo_form", "usa autor/repositorio o su URL raíz de GitHub"))
     return raw.lower()
 
 
@@ -41,25 +53,25 @@ def defaults():
 
 def validate(config):
     if not isinstance(config, dict) or not isinstance(config.get("repos"), list):
-        raise ValueError("configuración de fuentes inválida")
+        raise ValueError(_t("addagent.prefs.err.bad_config", "configuración de fuentes inválida"))
     if len(config["repos"]) > MAX_REPOS:
-        raise ValueError("máximo %d repositorios" % MAX_REPOS)
+        raise ValueError(_t("addagent.prefs.err.max", "máximo %d repositorios") % MAX_REPOS)
     result, seen = [], set()
     known = {r: label for r, label, _, _ in PRESETS}
     for item in config["repos"]:
         repo = normalize_repo(item["repo"])
         if repo in seen or not isinstance(item.get("enabled"), bool):
-            raise ValueError("fuente duplicada o estado inválido")
+            raise ValueError(_t("addagent.prefs.err.dup_source", "fuente duplicada o estado inválido"))
         seen.add(repo)
         result.append({"repo": repo, "label": known.get(repo, repo),
                        "enabled": item["enabled"], "custom": repo not in known})
     if not isinstance(config.get("community", False), bool):
-        raise ValueError("opción de comunidad inválida")
+        raise ValueError(_t("addagent.prefs.err.bad_community", "opción de comunidad inválida"))
     return {"repos": result, "community": config.get("community", False)}
 
 
 def path():
-    return Path(os.path.expanduser("~")) / ".claude/workspace/skill-source-preferences.json"
+    return Path(_paths.state_dir()) / "skill-source-preferences.json"
 
 
 def load():
@@ -107,8 +119,8 @@ def add(config, value):
     config = validate(config)
     repo = normalize_repo(value)
     if any(r["repo"] == repo for r in config["repos"]):
-        raise ValueError("ese repositorio ya está en tus fuentes")
+        raise ValueError(_t("addagent.prefs.err.already", "ese repositorio ya está en tus fuentes"))
     if len(config["repos"]) >= MAX_REPOS:
-        raise ValueError("máximo %d repositorios" % MAX_REPOS)
+        raise ValueError(_t("addagent.prefs.err.max", "máximo %d repositorios") % MAX_REPOS)
     config["repos"].append({"repo": repo, "label": repo, "enabled": True, "custom": True})
     return config

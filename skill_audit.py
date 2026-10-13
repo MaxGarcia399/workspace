@@ -88,6 +88,7 @@ fallo no tumba la corrida ni fija estado (reintentable). Amputable (C10):
 borrar este archivo apaga el audit; nada más lo importa.
 """
 import argparse
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import datetime
 import json
 import os
@@ -220,7 +221,7 @@ AUDIT_VERDICT_END
 
 # ── helpers de entorno/estado ──────────────────────────────────────────────
 def _audit_dir():
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace",
+    return os.path.join(_paths.state_dir(),
                         "skill-audit")
 
 

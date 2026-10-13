@@ -56,6 +56,14 @@ NUNCA hardcoded ni en el repo — leerlas de entorno / ~/.claude/workspace/.
 import sys
 
 
+#: Matriz de capacidades — TODAS las claves de capabilities.ENGINE_KEYS
+#: (tests/test_capabilities.py lo exige).
+CAPABILITIES = {
+    "launch": "repl", "inject_context": "none", "mcp": False, "hooks": False,
+    "sessions": "none", "status_live": False, "headless": False,
+}
+
+
 META = {
     "name": "template",   # nombre legible del motor
     "needs": [],          # binarios/cosas requeridas (ej. ["ollama"] o ["claude"])

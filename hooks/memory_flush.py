@@ -55,6 +55,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 for _p in (_HERE, os.path.dirname(_HERE)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 try:
     import transcript_backup as _tb
 except Exception:
@@ -71,14 +72,13 @@ def _stdin():
 
 
 def _flush_dir():
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace",
-                        "memory-flush")
+    return os.path.join(_paths.state_dir(), "memory-flush")
 
 
 def _marker(sid):
     """Marcador de session_start.py (trae la pestaña `ws` cuando el env ya
     no está disponible). Best-effort."""
-    p = os.path.join(os.path.expanduser("~"), ".claude", "workspace", "markers",
+    p = os.path.join(_paths.state_dir(), "markers",
                      (sid or "unknown") + ".json")
     try:
         return json.load(open(p, encoding="utf-8"))

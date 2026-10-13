@@ -159,8 +159,12 @@ def _sign(sender, to, mtype, subj, approval, ts, body):
         return ""
     # el body se firma NORMALIZADO igual que lo devuelve _parse (.strip()) — si no,
     # el '\n' final del archivo escrito rompería el roundtrip firma/verify.
+    # Saltos de línea normalizados: al releer, universal-newlines convierte
+    # \r\n y \r sueltos en \n — un body con CRLF fallaba verify() y el
+    # autónomo lo trataba como forjado (auditoría 2026-07).
+    nbody = str(body or "").replace("\r\n", "\n").replace("\r", "\n").strip()
     payload = "\x1f".join([str(sender), str(to), str(mtype), str(subj),
-                           "1" if approval else "0", str(ts), str(body or "").strip()])
+                           "1" if approval else "0", str(ts), nbody])
     return _hmac.new(key, payload.encode("utf-8", "replace"), hashlib.sha256).hexdigest()
 
 
@@ -277,9 +281,49 @@ def _bus_secret_block(subj, body, strict=False):
         except Exception:
             pass
         return False
+    text = (subj or "") + "\n" + (body or "")
+    # STRICT (relay autónomo): NO delegar la decisión a gate_text. gate_text es
+    # fail-soft POR DISEÑO (regla 6: un crash no bloquea) y devuelve [] tanto si
+    # el override de entorno está activo como si el escáner se cayó — o sea, los
+    # dos caminos reales por los que el gate queda ciego eran fail-OPEN aquí,
+    # pese a que el docstring promete fail-closed. Auditoría 2026-07: solo el
+    # ImportError estaba cubierto.
+    if strict:
+        # (a) WORKSPACE_ALLOW_SECRET es un escape INTERACTIVO (el socio decide con
+        # el contenido enfrente). El relay autónomo no tiene a quién preguntarle:
+        # si el daemon heredó la env var del shell del socio, bloquea igual.
+        try:
+            if secret_scan.env_override_active():
+                try:
+                    print("⚠ relay autónomo BLOQUEADO: WORKSPACE_ALLOW_SECRET está "
+                          "activo — el override es interactivo, no aplica al bus "
+                          "autónomo (fail-closed)", file=sys.stderr)
+                except Exception:
+                    pass
+                return True
+        except Exception:
+            return True          # ni eso se pudo evaluar → bloquear
+        # (b) escanear directo: si scan_text levanta, BLOQUEAR (no publicar sin gate).
+        try:
+            findings = secret_scan.scan_text(text)
+        except Exception as exc:
+            try:
+                print("⚠ relay autónomo BLOQUEADO: el escáner falló (%s) — no se "
+                      "publica sin escanear (fail-closed)" % type(exc).__name__,
+                      file=sys.stderr)
+            except Exception:
+                pass
+            return True
+        if findings:
+            try:
+                print(secret_scan.block_message(findings, "mensaje del bus"),
+                      file=sys.stderr)
+            except Exception:
+                pass
+            return True
+        return False
     try:
-        findings = secret_scan.gate_text((subj or "") + "\n" + (body or ""),
-                                         where="mensaje del bus")
+        findings = secret_scan.gate_text(text, where="mensaje del bus")
         if findings:
             try:
                 print(secret_scan.block_message(findings, "mensaje del bus"),
@@ -288,7 +332,9 @@ def _bus_secret_block(subj, body, strict=False):
                 pass
             return True
     except Exception:
-        return False
+        # interactivo → fail-open (no romper el bus). El strict ya retornó arriba,
+        # así que aquí `strict` es False; se deja explícito por si eso cambia.
+        return bool(strict)
     return False
 
 
@@ -317,7 +363,8 @@ def send(from_agent, to_agent, type, subject, body="", requires_approval=False,
             targets = [a for a in sorted(bm) if _safe_name(a) != sender]
         else:
             targets = [to_raw]
-        gbody = str(body or "")[:_CLIP_BODY]
+        gbody = (str(body or "").replace("\r\n", "\n")
+                 .replace("\r", "\n"))[:_CLIP_BODY]
         # A7 · gate de secretos ANTES de escribir: el cuerpo se sincroniza a todos
         # los cerebros; un secreto ahí ya es una fuga de equipo. Bloquea (no envía
         # nada) y dice cómo saltarlo; falla-suave si secret_scan no está.

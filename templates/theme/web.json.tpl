@@ -1,0 +1,21 @@
+{
+  "bg": "{{ background }}",
+  "surface": "{{ surface }}",
+  "surface2": "{{ mix surface foreground 4% }}",
+  "surface3": "{{ mix surface foreground 8% }}",
+  "border": "{{ border }}",
+  "border-hi": "{{ mix border foreground 15% }}",
+  "text": "{{ foreground }}",
+  "dim": "{{ muted }}",
+  "faint": "{{ faint }}",
+  "accent": "{{ accent }}",
+  "accent-hi": "{{ accent_hi }}",
+  "accent-soft": "{{ alpha accent 0.12 }}",
+  "accent-line": "{{ alpha accent 0.35 }}",
+  "accent-2": "{{ accent_2 }}",
+  "red": "{{ danger }}",
+  "amber": "{{ warning }}",
+  "blue": "{{ info }}",
+  "green": "{{ success }}",
+  "grey": "{{ faint }}"
+}

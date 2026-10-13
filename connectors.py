@@ -740,6 +740,18 @@ def provider_status(provider):
         st["cli_present"] = bool(cst and cst.get("binary_in_path"))
         st["install_cmd"] = list(info.get("install_cmd") or [])
         st["login_cmd"] = list(info.get("login_cmd") or [])
+        # U02: instalador OFICIAL por plataforma (engine_install) — fuente,
+        # comando y prerequisitos visibles ANTES de confirmar.
+        try:
+            import engine_install
+            rec = engine_install.recipe(cli)
+        except Exception:
+            rec = None
+        if rec:
+            st["install_cmd"] = rec["cmd"]
+            st["install_source"] = rec["source"]
+            st["install_missing"] = engine_install.missing_prereqs(rec)
+            st["install_note"] = rec["note"]
         st["action"] = "cli_login"
         st["action_hint"] = " ".join(st["login_cmd"]) or ("%s login" % cli)
         if st["cli_present"]:

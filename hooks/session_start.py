@@ -33,8 +33,19 @@ def _stdin():
         return {}
 
 
+def _state_dir():
+    """Dir de estado per-máquina vía el resolver único (`paths.py`, en la raíz
+    de WORKSPACE = padre de hooks/). append (no insert) para no alterar qué
+    módulo homónimo de hooks/ gana en sys.path."""
+    _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _root not in sys.path:
+        sys.path.append(_root)
+    import paths
+    return paths.state_dir()
+
+
 def _marker_path(sid):
-    d = os.path.join(os.path.expanduser("~"), ".claude", "workspace", "markers")
+    d = os.path.join(_state_dir(), "markers")
     os.makedirs(d, exist_ok=True)
     return os.path.join(d, (sid or "unknown") + ".json")
 

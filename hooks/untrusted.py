@@ -38,6 +38,7 @@ import datetime
 import json
 import os
 import re
+import sys
 
 # ── (a) wrap anti-breakout ─────────────────────────────────────────────────
 BEGIN = "<<<WORKSPACE_UNTRUSTED_DATA>>>"
@@ -163,9 +164,19 @@ def scan(text):
     return findings
 
 
+def _state_dir():
+    """Dir de estado per-máquina vía el resolver único (`paths.py`, en la raíz
+    de WORKSPACE = padre de hooks/). append (no insert) para no alterar qué
+    módulo homónimo de hooks/ gana en sys.path."""
+    _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _root not in sys.path:
+        sys.path.append(_root)
+    import paths
+    return paths.state_dir()
+
+
 def _findings_dir():
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace",
-                        "untrusted-findings")
+    return os.path.join(_state_dir(), "untrusted-findings")
 
 
 def log_findings(findings, source, brain=None):

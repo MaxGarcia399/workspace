@@ -31,6 +31,7 @@ Contrato:
 Cero dependencias (stdlib, Python 3.9+). Mac y Windows.
 """
 import json
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import os
 
 # ── registro de ACCIONES (orden = orden de la pantalla «Atajos») ───────────
@@ -49,7 +50,7 @@ _AGENTES = tuple(
 RESERVADAS = frozenset("q taexfdnpl".replace(" ", "")) | frozenset((" ",))
 
 # ── sección «menú»: DERIVADA del menú REAL del hub (front.menu_entries) ───
-# Una sección nueva del MENÚ (Dev, GitHub, futuras) aparece aquí SOLA —
+# Una sección nueva del MENÚ (Dev, futuras) aparece aquí SOLA —
 # con tecla default estable si es conocida, o auto-derivada de su etiqueta
 # — y queda re-mapeable en «Atajos» sin tocar este archivo.
 #
@@ -57,11 +58,8 @@ RESERVADAS = frozenset("q taexfdnpl".replace(" ", "")) | frozenset((" ",))
 # registro de siempre) + la fuente de las teclas default CONOCIDAS y de las
 # descripciones curadas por token. El orden/la presencia los manda el hub.
 _MENU_BASE = (
-    ("menu.__ramas__", "r", "GitHub",
-     "abre tus repos: mapa local de ramas + PRs/issues/releases vía gh"),
-    ("menu.__devmap__", "v", "Dev",
-     "abre el detrás de workspace: referencia de comandos + mapa del "
-     "pipeline (solo el dueño/dev la ve)"),
+    ("menu.__devmap__", "v", "Comandos",
+     "abre la referencia de comandos de la terminal"),
     ("menu.__cal__", "c", "Calendario",
      "abre el editor de agenda a pantalla completa"),
     ("menu.__tono__", "o", "Tono",
@@ -70,11 +68,17 @@ _MENU_BASE = (
      "abre esta pantalla — re-mapea cualquiera de estas teclas"),
     ("menu.__doctor__", "u", "Actualizaciones",
      "revisar · reparar · actualizar el harness"),
-    ("menu.__agentes__", "b", "Agentes", "configuración y cerebro de cada agente"),
     ("menu.__add_agent__", "g", "Agregar agente",
      "crear o cargar un agente nuevo"),
+    ("menu.__agentes__", "b", "Agentes",
+     "abre la configuración y el cerebro de cada agente: config, árbol "
+     "real, skills, rutas y ciclo de vida (solo lectura)"),
 )
 _MENU_DEFAULTS = {a[0]: a[1] for a in _MENU_BASE}
+# «Motores» conserva su tecla `s` (antes auto-derivada con la `r` tomada por
+# GitHub, hoy aparcada en feat/github): fijada para que no salte a `r`. Solo
+# tecla — su descripción sigue auto-derivada (traducida) de menu_entries.
+_MENU_DEFAULTS["menu.__motores__"] = "s"
 _MENU_DESCS = {a[0]: a[3] for a in _MENU_BASE}
 
 _ACCIONES = (
@@ -168,7 +172,7 @@ def _path():
         return os.path.join(os.path.dirname(_st.store_path()),
                             "keybinds.json")
     except Exception:
-        return os.path.join(os.path.expanduser("~"), ".claude", "workspace",
+        return os.path.join(_paths.state_dir(),
                             "keybinds.json")
 
 
@@ -234,8 +238,52 @@ def by_key():
     return {k: aid for aid, k in effective().items() if k}
 
 
+def _tr(key, es, **kw):
+    """i18n falla-suave: `key` en el idioma activo; sin i18n / clave faltante
+    → el español inline `es` (paridad exacta). .format(**kw) falla-suave."""
+    s = es
+    try:
+        import i18n
+        v = i18n.t(key)
+        if v != key:
+            s = v
+    except Exception:
+        s = es
+    if kw:
+        try:
+            return s.format(**kw)
+        except Exception:
+            return s
+    return s
+
+
+def _menu_live():
+    """{id: (etiqueta, tagline)} del MENÚ del hub en el idioma ACTIVO
+    (front.menu_entries se traduce en vivo; _BY_ID guarda la etiqueta del
+    idioma de cuando se importó). Falla-suave: {}."""
+    try:
+        import front as _front
+        return {"menu." + str(t): (str(l), str(g))
+                for t, l, g in _front.menu_entries()}
+    except Exception:
+        return {}
+
+
 def label(aid):
-    return _BY_ID.get(aid, ("", "", aid, ""))[2]
+    """Etiqueta de la acción en el idioma ACTIVO (la usan los mensajes de
+    set_key/clear y el listado): menú en vivo, agente N / acciones por i18n."""
+    base = _BY_ID.get(aid, ("", "", aid, ""))[2]
+    if aid.startswith("menu."):
+        live = _menu_live().get(aid)
+        if live and live[0]:
+            return live[0]
+    elif aid.startswith("agente."):
+        return _tr("atajos.label.agent", "agente {n}", n=aid.split(".", 1)[1])
+    elif aid == "accion.motor":
+        return _tr("atajos.label.motor", base)
+    elif aid == "accion.info":
+        return _tr("atajos.label.info", base)
+    return base
 
 
 def desc(aid):
@@ -257,25 +305,30 @@ def set_key(aid, key):
     el msg siempre dice qué pasó (guardado / reservada / colisión con
     quién / inválida). Asignar el default borra el override (queda limpio)."""
     if aid not in _BY_ID:
-        return False, "acción desconocida"
+        return False, _tr("atajos.kb.unknown", "acción desconocida")
     k = _norm(key)
     if not k:
-        return False, "tecla inválida — debe ser UN carácter imprimible"
+        return False, _tr("atajos.kb.invalid",
+                          "tecla inválida — debe ser UN carácter imprimible")
     if k in RESERVADAS:
-        return False, "«%s» está reservada (q sale · t/a/e/x/f/d/n/p son " \
-                      "de otras pantallas)" % key
+        return False, _tr("atajos.kb.reserved",
+                          "«{k}» está reservada (q sale · t/a/e/x/f/d/n/p son "
+                          "de otras pantallas)", k=key)
     dueño = by_key().get(k)
     if dueño and dueño != aid:
-        return False, "«%s» ya la usa %s — libérala primero" \
-            % (k, label(dueño))
+        return False, _tr("atajos.kb.taken",
+                          "«{k}» ya la usa {label} — libérala primero",
+                          k=k, label=label(dueño))
     ov = overrides()
     if k == default_of(aid):
         ov.pop(aid, None)                 # volver al default = sin override
     else:
         ov[aid] = k
     if not _save(ov):
-        return False, "no pude guardar el registro — queda igual"
-    return True, "%s → «%s» · guardado ✓" % (label(aid), k)
+        return False, _tr("atajos.kb.save_fail_reg",
+                          "no pude guardar el registro — queda igual")
+    return True, _tr("atajos.kb.saved", "{label} → «{k}» · guardado ✓",
+                     label=label(aid), k=k)
 
 
 def clear(aid):
@@ -284,23 +337,31 @@ def clear(aid):
     if aid in ov:
         ov.pop(aid)
         if not _save(ov):
-            return False, "no pude guardar — queda igual"
-    return True, "%s → default «%s» ✓" % (label(aid), default_of(aid))
+            return False, _tr("atajos.kb.save_fail",
+                              "no pude guardar — queda igual")
+    return True, _tr("atajos.kb.cleared", "{label} → default «{k}» ✓",
+                     label=label(aid), k=default_of(aid))
 
 
 def reset_all():
     """Borra TODOS los overrides (defaults de fábrica). (ok, msg)."""
     if not _save({}):
-        return False, "no pude guardar — queda igual"
-    return True, "todas las teclas en default ✓"
+        return False, _tr("atajos.kb.save_fail",
+                          "no pude guardar — queda igual")
+    return True, _tr("atajos.kb.reset_all", "todas las teclas en default ✓")
 
 
 def imprimir():
     """Listado plano (fallback sin terminal interactiva)."""
     eff = effective()
-    print("atajos del hub (per-máquina: %s)" % _path())
+    print(_tr("atajos.kb.list_head", "atajos del hub (per-máquina: {ruta})",
+              ruta=_path()))
+    _grp = {"agentes": ("atajos.group.agents", "agentes"),
+            "menú": ("atajos.group.menu", "menú"),
+            "acciones rápidas": ("atajos.group.actions", "acciones rápidas")}
     for titulo, ids in GRUPOS:
-        print("\n%s" % titulo)
+        gk = _grp.get(titulo)
+        print("\n%s" % (_tr(gk[0], gk[1]) if gk else titulo))
         for aid in ids:
             k = eff.get(aid) or "—"
             marca = " ●" if es_custom(aid) else ""

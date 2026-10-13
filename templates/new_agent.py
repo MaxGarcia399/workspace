@@ -39,7 +39,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))          # WORKSPACE/templates
 WORKSPACE = os.path.dirname(HERE)                            # WORKSPACE/
 TEMPLATE = os.path.join(HERE, "agent")
 COLORS = ("dorado", "coral", "verde", "azul", "morado", "cyan", "gris")
-TAKEN = {"zenith": "dorado", "atlas": "coral", "argus": "verde"}  # paletas ya ocupadas
 TEXT_EXT = {".md", ".json", ".py", ".gitignore", ".txt", ".yml", ".yaml"}
 PLACEHOLDER = re.compile(r"\{\{[A-Z_]+\}\}")
 
@@ -138,6 +137,31 @@ def leftover_placeholders(paths):
     return bad
 
 
+def taken_palettes(agents_dir):
+    """{agente: paleta} de los agentes YA registrados en `agents_dir`, DERIVADO
+    (no hardcode): registry.json + `palette` de cada agents/<dir>/agent.json. Un
+    template distribuido no debe traer nombres de agentes de nadie como default
+    (Z23 · contrato de paquete). Falla-suave → {} (sin reservas)."""
+    out = {}
+    try:
+        with open(os.path.join(agents_dir, "registry.json"), encoding="utf-8") as fh:
+            reg = json.load(fh)
+    except Exception:
+        return out
+    for a in reg.get("agents", []):
+        if not isinstance(a, dict) or not a.get("name"):
+            continue
+        pal = ""
+        try:
+            with open(os.path.join(agents_dir, a.get("dir") or a["name"], "agent.json"),
+                      encoding="utf-8") as fh:
+                pal = str(json.load(fh).get("palette", ""))
+        except Exception:
+            pass
+        out[a["name"]] = pal if pal in COLORS else ""
+    return out
+
+
 def register(agents_dir, name):
     """Mueve el agente a `agents` en registry.json (idempotente)."""
     reg_path = os.path.join(agents_dir, "registry.json")
@@ -167,14 +191,15 @@ def instantiate(args):
     agent_dest = os.path.join(agents_dir, name)
 
     # ── guardas: jamás tocar lo existente ──
-    if name in TAKEN and not args.brain_dest:
+    taken = taken_palettes(agents_dir)
+    if name in taken and not args.brain_dest:
         sys.exit(f"new_agent: '{name}' es un agente existente — no se sobreescribe.")
     for d in (brain_dest, agent_dest):
         if os.path.exists(d):
             sys.exit(f"new_agent: el destino ya existe — no se toca: {d}")
     if args.color not in COLORS:
         sys.exit(f"new_agent: color '{args.color}' no existe. Opciones: {', '.join(COLORS)}")
-    clash = [a for a, c in TAKEN.items() if c == args.color]
+    clash = [a for a, c in taken.items() if c == args.color]
     if clash and not args.force_color:
         sys.exit(f"new_agent: la paleta '{args.color}' ya es de {clash[0]} "
                  f"(--force-color para usarla igual)")

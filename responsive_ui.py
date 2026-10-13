@@ -22,7 +22,7 @@ def small(w, h):
 def plain(line):
     return ANSI.sub('', line)
 
-def frame(lines, w, h, state=None, focus=None, title='WORKSPACE', exit_hint='q vuelve'):
+def frame(lines, w, h, state=None, focus=None, title='WORKSPACE', exit_hint=None):
     """Bound a frame without losing content: auto-focus or explicit scroll."""
     state = state if state is not None else {}
     width, height = max(1, w - 1), max(1, h - 1)
@@ -55,8 +55,14 @@ def frame(lines, w, h, state=None, focus=None, title='WORKSPACE', exit_hint='q v
     state['_viewport_start'] = start
     rows = body[start:start + cap]
     rows += [''] * (cap - len(rows))
-    hint = '%s · Ctrl+B/F desplaza · %d-%d/%d' % (exit_hint, start + 1, min(len(body), start + cap), len(body))
-    return [HL.clip(title, width), HL.clip(NOTICE, width)] + rows + [HL.clip(hint, width)]
+    if exit_hint is None:
+        exit_hint = HL._t('hub.viewport.back', 'q vuelve')
+    hint = '%s · %s · %d-%d/%d' % (exit_hint,
+                                   HL._t('hub.viewport.scroll', 'Ctrl+B/F desplaza'),
+                                   start + 1, min(len(body), start + cap), len(body))
+    return ([HL.clip(title, width),
+             HL.clip(HL._t('hub.fullscreen_notice', NOTICE), width)]
+            + rows + [HL.clip(hint, width)])
 
 def page_key(state, key):
     if key not in ('\x02', '\x06') or not state.get('_viewport_active'):
@@ -85,22 +91,48 @@ def renderer(fn, title):
         state['_viewport_active'] = False
         state['_size_blocked'] = not supported(w, h)
         if state['_size_blocked']:
-            return size_notice(title, w, h)
+            section = {'TONO': 'tono', 'CALENDARIO': 'calendario',
+                       'ACTUALIZACIONES': 'actualizaciones', 'ATAJOS': 'atajos',
+                       'GITHUB': 'github', 'RAMAS': 'github', 'DEV': 'dev',
+                       'ONBOARDING': 'onboarding', 'AGREGAR AGENTE': 'crear',
+                       'ADD AGENT': 'crear'}.get(title)
+            word = HL._t('section.title.' + section, title) if section else title
+            return size_notice(word, w, h)
         return fn(state, w, h)
 
     return wrapped
 
+_LAST_SIZE = [None]
+
+
 def paint(tout, lines, first=False):
-    out = '\033[2J\033[3J\033[H' if first else '\033[H'
+    """Pinta un frame completo. Al cambiar el tamaño de la ventana limpia
+    todo (la terminal re-envuelve el frame viejo y deja basura), y recorta
+    cada línea al ancho y el frame al alto: una línea que se envuelve o un
+    frame más alto que la ventana hacen scroll y rompen el `\\033[H`."""
+    import os
+    try:
+        ts = os.get_terminal_size()
+        size = (ts.columns, ts.lines)
+    except Exception:
+        size = None
+    changed = size is not None and _LAST_SIZE[0] not in (None, size)
+    _LAST_SIZE[0] = size
+    if size:
+        cols, rows = size
+        lines = [HL.clip(line, max(1, cols - 1)) for line in list(lines)[:max(1, rows)]]
+    out = '\033[2J\033[3J\033[H' if (first or changed) else '\033[H'
     out += '\r\n'.join('\r\033[K' + line for line in lines)
     # Clear the old frame after shrinking or changing modes.
     tout.write(out + '\033[J')
     tout.flush()
 
 
-def hub_frame(lines, w, h, focus=0, title='WORKSPACE', hint='↑↓ sección · ◄► elige · Enter · q'):
+def hub_frame(lines, w, h, focus=0, title='WORKSPACE', hint=None):
     """Small themed box, preserving hub navigation and focused option."""
     import tuitheme
+    if hint is None:
+        hint = HL._t('hub.frame.hint', '↑↓ sección · ◄► elige · Enter · q')
     palette = tuitheme.palette()
     accent = palette.B
     reset = '\033[0m'
@@ -154,61 +186,19 @@ def centered(lines, w, h):
 
 def size_notice(title, w, h):
     pw = min(70, max(8, w - 5))
-    body = ['', 'AJUSTA EL TAMAÑO DE LA VENTANA', '',
-            'Horizontal: 100 columnas × 36 filas',
-            'Vertical:    72 columnas × 50 filas',
-            'Tu ventana: %d columnas × %d filas' % (w, h), '',
-            'Amplía la ventana o usa pantalla completa.',
-            'La sección vuelve automáticamente al caber.', '',
-            'q / Esc: volver al hub']
+    _ = HL._t
+    body = ['', _('hub.size.title', 'AJUSTA EL TAMAÑO DE LA VENTANA'), '',
+            _('hub.size.horizontal', 'Horizontal: 100 columnas × 36 filas'),
+            _('hub.size.vertical', 'Vertical:    72 columnas × 50 filas'),
+            _('hub.size.yours', 'Tu ventana: {w} columnas × {h} filas', w=w, h=h), '',
+            _('hub.size.enlarge', 'Amplía la ventana o usa pantalla completa.'),
+            _('hub.size.returns', 'La sección vuelve automáticamente al caber.'), '',
+            _('hub.size.back_hub', 'q / Esc: volver al hub')]
     if h < 15:
-        body = ['Amplía la ventana', '100 × 36 horizontal', '72 × 50 vertical', 'q / Esc: volver']
+        body = [_('hub.size.enlarge_short', 'Amplía la ventana'),
+                _('hub.size.h_short', '100 × 36 horizontal'),
+                _('hub.size.v_short', '72 × 50 vertical'),
+                _('hub.size.back', 'q / Esc: volver')]
         body = body[:max(0, h - 3)]
     return centered(box(title, body, pw, True), w, h)
 
-def vertical_hub(agents, menu, pins, w, h, focus, agent_idx, menu_idx, pin_idx,
-                 langs=None, lang_idx=0):
-    """Hub de ventana ALTA/ANGOSTA. `langs` (opcional): filas del cuadro
-    IDIOMA ya formateadas (nombre + marca del activo) — se pinta como una
-    sección navegable más (focus == 'idioma'), bajo «TEMAS Y AJUSTES», para
-    que el control de idioma NO falte en la ventana doble (regla dura del
-    estilo TUI). Sin `langs` la pantalla es la de siempre."""
-    import tuitheme
-    p = tuitheme.palette()
-    pw = w - 5
-    K = HL.cols(p)
-    lines = ['', ''] + HL.big_title(K, pw + 1, h, center=True)
-    lines += HL.title_reflection(K, pw + 1, center=True) + ['']
-    # La 4ª sección (IDIOMA) es chica (2 opciones): le reservamos un cap fijo
-    # pequeño y el resto se reparte entre las tres grandes, como antes.
-    lang_rows = list(langs or ())
-    lang_cap = len(lang_rows) if lang_rows else 0
-    available = max(3, h - 1 - len(lines) - 12 - (lang_cap + 3 if lang_cap else 0))
-    caps = [max(1, available * 45 // 100), max(1, available * 40 // 100)]
-    caps.append(max(1, available - sum(caps)))
-    groups = [(HL._t('hub.section.agents', 'AGENTES'), agents, agent_idx, 'dioses'),
-              (HL._t('hub.section.menu', 'MENÚ'), menu, menu_idx, 'tools'),
-              (HL._t('hub.section.settings', 'TEMAS Y AJUSTES'), pins, pin_idx,
-               'latido')]
-    for (label, values, selected, key), cap in zip(groups, caps):
-        start = max(0, min(selected - cap // 2, len(values) - cap))
-        body = [('> ' if i == selected and focus == key else '  ') + value
-                for i, value in enumerate(values) if start <= i < start + cap]
-        body += [''] * max(0, cap - len(body))
-        lines += box(label, body, pw, focus == key) + ['']
-    if lang_rows:                                   # CUADRO IDIOMA · navegable
-        body = [('> ' if i == lang_idx and focus == 'idioma' else '  ') + v
-                for i, v in enumerate(lang_rows)]
-        lines += box(HL._t('hub.section.lang', 'IDIOMA · LANGUAGE'), body, pw,
-                     focus == 'idioma') + ['']
-    lines += [HL.clip(HL.keyline(K, (
-                  ('↑↓', HL._t('common.hint.section', 'sección')),
-                  ('◄►', HL._t('common.hint.pick', 'elige')),
-                  ('Enter', HL._t('common.hint.enter', 'entra')),
-                  ('m', HL._t('common.hint.engine', 'motor')),
-                  ('i', HL._t('common.hint.info', 'información')),
-                  ('q', HL._t('common.hint.terminal', 'terminal'))),
-                                 pw), pw),
-              HL.clip(HL._t('hub.fullscreen_notice',
-                            'Pantalla completa: experiencia completa'), pw)]
-    return centered(lines, w, h)

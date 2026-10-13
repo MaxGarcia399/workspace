@@ -47,6 +47,7 @@ import datetime
 import os
 import sys
 import time
+from theme import screen as _theme_screen  # fondo/tinta del tema
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 if ROOT not in sys.path:
@@ -357,7 +358,7 @@ def _proximos(S, K, inner, maxl):
                             e.get("title") or ""))
     if not evs:
         return []
-    # misma versalita sobre regla que las columnas del layout `dia` del hub
+    # versalita sobre regla (el lenguaje de títulos de sección del hub)
     etq = " %s%s%s " % (K["B2"] + K["BO"], _t("cal.box.upcoming", "PRÓXIMOS"), K["R"])
     resto = max(0, inner - HL.vis(etq))
     out = ["", "%s%s%s%s%s%s" % (K["DK"], K["SEP"] * (resto // 2), etq,
@@ -524,7 +525,7 @@ def render(S, w, h):
         return _gcal_render(S, K, w, h)
     pares = _pares()
     # cabecera COMPARTIDA (wordmark + subtítulo + atajos clave + regla)
-    L = HL.screen_header(K, w, h, _t("cal.subtitle", "calendario"), hints=pares)
+    L = HL.screen_header(K, w, h, _t("cal.subtitle", "calendario"), hints=pares, word=HL.section_word('calendario'))
     top = len(L)
     mes_title = _t("cal.box.month_title", "MES · {month} {year}",
                    month=_mes_largo(S["sel"].month), year=S["sel"].year)
@@ -546,10 +547,10 @@ def render(S, w, h):
     # el DÍA recibe el alto REAL que tendrá la caja (el que fija la rejilla,
     # topado por la terminal) para que PRÓXIMOS llene el hueco sin cortarse
     dia = _dia_body(S, K, rw - 4,
-                    alto=min(max((h - 1) - top - 3, 8), len(mes) + 4) - 2)
+                    alto=min(max((h - 1) - top - 5, 8), len(mes) + 4) - 2)
     # alto: lo que pidan las cajas + dos filas de aire, sin estirarse hasta
     # el borde (un hueco de quince renglones no es diseño, es sobra)
-    ch = min(max((h - 1) - top - 3, 8),
+    ch = min(max((h - 1) - top - 5, 8),
              max(len(mes), len(dia)) + 4)
     izq = HL.full_box(mes_title,
                       mes, K, lw, ch - 2, True, border=K["C"])
@@ -563,7 +564,7 @@ def render(S, w, h):
         L.append(" %s%s%s" % (K["B2"], S["msg"], K["R"]))
     else:
         L.append("")
-    L.append(HL.foot_hints(K, pares, w))
+    L.extend(HL.instruction_buttons(K, pares, w-1))
     # contrato de altura: SIEMPRE h-1 líneas exactas (pad con ""). Las
     # vistas (mes/día/detalle/editor/alta) cambian de alto entre sí y el
     # redraw es H + \033[K por línea: sin el pad, el pie de una vista alta
@@ -1083,8 +1084,8 @@ def _queue_render(S, K, w, h):
 # ── cuentas de Google Calendar (vista multi-cuenta, SOLO lectura) ───────────
 # Lee gcal.list_accounts()/add_account()/remove_account()/rename_account(),
 # todo FALLA-SUAVE: sin gcal (o en error) la vista queda vacía, nada levanta.
-# El modelo de cuenta tolera `kind` ("ical" hoy, "oauth" mañana) — seam limpio
-# para una futura cuenta de dos vías, sin construir OAuth aquí.
+# OAuth de escritorio comparte google_connect_ui con el onboarding;
+# los eventos de ambas conexiones siguen protegidos como solo lectura.
 def _gcal():
     try:
         import gcal
@@ -1134,7 +1135,8 @@ def _gcal_pares(S):
         return (("Enter", _t("cal.g.hint.confirm", "confirma")),
                 ("Esc", _t("cal.hint.cancel", "cancela")))
     return (("↑↓", _t("common.hint.pick", "elige")),
-            ("a", _t("cal.g.hint.add", "conecta")),
+            ("o", _t("cal.oauth.browser", "Google · navegador")),
+            ("a", _t("cal.g.hint.add", "iCal")),
             ("e", _t("cal.g.hint.rename", "renombra")),
             ("x", _t("cal.g.hint.remove", "quita")),
             ("q", _t("common.hint.menu", "menú")))
@@ -1143,30 +1145,33 @@ def _gcal_pares(S):
 def _g_state_label(st):
     return {"ok": _t("cal.g.state.ok", "conectado"),
             "error": _t("cal.g.state.error", "URL inválida"),
+            "sync_error": _t("cal.oauth.sync_error", "No se pudo actualizar · reintento automático"),
+            "reconnect": _t("cal.oauth.error.reconnect", "Sesión vencida · quita esta conexión y vuelve a conectar Google"),
             "nofetch": _t("cal.g.state.nofetch", "sin bajar aún")}.get(st, st)
 
 
 def _gcal_list_body(S, K, accts, inner):
     """Las cuentas vinculadas: nombre + punto de estado, y debajo host · estado ·
     nº eventos · última sync · (del sistema). «ninguna todavía» si vacío. Al pie,
-    la nota del seam de dos-vías (OAuth) — honesta: aún no existe."""
+    el acceso OAuth de navegador y la alternativa iCal."""
     out = []
     if not accts:
         out.append("%s%s%s" % (K["DK"], _t(
-            "cal.g.none", "ninguna todavía — conecta tu primer calendario con a"),
+            "cal.g.none", 'ninguna todavía — o conecta con Google · a conecta iCal'),
             K["R"]))
     else:
         sel = S.get("g_sel", 0) % len(accts)
         S["g_sel"] = sel
         dotc = {"ok": K["OK"], "error": (K["BAD"] or K["B"]),
-                "nofetch": K["DIM"]}
+                "nofetch": K["DIM"], "reconnect": (K["BAD"] or K["B"]),
+                "sync_error": (K["BAD"] or K["B"])}
         for i, a in enumerate(accts):
             cur = (K["C"] + K["BO"] + K["PTR"] + K["R"] + " ") if i == sel \
                 else "  "
             dot = "%s●%s" % (dotc.get(a["state"], K["DIM"]), K["R"])
             name = "%s%s%s" % ((K["WH"] + K["BO"]) if i == sel else K["GREY"],
                                a["label"], K["R"])
-            kind = _t("cal.g.kind.oauth", "dos vías") \
+            kind = _t("cal.g.kind.oauth", "Google · solo lectura") \
                 if a.get("kind") == "oauth" else _t("cal.g.kind.ical",
                                                     "iCal · solo lectura")
             out.append(HL.clip("%s%s %s   %s%s%s" % (
@@ -1190,7 +1195,7 @@ def _gcal_list_body(S, K, accts, inner):
     out.append("")
     out.append("%s%s%s" % (K["DIM"], _t(
         "cal.g.future",
-        "Pronto: cuentas de dos vías (OAuth) para editar desde aquí."), K["R"]))
+        'o · conectar con Google en el navegador · permisos de solo lectura'), K["R"]))
     return out
 
 
@@ -1257,7 +1262,7 @@ def _gcal_render(S, K, w, h):
     accts = _gcal_accounts()
     pares = _gcal_pares(S)
     L = HL.screen_header(K, w, h, _t("cal.g.subtitle",
-                                     "cuentas de google calendar"), hints=pares)
+                                     "cuentas de google calendar"), hints=pares, word=HL.section_word('calendario'))
     inner = w - 7
     view = S.get("g_view", "list")
     if view == "add":
@@ -1277,7 +1282,7 @@ def _gcal_render(S, K, w, h):
     L.append("")
     L.append((" %s%s%s" % (K["B2"], S.get("g_msg", ""), K["R"]))
              if S.get("g_msg") else "")
-    L.append(HL.foot_hints(K, pares, w))
+    L.extend(HL.instruction_buttons(K, pares, w-1))
     L = [HL.clip(x, w - 1) for x in L[:h - 1]]
     return L + [""] * max(0, (h - 1) - len(L))
 
@@ -1406,6 +1411,8 @@ def _gcal_key(S, key):
     if key in ("up", "down", "tab", "right_tab") and accts:
         step = -1 if key in ("up", "right_tab") else 1
         S["g_sel"] = (S.get("g_sel", 0) + step) % len(accts)
+    elif key in ("o", "O"):
+        S["await_google"] = True
     elif key in ("a", "A"):
         S.update(g_view="add", g_field=0, g_url="", g_label="", g_msg="")
     elif key in ("e", "E", "r", "R") and accts:
@@ -1579,7 +1586,7 @@ def _accion(S, key):
         return True
     if S["modo"] in ("add", "edit"):
         return _edit_key(S, key)
-    if key in ("q", "Q", "\x03"):
+    if key in ("q", "Q", "\x1b", "\x03"):   # Esc también regresa al hub
         return False
     if key in ("l", "L"):
         e = _sel_ev(S)
@@ -1664,6 +1671,14 @@ def _draw(tout, S, first=False):
         pass
 
 
+def _finish_google_connect(S):
+    import google_connect_ui
+    S["await_google"] = False
+    result = google_connect_ui.connect()
+    S["g_msg"] = google_connect_ui.result_message(result)
+    S["g_sel"] = 0
+
+
 def _run_unix(S):
     import select
     import termios
@@ -1707,6 +1722,18 @@ def _run_unix(S):
                 key = "tab"
             if not _accion(S, key):
                 break
+            if S.get("await_google"):
+                try:
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old)
+                    tout.write("\033[?1049l\033[?25h")
+                    tout.flush()
+                    _finish_google_connect(S)
+                finally:
+                    tty.setraw(fd)
+                    tout.write("\033[?1049h")
+                    tout.flush()
+                _draw(tout, S, first=True)
+                continue
             if S.get("await_attach"):
                 # sin imagen en portapapeles → prompt CLÁSICO fuera del
                 # alt-screen (raw mode no pega rutas fiables); modo cocido,
@@ -1766,6 +1793,16 @@ def _run_windows(S):
                 continue
             if not _accion(S, key):
                 break
+            if S.get("await_google"):
+                try:
+                    tout.write("\033[?1049l\033[?25h")
+                    tout.flush()
+                    _finish_google_connect(S)
+                finally:
+                    tout.write("\033[?1049h")
+                    tout.flush()
+                _draw(tout, S, first=True)
+                continue
             if S.get("await_attach"):
                 # sin imagen en portapapeles → prompt clásico fuera del alt-screen
                 tout.write("\033[?1049l\033[?25h")
@@ -1797,6 +1834,7 @@ def _listado():
     return P.main(["agenda"])
 
 
+@_theme_screen
 def run():
     S = {"sel": datetime.date.today(), "modo": "nav", "buf": "", "ev": 0,
          "msg": "", "editando": None, "evs": [], "campo": 0, "nbuf": ""}

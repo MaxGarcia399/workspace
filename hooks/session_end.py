@@ -30,8 +30,19 @@ def _stdin():
         return {}
 
 
+def _state_dir():
+    """Dir de estado per-máquina vía el resolver único (`paths.py`, en la raíz
+    de WORKSPACE = padre de hooks/). append (no insert) para no alterar qué
+    módulo homónimo de hooks/ gana en sys.path."""
+    _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _root not in sys.path:
+        sys.path.append(_root)
+    import paths
+    return paths.state_dir()
+
+
 def _marker_path(sid):
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace", "markers",
+    return os.path.join(_state_dir(), "markers",
                         (sid or "unknown") + ".json")
 
 
@@ -106,7 +117,7 @@ def _wt_log(agent, reason, res):
     rastro de QUÉ se liberó (y qué se dejó por estar sucio) queda aquí para
     auditoría. Best-effort; jamás rompe."""
     try:
-        d = os.path.join(os.path.expanduser("~"), ".claude", "workspace", "logs")
+        d = os.path.join(_state_dir(), "logs")
         os.makedirs(d, exist_ok=True)
         line = ("%s  agent=%s reason=%s removed=%s pooled=%s skipped_dirty=%s "
                 "stale=%s failed=%s\n") % (

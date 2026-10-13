@@ -44,6 +44,7 @@ Cero dependencias (stdlib, 3.9+). Mac y Windows (lsof ausente → esa guarda
 se salta con nota; el resto aplica igual).
 """
 import argparse
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import datetime
 import json
 import os
@@ -76,7 +77,7 @@ def _home():
 
 
 def trash_base():
-    return os.path.join(_home(), ".claude", "workspace", "trash")
+    return os.path.join(_paths.state_dir(_home()), "trash")
 
 
 # ── settings/lock (mismos patrones falla-suave del nightly) ───────────────

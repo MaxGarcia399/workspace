@@ -18,7 +18,6 @@ STRINGS = {
     "personalizacion.brightness.label": "Brightness",
     "personalizacion.redlight.label": "Red light (night mode)",
     "personalizacion.autostart.label": "Open when the terminal opens",
-    "personalizacion.stars.label": "Starry sky",
     "personalizacion.anim.label": "Animations",
 
     # ── explanatory text (what each control does) ───────────────────────────
@@ -48,10 +47,8 @@ STRINGS = {
         "`workspace` command (default, less invasive). Rewrites the greeter "
         "block in ~/.zshrc. env WORKSPACE_NO_GREETER=1 disables it no matter "
         "what.",
-    "personalizacion.stars.help":
-        "Static star field of the hub (front.py).",
     "personalizacion.anim.help":
-        "Animated hub menu and animated banner (without it: static + picker).",
+        "Interactive hub (without it: static list + numbered picker).",
 
     # ── background options (the SAVED value stays the raw id) ───────────────
     "personalizacion.background.opt.tema": "theme",
@@ -64,7 +61,6 @@ STRINGS = {
 
     # ── theme/layout picker (prompt + footer hint) ──────────────────────────
     "personalizacion.pick.what_theme": "theme",
-    "personalizacion.pick.what_layout": "layout",
     "personalizacion.pick.prompt": "  pick {what} ›  ",
     "personalizacion.pick.hint":
         "↑↓ or 1-9 to choose · Enter applies & saves · Esc cancels",
@@ -74,9 +70,6 @@ STRINGS = {
     "personalizacion.saved.theme":
         "saved: theme → {label} ({id}) — the hub paints it on reopen; "
         "the web panel on refresh",
-    "personalizacion.saved.layout":
-        "saved: layout → {label} ({id}) — the hub redraws this way on reopen "
-        "(workspace)",
 
     # ── BRIGHTNESS control (slider + live sample + states) ──────────────────
     "personalizacion.brightness.softer": "− dim",

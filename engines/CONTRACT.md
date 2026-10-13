@@ -1,10 +1,27 @@
 # Motores enchufables de WORKSPACE — contrato
 
 Un **motor** (engine) es el adapter que arranca un agente con un runtime de modelo concreto.
-WORKSPACE es vendor-neutral: el motor es la capa **enchufable**. Hoy hay tres: `claude-code`
-(real, premium), `stub` (eco sin LLM — prueba viva del switching, corrida E-1) y `ollama`
-(loop OpenAI-compat propio — el primer motor donde WORKSPACE arma el request, corrida E-2);
-mañana `openrouter`, `codex`, etc. **sin reescribir el dispatcher.**
+WORKSPACE es vendor-neutral: el motor es la capa **enchufable**. La lista real de motores es
+**`engines/*.py`** (sin `_` inicial — `dispatch.available_engines()`); lo que cada uno puede hacer
+lo declara su `CAPABILITIES` y lo evalúa por OS `capabilities.py`. Hoy:
+
+| Motor | Archivo | CLI oficial | Para quién |
+|---|---|---|---|
+| `claude-code` | `claude_code.py` | `claude` (Anthropic) | el más integrado: hooks reales, contexto inyectado, sesiones de Workspace, status en vivo |
+| `codex` | `codex.py` | `codex` (OpenAI) | envuelto: contexto por `AGENTS.md` puntero, sesiones de Workspace, sandbox nativo por flag |
+| `antigravity` | `antigravity.py` | `agy` (Google) | envuelto: contexto por `GEMINI.md` generado, sesiones de Workspace, sin headless |
+| `gemini` | `gemini.py` | — | **alias de compatibilidad**: re-exporta `antigravity` (bindings viejos `"engine": "gemini"`); `harnesses.installed()` lo oculta |
+| `stub` | `stub.py` | ninguno | eco sin LLM — prueba viva del cambio de motor; no se ofrece al usuario |
+
+Los motores **ofrecidos** al usuario (onboarding, selectores) son `claude-code`, `codex` y
+`antigravity` (`onboarding_tui.SOPORTADOS`, `harnesses._PREFERRED_ORDER`). Qué funciona con cada
+uno en cada sistema operativo: `manual/es/compatibilidad.md` (derivada de `capabilities.py`).
+
+> **Histórico:** existió un motor `ollama` (loop OpenAI-compat propio, corridas E-2/E-3); se
+> extrajo de `main` a la rama `feat/multi-engine` (commit `b7b321f`) y **no viaja**. Las
+> secciones de abajo que lo describen quedan como diseño de referencia para el primer motor
+> donde Workspace sea dueño del loop; `failover.py`, `providers/*.json` y `model_resolver.py`
+> sí siguen en `main`.
 
 > Vocabulario completo (engine vs provider vs model) y plan del ciclo: `research/motor2-plan.md`.
 > Desde la corrida E-1 la capa declarativa de providers está **implementada**
@@ -78,6 +95,11 @@ REGISTRO sobre los engines:
 | `status_live` | bool | ¿publica tarea-en-vivo (now.json/statusline de WORKSPACE)? |
 | `statusline` | `workspace` / `native-config` / `False` | info de abajo: scripts de brand de WORKSPACE · barra NATIVA del CLI configurada por el adapter (codex: `-c tui.status_line=[…]` por corrida — contexto %, límite 5h, semanal, modelo, permisos; datos reales del vendor, jamás fabricados) · nada |
 | `headless` | bool | ¿tiene `run_turn` one-shot? |
+
+Todas estas claves son **obligatorias** (`capabilities.ENGINE_KEYS`; lo exige
+`tests/test_capabilities.py`). La matriz EFECTIVA (OS + motor + dependencias:
+supported/unsupported/missing_dependency/unknown) la calcula
+`capabilities.py`; UI y doctor derivan de ahí.
 
 **En el hub**: la caja AGENTES muestra el binding del agente seleccionado
 (`motor ▸ claude-code ▾`); la tecla `m` lo cicla entre los harnesses elegibles
@@ -157,13 +179,16 @@ toda truncación deja marca visible). `claude-code` NO lo usa — el vendor comp
 
 ## Honestidad: qué provee cada motor
 
-| Capacidad | `claude-code` (motor #1) | motor #2 (stub hoy / ollama E-2) |
+| Capacidad | motores que envuelven un CLI oficial (`claude-code`, `codex`, `antigravity`) | motor dueño del loop (`stub` hoy; `ollama` en `feat/multi-engine`) |
 |---|---|---|
 | modelo activo, failover, compaction | lo hace el VENDOR por dentro; WORKSPACE no lo ve | lo resuelve WORKSPACE (resolver + budget + FAILOVER_REASONS) |
 | providers/*.json + engine_config | los IGNORA (suscripción tal cual) | los consume |
 | `pre_prompt` middleware (N9) | no expuesto por el vendor | posible: WORKSPACE arma el request |
 
-## El motor real #2: `engines/ollama.py` (✅ corrida E-2)
+## Referencia de diseño: el motor `ollama` (corrida E-2 — hoy fuera de `main`)
+
+> No está en `main` ni en el distro (ver nota histórica arriba). Se conserva como
+> especificación del primer motor donde Workspace arma el request.
 
 La promesa de E-1, cumplida sin tocar `dispatch.py`:
 

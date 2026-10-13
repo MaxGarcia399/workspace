@@ -7,31 +7,16 @@ STRINGS = {
     "common.hint.enter": "enter",
     "common.hint.terminal": "terminal",
     "common.hint.move": "move",
-    "common.hint.jump": "jump",
     "common.hint.quit": "quit",
     "common.hint.engine": "engine",
     "common.hint.info": "info",
     "common.hint.menu": "menu",
-    "common.hint.aim_open": "aim/open",
-    "common.hint.key": "key",
-    "common.hint.redlight": "red light",
 
     # ── agent status (badge + word) ─────────────────────────────────────────
-    "common.status.active": "active",
-    "common.status.in_use": "in use",
-    "common.status.ready": "ready",
-    "common.status.soon": "soon",
-    "common.status.idle": "idle",
     "common.status.working": "working",
     "common.status.running": "running",
 
     # ── git (repo state at a glance) ────────────────────────────────────────
-    "common.git.clean": "clean",
-    "common.git.dirty_mark": "± dirty",
-    "common.git.clean_short": "clean",
-    "common.git.dirty_short": "±dirty",
-    "common.git.uptodate": "up to date with origin",
-    "common.git.vs_origin": "vs origin",
 
     # ── relative age ────────────────────────────────────────────────────────
     "common.ago.sec": "{n}s ago",

@@ -44,6 +44,7 @@ Invariantes de seguridad (anti-vibe):
 Reusa el saneo y las cotas de `proyectos_store` (misma validación, sin drift).
 """
 import functools
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import json
 import os
 import re
@@ -89,7 +90,7 @@ def _now():
 def _workspace_dir():
     """Estado per-máquina. Función (no constante) para respetar el HOME parchado
     en los tests herméticos."""
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace")
+    return _paths.state_dir()
 
 
 def base_dir():

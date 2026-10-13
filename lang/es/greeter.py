@@ -12,4 +12,5 @@ STRINGS = {
     "greeter.hint.open": "abre",
     "greeter.hint.direct": "directo",
     "greeter.hint.quit": "sale",
+    "greeter.hint.back": "regresa",
 }

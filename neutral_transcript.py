@@ -303,7 +303,7 @@ def parse_codex(path):
         payload = d.get("payload")
         payload = payload if isinstance(payload, dict) else {}
         if t == "session_meta":
-            ses["id"] = payload.get("id", ses["id"]) or ses["id"]
+            ses["id"] = payload.get("session_id") or payload.get("id", ses["id"]) or ses["id"]
             ses["cwd"] = payload.get("cwd", ses["cwd"]) or ses["cwd"]
             git = payload.get("git")
             if isinstance(git, dict):
@@ -358,6 +358,38 @@ def parse_codex(path):
     return doc
 
 
+def parse_antigravity(path):
+    """Official hook transcript: visible completed dialogue only.
+
+    GENERIC contains tool output, not assistant dialogue. Never ingest
+    thinking, tools, system messages, or recursively search for text.
+    """
+    from pathlib import Path
+    name = Path(path).stem
+    sid = name[len("antigravity-"):] if name.startswith("antigravity-") else (Path(path).parents[2].name if name == "transcript" else name)
+    doc = empty_doc(id=sid, engine="antigravity", source_path=str(path))
+    steps = {}
+    for n, row in _iter_jsonl(path):
+        doc["session"]["n_source_lines"] = n
+        if not isinstance(row, dict):
+            continue
+        kind, source = row.get("type"), row.get("source")
+        role = {("USER_INPUT", "USER_EXPLICIT"): "user",
+                ("PLANNER_RESPONSE", "MODEL"): "assistant"}.get((kind, source))
+        text, idx = row.get("content"), row.get("step_index")
+        if (not role or row.get("status") != "DONE" or
+                not isinstance(text, str) or not text.strip() or
+                type(idx) is not int or idx < 0):
+            continue
+        ts = row.get("created_at")
+        steps[idx] = make_turn(role, text, ts if isinstance(ts, str) else "")
+    doc["turns"] = [steps[k] for k in sorted(steps)]
+    if doc["turns"]:
+        doc["session"]["first_ts"] = doc["turns"][0]["ts"]
+        doc["session"]["last_ts"] = doc["turns"][-1]["ts"]
+    return doc
+
+
 # ── detección + entrada única ──────────────────────────────────────────────
 _CODEX_TYPES = {"session_meta", "response_item", "event_msg", "turn_context",
                 "compacted"}
@@ -378,6 +410,10 @@ def detect_format(path, probe_lines=25):
                     break
                 continue
             t = d.get("type")
+            if (t in {"USER_INPUT", "PLANNER_RESPONSE", "GENERIC", "SYSTEM_MESSAGE"}
+                    and type(d.get("step_index")) is int
+                    and "source" in d and "status" in d):
+                return "antigravity"
             if t in _CODEX_TYPES and "payload" in d:
                 codex += 1
             elif t in _CLAUDE_TYPES:
@@ -393,7 +429,7 @@ def detect_format(path, probe_lines=25):
     return None
 
 
-PARSERS = {"claude-code": parse_claude_code, "codex": parse_codex}
+PARSERS = {"claude-code": parse_claude_code, "codex": parse_codex, "antigravity": parse_antigravity}
 
 
 def ingest(path):

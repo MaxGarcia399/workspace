@@ -116,7 +116,8 @@ except Exception:
 
 # ── rutas (funciones: respetan HOME parchado en tests) ──────────────────────
 def _workspace_dir():
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace")
+    import paths                       # SSOT de la ruta de estado per-máquina
+    return paths.workspace_dir()
 
 
 def changelog_path():
@@ -299,7 +300,6 @@ _ENV_LOCKS = {
     "hooks.memory_flush": "WORKSPACE_NO_MEMORY_FLUSH",
     "hooks.security_guidance": "WORKSPACE_NO_SECURITY_GUIDANCE",
     "hooks.telemetry": "WORKSPACE_NO_TELEMETRY",
-    "ui.stars": "WORKSPACE_NO_STARS",
     "ui.anim": "WORKSPACE_NO_ANIM",
     "modelos.default_engine": "WORKSPACE_ENGINE",
 }
@@ -637,7 +637,8 @@ def themes_effective():
 
 def set_theme_local(agent, palette, actor=""):
     """Escribe la paleta PERSONAL de `agent` en themes.local.json (per-máquina).
-    palette = {bg/fg/cursor: '#rrggbb'} · None = quitar el override local.
+    palette = {bg/fg/cursor: '#rrggbb', theme: '<id del hub>'} · None = quitar
+    el override local. `theme` hereda la paleta de themes/<id>/ (theme.py).
     JAMÁS toca themes.json del repo (eso es tier C — propuesta)."""
     name = str(agent or "").strip().lower()
     if not _NAME_RX.match(name):
@@ -646,9 +647,13 @@ def set_theme_local(agent, palette, actor=""):
         if not isinstance(palette, dict) or not palette:
             return {"ok": False, "error": "paleta vacía o inválida"}
         for k, v in palette.items():
+            if k == "theme":                 # referencia a un tema del hub (theme_render)
+                if not isinstance(v, str) or not _NAME_RX.match(v):
+                    return {"ok": False, "error": "theme espera un id de tema, no %r" % (v,)}
+                continue
             if k not in _THEME_KEYS:
                 return {"ok": False, "error": "clave de paleta desconocida %r "
-                                              "(válidas: bg/fg/cursor)" % k}
+                                              "(válidas: bg/fg/cursor/theme)" % k}
             if not isinstance(v, str) or not _HEX_RX.match(v):
                 return {"ok": False,
                         "error": "%s espera color hex #rrggbb, no %r" % (k, v)}

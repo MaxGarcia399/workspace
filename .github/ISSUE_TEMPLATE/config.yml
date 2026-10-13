@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: "Problema de seguridad · Security problem"
+    url: https://github.com/MaxGarcia399/workspace/security/advisories/new
+    about: "Repórtalo en privado, no en un issue público · Report it privately, not in a public issue"
+  - name: "Manual"
+    url: https://github.com/MaxGarcia399/workspace/tree/main/manual
+    about: "Instalar, actualizar, diagnóstico, desinstalar · Install, update, troubleshooting, uninstall"

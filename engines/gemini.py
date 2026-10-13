@@ -217,7 +217,13 @@ def _banner(cfg):
     """Arranque visible mínimo (Windows-safe: sin glifos 0x2600–0x27BF)."""
     name = str(cfg.get("display") or cfg.get("name", "agente")).upper()
     tag = str(cfg.get("tagline", ""))
-    C = "\033[38;5;75m"; D = "\033[38;5;240m"; R = "\033[0m"; B = "\033[1m"
+    C, D = "\033[38;5;75m", "\033[38;5;240m"
+    try:                                   # tema del hub
+        from engines import _ui
+        C, D = _ui.theme_cols(C, D)
+    except Exception:
+        pass
+    R = "\033[0m"; B = "\033[1m"
     bar = C + "═" * 52 + R
     try:
         sys.stdout.write("\033[2J\033[3J\033[H")

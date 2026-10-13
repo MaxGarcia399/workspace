@@ -19,6 +19,17 @@ import sys
 from engines import claude_code as _cc
 
 
+def theme_cols(accent, dim):
+    """(acento, tenue) del TEMA del hub para los banners mínimos de respaldo
+    de los motores; los colores fijos dados quedan si tuitheme no está."""
+    try:
+        import tuitheme
+        P = tuitheme.palette()
+        return P.C, P.DIM
+    except Exception:
+        return accent, dim
+
+
 def show_brain_banner(cfg, engine_label=""):
     """Mismo patrón que claude_code.launch: clear → banner del CEREBRO
     renderizado a buffer con width-check (jamás mostrarlo roto) → fallback
@@ -66,8 +77,11 @@ def pick_tab(cfg, preselect=None):
         return preselect["wid"], preselect.get("name", "")
     try:
         choice = _cc.pick(cfg)
-    except Exception:
+    except Exception as e:
         choice = ""
+        _cc.LAST_PICK_ERROR = "selector de pestañas falló (%s: %s)" % (
+            type(e).__name__, e)
+        _cc._session_log(cfg, cfg.get("_engine") or "?", _cc.LAST_PICK_ERROR)
     parts = (choice or "").split("\t")
     if len(parts) >= 3 and parts[0] == "WS":
         return parts[1], parts[2]
@@ -80,7 +94,57 @@ def export_tab_env(cfg, wid, name):
     try:
         os.environ["WORKSPACE_WS"] = name
         os.environ["WORKSPACE_WID"] = wid
-        os.environ[cfg.get("session_env", "ZENITH_WS")] = name
-        os.environ[cfg.get("session_id_env", "ZENITH_WID")] = wid
+        se, we = _cc.session_env_names(cfg)   # SSOT: default derivado del nombre
+        os.environ[se] = name
+        os.environ[we] = wid
+    except Exception:
+        pass
+
+
+# ── barra MÍNIMA de Workspace para motores sin statusline propia (U10/Z10) ──
+# agy (Antigravity CLI) no expone hook de statusline (verificado con
+# `agy --help`, 2026-10-10: sin opción de barra/status). En vez de inventar
+# hooks o secuestrar la pantalla del TUI, Workspace muestra lo que SÍ sabe:
+#   · una línea al arrancar con agente · pestaña · motor · permisos ·
+#     guardado de memoria;
+#   · el TÍTULO de la ventana de terminal (OSC 0) con lo mismo en corto —
+#     persiste mientras el TUI full-screen está arriba y no lo tapa.
+# Tokens/costo NO se muestran como números: el CLI no los publica
+# (desconocido ≠ 0).
+
+def status_fields(cfg, tab=None, engine_label="", perms="", saving=""):
+    """Campos REALES de la barra; los desconocidos se dicen como tales."""
+    return [("agente", str(cfg.get("display") or cfg.get("name") or "?")),
+            ("pestaña", (tab[1] if tab else "") or "sin pestaña"),
+            ("motor", engine_label or str(cfg.get("_engine") or "?")),
+            ("permisos", perms or "los del CLI"),
+            ("memoria", saving or "desconocido"),
+            ("tokens", "no publicados por el CLI")]
+
+
+def status_line(fields):
+    return " · ".join("%s %s" % (k, v) for k, v in fields)
+
+
+def show_status_bar(fields, out=None):
+    """Imprime la barra mínima y fija el título de la terminal (si es tty).
+    Falla-suave: jamás rompe un launch."""
+    out = out or sys.stdout
+    try:
+        out.write("\033[2m[WORKSPACE] %s\033[0m\n" % status_line(fields))
+        if getattr(out, "isatty", lambda: False)():
+            short = " · ".join(v for _k, v in fields[:4])
+            out.write("\033]0;%s\007" % short.replace("\007", ""))
+        out.flush()
+    except Exception:
+        pass
+
+
+def clear_title(out=None):
+    out = out or sys.stdout
+    try:
+        if getattr(out, "isatty", lambda: False)():
+            out.write("\033]0;\007")
+            out.flush()
     except Exception:
         pass

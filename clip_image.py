@@ -22,8 +22,6 @@ import subprocess
 import sys
 import tempfile
 
-#: formatos aceptados (magic bytes → extensión canónica)
-SUPPORTED = ("png", "jpg", "gif", "webp", "bmp")
 _CLIP_TIMEOUT = 8
 
 
@@ -148,7 +146,10 @@ def from_clipboard(platform=None):
     try:
         if plat == "darwin":
             return _mac_clipboard()
-        if plat.startswith("win") or os.name == "nt":
+        # `platform` explícito MANDA (os.name no lo anula: con platform="linux"
+        # en Windows se elegía el backend de Windows). Sin argumento,
+        # sys.platform ya es "win32" en Windows.
+        if plat.startswith("win"):
             return _windows_clipboard()
         return _linux_clipboard()
     except Exception:

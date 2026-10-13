@@ -29,6 +29,7 @@ msvcrt en Windows. Cero dependencias (stdlib, Python 3.9+).
 import os
 import sys
 import time
+from theme import screen as _theme_screen  # fondo/tinta del tema
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 if ROOT not in sys.path:
@@ -88,12 +89,13 @@ _GRP_KEY = {"agentes": "atajos.group.agents",
 # español—; agente.N se arma aparte por su {n}).
 _DESC_KEY = {"accion.motor": "atajos.desc.motor",
              "accion.info": "atajos.desc.info",
-             "menu.__ramas__": "atajos.desc.menu_github",
              "menu.__cal__": "atajos.desc.menu_cal",
              "menu.__tono__": "atajos.desc.menu_tono",
              "menu.__keybinds__": "atajos.desc.menu_keys",
              "menu.__doctor__": "atajos.desc.menu_updates",
-             "menu.__add_agent__": "atajos.desc.menu_addagent"}
+             "menu.__add_agent__": "atajos.desc.menu_addagent",
+             "menu.__devmap__": "atajos.desc.menu_comandos",
+             "menu.__agentes__": "atajos.desc.menu_agents"}
 
 
 def _tr_grupo(titulo):
@@ -103,8 +105,8 @@ def _tr_grupo(titulo):
 
 
 def _tr_label(aid):
-    """Etiqueta traducida de una acción. Las del MENÚ ya vienen traducidas de
-    menu_entries (keybinds.label) → se referencian tal cual."""
+    """Etiqueta traducida de una acción. Las del MENÚ salen EN VIVO de
+    menu_entries (keybinds.label las resuelve en el idioma activo)."""
     if aid.startswith("agente."):
         return _t("atajos.label.agent", KB.label(aid), n=aid.split(".", 1)[1])
     if aid == "accion.motor":
@@ -119,7 +121,20 @@ def _tr_desc(aid):
     if aid.startswith("agente."):
         return _t("atajos.desc.agent", KB.desc(aid), n=aid.split(".", 1)[1])
     key = _DESC_KEY.get(aid)
-    return _t(key, KB.desc(aid)) if key else KB.desc(aid)
+    if key:
+        return _t(key, KB.desc(aid))
+    if aid.startswith("menu."):
+        # sección SIN descripción curada (p. ej. Motores): se arma EN VIVO
+        # con la etiqueta/tagline del idioma activo (la de KB quedó congelada
+        # en el idioma de cuando se importó).
+        lbl, tag = KB._menu_live().get(aid, ("", ""))
+        if lbl:
+            if tag:
+                return _t("atajos.desc.menu_auto", "abre «{label}» — {tag}",
+                          label=lbl, tag=tag)
+            return _t("atajos.desc.menu_auto_bare", "abre «{label}»",
+                      label=lbl)
+    return KB.desc(aid)
 
 
 def _pares():
@@ -318,12 +333,12 @@ def render(S, w, h):
     # en captura los atajos de arriba cambian con el modo — nunca mienten
     L = HL.screen_header(K, w, h,
                          _t("atajos.sub", "atajos — tus teclas rápidas del hub"),
-                         hints=(_pares_cap() if S.get("cap") else _pares()))
+                         hints=(_pares_cap() if S.get("cap") else _pares()), word=HL.section_word('atajos'))
     top = len(L)
     apilado = w < 100
     lw = (w - 1) if apilado else max(32, min(40, (w - 6) * 42 // 100))
     rw = (w - 1) if apilado else (w - 1) - lw - 3
-    avail = max(8, (h - 1) - top - 3)
+    avail = max(8, (h - 1) - top - 5)
     bi = bd = None
     # apilado: las cajas van con pw = lw-1 y un espacio de sangría → el
     # cuerpo dispone de UNA columna menos que lado a lado
@@ -363,7 +378,7 @@ def render(S, w, h):
         L.append(" %s%s%s" % (K["B2"], S["msg"], K["R"]))
     else:
         L.append("")
-    L.append(HL.foot_hints(K, _pares_cap() if S.get("cap") else _pares(), w))
+    L.extend(HL.instruction_buttons(K, _pares_cap() if S.get("cap") else _pares(), w-1))
     return [HL.clip(x, w - 1) for x in L[:h - 1]]
 
 
@@ -498,6 +513,7 @@ def _run_windows(S):
     return 0
 
 
+@_theme_screen
 def run():
     """Abre la pantalla. Sin terminal interactiva cae al listado plano."""
     _rearmar_orden()

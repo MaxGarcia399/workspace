@@ -108,7 +108,7 @@ try:
     _gauge = os.path.join(os.path.expanduser("~"), ".claude", "workspace", "usage.json")
     os.makedirs(os.path.dirname(_gauge), exist_ok=True)
     _tmp = _gauge + ".tmp"
-    with open(_tmp, "w") as _f:
+    with open(_tmp, "w", encoding="utf-8") as _f:
         json.dump({"five_hour_pct": rl5p, "five_hour_resets_at": rl5r,
                    "seven_day_pct": rl7p, "seven_day_resets_at": rl7r,
                    "context_pct": pct, "stamped": int(_t.time())}, _f)
@@ -173,6 +173,17 @@ try:
 except Exception:
     pass
 
+# ── el COLOR es del TEMA del hub (el socio 2026-10-12) ──────────────────────
+# Igual que el banner y el fondo: la barra sale de la paleta del tema elegido
+# en el hub; la paleta de marca de arriba queda solo como respaldo.
+try:
+    _tc = agent_brand.theme_colors()
+    if _tc:
+        HEAD, MODEL, LBL, VAL, SEP, FILL, EMPT = (
+            _tc[k] for k in ("HEAD", "MODEL", "LBL", "VAL", "SEP", "FILL", "EMPT"))
+except Exception:
+    pass
+
 # ── i18n (falla-suave) — las etiquetas ESTÁTICAS de la statusline siguen el
 # idioma del socio (i18n.lang(): WORKSPACE_LANG > settings ui.lang > "es").
 # i18n vive en la raíz de WORKSPACE (_root, ya en sys.path arriba). Si no se
@@ -195,7 +206,7 @@ ver = None
 try:
     import re as _re
     vp = os.path.join(_find_brain(), "STATE", "brain-version.md")
-    with open(vp) as f:
+    with open(vp, encoding="utf-8") as f:
         for ln in f:
             if ln.lower().startswith("version:"):
                 raw = ln.split(":", 1)[1].strip()

@@ -39,6 +39,7 @@ Toda entrada de la API se VALIDA y ACOTA aquí (títulos, notas, colores,
 coordenadas, estados): el front es un cliente más, no la autoridad.
 """
 import functools
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import json
 import os
 import re
@@ -72,7 +73,7 @@ _HEX_RX = re.compile(r"^#[0-9a-fA-F]{6}$")
 def _workspace_dir():
     """Estado per-máquina de WORKSPACE. Función (no constante) para respetar el
     HOME parchado en los tests herméticos."""
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace")
+    return _paths.state_dir()
 
 
 def store_path():

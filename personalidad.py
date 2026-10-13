@@ -35,6 +35,7 @@ explícito. Un dial no es una puerta trasera para pedir que te mientan bonito.
 Cero dependencias (stdlib, Python 3.9+). Mac y Windows.
 """
 import json
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import os
 import sys
 import uuid
@@ -127,10 +128,13 @@ _DIAL_SRC = (
     {"key": "longitud", "label": "Longitud", "corto": "long",
      "eje": ("breve", "amplio"),
      "niveles": {
-         1: "Responde en UNA línea. Si no cabe, manda el detalle a un archivo "
-            "y da la ruta.",
-         2: "Máximo 3 frases. Lo esencial primero; el detalle, a archivo.",
-         4: "Desarrolla: contexto, razón de la decisión y qué sigue.",
+         1: "MÁXIMO una frase (~25 palabras). Si no cabe, el detalle va a "
+            "un archivo y solo das la ruta. Los bloques fijos que exige tu "
+            "cerebro van aparte y no cuentan, pero no agregues nada más.",
+         2: "Máximo 3 frases (~60 palabras). Lo esencial primero; el "
+            "detalle, a archivo. Los bloques fijos del cerebro van aparte.",
+         4: "Desarrolla en 2-4 párrafos: contexto, razón de la decisión y "
+            "qué sigue.",
          5: "Exhaustivo: alternativas consideradas, trade-offs y riesgos "
             "además del resultado."}},
     {"key": "formalidad", "label": "Formalidad", "corto": "form",
@@ -243,7 +247,7 @@ def path():
     p = os.environ.get("WORKSPACE_TONO")
     if p:
         return p
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace",
+    return os.path.join(_paths.state_dir(),
                         "tono.json")
 
 
@@ -395,16 +399,19 @@ def agentes_registrados():
     misma fuente que pinta la caja AGENTES del menu. `agentsreg.agents()` NO
     sirve aqui: solo lista los cargados a mano en esta maquina (uno), y la
     pantalla mostraria un agente cuando el socio ve cuatro."""
+    import dispatch
     try:
-        import dispatch
-        reg = dispatch.load_registry() or {}
-        return [a["name"] for a in (reg.get("agents") or ()) if a.get("name")]
+        # SSOT: `visible_agents()` ya descuenta los de SISTEMA (doctor) igual que
+        # el hub. Antes esta pantalla re-derivaba la lista SIN ese filtro y Tonos
+        # mostraba `doctor`, que no es un dios del altar.
+        return [a["name"] for a in dispatch.visible_agents() if a.get("name")]
     except Exception:
         pass
     try:
         import agentsreg
         return [a.get("name") for a in (agentsreg.agents() or ())
-                if a.get("name")]
+                if a.get("name")
+                and a["name"].lower() not in dispatch.SYSTEM_AGENTS]
     except Exception:
         return []
 
@@ -443,6 +450,20 @@ _LIMITE = ("Esto ajusta **estilo**, nada más: no cambia tu identidad, ni las "
            "gana la regla.")
 
 
+_PRIORIDAD = ("Sobre FORMA y EXTENSIÓN estos diales mandan: ganan a tus hábitos "
+              "y a cualquier otra indicación de estilo. Los bloques obligatorios "
+              "de tu cerebro se agregan aparte, sin alargar la respuesta.")
+_LONGITUD_MANDA = ("Si dos diales chocan, gana Longitud: lo que pidan los demás "
+                   "(p. ej. explicar el porqué) cabe dentro de ese límite.")
+
+
+def _longitud_manda(act):
+    """True si Longitud está en modo breve (1-2) y hay otro dial que podría
+    estirar la respuesta: entonces se dice explícito quién gana."""
+    v = act.get("longitud")
+    return bool(v and v <= 2 and any(k != "longitud" for k in act))
+
+
 def bloque(agente=None):
     """Texto COMPLETO para el arranque de sesión. "" si todo es neutro."""
     act = activos(agente)
@@ -455,6 +476,9 @@ def bloque(agente=None):
         txt = d["niveles"].get(v) if v else None
         if txt:
             out.append("- **%s %d/5** — %s" % (d["label"], v, txt))
+    out += ["", _t("tono.priority", _PRIORIDAD)]
+    if _longitud_manda(act):
+        out.append(_t("tono.length_wins", _LONGITUD_MANDA))
     out += ["", _t("tono.limit", _LIMITE)]
     return "\n".join(out)
 
@@ -473,6 +497,8 @@ def linea(agente=None):
         txt = d["niveles"].get(v) if v else None
         if txt:
             trozos.append("%s %d/5: %s" % (d["label"], v, txt))
+    if _longitud_manda(act):
+        trozos.append(_t("tono.length_wins", _LONGITUD_MANDA))
     return _t("tono.inject.prefix", "[tono activo] ") + "  ".join(trozos)
 
 

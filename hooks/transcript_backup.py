@@ -44,13 +44,13 @@ except Exception:
 # session_paths vive en la raíz de WORKSPACE (padre de hooks/) — única fuente de
 # verdad de la codificación <enc> de Claude Code (realpath + no-alfanumérico → '-').
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 try:
     import session_paths
 except Exception:
     session_paths = None
 
-BACKUP_ROOT = os.path.join(os.path.expanduser("~"), ".claude", "workspace",
-                           "transcripts-backup")
+BACKUP_ROOT = os.path.join(_paths.state_dir(), "transcripts-backup")
 
 
 def _stdin():
@@ -137,7 +137,14 @@ def main():
         return                                   # canal nuevo (settings.py)
     data = _stdin()
     brain = data.get("cwd", "") or os.getcwd()
-    backup_transcript(data.get("transcript_path", ""), brain)
+    backup = backup_transcript(data.get("transcript_path", ""), brain)
+    if backup:
+        try:
+            import session_continuity
+            session_continuity.captured(brain, data, backup)
+        except Exception as exc:
+            print("WORKSPACE: respaldo guardado; estado de memoria pendiente (%s)" % exc,
+                  file=sys.stderr)
 
 
 if __name__ == "__main__":

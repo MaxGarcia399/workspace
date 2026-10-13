@@ -147,14 +147,22 @@ def backend_setting():
     return v if v in ("auto", "tmux", "herdr") else "auto"
 
 
-def pick_backend():
+def pick_backend(plan=False):
     """El multiplexer a usar. NUNCA devuelve None ni levanta:
       auto  → herdr si responde, si no tmux
       herdr → herdr si responde, si no tmux (con aviso)
       tmux  → tmux (sus fallbacks internos deciden el resto)
-    tmux es el piso: mux.split ya degrada solo al arranque normal."""
+    tmux es el piso: mux.split ya degrada solo al arranque normal.
+    En `plan` NO se sondea herdr con subproceso (`herdr --version` = spawn):
+    basta su presencia en PATH, y se reporta la elección."""
     want = backend_setting()
     hx = HerdrMultiplexer()
+    if plan:
+        name = "herdr" if (want in ("auto", "herdr") and have_herdr()) \
+            else "tmux"
+        print("  [plan] backend: %s (ui.split_backend=%s; herdr no se sondea "
+              "en plan)" % (name, want))
+        return hx if name == "herdr" else TmuxMultiplexer()
     if want == "herdr":
         if hx.available():
             return hx
@@ -171,10 +179,17 @@ def open_split(argv):
     Elige backend y abre; un backend reventando NO tumba el arranque: cae al
     exec normal de siempre (la capa de abajo, mux.fallback)."""
     backend = None
+    plan = mux.parse_args(argv or [])[2]
     try:
-        backend = pick_backend()
+        backend = pick_backend(plan=plan)
         return backend.open(argv)
-    except Exception:
+    except Exception as e:
+        if plan:
+            # plan = inspección: un backend roto se REPORTA, jamás cae al
+            # arranque normal (eso abriría la sesión — W-F03).
+            print("  [plan] el multiplexer falló (%s: %s) — sin fallback en "
+                  "plan" % (type(e).__name__, e))
+            return 1
         # último piso: arranque normal. Se necesita el agente del argv;
         # parse_args jamás revienta.
         agent = mux.parse_args(argv or [])[0] or mux.default_agent()
@@ -640,10 +655,14 @@ def herdr_split(argv=None):
         return 2
 
     # Guards — mismo espíritu que mux.split: cualquier impedimento → normal.
+    # CONTRATO --plan: en plan los guards solo se reportan; nada spawnea, hace
+    # exec ni cae al fallback (tests/test_plan_inert).
     if os.name == "nt":
-        return mux.fallback(agent, "el modo split usa un multiplexer "
-                                   "(Mac/Linux); en Windows va la sesión "
-                                   "sencilla")
+        if not plan:
+            return mux.fallback(agent, "el modo split usa un multiplexer "
+                                       "(Mac/Linux); en Windows va la sesión "
+                                       "sencilla")
+        mux.plan_note_windows(agent)
     if inside_herdr() and not plan:
         return mux.fallback(agent, "ya estás dentro de herdr; el split no "
                                    "se anida")

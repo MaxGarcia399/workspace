@@ -2,7 +2,7 @@
 
 **Qué es esto.** La capa de internacionalización del lado **cliente**. FASE 0
 dejó la fundación: el módulo `i18n.py`, los catálogos `lang/<code>.py`, el
-**cuadro IDIOMA** del hub (layout `dia`, bajo PERSONALIZACIÓN) y el idioma como
+entrada **Idioma ›** del hub y el idioma como
 paso 0 del onboarding, con 3 pantallas de prueba ya traducidas (menú del hub,
 bienvenida del onboarding, greeter de agente). Las fases siguientes **traducen
 pantalla por pantalla** siguiendo este patrón — este doc es el contrato.
@@ -22,7 +22,7 @@ Los catálogos son **sub-paquetes por idioma con un módulo por pantalla**:
 lang/
   es/                 ← FUENTE (español)        en/                 ← traducción
     common.py              hub.py                 common.py  hub.py
-    tono.py  calendario.py  github.py             tono.py    …
+    tono.py  calendario.py                        tono.py    …
     addagent.py  actualizaciones.py  atajos.py
     personalizacion.py  onboarding.py  greeter.py  banner.py
 ```
@@ -53,8 +53,8 @@ módulo nuevo en `es/` y `en/`.
 ## Cómo agrego una cadena traducible — 4 pasos
 
 1. **Elige una clave namespaced por pantalla.** Convención:
-   `"<pantalla>.<sub>.<rol>"`. Ejemplos vivos: `"menu.github.label"`,
-   `"menu.github.tag"`, `"onboarding.welcome.p1"`, `"greeter.sessions.title"`,
+   `"<pantalla>.<sub>.<rol>"`. Ejemplos vivos: `"menu.cal.label"`,
+   `"menu.cal.tag"`, `"onboarding.welcome.p1"`, `"greeter.sessions.title"`,
    `"onboarding.hints.idioma"`. Agrupa por pantalla; usa `label`/`tag`/`title`/
    `hint`/`p1`/`body` como sufijos de rol. La clave va en **tu** módulo
    (`lang/es/<pantalla>.py`), no en otro.
@@ -128,7 +128,7 @@ ancho. Antes de dar por traducida una pantalla:
 
 ## Cómo cambia el idioma el usuario
 
-- **Cuadro IDIOMA del hub** (layout `dia`, bajo PERSONALIZACIÓN): las dos
+- **Idioma › del hub** (el lanzador): las dos
   opciones ES/EN visibles con la activa marcada `●`; se navega como tema/fondo
   (↑↓ entra a la sección, ◄► mueve el cursor, Enter aplica). Al elegir:
   `i18n.set_lang` + flip EN VIVO de todo el hub. Es una SECCIÓN navegable
@@ -168,7 +168,6 @@ Módulos (pantallas) del reparto, con su archivo de código principal:
 | `onboarding` | primer arranque (`onboarding_tui.py`) — **hecho (paso 0 + bienvenida)** |
 | `tono` | diales de personalidad (`tono_tui.py`) |
 | `calendario` | editor de agenda (`calendario_tui.py`) |
-| `github` | repos/ramas/PRs (`github_tui.py`, `git_tui.py`) |
 | `addagent` | crear/cargar agente, modelo/motor, banner (`add_agent_tui.py` y afines) |
 | `actualizaciones` | revisar/reparar/actualizar (`actualizaciones_tui.py`) |
 | `atajos` | re-mapear teclas (`keybinds_tui.py`) |
@@ -265,6 +264,6 @@ no los strippea. No muevas estos archivos a una carpeta que sí se strippee
   traducir; se traduce junto con ellas para no quedar a medias.
 - Pantallas del cliente aún hardcodeadas: `motores`, `apariencia`, `agente`,
   `resumen` del onboarding; `calendario_tui`, `tono_tui`, `keybinds_tui`,
-  `github_tui`, `actualizaciones_tui`, `add_agent_tui`. El «chrome» compartido
+  `actualizaciones_tui`, `add_agent_tui`. El «chrome» compartido
   del hub (`front.py` recinto/banner/hero/narrow, `hublayout` layouts
   `dia`/`centro`, `responsive_ui.vertical_hub`) quedó HECHO en la Ola 1.

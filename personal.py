@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """WORKSPACE · personal — el dato PERSONAL del socio: FOCO del día + AGENDA.
 
-Es la fuente que consume el layout `dia` del hub (hublayout._dia_lines) para
-las dos cajas que no existían: «◆ FOCO» y «⏱ AGENDA». Nada de esto vive en un
+Lo muestra la pantalla Calendario (calendario_tui). Nada de esto vive en un
 cerebro ni se sincroniza: es de ESTA máquina y de ESTE socio.
 
     ~/.claude/workspace/personal.json     (per-máquina, gitignored, reconstruible)
@@ -50,6 +49,7 @@ CLI (lo que tecleas tú):
 Cero dependencias (stdlib, Python 3.9+). Mac y Windows.
 """
 import json
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import os
 import sys
 import uuid
@@ -77,7 +77,7 @@ TRASH_DAYS = 15
 # ── ubicación ───────────────────────────────────────────────────────────────
 def _workspace_dir():
     """~/.claude/workspace (mismo directorio local que usa todo el harness)."""
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace")
+    return _paths.state_dir()
 
 
 def path():
@@ -749,38 +749,58 @@ def _task_cli(argv):
     return 0 if ok else 1
 
 
+def _t(key, es, **kw):
+    """i18n falla-suave: sin catálogo/clave → el español inline (paridad)."""
+    try:
+        import i18n
+        s = i18n.t(key)
+        if s == key:
+            s = es
+    except Exception:
+        s = es
+    if kw:
+        try:
+            return s.format(**kw)
+        except Exception:
+            return s
+    return s
+
+
 def _fmt_delta(mins):
     if mins is None:
         return ""
     if mins < -5:
-        return "pasó"
+        return _t("personal.when.past", "pasó")
     if mins < 0:
-        return "ahora"
+        return _t("personal.when.now", "ahora")
     if mins < 60:
-        return "en %dm" % mins
+        return _t("personal.when.in", "en {x}", x="%dm" % mins)
     h, m = divmod(mins, 60)
     if h < 24:
-        return "en %dh %02dm" % (h, m) if m else "en %dh" % h
-    return "en %dd" % int(round(h / 24.0))
+        return _t("personal.when.in", "en {x}",
+                  x=("%dh %02dm" % (h, m)) if m else "%dh" % h)
+    return _t("personal.when.in", "en {x}", x="%dd" % int(round(h / 24.0)))
 
 
 def cmd_foco(argv):
     if argv and argv[0] in ("--clear", "-c", "clear", "borrar"):
         clear_foco()
-        print("foco borrado")
+        print(_t("personal.foco.cleared", "foco borrado"))
         return 0
     if argv:
         txt = " ".join(argv).strip()
         if set_foco(txt):
-            print("foco de hoy: %s" % txt)
+            print(_t("personal.foco.set", "foco de hoy: {txt}", txt=txt))
             return 0
-        print("no pude guardar el foco", file=sys.stderr)
+        print(_t("personal.foco.fail", "no pude guardar el foco"), file=sys.stderr)
         return 1
     f = foco()
     if not f:
-        print('sin foco — fíjalo con:  workspace foco "lo que importa hoy"')
+        print(_t("personal.foco.none",
+                 'sin foco — fíjalo con:  workspace foco "lo que importa hoy"'))
         return 0
-    print("%s%s" % (f["text"], "" if f.get("hoy") else "   (de %s)" % f.get("date")))
+    print("%s%s" % (f["text"], "" if f.get("hoy") else "   " + _t("personal.foco.from", "(de {date})",
+                                        date=f.get("date"))))
     return 0
 
 
@@ -818,60 +838,73 @@ def cmd_agenda(argv):
                 pos.append(a)
                 i += 1
         if len(pos) < 2:
-            print('uso: workspace agenda add YYYY-MM-DD "título" '
-                  '[--time HH:MM] [--cat reunion|hito|recordatorio|cumple|otro]',
+            print(_t("personal.agenda.usage_add",
+                     'uso: workspace agenda add YYYY-MM-DD "título" '
+                     '[--time HH:MM] [--cat reunion|hito|recordatorio|cumple|otro]'),
                   file=sys.stderr)
             return 2
         ev_id = add_event(pos[0], " ".join(pos[1:]), time_s, cat, notes, prompt=prompt)
         if not ev_id:
-            print("fecha inválida o título vacío — no se agregó", file=sys.stderr)
+            print(_t("personal.agenda.add_fail",
+                     "fecha inválida o título vacío — no se agregó"),
+                  file=sys.stderr)
             return 1
-        print("agregado  %s  %s %s  %s" % (ev_id, pos[0], time_s,
+        print(_t("personal.agenda.added", "agregado") + "  %s  %s %s  %s" % (ev_id, pos[0], time_s,
                                            " ".join(pos[1:])))
         return 0
     if argv and argv[0] in ("done", "hecho", "x"):
         ids = [a for a in argv[1:] if not a.startswith("--")]
         if not ids:
-            print("uso: workspace agenda done <id>", file=sys.stderr)
+            print(_t("personal.agenda.usage_done", "uso: workspace agenda done <id>"),
+                  file=sys.stderr)
             return 2
         rc = 0
         for i in ids:
             st = toggle_done(i)
             if st is None:
-                print("no existe: %s" % i, file=sys.stderr)
+                print(_t("personal.agenda.missing", "no existe: {id}", id=i),
+                      file=sys.stderr)
                 rc = 1
             else:
-                print("%s  %s" % (i, "hecha ✓" if st else "pendiente otra vez"))
+                print("%s  %s" % (i, _t("personal.agenda.done", "hecha ✓") if st
+                                   else _t("personal.agenda.undone",
+                                           "pendiente otra vez")))
         return rc
     if argv and argv[0] in ("rm", "del", "quitar", "borrar"):
         hard = "--hard" in argv
         ids = [a for a in argv[1:] if not a.startswith("--")]
         if not ids:
-            print("uso: workspace agenda rm <id> [--hard]", file=sys.stderr)
+            print(_t("personal.agenda.usage_rm",
+                     "uso: workspace agenda rm <id> [--hard]"), file=sys.stderr)
             return 2
         ok = all(remove_event(i, hard=hard) for i in ids)
-        print("listo" if ok else "algún id no existe")
+        print(_t("personal.agenda.rm_ok", "listo") if ok
+              else _t("personal.agenda.rm_some_missing", "algún id no existe"))
         return 0 if ok else 1
     if argv and argv[0] in ("all", "todo", "list", "ls"):
         rows = events(include_archived="--archived" in argv)
     else:
         rows = upcoming(limit=20, days=365)
     if not rows:
-        print('agenda vacía — agrega con:  workspace agenda add '
-              '2026-09-25 "Junta" --time 18:00')
+        print(_t("personal.agenda.empty",
+                 'agenda vacía — agrega con:  workspace agenda add '
+                 '2026-09-25 "Junta" --time 18:00'))
         return 0
     for e in rows:
         when = _fmt_delta(e.get("delta_min"))
         if not when and e.get("dias") is not None:
-            when = ("hoy" if e["dias"] == 0 else
-                    "mañana" if e["dias"] == 1 else "en %dd" % e["dias"])
+            when = (_t("personal.when.today", "hoy") if e["dias"] == 0 else
+                    _t("personal.when.tomorrow", "mañana") if e["dias"] == 1
+                    else _t("personal.when.in", "en {x}", x="%dd" % e["dias"]))
         print("  %-8s %s %-5s %s %-40s %s%s%s" % (
             e["id"], e["date"], e.get("time") or "",
             "✓" if e.get("done") else ("!" if e.get("prio") == "alta"
                                        else " "),
             e["title"], when,
-            "  (hecha)" if e.get("done") else "",
-            "  (archivado)" if e.get("archived") else ""))
+            ("  " + _t("personal.agenda.tag_done", "(hecha)"))
+            if e.get("done") else "",
+            ("  " + _t("personal.agenda.tag_archived", "(archivado)"))
+            if e.get("archived") else ""))
     return 0
 
 
@@ -886,7 +919,8 @@ def main(argv=None):
         return cmd_foco(rest)
     if cmd in ("agenda", "cal", "calendario"):
         return cmd_agenda(rest)
-    print("personal: comando desconocido '%s' (foco | agenda)" % cmd,
+    print(_t("personal.unknown",
+             "personal: comando desconocido '{cmd}' (foco | agenda)", cmd=cmd),
           file=sys.stderr)
     return 2
 

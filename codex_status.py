@@ -40,23 +40,24 @@ def run(argv,cfg,env=None):
     with tempfile.TemporaryDirectory(prefix='workspace-codex-status-') as tmp:
         root=Path(tmp);meta=root/'session.json';result=root/'exit.json'
         meta.write_text(json.dumps({'agent':cfg.get('display') or cfg.get('name','Agente'),
-                                   'brain':cfg['_brain'],'started':time.time(),'argv':argv,'result':str(result)}))
+                                   'brain':cfg['_brain'],'started':time.time(),'argv':argv,'result':str(result)}), encoding="utf-8")
         os.chmod(meta,0o600)
         script=str(Path(__file__).resolve());python=sys.executable
         status=[shlex.join([python,script,'--footer',str(meta),str(i),'#{client_width}']) for i in range(2)]
         config=root/'tmux.conf'
         config.write_text('\n'.join(['set -g status 2','set -g status-interval 5',
+          'set -g destroy-unattached on',
           'set -g status-style bg=default,fg=default','set -g status-left ""','set -g status-right ""',
           'set -g prefix None','set -g mouse off','set -g allow-passthrough on',
           'set -g default-terminal "tmux-256color"',
           'set -g status-format[0] '+tmux_quote('#('+status[0]+')'),
-          'set -g status-format[1] '+tmux_quote('#('+status[1]+')')])+'\n')
+          'set -g status-format[1] '+tmux_quote('#('+status[1]+')')])+'\n', encoding="utf-8")
         socket='workspace-status-'+uuid.uuid4().hex
         command=shlex.join([python,script,'--child',str(meta)])
         try:
             rc=subprocess.call(['tmux','-L',socket,'-f',str(config),'new-session','-s','codex','-c',cfg['_brain'],command],env=env)
             if result.exists():
-                return int(json.loads(result.read_text()))
+                return int(json.loads(result.read_text(encoding="utf-8")))
             if rc and not result.with_suffix('.started').exists():
                 subprocess.run(['tmux','-L',socket,'kill-server'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
                 return subprocess.call(argv,cwd=cfg['_brain'],env=env)
@@ -65,11 +66,11 @@ def run(argv,cfg,env=None):
             subprocess.run(['tmux','-L',socket,'kill-server'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 
 def main():
-    mode,path=sys.argv[1:3];meta=json.loads(Path(path).read_text())
+    mode,path=sys.argv[1:3];meta=json.loads(Path(path).read_text(encoding="utf-8"))
     if mode=='--child':
         Path(meta['result']).with_suffix('.started').touch()
         rc=subprocess.call(meta['argv'],cwd=meta['brain'])
-        Path(meta['result']).write_text(json.dumps(rc))
+        Path(meta['result']).write_text(json.dumps(rc), encoding="utf-8")
         return rc
     if mode=='--footer':
         try:

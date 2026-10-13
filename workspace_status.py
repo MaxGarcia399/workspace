@@ -30,7 +30,7 @@ def window(label,used,reset,now=None):
 
 def brain_version(brain):
     try:
-        text=(Path(brain)/'STATE/brain-version.md').read_text()[:2000]
+        text=(Path(brain)/'STATE/brain-version.md').read_text(encoding="utf-8")[:2000]
         found=re.search(r'v?\d+\.\d+\.\d+',text)
         return 'Brain '+found.group() if found else ''
     except OSError:return ''

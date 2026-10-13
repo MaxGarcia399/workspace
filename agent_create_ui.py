@@ -12,6 +12,16 @@ except Exception:
     i18n = None
 
 
+def _preset_label(r):
+    """Etiqueta VISIBLE de una fuente: las de fábrica (PRESETS) se traducen
+    por su posición; un repo propio muestra su label tal cual."""
+    if not r.get('custom'):
+        for i, (repo, label, _en, _d) in enumerate(prefs.PRESETS):
+            if repo == r.get('repo') and r.get('label') == label:
+                return _t('addagent.sources.preset.%d.label' % i, label)
+    return r.get('label', '')
+
+
 def _t(key, es):
     if i18n is None:
         return es
@@ -66,7 +76,7 @@ def rows(S, api):
                  (_t('addagent.motor.available', ' · disponible') if d.get('ready') else ' · ' + (d.get('detail') or _t('addagent.motor.unavailable', 'no disponible'))))
                 for d in (S.get('harn') or {}).get('list', [])] + [('back', _t('addagent.nav.back_plan', 'Volver al plan'))]
     if v == 'sources':
-        result = [('repo:' + str(i), ('[x] ' if r['enabled'] else '[ ] ') + r['label'])
+        result = [('repo:' + str(i), ('[x] ' if r['enabled'] else '[ ] ') + _preset_label(r))
                   for i, r in enumerate(config['repos'])]
         result += [('community', ('[x] ' if config['community'] else '[ ] ') + _t('addagent.sources.community', 'Descubrir comunidad en skills.sh')),
                    ('query', _t('addagent.sources.query', 'Consulta pública: ') + (S.get('community_query') or _t('addagent.sources.unset', 'sin configurar'))),
@@ -101,7 +111,7 @@ def details(S, action, api):
             return [_t('addagent.sources.repo.label', 'Repositorio: ') + r['repo'], _t('addagent.sources.repo.toggle', 'Enter permite u omite esta fuente.'),
                     _t('addagent.sources.repo.cert', 'Permitir una fuente no certifica sus skills. Cada paquete pasa la misma revisión.'),
                     _t('addagent.sources.repo.public', 'Solo GitHub público; no se descargan ZIP ni instaladores.'),
-                    _t('addagent.sources.repo.saved', 'Configuración guardada por usuario.')] + [description for repo, label, enabled, description in prefs.PRESETS if repo == r['repo']]
+                    _t('addagent.sources.repo.saved', 'Configuración guardada por usuario.')] + [_t('addagent.sources.preset.%d.desc' % i, description) for i, (repo, label, enabled, description) in enumerate(prefs.PRESETS) if repo == r['repo']]
         if action == 'community':
             return [_t('addagent.sources.comm.dir', 'skills.sh es un directorio de la comunidad.'),
                     _t('addagent.sources.comm.query', 'Al activarlo se enviará únicamente la consulta que configures aquí.'),
@@ -234,7 +244,8 @@ def action(S, key, api):
         return True
     if v == 'brain':
         if chosen == 'back':
-            S['view'], S['option_cursor'] = 'plan', 7
+            S['view'] = 'plan'
+            S['option_cursor'] = next(i for i, item in enumerate(rows(S, api)) if item[0] == 'brain')
         else:
             S['brain_route'] = chosen.split(':',1)[1]
         return True
@@ -647,24 +658,6 @@ def onboarding(S):
     return len(visited),len(_REVIEW_KEYS)-len(visited)
 
 
-def choice_visual(S, action, api):
-    """Mini-diagrama de la decisión y efecto directo en el cerebro."""
-    if action == 'motor':
-        return ['[ '+(S.get('engine_id') or 'claude-code')+_t('addagent.cv.motor', ' ] → EJECUCIÓN DEL CEREBRO')]
-    if action == 'personalize':
-        return ['[ '+(_t('addagent.cv.ai_on', 'IA ON · modelo') if S.get('personalize') else _t('addagent.cv.ai_off', 'IA OFF · plantilla'))+_t('addagent.cv.boot_voice', ' ] → BOOT/ · VOZ + IDENTIDAD'),
-                _t('addagent.cv.generation', 'GENERACIÓN: ')+_generation_label(S,api)]
-    if action in ('skills','toggle','sources','process'):
-        selected=len(S.get('skill_selected', [])) if S.get('source_skills') else 0
-        return [_t('addagent.cv.sources_flow', '[ FUENTES ] → [ OBTENER ] → [ REVISAR ] → skills/'),
-                _t('addagent.cv.proposals', '%d propuestas · %s') % (selected, _t('addagent.cv.not_installed', 'sin instalar') if S.get('source_skills') else _t('addagent.cv.import_off', 'importación OFF'))]
-    if action == 'cost':
-        return [_t('addagent.cv.gen_quota', '[ GENERACIÓN ] ↔ [ CUOTA DEL PLAN ]'), _t('addagent.cv.measures', 'Tokens estimados y % de cuota son medidas distintas.')]
-    if action == 'brain':
-        return [_t('addagent.cv.form_flow', 'FORMULARIO → BOOT/ + STATE/ + SCOPE'), _t('addagent.cv.sources_portable', 'FUENTES → REVISIÓN → skills/ → CEREBRO PORTABLE')]
-    if action == 'create':
-        return [_t('addagent.cv.create_flow', '[ CONFIGURACIÓN ] → [ CREAR + REVISAR ] → [ RESULTADO ]')]
-    return [_t('addagent.cv.default', '[ FORMULARIO ] → [ CONFIGURACIÓN ACTUAL ]')]
 
 
 def plan_screen(S, api, K, w, avail):

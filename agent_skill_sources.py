@@ -5,6 +5,7 @@ La relevancia es coincidencia explícita de capacidades, no juicio de dominio.
 Contenido remoto con alertas/dependencias externas queda fuera del catálogo.
 """
 import concurrent.futures
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import datetime
 import hashlib
 import json
@@ -94,13 +95,13 @@ def _fetch(url, cap=MAX_FILE_BYTES):
     # Sólo URLs generadas por este módulo; no sigue redirecciones a terceros.
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, *args, **kwargs):
-            raise ValueError("redirección remota no permitida")
+            raise ValueError(_t("addagent.src.err.redirect", "redirección remota no permitida"))
     req = urllib.request.Request(url, headers={"User-Agent": "Workspace-Skills/1",
                                               "Accept": "application/json"})
     with urllib.request.build_opener(NoRedirect()).open(req, timeout=12) as res:
         body = res.read(cap + 1)
     if len(body) > cap:
-        raise ValueError("archivo excede el límite de tamaño")
+        raise ValueError(_t("addagent.src.err.file_size", "archivo excede el límite de tamaño"))
     return body
 
 
@@ -112,7 +113,7 @@ def _safe_path(path):
     p = PurePosixPath(path)
     if (not path or any(ord(c) < 32 for c in path) or p.is_absolute() or "\\" in path or ":" in path
             or any(x in (".", "..", "") for x in path.split("/"))):
-        raise ValueError("ruta remota inválida")
+        raise ValueError(_t("addagent.src.err.remote_path", "ruta remota inválida"))
     return p
 
 
@@ -126,7 +127,7 @@ def _blob(repo, sha, path):
 
 def _metadata(text):
     if not text.startswith("---\n"):
-        raise ValueError("SKILL.md sin frontmatter")
+        raise ValueError(_t("addagent.src.err.no_frontmatter", "SKILL.md sin frontmatter"))
     parts = text.split("\n---", 1)
     if len(parts) != 2:
         raise ValueError("frontmatter incompleto")
@@ -147,16 +148,16 @@ def _metadata(text):
             val = " ".join(rest)
         fields[key] = val.strip().strip("\"'")
     if not SLUG.fullmatch(fields.get("name", "")) or not fields.get("description"):
-        raise ValueError("name/description inválidos")
+        raise ValueError(_t("addagent.src.err.bad_meta", "name/description inválidos"))
     if len(fields["description"]) > 4000 or any(ord(c) < 32 for c in fields["description"]):
-        raise ValueError("description demasiado larga o con controles")
+        raise ValueError(_t("addagent.src.err.desc_long", "description demasiado larga o con controles"))
     if not body.strip():
-        raise ValueError("skill sin procedimiento")
+        raise ValueError(_t("addagent.src.err.no_procedure", "skill sin procedimiento"))
     return fields
 
 
 def _tree(repo):
-    cache = Path(os.path.expanduser("~")) / ".claude/workspace/skill-sources"
+    cache = Path(_paths.state_dir()) / "skill-sources"
     path = cache / (repo.replace("/", "-") + ".json")
     try:
         saved = json.loads(path.read_text(encoding="utf-8"))
@@ -166,10 +167,10 @@ def _tree(repo):
         pass
     commit = _json("https://api.github.com/repos/%s/commits/HEAD" % repo)["sha"]
     if not SHA.fullmatch(commit):
-        raise ValueError("commit inválido")
+        raise ValueError(_t("addagent.src.err.bad_commit", "commit inválido"))
     tree = _json("https://api.github.com/repos/%s/git/trees/%s?recursive=1" % (repo, commit))
     if tree.get("truncated"):
-        raise ValueError("catálogo remoto truncado")
+        raise ValueError(_t("addagent.src.err.truncated", "catálogo remoto truncado"))
     result = {"sha": commit, "files": tree["tree"]}
     try:
         cache.mkdir(parents=True, exist_ok=True)
@@ -218,7 +219,7 @@ def discover(params, fetch_tree=None, read_blob=None, search=None, should_cancel
         try:
             tree = fetch_tree(repo)
             if not SHA.fullmatch(tree["sha"]):
-                raise ValueError("commit inválido")
+                raise ValueError(_t("addagent.src.err.bad_commit", "commit inválido"))
             files = tree["files"]
             for entry in files:
                 path = entry["path"]
@@ -263,7 +264,7 @@ def discover(params, fetch_tree=None, read_blob=None, search=None, should_cancel
     choices.sort(key=lambda c: (-c["score"], c["repo"], c["path"]))
     def describe(c):
         if cancelled():
-            raise InterruptedError("búsqueda reemplazada")
+            raise InterruptedError(_t("addagent.src.err.replaced", "búsqueda reemplazada"))
         data = read_blob(c["repo"], c["sha"], (c["path"] + "/" if c["path"] else "") + "SKILL.md")
         meta = _metadata(data.decode("utf-8"))
         return dict(c, **meta, metadata_sha256=hashlib.sha256(data).hexdigest(),
@@ -293,9 +294,9 @@ def _review(candidate, read_blob, cancelled, report=None, params=None):
     if not permitted or not SHA.fullmatch(sha):
         raise ValueError(_t("addagent.src.err_not_permitted", "fuente no permitida por el usuario"))
     if repo == "anthropics/skills" and not prefix.startswith("skills/"):
-        raise ValueError("skill fuera del catálogo")
+        raise ValueError(_t("addagent.src.err.not_in_catalog", "skill fuera del catálogo"))
     if repo == "openai/plugins" and not re.match(r"^plugins/[^/]+/skills/", prefix + "/"):
-        raise ValueError("skill fuera del catálogo")
+        raise ValueError(_t("addagent.src.err.not_in_catalog", "skill fuera del catálogo"))
     files = list(candidate["files"]) + list(candidate.get("license_files", []))
     if len(files) > MAX_FILES or not files:
         raise ValueError(_t("addagent.src.err_too_many_files", "cantidad de archivos excedida"))
@@ -315,22 +316,22 @@ def _review(candidate, read_blob, cancelled, report=None, params=None):
             parent = PurePosixPath(path).parent
             if (not PurePosixPath(path).name.upper().startswith("LICENSE") or
                     parent not in (PurePosixPath(prefix), *PurePosixPath(prefix).parents)):
-                raise ValueError("licencia fuera de los ancestros de la skill")
+                raise ValueError(_t("addagent.src.err.license_outside", "licencia fuera de los ancestros de la skill"))
         if (not inherited and prefix and not path.startswith(prefix + "/")) or entry.get("type") != "blob" or entry.get("mode") == "120000":
-            raise ValueError("symlink, submódulo o ruta fuera de la skill")
+            raise ValueError(_t("addagent.src.err.outside_path", "symlink, submódulo o ruta fuera de la skill"))
         rel = "LICENSE.upstream-" + PurePosixPath(path).name if inherited else path[len(prefix) + 1:] if prefix else path
         if rel in (".source.json", ".usage.json", ".audit.json") or any(p in (".git", ".claude", ".codex", ".workspace") for p in PurePosixPath(rel).parts):
-            raise ValueError("sidecar de procedencia reservado")
+            raise ValueError(_t("addagent.src.err.sidecar", "sidecar de procedencia reservado"))
         if rel in contents:
-            raise ValueError("ruta duplicada")
+            raise ValueError(_t("addagent.src.err.dup_path", "ruta duplicada"))
         data = read_blob(repo, sha, path)
         total += len(data)
         if len(data) > MAX_FILE_BYTES or total > MAX_BUNDLE_BYTES:
-            raise ValueError("bundle excede límite de tamaño")
+            raise ValueError(_t("addagent.src.err.bundle_size", "bundle excede límite de tamaño"))
         # Git blob hash verifica que TODOS los recursos son los del snapshot.
         actual = hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
         if actual != entry.get("sha"):
-            raise ValueError("hash Git de recurso no coincide")
+            raise ValueError(_t("addagent.src.err.hash", "hash Git de recurso no coincide"))
         suffix = PurePosixPath(rel).suffix.lower()
         if suffix not in TEXT_EXT and not PurePosixPath(rel).name.upper().startswith("LICENSE"):
             alerts.append(_t("addagent.src.alert_binary", "recurso binario/no inspeccionable: ") + rel)
@@ -373,9 +374,9 @@ def _review(candidate, read_blob, cancelled, report=None, params=None):
     skill = contents.get("SKILL.md", b"")
     meta = _metadata(skill.decode("utf-8"))
     if hashlib.sha256(skill).hexdigest() != candidate.get("metadata_sha256"):
-        raise ValueError("metadata cambió desde el plan")
+        raise ValueError(_t("addagent.src.err.meta_changed", "metadata cambió desde el plan"))
     if meta["name"] != candidate["name"]:
-        raise ValueError("nombre cambió desde el plan")
+        raise ValueError(_t("addagent.src.err.name_changed", "nombre cambió desde el plan"))
     # No reescribir metadata o licencias upstream. Procedencia va en sidecar.
     license_files = [p for p in contents if PurePosixPath(p).name.upper().startswith("LICENSE")]
     if not license_files:
@@ -388,7 +389,7 @@ def _catalogs(brain):
     root = Path(brain) / "skills"
     rows = []
     if any(p.is_symlink() for p in root.rglob("*")):
-        raise ValueError("catálogo con symlinks: no se leen ni regeneran índices")
+        raise ValueError(_t("addagent.src.err.catalog_symlinks", "catálogo con symlinks: no se leen ni regeneran índices"))
     for p in sorted(root.glob("*/*/SKILL.md")):
         if any(x.startswith("_") for x in p.relative_to(root).parts):
             continue
@@ -443,7 +444,7 @@ def run(brain, params, progress=None, should_cancel=None, read_blob=None):
     deadline = time.monotonic() + MAX_RUN_SECONDS
     def read_blob(repo, sha, path):
         if time.monotonic() > deadline:
-            raise TimeoutError("tiempo máximo de sourcing alcanzado")
+            raise TimeoutError(_t("addagent.src.err.timeout_total", "tiempo máximo de sourcing alcanzado"))
         return raw_read(repo, sha, path)
     result = {"policy": POLICY, "tokens": 0, "installed": [], "held": [], "errors": [],
               "at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -458,13 +459,13 @@ def run(brain, params, progress=None, should_cancel=None, read_blob=None):
     published, indices = [], {}
     try:
         if not skill_root.is_dir() or skill_root.is_symlink():
-            raise ValueError("carpeta skills inválida")
+            raise ValueError(_t("addagent.src.err.bad_skills_dir", "carpeta skills inválida"))
         if (root / ".workspace").is_symlink():
             raise ValueError("carpeta .workspace symlink no permitida")
         for filename in ("README.md", "INDEX-LITE.md"):
             path = skill_root / filename
             if path.is_symlink():
-                raise ValueError("índice symlink no permitido")
+                raise ValueError(_t("addagent.src.err.index_symlink", "índice symlink no permitido"))
             indices[path] = path.read_bytes() if path.exists() else None
         for c in selected:
             if cancelled():
@@ -486,7 +487,7 @@ def run(brain, params, progress=None, should_cancel=None, read_blob=None):
                     continue
                 parent = skill_root / ("oficiales" if c["repo"] in SOURCES else "externas")
                 if parent.is_symlink():
-                    raise ValueError("categoría symlink no permitida")
+                    raise ValueError(_t("addagent.src.err.category_symlink", "categoría symlink no permitida"))
                 parent.mkdir(exist_ok=True)
                 dest = parent / name
                 if dest.exists() or dest.is_symlink():
@@ -539,6 +540,6 @@ def run(brain, params, progress=None, should_cancel=None, read_blob=None):
                 else:
                     _atomic(path, original)
             except OSError:
-                result["errors"].append("no se pudo restaurar índice: " + path.name)
+                result["errors"].append(_t("addagent.src.err.restore_index", "no se pudo restaurar índice: ") + path.name)
         progress("skills-install", "warn", _t("addagent.src.install_reverted", "skills revertidas; agente conservado"))
     return result

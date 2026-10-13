@@ -79,6 +79,7 @@ transcript: un fallo no tumba la corrida ni actualiza su fingerprint.
 Amputable (C10): nadie lo importa; borrarlo apaga la feature.
 """
 import argparse
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import datetime
 import hashlib
 import json
@@ -119,7 +120,7 @@ except Exception:
     headless = None
 
 # ── constantes ─────────────────────────────────────────────────────────────
-PROMPT_VERSION = "dream-v1"
+PROMPT_VERSION = "dream-v2"
 MIN_TRANSCRIPT_LINES = 20          # sesiones triviales no valen destilación
 MAX_SANITIZED_CHARS = 60_000       # cota de costo del prompt (head+tail)
 MAX_CANDIDATES_PER_SESSION = 8     # diversidad: cap intra-sesión
@@ -212,6 +213,22 @@ DREAM_CANDIDATES_END
 }
 
 
+# Preserve v1 verbatim; v2 adds explicit attribution and source evidence.
+PROMPTS["dream-v2"] = PROMPTS["dream-v1"] + """
+REGLAS DE ATRIBUCIÓN (prevalecen sobre el resumen general):
+- Una recomendación del AGENTE es propuesta pendiente, nunca decisión del SOCIO.
+- Una pregunta, saludo, silencio o petición de opciones no aprueba una propuesta.
+- Decisión requiere una elección o aprobación explícita del SOCIO. No infieras
+  aceptación de 'ok' aislado ni de un resultado comunicado por el AGENTE.
+- En ## Decisiones incluye solo acuerdos con aprobación explícita. Si no hay, —.
+- Añade ## Propuestas pendientes para recomendaciones no aprobadas.
+- Para cada candidato tipo decision incluye evidencia: cita literal completa
+  de la elección/aprobación del SOCIO. Usa la clave JSON "evidencia".
+- Propuestas no aprobadas no son candidatos a memoria durable, aunque tengan
+  impacto o score alto. No las disfraces de hecho, preferencia o convención.
+"""
+
+
 # ── helpers genéricos ──────────────────────────────────────────────────────
 def _now_iso():
     return datetime.datetime.now().isoformat(timespec="seconds")
@@ -224,14 +241,14 @@ def _slug(s):
 
 
 def _dreaming_dir():
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace",
+    return os.path.join(_paths.state_dir(),
                         "dreaming")
 
 
 def _backup_root():
     """Respaldo Y2b (transcript_backup.py). Función —no constante— para que
     expanduser corra en tiempo de llamada (tests con HOME temporal)."""
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace",
+    return os.path.join(_paths.state_dir(),
                         "transcripts-backup")
 
 
@@ -485,6 +502,50 @@ def _invoke_claude(prompt, model, timeout):
         return False, "backend headless: %s" % e
 
 
+def enforce_attribution(journal, candidates, transcript):
+    """Fail closed: only a verbatim user choice can produce a decision.
+
+    Conservative lexical check is not semantic proof. Ambiguous approvals
+    remain proposals for review; native role provenance cannot be supplied
+    by the model. Unknown transcript format accepts no decisions.
+    """
+    import neutral_transcript
+    doc = neutral_transcript.ingest(transcript)
+    users = [t["text"] for t in (doc or {}).get("turns", [])
+             if t.get("role") == "user" and not t.get("noise")]
+    # Strip vendor metadata using only the documented user-request wrapper.
+    users = [(_extract_block(u, "<USER_REQUEST>", "</USER_REQUEST>") or u).strip()
+             for u in users]
+    explicit = re.compile(r"\b(apruebo|acepto|confirmo|elijo|decido|autorizo|"
+                          r"hagamos|prioricemos|procedamos|approve|accept|choose)\b", re.I)
+    accepted, pending, filtered = [], [], []
+    for candidate in candidates:
+        c = dict(candidate)
+        if c.get("tipo") == "decision":
+            quote = c.get("evidencia")
+            valid = (isinstance(quote, str) and len(quote.strip()) >= 12
+                     and explicit.search(quote)
+                     and not re.search(r"\b(no|not|nunca|never)\b|[?¿]", quote, re.I)
+                     and any(quote.strip() == u for u in users))
+            if valid:
+                accepted.append(c["texto"])
+            else:
+                pending.append(c["texto"])
+                c.update(tipo="propuesta", score=0,
+                         razon="Sin aprobación explícita verificable; pendiente de revisión")
+        # Pending proposals never participate in recall/promotion.
+        if c.get("tipo") != "propuesta":
+            filtered.append(c)
+    replacement = "## Decisiones\n" + ("\n".join("- " + t for t in accepted) or "—") + "\n\n"
+    journal, count = re.subn(r"(?m)^## Decisiones[^\n]*\n[\s\S]*?(?=^## |\Z)",
+                             lambda m: replacement, journal, count=1)
+    if not count:
+        journal += "\n\n" + replacement
+    if pending:
+        journal += "\n## Propuestas pendientes de verificar\n" + "\n".join("- " + t for t in pending)
+    return journal, filtered
+
+
 def _extract_block(text, begin, end):
     i = text.find(begin)
     j = text.find(end, i + len(begin)) if i >= 0 else -1
@@ -519,7 +580,8 @@ def parse_output(out):
         candidates.append({"texto": texto,
                            "tipo": str(c.get("tipo", "hecho"))[:24],
                            "score": score,
-                           "razon": str(c.get("razon", ""))[:160]})
+                           "razon": str(c.get("razon", ""))[:160],
+                           "evidencia": c.get("evidencia", "")})
     return journal, candidates
 
 
@@ -876,6 +938,11 @@ def persist_memory(brain, enc, sid, socio, meta, journal_md, candidates,
                                prompt=prompt_version or PROMPT_VERSION)
                           for c in finals])
     n_prom = sum(1 for c in finals if c["final_score"] >= threshold)
+    try:
+        import session_continuity
+        session_continuity.distilled(brain, meta.get("session_id") or sid, journal_rel)
+    except Exception:
+        pass  # the memory writes succeeded; telemetry must not undo them
     return finals, n_prom, quarantined, journal_rel
 
 
@@ -980,6 +1047,8 @@ def dream_one(brain, enc, transcript, model, threshold, timeout,
                 "attempts": attempts})
         return "error"
 
+    journal_md, candidates = enforce_attribution(journal_md, candidates, transcript)
+
     # señal de memoria: cuarentena N14 + scoring + journal + DESTILADO +
     # staging (núcleo compartido con N3); LockTimeout o ForbiddenWrite →
     # run fallido SIN actualizar fingerprint (reintentable)
@@ -1032,7 +1101,7 @@ def list_transcripts(enc):
 
 
 def run(brain, limit=DEFAULT_LIMIT, dry_run=False, model=None,
-        threshold=None, out=print):
+        threshold=None, out=print, session=None):
     brain = os.path.abspath(os.path.expanduser(brain))
     if not os.path.isdir(os.path.join(brain, "STATE")):
         out("DREAM: ERROR — %s no parece un cerebro (sin STATE/)" % brain)
@@ -1052,9 +1121,15 @@ def run(brain, limit=DEFAULT_LIMIT, dry_run=False, model=None,
         timeout = DEFAULT_TIMEOUT
 
     transcripts = list_transcripts(enc)
+    if session:
+        # Acotar a UNA sesión: sin esto el backfill viejo→nuevo re-destila
+        # sesiones ajenas y reescribe sus secciones (y checkboxes) en DESTILADO.
+        transcripts = [t for t in transcripts
+                       if session in os.path.basename(t)]
     if not transcripts:
-        out("DREAM: NADA — sin transcripts respaldados para %s (¿corrió "
+        out("DREAM: NADA — sin transcripts respaldados para %s%s (¿corrió "
             "Y2b? %s)" % (os.path.basename(brain),
+                          " · sesión %s" % session if session else "",
                           os.path.join(_backup_root(), enc)))
         return 0
     state = _load_state().get(enc, {})
@@ -1133,12 +1208,14 @@ def main(argv=None):
     ap.add_argument("--threshold", type=int, default=None,
                     help="score mínimo para DESTILADO.md (default %d)"
                          % DEFAULT_THRESHOLD)
+    ap.add_argument("--session", default=None,
+                    help="solo transcripts cuyo nombre contiene este id")
     args = ap.parse_args(argv)
     if args.status:
         return status(args.brain)
     return run(args.brain, limit=None if args.all else args.limit,
                dry_run=args.dry_run, model=args.model,
-               threshold=args.threshold)
+               threshold=args.threshold, session=args.session)
 
 
 if __name__ == "__main__":

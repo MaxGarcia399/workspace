@@ -47,7 +47,9 @@ def _clean_steps(steps):
     """Normaliza los pasos: [{label:str, state:done|now|todo}]. Descarta basura,
     normaliza estado desconocido a 'now'. Cota de 40 pasos."""
     out = []
-    for s in (steps or []):
+    if not isinstance(steps, list):
+        return out
+    for s in steps:
         if not isinstance(s, dict):
             continue
         label = str(s.get("label") or "").strip()
@@ -92,7 +94,7 @@ def publish(brain, task, steps, pct=None, engine=None, model=None):
         }
         path = progress_path(brain)
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp = path + ".tmp"
+        tmp = "%s.tmp-%d-%s" % (path, os.getpid(), os.urandom(4).hex())
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(entry, fh, ensure_ascii=False)
         os.replace(tmp, path)
@@ -125,7 +127,7 @@ def read(brain, ignore_stale=False):
             "engine": str(d.get("engine") or "") or None,
             "model": str(d.get("model") or "") or None,
         }
-    except (OSError, ValueError):
+    except Exception:              # falla-suave de verdad (schema raro, brain=None…)
         return None
 
 
@@ -133,5 +135,5 @@ def clear(brain):
     """Borra progress.json (fin de tarea → el panel cae a now.json/idle)."""
     try:
         os.remove(progress_path(brain))
-    except OSError:
+    except Exception:
         pass

@@ -488,6 +488,29 @@ def run_event(event, payload=None, brain=None, behaviors=None, raw=None):
                     outs.append(out)
                     ran.append("memory_context")
 
+        if event == "session_start" and "memory_context" in beh:
+            try:
+                import session_continuity
+                tab = os.environ.get("WORKSPACE_WS") or os.environ.get("ZENITH_WS")
+                if tab:
+                    cp = session_continuity.read_checkpoint(b, tab)
+                    # Native Claude dashboard stays compatible; this adds the
+                    # same validated current state on resume and fresh starts.
+                    if cp and (not fresh or not _dashboard_of(cfg or {}, b)) and not data.get("engine"):
+                        parts.append(session_continuity.context(b, tab))
+                    revision = cp["revision"] if cp else 0
+                    parts.append(
+                        "Continuidad: al terminar una unidad de trabajo o antes de "
+                        "cambiar de motor, guardar un checkpoint con `workspace memoria "
+                        "checkpoint --expected-revision %s --objective ... --decision ... "
+                        "--blocker ... --next-step ... --result ...`. Campos ≤600 caracteres; "
+                        "--tab usa la pestaña activa. Si hay conflicto, leer "
+                        "`workspace memoria status` y reconciliar, nunca sobrescribir a ciegas. "
+                        "El checkpoint registra estado útil; no pensamiento privado."
+                        % revision)
+            except Exception:
+                pass
+
         if event in ("session_start", "user_prompt"):
             ctx = _merge_session_start(outs)   # mismo shape additionalContext
         elif event == "post_tool_write":
@@ -495,7 +518,10 @@ def run_event(event, payload=None, brain=None, behaviors=None, raw=None):
         else:
             ctx = ""                          # cleanup/telemetría: se descarta
         if ctx:
-            parts.append(ctx)
+            # primero: el tono y lo de los listeners no deben quedar enterrados
+            # bajo la memoria en un AGENTS.md/GEMINI.md largo (motores sin
+            # recordatorio por mensaje — el arranque es su única dosis)
+            parts.insert(0, ctx)
 
         if fresh and "inbox_on_boot" in beh:
             notice = inbox_notice(b)

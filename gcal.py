@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""WORKSPACE · gcal — los Google Calendar del socio, en SOLO LECTURA.
+"""WORKSPACE · gcal — Google Calendar del socio, iCal + OAuth, SOLO LECTURA.
 
-Es la fuente REMOTA que se fusiona con la agenda local (`personal.py`) en el
-layout `dia` del hub y en `calendario_tui`. Lee la «dirección secreta en
+Es la fuente REMOTA que se fusiona con la agenda local (`personal.py`) en
+`calendario_tui`. Lee la «dirección secreta en
 formato iCal» que Google da por calendario — una URL con token embebido, así
 que ES UN SECRETO y se trata como tal.
 
@@ -14,8 +14,9 @@ Google (p. ej. personal + trabajo). El modelo es una LISTA de cuentas:
     · La LISTA vive en la bóveda per-máquina (`secret_store`) bajo el nombre
       WORKSPACE_GCAL_ACCOUNTS, como un JSON de UNA línea — las URLs con token
       SIGUEN siendo secretas: nunca se versionan, nunca se imprimen.
-    · `kind` es el SEAM para una futura cuenta de dos vías (OAuth): hoy solo
-      existe "ical"; el resto del harness ya tolera el campo.
+    · OAuth de escritorio vive en google_auth.py: tokens separados en la
+      bóveda local, calendario principal, permiso calendar.events.readonly.
+      Sus cuentas se fusionan aquí con iCal; OAuth NO implica editar eventos.
     · Compatibilidad: la URL ÚNICA de antes (secreto WORKSPACE_GCAL_ICS_URL, o
       el env del sistema que GANA) sigue funcionando. Si el env trae esa URL,
       es la cuenta "default" (el env manda, igual que siempre). Si solo estaba
@@ -50,6 +51,8 @@ BYDAY semanal), EXDATE y overrides por RECURRENCE-ID. Lo que no se entiende
 se degrada a la ocurrencia base — nunca se inventa una fecha.
 
 CLI:
+    python3 gcal.py oauth-setup CLIENT.json → importa cliente Desktop local
+    python3 gcal.py oauth-connect → autoriza en navegador (sin escribir eventos)
     python3 gcal.py status        → resumen de TODAS las cuentas vinculadas
     python3 gcal.py accounts      → lista de cuentas (id · label · host · estado)
     python3 gcal.py add           → vincula una cuenta (prompt oculto de la URL)
@@ -63,6 +66,8 @@ CLI:
 
 Cero dependencias (stdlib, Python 3.9+). Mac y Windows.
 """
+import functools
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import datetime as _dt
 import hashlib
 import json
@@ -92,13 +97,16 @@ _MEMO_TTL = 30.0                          # memo en proceso (render barato)
 
 _memo = {"ts": 0.0, "sig": None, "events": []}
 _fetch_lock = threading.Lock()            # single-flight del refresh por cuenta
+_cache_lock = threading.RLock()
+_fetch_attempts = {}
+_sync_errors = {}
 _fetching = {}                            # id de cuenta → bool «ya refrescando»
 _migrated = [False]                       # migración URL única → lista (1×/proc)
 
 
 # ── ubicación / secreto ─────────────────────────────────────────────────────
 def _workspace_dir():
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace")
+    return _paths.state_dir()
 
 
 def cache_path():
@@ -248,9 +256,14 @@ def _all_accounts():
     env = _env_url()
     if env and _url_ok(env):
         accts = [a for a in accts
-                 if a["url"] != env and a["id"] != DEFAULT_ID]
+                 if a.get("url") != env and a["id"] != DEFAULT_ID]
         accts = [{"id": DEFAULT_ID, "label": "Principal", "url": env,
                   "kind": "ical", "_env": True}] + accts
+    try:
+        import google_auth
+        accts.extend(google_auth.accounts())
+    except Exception:
+        pass
     return accts
 
 
@@ -282,7 +295,7 @@ def _cache_for(acc_id):
     accs = raw.get("accounts")
     if isinstance(accs, dict):
         e = accs.get(acc_id)
-        return e if isinstance(e, dict) and isinstance(e.get("ics"), str) \
+        return e if isinstance(e, dict) and (isinstance(e.get("ics"), str) or isinstance(e.get("events"), list)) \
             else None
     if acc_id == DEFAULT_ID and isinstance(raw.get("ics"), str):
         return raw
@@ -307,6 +320,15 @@ def _write_cache(obj):
         return False
 
 
+def _cache_mutation(fn):
+    @functools.wraps(fn)
+    def locked(*args, **kwargs):
+        with _cache_lock:
+            return fn(*args, **kwargs)
+    return locked
+
+
+@_cache_mutation
 def _cache_put(acc_id, ics_text, sig):
     """Guarda/actualiza la entrada de UNA cuenta, preservando las demás y
     migrando un caché plano viejo a la nueva forma. True si quedó en disco."""
@@ -321,6 +343,7 @@ def _cache_put(acc_id, ics_text, sig):
     return _write_cache({"accounts": accs})
 
 
+@_cache_mutation
 def _cache_drop(acc_id):
     """Quita la entrada de caché de UNA cuenta (al desvincularla)."""
     raw = _cache_load_raw()
@@ -355,8 +378,50 @@ def _fetch(u, timeout=FETCH_TIMEOUT):
         return None
 
 
+def _account_sig(acc):
+    return _url_sig("oauth:" + acc["id"] if acc.get("oauth") else acc.get("url") or "")
+
+
+def _refresh_oauth(acc, force=False, timeout=FETCH_TIMEOUT):
+    import google_auth
+    sig = _account_sig(acc)
+    c = _cache_for(acc["id"])
+    if not force and c and c.get("sig") == sig and time.time() - float(c.get("fetched") or 0) < FETCH_TTL:
+        return True
+    try:
+        rows = google_auth.fetch_events(acc["id"], timeout=timeout)
+        # Do not recreate a removed account's cache after an in-flight fetch.
+        with google_auth._lock:
+            if not any(a["id"] == acc["id"] for a in google_auth.accounts()):
+                return False
+            ok = _cache_put_events(acc["id"], rows, sig)
+        if ok:
+            _sync_errors.pop(acc["id"], None)
+            invalidate()
+        else:
+            _sync_errors[acc["id"]] = "save_failed"
+        return ok
+    except Exception as exc:
+        _sync_errors[acc["id"]] = str(exc) if isinstance(exc, google_auth.AuthError) else "api_failed"
+        return False
+
+
+@_cache_mutation
+def _cache_put_events(aid, rows, sig):
+    raw = _cache_load_raw() or {}
+    accs = raw.get("accounts")
+    if not isinstance(accs, dict):
+        accs = {}
+        if isinstance(raw.get("ics"), str):
+            accs[DEFAULT_ID] = raw
+    accs[aid] = {"fetched": time.time(), "sig": sig, "events": rows}
+    return _write_cache({"accounts": accs})
+
+
 def refresh_account(acc, force=False, timeout=FETCH_TIMEOUT):
     """Fetch SÍNCRONO de UNA cuenta. True si su caché quedó fresco."""
+    if acc.get("oauth"):
+        return _refresh_oauth(acc, force=force, timeout=timeout)
     u = acc.get("url") or ""
     if not _url_ok(u):
         return False
@@ -389,6 +454,7 @@ def _refresh_bg(acc):
         if _fetching.get(aid):
             return
         _fetching[aid] = True
+        _fetch_attempts[aid] = time.monotonic()
 
     def _run():
         try:
@@ -677,10 +743,13 @@ def _events_for(acc):
     """Eventos de UNA cuenta desde su caché (SIN red). [] si no hay caché o es
     de otra URL (sig distinto)."""
     c = _cache_for(acc["id"])
-    if not c or c.get("sig") != _url_sig(acc.get("url") or ""):
+    if not c or c.get("sig") != _account_sig(acc):
         return []
     out = []
     try:
+        if acc.get("oauth"):
+            return [_shape(_dt.date.fromisoformat(e["date"]), e["time"],
+                           e["title"], e["uid"], acc) for e in c.get("events", [])]
         for uid, d, hhmm, summary in _expand_ics(c["ics"]):
             out.append(_shape(d, hhmm, summary, uid, acc))
     except Exception:
@@ -691,7 +760,7 @@ def _events_for(acc):
 def _accounts_sig(accts):
     """Huella del CONJUNTO de cuentas (id + sig de URL) para el memo: cambia si
     se agrega/quita/renombra/recambia cualquier cuenta."""
-    parts = ["%s:%s:%s" % (a["id"], _url_sig(a.get("url") or ""),
+    parts = ["%s:%s:%s" % (a["id"], _account_sig(a),
                            a.get("label") or "") for a in accts]
     return hashlib.sha256("|".join(parts).encode("utf-8", "replace")) \
         .hexdigest()[:16]
@@ -729,9 +798,10 @@ def _maybe_bg_all(accts):
     for acc in accts:
         try:
             c = _cache_for(acc["id"])
-            stale = (not c or c.get("sig") != _url_sig(acc.get("url") or "")
+            stale = (not c or c.get("sig") != _account_sig(acc)
                      or time.time() - float(c.get("fetched") or 0) >= FETCH_TTL)
-            if stale and _url_ok(acc.get("url") or ""):
+            retry_ready = time.monotonic() - _fetch_attempts.get(acc["id"], -1e9) >= 60
+            if stale and retry_ready and not acc.get("auth_error") and (acc.get("oauth") or _url_ok(acc.get("url") or "")):
                 _refresh_bg(acc)
         except Exception:
             pass
@@ -786,12 +856,14 @@ def list_accounts():
     out = []
     for acc in _all_accounts():
         u = acc.get("url") or ""
-        host = _url_display(u)
-        if not _url_ok(u):
+        host = "calendar.google.com" if acc.get("oauth") else _url_display(u)
+        if acc.get("auth_error"):
+            state, nev, last = "reconnect", 0, None
+        elif not acc.get("oauth") and not _url_ok(u):
             state, nev, last = "error", 0, None
         else:
             c = _cache_for(acc["id"])
-            if c and c.get("sig") == _url_sig(u):
+            if c and c.get("sig") == _account_sig(acc):
                 state, last = "ok", c.get("fetched")
                 try:
                     nev = len(_events_for(acc))
@@ -799,6 +871,8 @@ def list_accounts():
                     nev = 0
             else:
                 state, nev, last = "nofetch", 0, None
+        if acc.get("oauth") and not acc.get("auth_error") and _sync_errors.get(acc["id"]):
+            state = "sync_error"
         out.append({"id": acc["id"], "label": acc["label"],
                     "kind": acc.get("kind", "ical"), "host": host,
                     "state": state, "events": nev, "last_sync": last,
@@ -842,6 +916,13 @@ def remove_account(acc_id):
     La cuenta "default" respaldada por el env NO se quita desde aquí."""
     _ensure_migrated()
     acc_id = str(acc_id or "")
+    import google_auth
+    if any(a["id"] == acc_id for a in google_auth.accounts()):
+        result = google_auth.remove(acc_id)
+        if result.get("ok"):
+            _cache_drop(acc_id)
+            invalidate()
+        return result
     if acc_id == DEFAULT_ID and _env_owns_default():
         return {"ok": False, "error": "env"}
     accts = _persisted_accounts()
@@ -863,6 +944,11 @@ def rename_account(acc_id, label):
     label = (label or "").strip()[:60]
     if not label:
         return {"ok": False, "error": "empty"}
+    import google_auth
+    if any(a["id"] == acc_id for a in google_auth.accounts()):
+        result = google_auth.rename(acc_id, label)
+        invalidate()
+        return result
     if acc_id == DEFAULT_ID and _env_owns_default():
         return {"ok": False, "error": "env"}
     accts = _persisted_accounts()
@@ -907,7 +993,9 @@ def _upsert_default(url_value, timeout=FETCH_TIMEOUT):
 
 # ── CLI ─────────────────────────────────────────────────────────────────────
 def _state_es(state):
-    return {"ok": "conectado", "error": "URL inválida",
+    return {"ok": "conectado", "reconnect": "sesión vencida: reconectar",
+            "sync_error": "no se pudo actualizar: reintento automático",
+            "error": "URL inválida",
             "nofetch": "sin bajar aún"}.get(state, state)
 
 
@@ -1063,6 +1151,16 @@ def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     cmd = argv[0] if argv else "status"
     rest = argv[1:]
+    if cmd == "oauth-setup":
+        import google_auth
+        r = google_auth.import_client(rest[0]) if rest else {"ok": False, "error": "invalid_client"}
+        print("Google OAuth: " + ("configured" if r.get("ok") else r.get("error", "failed")))
+        return 0 if r.get("ok") else 1
+    if cmd == "oauth-connect":
+        import google_connect_ui
+        r = google_connect_ui.connect()
+        print(google_connect_ui.result_message(r))
+        return 0 if r.get("ok") else 1
     if cmd in ("status", "st"):
         return _cmd_status()
     if cmd in ("accounts", "acc", "cuentas"):
@@ -1099,7 +1197,7 @@ def main(argv=None):
         print("caché borrado")
         return 0
     print("uso: gcal.py [status|accounts|add|remove <id>|rename <id> <nombre>|"
-          "refresh|list|set-url|clear-url|clear-cache]", file=sys.stderr)
+          "refresh|list|oauth-setup <JSON>|oauth-connect|set-url|clear-url|clear-cache]", file=sys.stderr)
     return 2
 
 

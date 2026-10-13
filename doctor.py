@@ -2,7 +2,11 @@
 """WORKSPACE · doctor — instalador-reparador por FASES, idempotente.
 
 `workspace doctor`           revisa cada fase y REPARA lo que pueda (fase OK → se salta).
-`workspace doctor --check`   solo diagnostica: tabla de salud, NO modifica nada.
+`workspace doctor --check`   solo diagnostica: tabla de salud, NO modifica nada y
+                             NO consulta el remoto (sin `git fetch`: compara contra
+                             las refs LOCALES y lo dice explícitamente).
+`workspace doctor --check --remote`  diagnóstico + verificación REMOTA explícita
+                             (`git fetch` de los repos git; alias `--fetch`).
 `workspace doctor --tests`   corre la suite de tests del harness (tests/run.py, N18).
 
 Es el mismo comando para una máquina nueva (instala lo que falta) y para una
@@ -72,6 +76,7 @@ Cero dependencias (stdlib, Python 3.9+). Mac y Windows. Vive en git → se
 auto-actualiza con `workspace update`.
 """
 import os
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import re
 import sys
 import json
@@ -83,11 +88,13 @@ sys.dont_write_bytecode = True   # no generar __pycache__ (mantiene limpio el sy
 ROOT = os.path.dirname(os.path.abspath(__file__))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
-import dispatch   # noqa: E402  (resolución real de cerebros — la misma que usa el harness)
+import dispatch   # noqa: E402  (registry efectivo + transporte de cerebros)
+import brain_resolver  # noqa: E402  (Z20 — resolución CANÓNICA de cerebros, la misma que dispatch)
 import install    # noqa: E402  (fixers ya probados: launchers, greeter, tema, gitignore)
 import events     # noqa: E402  (contrato de eventos N9 — la fase 5 valida contra él)
 import session_paths  # noqa: E402  (única fuente del path de sesiones de Claude Code)
 import secret_scan  # noqa: E402  (N14 — la fase 9 escanea cerebros con él)
+import legacy     # noqa: E402  (literales de la instalación anterior — fase 5d)
 import skill_meta   # noqa: E402  (N11 — la fase 10 reporta el gating por máquina)
 import memory_blocks  # noqa: E402  (N13 — la fase 8 mide core blocks de MEMORY.md)
 import pathguard   # noqa: E402  (P0-4 — detección de rutas redirigidas a OneDrive)
@@ -98,6 +105,22 @@ IS_WIN = os.name == "nt"
 if IS_WIN:
     os.system("")  # habilita ANSI en Windows 10+ (no-op en consolas viejas)
 import _utf8; _utf8.harden()  # B2 · UTF-8 en stdout/err (cp1252 reventaría con box-drawing)
+
+
+def _t(key, default, **kw):
+    """i18n falla-suave (patrón de updater/migrate): cadena del idioma activo;
+    sin catálogo/clave → el `default` español (con .format(**kw))."""
+    try:
+        import i18n
+        s = i18n.t(key, **kw)
+        if s != key:
+            return s
+    except Exception:
+        pass
+    try:
+        return default.format(**kw) if kw else default
+    except Exception:
+        return default
 
 
 def _fg(n):
@@ -146,7 +169,8 @@ def _run(cmd, timeout=25, cwd=None):
 
 def _read_json(p):
     try:
-        return json.load(open(p, encoding="utf-8"))
+        with open(p, encoding="utf-8") as fh:
+            return json.load(fh)
     except Exception:
         return {}
 
@@ -185,8 +209,8 @@ def _report_hint():
     """DEPLOY-5: en un install externo damos un mensaje genérico (sin marca del
     equipo, sin sentido para un cliente); en uno interno, el canal del equipo."""
     if _is_dist_install():
-        return "revisa la salida y contacta a soporte con ella"
-    return "repórtalo al equipo (o a tu agente principal) con esta salida"
+        return _t("doctor.report_hint.1", "revisa la salida y contacta a soporte con ella")
+    return _t("doctor.report_hint.2", "repórtalo al equipo (o a tu agente principal) con esta salida")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -201,8 +225,9 @@ def build_ctx():
             cfg = dispatch.load_agent_cfg(a)
         except Exception:
             cfg = {}
+        res = brain_resolver.resolve(a["name"], cfg, a)
         agents.append({"entry": a, "name": a["name"], "cfg": cfg,
-                       "brain": dispatch.resolve_brain(a["name"], cfg)})
+                       "brain": res.path, "resolution": res})
         names += [a["name"]] + [x for x in a.get("aliases", []) if x != a["name"]]
     return {"agents": agents, "agent_names": list(dict.fromkeys(names)), "socio": None}
 
@@ -279,61 +304,59 @@ def phase_prereqs(ctx, fix):
         _, v, _ = _run(["git", "--version"], timeout=10)
         out.append(f(OK, "git", v or git))
     else:
-        out.append(f(FAIL, "git no está en PATH", "",
-                     "instala Git (https://git-scm.com) y abre una terminal nueva"))
+        out.append(f(FAIL, _t("doctor.phase_prereqs.1", "git no está en PATH"), "",
+                     _t("doctor.phase_prereqs.2", "instala Git (https://git-scm.com) y abre una terminal nueva")))
     # python (estamos corriendo en él; solo validar versión)
     if sys.version_info >= (3, 9):
         out.append(f(OK, "python", f"{sys.version.split()[0]} · {sys.executable}"))
     else:
-        out.append(f(WARN, "python viejo", sys.version.split()[0],
-                     "instala Python 3.9+ — WORKSPACE lo requiere"))
+        out.append(f(WARN, _t("doctor.phase_prereqs.3", "python viejo"), sys.version.split()[0],
+                     _t("doctor.phase_prereqs.4", "instala Python 3.9+ — WORKSPACE lo requiere")))
     # CLI de los MOTORES en uso (harness-agnóstico): se valida el binario de
     # cada engine que algún agente registrado usa — nada de asumir uno solo.
     engines = _engines_in_use(ctx)
     if not engines:
-        out.append(f(OK, "motores", "sin agentes registrados — el CLI del "
-                     "motor se valida al registrar el primero (Agregar agente)"))
+        out.append(f(OK, _t("doctor.phase_prereqs.5", "motores"), _t("doctor.phase_prereqs.6", "sin agentes registrados — el CLI del motor se valida al registrar el primero (Agregar agente)")))
     for eng, who in sorted(engines.items()):
         try:
             mod = dispatch.load_engine(eng)
         except Exception:
             mod = None
         if mod is None:
-            out.append(f(FAIL, f"motor '{eng}' no disponible",
-                         f"lo usan: {', '.join(who)}",
-                         f"engines/{eng.replace('-', '_')}.py falta o no "
-                         "carga — actualiza el harness (`workspace update`) "
-                         "o corrige el agente a un motor instalado"))
+            out.append(f(FAIL, _t("doctor.phase_prereqs.7", "motor '{eng}' no disponible", eng=eng),
+                         _t("doctor.used_by", "lo usan: {who}", who=', '.join(who)),
+                         _t("doctor.phase_prereqs.8", "engines/{v}.py falta o no carga — actualiza el harness (`workspace update`) o corrige el agente a un motor instalado", v=eng.replace('-', '_'))))
             continue
         binary = getattr(mod, "BINARY", None) or ENGINE_BINARIES.get(eng)
         if not binary:
-            out.append(f(OK, f"motor '{eng}'",
-                         f"sin CLI externo que validar · lo usan: {', '.join(who)}"))
+            out.append(f(OK, _t("doctor.phase_prereqs.9", "motor '{eng}'", eng=eng),
+                         _t("doctor.phase_prereqs.10", "sin CLI externo que validar · lo usan: {v}", v=', '.join(who))))
             continue
         exe = shutil.which(binary)
         if exe:
             _, v, _ = _run([binary, "--version"], timeout=15)
-            out.append(f(OK, f"{binary} CLI (motor {eng})", v or exe))
+            out.append(f(OK, _t("doctor.phase_prereqs.11", "{binary} CLI (motor {eng})", binary=binary, eng=eng), v or exe))
         else:
-            out.append(f(FAIL, f"{binary} CLI no está en PATH (motor '{eng}')",
-                         f"lo usan: {', '.join(who)}",
-                         ENGINE_INSTALL_HINTS.get(
-                             eng, f"instala el CLI `{binary}` de ese motor y "
-                                  "abre una terminal nueva")))
+            out.append(f(FAIL, _t("doctor.phase_prereqs.12", "{binary} CLI no está en PATH (motor '{eng}')", binary=binary, eng=eng),
+                         _t("doctor.used_by", "lo usan: {who}", who=', '.join(who)),
+                         _t("doctor.install_hint." + eng, ENGINE_INSTALL_HINTS[eng])
+                         if eng in ENGINE_INSTALL_HINTS else
+                         _t("doctor.install_hint.generic",
+                            "instala el CLI `{binary}` de ese motor y abre una "
+                            "terminal nueva", binary=binary)))
     # gh (sesión de GitHub para clonar/pull de repos privados)
     gh = shutil.which("gh")
     if not gh:
-        out.append(f(WARN, "gh (GitHub CLI) no está instalado",
-                     "git puede funcionar igual con credential manager",
-                     "opcional pero recomendado: instala gh y corre `gh auth login` "
-                     "(con tu cuenta de GitHub)"))
+        out.append(f(WARN, _t("doctor.phase_prereqs.13", "gh (GitHub CLI) no está instalado"),
+                     _t("doctor.phase_prereqs.14", "git puede funcionar igual con credential manager"),
+                     _t("doctor.phase_prereqs.15", "opcional pero recomendado: instala gh y corre `gh auth login` (con tu cuenta de GitHub)")))
     else:
         rc, _, err = _run(["gh", "auth", "status"], timeout=15)
         if rc == 0:
-            out.append(f(OK, "gh auth", "sesión de GitHub activa"))
+            out.append(f(OK, "gh auth", _t("doctor.phase_prereqs.16", "sesión de GitHub activa")))
         else:
-            out.append(f(WARN, "gh sin sesión de GitHub", (err.splitlines() or [""])[0],
-                         "corre `gh auth login` y entra con tu cuenta de GitHub"))
+            out.append(f(WARN, _t("doctor.phase_prereqs.17", "gh sin sesión de GitHub"), (err.splitlines() or [""])[0],
+                         _t("doctor.phase_prereqs.18", "corre `gh auth login` y entra con tu cuenta de GitHub")))
     return out
 
 
@@ -350,28 +373,45 @@ def phase_redirected_paths(ctx, fix):
     out = []
     root_lbl = pathguard.redirected_root(ROOT)
     if root_lbl:
-        out.append(f(FAIL, "WORKSPACE vive en una ruta redirigida a la nube",
+        out.append(f(FAIL, _t("doctor.phase_redirected_paths.1", "WORKSPACE vive en una ruta redirigida a la nube"),
                      f"{ROOT}  (bajo {root_lbl})",
-                     "muévelo FUERA de OneDrive — a %LOCALAPPDATA%\\Workspace o C:\\Workspace — "
-                     "y reinstala (python install.py). OneDrive sincroniza y BLOQUEA los "
-                     "archivos del harness (locks, latencia, settings per-máquina) → fallos "
-                     "intermitentes difíciles de diagnosticar"))
+                     _t("doctor.phase_redirected_paths.2", "muévelo FUERA de OneDrive — a %LOCALAPPDATA%\\Workspace o C:\\Workspace — y reinstala (python install.py). OneDrive sincroniza y BLOQUEA los archivos del harness (locks, latencia, settings per-máquina) → fallos intermitentes difíciles de diagnosticar")))
     else:
-        out.append(f(OK, "WORKSPACE fuera de rutas redirigidas (OneDrive/known-folders)", ROOT))
+        out.append(f(OK, _t("doctor.phase_redirected_paths.3", "WORKSPACE fuera de rutas redirigidas (OneDrive/known-folders)"), ROOT))
     for name, brain in _resolved_brains(ctx):
         lbl = pathguard.redirected_root(brain)
         if lbl:
             up = name.upper()
-            out.append(f(FAIL, f"[{name}] el cerebro vive en una ruta redirigida a la nube",
+            out.append(f(FAIL, _t("doctor.phase_redirected_paths.4", "[{name}] el cerebro vive en una ruta redirigida a la nube", name=name),
                          f"{brain}  (bajo {lbl})",
-                         f"muévelo a C:\\{up} - BRAIN (fuera de OneDrive) y vuelve a declararlo "
-                         f"en {dispatch._paths_local()}  →  {{\"brains\": {{\"{name}\": "
-                         f"\"C:\\\\{up} - BRAIN\"}}}}. OneDrive + Obsidian Sync sobre el mismo "
-                         "vault = doble canal (corrupción); además los locks/latencia de la nube "
-                         "rompen sesiones (resume) y el estado per-máquina (settings.local.json)"))
+                         _t("doctor.phase_redirected_paths.5", "muévelo a C:\\{up} - BRAIN (fuera de OneDrive) y vuelve a declararlo en {v}  →  {{\"brains\": {{\"{name}\": \"C:\\\\{up} - BRAIN\"}}}}. OneDrive + Obsidian Sync sobre el mismo vault = doble canal (corrupción); además los locks/latencia de la nube rompen sesiones (resume) y el estado per-máquina (settings.local.json)", up=up, v=dispatch._paths_local(), name=name)))
         else:
-            out.append(f(OK, f"[{name}] cerebro fuera de rutas redirigidas", brain))
+            out.append(f(OK, _t("doctor.phase_redirected_paths.6", "[{name}] cerebro fuera de rutas redirigidas", name=name), brain))
     return out
+
+
+def _resolution(a):
+    """Resolución canónica (brain_resolver) del agente del ctx — la de
+    build_ctx si viene, o recalculada. Siempre con fuente y estado."""
+    res = a.get("resolution")
+    if res is None or res.path != (a.get("brain") or ""):
+        res = brain_resolver.resolve(a["name"], a.get("cfg") or {}, a.get("entry"))
+        a["resolution"] = res
+    return res
+
+
+def _suggestion_for(ctx, name, fix=False):
+    """Sugerencia de reparación (discovery acotado + índice) para un agente con
+    cerebro roto. Se calcula UNA vez por corrida. Falla-suave → None."""
+    if "suggestions" not in ctx:
+        try:
+            import agentsreg
+            # --check no escribe ni el índice de discovery (caché por máquina)
+            ctx["suggestions"] = {s["name"]: s for s in
+                                  agentsreg.repair_suggestions(persist=bool(fix))}
+        except Exception:
+            ctx["suggestions"] = {}
+    return ctx["suggestions"].get(name)
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -381,63 +421,61 @@ def phase_siblings(ctx, fix):
     out = []
     parent = os.path.dirname(ROOT)
     if _is_git(ROOT):
-        out.append(f(OK, "WORKSPACE es repo git", ROOT))
+        out.append(f(OK, _t("doctor.phase_siblings.1", "WORKSPACE es repo git"), ROOT))
     else:
-        out.append(f(WARN, "WORKSPACE no es repo git", "instalación por sync — sin auto-update",
-                     "clona el repo del harness con git "
-                     f'(carpeta "WORKSPACE" en {parent}) para recibir actualizaciones'))
-    ov = {}
-    try:
-        ov = dispatch._local_overrides().get("brains", {})
-    except Exception:
-        pass
+        out.append(f(WARN, _t("doctor.phase_siblings.2", "WORKSPACE no es repo git"), _t("doctor.phase_siblings.3", "instalación por sync — sin auto-update"),
+                     _t("doctor.phase_siblings.4", "clona el repo del harness con git (carpeta \"WORKSPACE\" en {parent}) para recibir actualizaciones", parent=parent)))
     for a in ctx["agents"]:
         name = a["name"]
         # IN-REPO primero: su cerebro vive dentro de WORKSPACE y exigirle carpeta
         # hermana era un FALSO ROJO (hallazgo 2026-09-21, agente `doctor`).
         if _in_repo(a.get("brain")) and os.path.isdir(a.get("brain") or ""):
-            out.append(f(OK, f'cerebro "{name}" in-repo',
-                         "vive dentro del harness (viaja con la app) · "
-                         "sin vault hermano por diseño"))
+            out.append(f(OK, _t("doctor.phase_siblings.5", "cerebro \"{name}\" in-repo", name=name),
+                         _t("doctor.phase_siblings.6", "vive dentro del harness (viaja con la app) · sin vault hermano por diseño")))
             continue
         raw = a["cfg"].get("brain", "")
         target = os.path.basename(os.path.normpath(raw)) if raw else name
         sibling = os.path.join(parent, target)
-        brain, via = "", "carpeta hermana"
-        if os.path.isdir(sibling):
-            brain = sibling
-        elif name in ov and os.path.isdir(os.path.expanduser(ov[name])):
-            brain, via = os.path.expanduser(ov[name]), "vía paths.local.json"
+        # W-F02: el estado lo decide el resolver CANÓNICO (el mismo del launcher),
+        # no la «carpeta hermana». Un cerebro registrado por ruta absoluta fuera
+        # del repo (C:\TURING - BRAIN con el harness en C:\dev\…) es VÁLIDO.
+        res = _resolution(a)
+        brain = res.path if res.get("exists") else ""
+        via = {brain_resolver.SOURCE_OVERRIDE: _t("doctor.via.override", "vía paths.local.json"),
+               brain_resolver.SOURCE_LOADED: _t("doctor.via.loaded", "registrado en esta máquina (agents.local.json)"),
+               }.get(res.source, _t("doctor.via.sibling", "carpeta hermana")
+                     if brain_resolver.same_path(brain, sibling)
+                     else _t("doctor.via.declared", "ruta declarada"))
         if brain:
             # transporte del cerebro: obsidian-sync (DEFAULT, canal de primera
             # clase — git no aplica) o git (solo si el socio lo declara).
             transport = dispatch.brain_transport(name, brain)
             if transport == "obsidian-sync":
-                out.append(f(OK, f'cerebro "{target}"',
-                             f"{via} · sincroniza por Obsidian Sync — git no aplica"))
+                out.append(f(OK, _t("doctor.phase_siblings.7", "cerebro \"{target}\"", target=target),
+                             _t("doctor.phase_siblings.8", "{via} · sincroniza por Obsidian Sync — git no aplica", via=via)))
             elif _is_git(brain) and dispatch.obsidian_sync_enabled(brain):
                 # transport git DECLARADO + Sync activo = DOS canales sobre el
                 # mismo vault → corrupción segura (solo aplica con override git)
-                out.append(f(FAIL, f'"{target}": repo git Y Obsidian Sync a la vez', brain,
-                             "un solo canal por vault: apaga Obsidian Sync en este vault "
-                             "o quita el override de transport git en "
-                             f"{dispatch._paths_local()}"))
+                out.append(f(FAIL, _t("doctor.phase_siblings.9", "\"{target}\": repo git Y Obsidian Sync a la vez", target=target), brain,
+                             _t("doctor.phase_siblings.10", "un solo canal por vault: apaga Obsidian Sync en este vault o quita el override de transport git en {v}", v=dispatch._paths_local())))
             elif _is_git(brain):
-                out.append(f(OK, f'cerebro "{target}"', f"{via} · repo git (transport declarado)"))
+                out.append(f(OK, _t("doctor.phase_siblings.11", "cerebro \"{target}\"", target=target), _t("doctor.phase_siblings.12", "{via} · repo git (transport declarado)", via=via)))
             else:
-                out.append(f(WARN, f'"{target}": transport git declarado pero no es repo git',
-                             "no recibirá actualizaciones por git pull",
-                             "re-clónalo con git o quita el override "
-                             f"de transport en {dispatch._paths_local()} para volver al "
-                             "default (Obsidian Sync)"))
+                out.append(f(WARN, _t("doctor.phase_siblings.13", "\"{target}\": transport git declarado pero no es repo git", target=target),
+                             _t("doctor.phase_siblings.14", "no recibirá actualizaciones por git pull"),
+                             _t("doctor.phase_siblings.15", "re-clónalo con git o quita el override de transport en {v} para volver al default (Obsidian Sync)", v=dispatch._paths_local())))
         else:
-            url = CLONE_URLS.get(target, "<URL del repo de tu cerebro>")
-            out.append(f(FAIL, f'falta el cerebro "{target}"',
-                         "el nombre de carpeta debe ser EXACTO (con espacios)",
-                         f"instala el vault por Obsidian Sync (canal por defecto de los "
-                         f"cerebros) junto a WORKSPACE, o clónalo:  git clone {url} \"{target}\"  "
-                         f"(en {parent}) — o si ya vive en otra ruta, decláralo en "
-                         f"{dispatch._paths_local()}  →  {{\"brains\": {{\"{name}\": \"/ruta\"}}}}"))
+            url = CLONE_URLS.get(target) or _t("doctor.clone_url_placeholder", "<URL del repo de tu cerebro>")
+            sug = _suggestion_for(ctx, name, fix)
+            detail = (_t("doctor.resolved_from", "resuelto ({src}) → ",
+                         src=_source_label(res.source))
+                      + f"{res.path or _t('doctor.no_path', '(sin ruta)')} · {res.get('error') or _t('doctor.not_exists', 'no existe')}")
+            if sug and sug.get("found"):
+                action = (_t("doctor.phase_siblings.16", "encontrado en {found} — repáralo: python agentsreg.py relocate {name} \"{found}\"  (o `workspace doctor` sin --check)", found=sug['found'], name=name))
+            else:
+                action = (_t("doctor.phase_siblings.17", "instala el vault por Obsidian Sync (canal por defecto de los cerebros) junto a WORKSPACE, o clónalo:  git clone {url} \"{target}\"  (en {parent}) — o si ya vive en otra ruta, decláralo en {v}  →  {{\"brains\": {{\"{name}\": \"/ruta\"}}}}", url=url, target=target, parent=parent, v=dispatch._paths_local(), name=name)
+                          + (f" · candidatos: {', '.join(sug['options'])}" if sug else ""))
+            out.append(f(FAIL, _t("doctor.phase_siblings.18", "falta el cerebro \"{target}\"", target=target), detail, action))
         # Punto ciego histórico: el override de paths.local.json GANA en runtime
         # (dispatch.resolve_brain lo prefiere SOBRE la carpeta hermana), aunque
         # exista la hermana real. Si el override apunta a OTRO sitio que la
@@ -447,15 +485,13 @@ def phase_siblings(ctx, fix):
         # primero. WARN, no FAIL: un override a otra ruta REAL puede ser legítimo.
         try:
             runtime = a.get("brain", "")   # = resolve_brain (paths.local primero)
-            if (name in ov and os.path.isdir(sibling) and runtime
+            if (res.source == brain_resolver.SOURCE_OVERRIDE
+                    and os.path.isdir(sibling) and runtime
                     and os.path.realpath(runtime) != os.path.realpath(sibling)):
                 out.append(f(WARN,
-                             f'cerebro "{target}": paths.local.json lo redirige a otra ruta',
-                             f"runtime usa {runtime} pero existe la carpeta hermana real "
-                             f"{sibling} — el launcher y el picker leen el override "
-                             f"(las sesiones del cerebro real no aparecen)",
-                             f'apunta brains.{name} a "{sibling}" o elimina esa clave en '
-                             f"{dispatch._paths_local()}"))
+                             _t("doctor.phase_siblings.19", "cerebro \"{target}\": paths.local.json lo redirige a otra ruta", target=target),
+                             _t("doctor.phase_siblings.20", "runtime usa {runtime} pero existe la carpeta hermana real {sibling} — el launcher y el picker leen el override (las sesiones del cerebro real no aparecen)", runtime=runtime, sibling=sibling),
+                             _t("doctor.phase_siblings.21", "apunta brains.{name} a \"{sibling}\" o elimina esa clave en {v}", name=name, sibling=sibling, v=dispatch._paths_local())))
         except Exception:
             pass
     return out
@@ -464,12 +500,19 @@ def phase_siblings(ctx, fix):
 # ══════════════════════════════════════════════════════════════════════════
 #  FASE 3 · Repos al día (detrás de origin → pull --ff-only)
 # ══════════════════════════════════════════════════════════════════════════
-def _repo_state(path):
-    """('ok'|'behind'|'no-remote'|'no-upstream'|'offline', behind, ahead, dirty)"""
+def _repo_state(path, fetch=False):
+    """('ok'|'behind'|'no-remote'|'no-upstream'|'offline', behind, ahead, dirty)
+
+    W-F11: SIN `fetch` (default, el de --check) NO se consulta el remoto — la
+    comparación es contra las refs LOCALES de origin (pueden estar viejas) y el
+    caller lo dice explícitamente. `fetch=True` (modo reparar, o --remote) hace
+    `git fetch` y entonces sí es una verificación remota."""
     rc, remotes, _ = _run(["git", "-C", path, "remote"], timeout=10)
     if rc != 0 or not remotes:
         return "no-remote", 0, 0, False
-    rc_f, _, _ = _run(["git", "-C", path, "fetch", "--quiet"], timeout=40)
+    rc_f = 0
+    if fetch:
+        rc_f, _, _ = _run(["git", "-C", path, "fetch", "--quiet"], timeout=40)
     rc, out, _ = _run(["git", "-C", path, "rev-list", "--count", "--left-right",
                        "HEAD...@{upstream}"], timeout=10)
     if rc != 0:
@@ -485,61 +528,171 @@ def _repo_state(path):
     return state, behind, ahead, bool(st)
 
 
+# ══════════════════════════════════════════════════════════════════════════
+#  FASE 3b · Versión y ajustes de actualización (updater.py · migrate.py)
+# ══════════════════════════════════════════════════════════════════════════
+# Lo que el usuario necesita saber tras una actualización: qué versión corre,
+# si una actualización se revirtió sola (y por qué), si quedó algún ajuste
+# registrado sin aplicar o fallido, y si hay cambios opcionales ofrecidos.
+# Reparar = aplicar los ajustes "auto" pendientes (idempotentes, misma cola
+# que el hub). Las ofertas NUNCA se aplican aquí: requieren el OK del usuario.
+def phase_update_state(ctx, fix):
+    out = []
+    try:
+        import updater
+        import migrate
+    except Exception as e:
+        return [f(WARN, _t("doctor.phase_update_state.1", "no pude cargar el actualizador"), "%s: %s" % (type(e).__name__, e),
+                  _report_hint())]
+    cur = updater.current(ROOT)
+    out.append(f(OK, "Workspace v%s" % (cur.get("version") or "?"),
+                 (_t("doctor.phase_update_state.2", "código %s · rama %s") % (cur.get("short"), cur.get("branch")))
+                 if cur.get("sha") else ""))
+    h = updater.hold(HOME)
+    if h:
+        bad = h.get("bad_version") or h.get("bad", "")[:7]
+        if h.get("kind") == "manual":
+            out.append(f(WARN, _t("doctor.phase_update_state.3", "volviste a la versión anterior; la v%s queda en pausa") % bad,
+                         "", _t("doctor.phase_update_state.4", "se actualiza sola cuando publiquemos una más nueva (o `workspace update --force` para volver a ella)")))
+        else:
+            out.append(f(WARN, _t("doctor.phase_update_state.5", "versión fijada: la v%s no arrancó en esta máquina") % bad,
+                         (h.get("reason") or "")[:200],
+                         _t("doctor.phase_update_state.6", "nada que hacer: se actualiza sola cuando publiquemos un arreglo (o `workspace update --force` para reintentar)")))
+    st = migrate.status(HOME)
+    if st["pending"] and fix:
+        res = migrate.run_pending(HOME, force=True)       # reparar = reintentar
+        for mid, title in res["applied"]:
+            out.append(f(FIXED, _t("doctor.phase_update_state.7", "ajuste aplicado: %s") % title, mid))
+        st = migrate.status(HOME)
+    if st["failed"]:
+        fl = st["failed"]
+        out.append(f(FAIL, _t("doctor.phase_update_state.8", "un ajuste de la actualización falló: %s") % fl["id"],
+                     (fl.get("error") or "")[:200],
+                     _t("doctor.phase_update_state.9", "corrige la causa y corre `workspace migrate --run`; si no sabes cuál es, `workspace doctor --bundle` y envíanos el zip")))
+    elif st["pending"]:
+        out.append(f(WARN, _t("doctor.phase_update_state.10", "%d ajuste(s) de actualización pendiente(s)") % len(st["pending"]),
+                     ", ".join(st["pending"][:5]), "workspace migrate --run"))
+    else:
+        out.append(f(OK, _t("doctor.phase_update_state.11", "ajustes de actualización al día"),
+                     "%d aplicado(s)" % len(st["applied"])))
+    for mid, title in migrate.offers_available(HOME):
+        out.append(f(WARN, _t("doctor.phase_update_state.12", "cambio opcional disponible: %s") % title, mid,
+                     "workspace migrate --offer %s" % mid))
+    return out
+
+
+def _harness_update_finding(label):
+    """Un hallazgo del doctor a partir de updater.update_harness (modo reparar).
+    Respeta la elección del usuario: si apagó las actualizaciones automáticas
+    o pidió solo aviso, el doctor COMPRUEBA y avisa, pero no instala (eso lo
+    hace `workspace update`, que el usuario corre cuando quiere)."""
+    try:
+        import updater
+        modo = updater.auto_mode()
+        r = updater.update_harness(ROOT, mode="manual", home=HOME, apply=(modo == "auto"))
+    except Exception as e:
+        return f(WARN, _t("doctor.harness_update_finding.1", "{label}: no pude correr el actualizador", label=label), "%s: %s" % (type(e).__name__, e),
+                 "workspace update")
+    st = r.get("status")
+    if st == updater.AVAILABLE:
+        v = r.get("to_version")
+        return f(WARN, _t("doctor.harness_update_finding.2", "{label}: hay una versión nueva", label=label) + (f" (v{v})" if v else ""),
+                 "actualizaciones " + updater.auto_mode_text(modo),
+                 _t("doctor.harness_update_finding.11", "workspace update (cuando quieras)"))
+    if st == updater.UPDATED:
+        return f(FIXED, f"{label} actualizado a v{r.get('to_version') or r.get('to', '')[:7]}",
+                 _t("doctor.harness_update_finding.3", "%d cambio(s) · lo que sigue de este doctor usa la versión anterior: vuelve a correr `workspace doctor` para revisar con la nueva") % len(r.get("commits") or []))
+    if st == updater.UPTODATE:
+        return f(OK, _t("doctor.harness_update_finding.4", "{label} al día con origin", label=label), _t("doctor.harness_update_finding.5", "verificado contra el remoto"))
+    if st == updater.HELD:
+        return f(WARN, _t("doctor.harness_update_finding.6", "{label}: hay una versión más nueva en pausa en esta máquina", label=label),
+                 _t("doctor.harness_update_finding.7", "ver fase 3b"), "")
+    if st == updater.ROLLED_BACK:
+        return f(WARN, _t("doctor.harness_update_finding.8", "{label}: la versión nueva no arrancó aquí; se quedó la anterior", label=label),
+                 (r.get("detail") or "")[:200], _t("doctor.harness_update_finding.9", "nada que hacer: se reintenta cuando publiquemos un arreglo"))
+    return f(WARN, _t("doctor.harness_update_finding.10", "{label}: no se actualizó", label=label), updater.reason_text(r.get("reason")),
+             "workspace update")
+
+
 def phase_updated(ctx, fix):
     out = []
+    # W-F11: consultar el remoto es EXPLÍCITO — modo reparar (va a hacer pull)
+    # o --remote/--fetch. --check a secas compara contra refs locales.
+    remote = bool(fix or ctx.get("remote"))
+    basis = _t("doctor.phase_updated.1", "verificado contra el remoto") if remote else \
+        _t("doctor.phase_updated.2", "según refs locales — sin consultar remoto (usa --remote)")
     repos = [("WORKSPACE", ROOT, "git")] + \
-            [(f"cerebro {n}", b, dispatch.brain_transport(n, b)) for n, b in _resolved_brains(ctx)]
+            [(_t("doctor.phase_updated.3", "cerebro {n}", n=n), b, dispatch.brain_transport(n, b)) for n, b in _resolved_brains(ctx)]
     for label, path, transport in repos:
         if path != ROOT and _in_repo(path):
             # cerebro in-repo: ya se actualiza con WORKSPACE (misma linea de arriba).
             # Decir "Obsidian Sync" aqui seria mentira.
-            out.append(f(OK, f"{label}: viaja dentro de WORKSPACE — "
-                            "se actualiza con el harness", path))
+            out.append(f(OK, _t("doctor.phase_updated.4", "{label}: viaja dentro de WORKSPACE — se actualiza con el harness", label=label), path))
             continue
         if transport == "obsidian-sync":
             # canal sano y DEFAULT de los cerebros: Obsidian Sync se encarga
             # (sync en segundos) — git no aplica, aunque exista un .git vestigial.
-            out.append(f(OK, f"{label}: sincroniza por Obsidian Sync — git no aplica", path))
+            out.append(f(OK, _t("doctor.phase_updated.5", "{label}: sincroniza por Obsidian Sync — git no aplica", label=label), path))
             continue
         if not _is_git(path):
-            out.append(f(WARN, f"{label}: transport git pero no es repo git", path,
-                         "sin git no hay actualizaciones automáticas — re-clónalo con git "
-                         "o, si es un cerebro, quita el "
-                         f"override de transport en {dispatch._paths_local()} para volver "
-                         "al default (Obsidian Sync)"))
+            out.append(f(WARN, _t("doctor.phase_updated.6", "{label}: transport git pero no es repo git", label=label), path,
+                         _t("doctor.phase_updated.7", "sin git no hay actualizaciones automáticas — re-clónalo con git o, si es un cerebro, quita el override de transport en {v} para volver al default (Obsidian Sync)", v=dispatch._paths_local())))
             continue
-        state, behind, ahead, dirty = _repo_state(path)
-        extra = (f" · {ahead} commit(s) locales por subir" if ahead else "") + \
-                (" · cambios locales sin commitear" if dirty else "")
+        if path == ROOT and fix:
+            # El HARNESS jamás se jala "a pelo": pasa por el actualizador (comprueba
+            # que la versión nueva arranca, vuelve sola si no, respeta una versión
+            # fijada y aplica los ajustes registrados). Ver updater.py.
+            out.append(_harness_update_finding(label))
+            continue
+        state, behind, ahead, dirty = _repo_state(path, fetch=remote)
+        if path == ROOT and state == "behind":
+            try:
+                import updater
+                h = updater.hold(HOME)
+            except Exception:
+                h = None
+            if h:
+                out.append(f(WARN, _t("doctor.phase_updated.8", "{label}: hay una versión más nueva en pausa en esta máquina", label=label),
+                             _t("doctor.phase_updated.9", "ver fase 3b"), ""))
+                continue
+        extra = (_t("doctor.phase_updated.10", " · {ahead} commit(s) locales por subir", ahead=ahead) if ahead else "") + \
+                (_t("doctor.phase_updated.11", " · cambios locales sin commitear") if dirty else "")
         if state == "ok":
-            out.append(f(OK, f"{label} al día con origin", (extra.strip(" ·") or "")))
+            if remote:
+                out.append(f(OK, _t("doctor.phase_updated.12", "{label} al día con origin", label=label),
+                             " · ".join(x for x in (extra.strip(" ·"), basis) if x)))
+            else:
+                out.append(f(OK, _t("doctor.phase_updated.13", "{label} sin commits pendientes según refs locales", label=label),
+                             " · ".join(x for x in (extra.strip(" ·"), basis) if x)))
         elif state == "no-remote":
-            out.append(f(WARN, f"{label}: sin remote configurado", path,
-                         "agrega el remote (git remote add origin <url>) para recibir updates"))
+            out.append(f(WARN, _t("doctor.phase_updated.14", "{label}: sin remote configurado", label=label), path,
+                         _t("doctor.phase_updated.15", "agrega el remote (git remote add origin <url>) para recibir updates")))
         elif state == "no-upstream":
             # la rama ACTUAL (stable para el equipo, main para quien desarrolla) — nunca hardcodear main
             _, br, _ = _run(["git", "-C", path, "rev-parse", "--abbrev-ref", "HEAD"], timeout=10)
-            out.append(f(WARN, f"{label}: la rama no rastrea a origin", path,
-                         f'corre: git -C "{path}" branch --set-upstream-to=origin/{br or "main"}'))
+            out.append(f(WARN, _t("doctor.phase_updated.16", "{label}: la rama no rastrea a origin", label=label), path,
+                         _t("doctor.phase_updated.17", "corre: git -C \"{path}\" branch --set-upstream-to=origin/{v}", path=path, v=br or "main")))
         elif state == "offline":
-            out.append(f(WARN, f"{label}: no se pudo consultar origin",
-                         "¿offline o sin acceso al repo?",
-                         "verifica conexión / credenciales (gh auth login) y reintenta"))
+            out.append(f(WARN, _t("doctor.phase_updated.32", "{label}: no se pudo consultar origin", label=label),
+                         _t("doctor.phase_updated.18", "¿offline o sin acceso al repo?"),
+                         _t("doctor.phase_updated.19", "verifica conexión / credenciales (gh auth login) y reintenta")))
         else:  # behind
             if not fix:
-                out.append(f(FAIL, f"{label}: {behind} commit(s) detrás de origin", extra.strip(" ·"),
-                             f'actualízalo: git -C "{path}" pull --ff-only  (o `workspace doctor`)'))
+                out.append(f(FAIL, _t("doctor.phase_updated.20", "{label}: {behind} commit(s) detrás de origin", label=label, behind=behind)
+                                   + ("" if remote else _t("doctor.phase_updated.33", " (refs locales)")),
+                             " · ".join(x for x in (extra.strip(" ·"), basis) if x),
+                             _t("doctor.phase_updated.21", "actualízalo: git -C \"{path}\" pull --ff-only  (o `workspace doctor`)", path=path)))
             elif dirty:
-                out.append(f(WARN, f"{label}: {behind} detrás, pero hay cambios locales",
-                             "no jalo encima de trabajo sin commitear",
-                             f"commitea o guarda los cambios y corre: git -C \"{path}\" pull --ff-only"))
+                out.append(f(WARN, _t("doctor.phase_updated.22", "{label}: {behind} detrás, pero hay cambios locales", label=label, behind=behind),
+                             _t("doctor.phase_updated.23", "no jalo encima de trabajo sin commitear"),
+                             _t("doctor.phase_updated.24", "commitea o guarda los cambios y corre: git -C \"{path}\" pull --ff-only", path=path)))
             else:
                 rc, o, e = _run(["git", "-C", path, "pull", "--ff-only"], timeout=60)
                 if rc == 0:
                     out.append(f(FIXED, f"{label} actualizado", f"{behind} commit(s) jalados"))
                 else:
-                    out.append(f(FAIL, f"{label}: el pull falló", (e or o).splitlines()[-1] if (e or o) else "",
-                                 f"resuélvelo a mano: git -C \"{path}\" pull --ff-only"))
+                    out.append(f(FAIL, _t("doctor.phase_updated.25", "{label}: el pull falló", label=label), (e or o).splitlines()[-1] if (e or o) else "",
+                                 _t("doctor.phase_updated.26", "resuélvelo a mano: git -C \"{path}\" pull --ff-only", path=path)))
     # canal del equipo: los socios (no-max) viven en `stable` con upstream rastreado.
     # ⚠ informativo a propósito (una máquina puede estar en una rama de trabajo adrede).
     socio = _get_socio(ctx, fix=False)
@@ -547,17 +700,15 @@ def phase_updated(ctx, fix):
         _, br, _ = _run(["git", "-C", ROOT, "rev-parse", "--abbrev-ref", "HEAD"], timeout=10)
         rc_u, _, _ = _run(["git", "-C", ROOT, "rev-parse", "--abbrev-ref", "@{upstream}"], timeout=10)
         if br == "stable" and rc_u == 0:
-            out.append(f(OK, "canal del equipo", "WORKSPACE en `stable` · upstream rastreado"))
+            out.append(f(OK, _t("doctor.phase_updated.27", "canal del equipo"), _t("doctor.phase_updated.34", "WORKSPACE en `stable` · upstream rastreado")))
         else:
             why = []
             if br != "stable":
-                why.append(f"rama actual: {br or '?'} (el equipo vive en stable)")
+                why.append(_t("doctor.phase_updated.28", "rama actual: {v} (el equipo vive en stable)", v=br or '?'))
             if rc_u != 0:
-                why.append("la rama no rastrea a origin")
-            out.append(f(WARN, "WORKSPACE fuera del canal del equipo", " · ".join(why),
-                         f'para volver al canal: git -C "{ROOT}" checkout stable — '
-                         f'o si la rama es intencional, fija upstream: '
-                         f'git -C "{ROOT}" branch --set-upstream-to=origin/{br or "stable"}'))
+                why.append(_t("doctor.phase_updated.29", "la rama no rastrea a origin"))
+            out.append(f(WARN, _t("doctor.phase_updated.30", "WORKSPACE fuera del canal del equipo"), " · ".join(why),
+                         _t("doctor.phase_updated.31", "para volver al canal: git -C \"{root}\" checkout stable — o si la rama es intencional, fija upstream: git -C \"{root}\" branch --set-upstream-to=origin/{v}", root=ROOT, v=br or "stable")))
     return out
 
 
@@ -569,27 +720,49 @@ def phase_brains(ctx, fix):
     discovered = {}
     for a in ctx["agents"]:
         name = a["name"]
-        a["brain"] = dispatch.resolve_brain(name, a["cfg"])   # re-resuelve (fase 2 pudo cambiar algo)
-        if a["brain"] and os.path.isdir(a["brain"]):
-            out.append(f(OK, f"{name} → {a['brain']}"))
+        # re-resuelve (fase 2 pudo cambiar algo) con el resolver CANÓNICO
+        res = brain_resolver.resolve(name, a["cfg"], a.get("entry"))
+        a["resolution"], a["brain"] = res, res.path
+        src = _source_label(res.source)
+        if res.get("exists") and res.get("readable"):
+            out.append(f(OK, f"{name} → {a['brain']}", src))
             continue
+        if res.get("exists"):
+            out.append(f(FAIL, _t("doctor.phase_brains.1", "el cerebro de {name} no es legible", name=name), a["brain"],
+                         _t("doctor.phase_brains.2", "revisa los permisos de la carpeta")))
+            continue
+        sug = _suggestion_for(ctx, name, fix)
         if not fix:
-            out.append(f(FAIL, f"dispatch no resuelve el cerebro de {name}",
-                         a["brain"] or "(sin definir)",
-                         f"clona la carpeta con el nombre exacto (fase 2) o declárala en "
-                         f"{dispatch._paths_local()}"))
+            if sug and sug.get("found"):
+                act = (_t("doctor.phase_brains.3", "encontrado en {found} — repáralo: python agentsreg.py relocate {name} \"{found}\"  (o `workspace doctor`)", found=sug['found'], name=name))
+            else:
+                act = (_t("doctor.phase_brains.4", "clona la carpeta con el nombre exacto (fase 2) o declárala en {v}", v=dispatch._paths_local()))
+            out.append(f(FAIL, _t("doctor.phase_brains.5", "dispatch no resuelve el cerebro de {name}", name=name),
+                         f"{a['brain'] or _t('doctor.undefined', '(sin definir)')} · {src}", act))
             continue
+        if sug and sug.get("found"):
+            # reparación validada (marcador/nombre de carpeta) y atómica
+            try:
+                import agentsreg
+                ok, err, dest = agentsreg.relocate(name, sug["found"])
+            except Exception as e:
+                ok, err, dest = False, str(e), ""
+            if ok:
+                a["brain"] = sug["found"]
+                a["resolution"] = brain_resolver.resolve(name, a["cfg"], a.get("entry"))
+                out.append(f(FIXED, f"{name} → {sug['found']}",
+                             _t("doctor.phase_brains.15", "reubicado (antes {v}) · escrito en {dest}", v=res.path or _t('doctor.no_path', '(sin ruta)'), dest=dest)))
+                continue
         # FIX: usar el detector del instalador (Obsidian, spots comunes, prompt)
         brain, persist = install.find_brain(name, a["cfg"])
         if brain and os.path.isdir(brain):
             a["brain"] = brain
             if persist:
                 discovered[name] = brain
-            out.append(f(FIXED, f"{name} → {brain}", "detectado y registrado"))
+            out.append(f(FIXED, f"{name} → {brain}", _t("doctor.phase_brains.6", "detectado y registrado")))
         else:
-            out.append(f(FAIL, f"no encontré el cerebro de {name}", "",
-                         f"clónalo (fase 2) o declara la ruta en {dispatch._paths_local()}  →  "
-                         f"{{\"brains\": {{\"{name}\": \"/ruta\"}}}}"))
+            out.append(f(FAIL, _t("doctor.phase_brains.7", "no encontré el cerebro de {name}", name=name), "",
+                         _t("doctor.phase_brains.8", "clónalo (fase 2) o declara la ruta en {v}  →  {{\"brains\": {{\"{name}\": \"/ruta\"}}}}", v=dispatch._paths_local(), name=name)))
     if discovered:
         pl = dispatch._paths_local()
         cur = _read_json(pl)
@@ -608,22 +781,18 @@ def phase_brains(ctx, fix):
         sdir = session_paths.session_dir(brain)
         if os.path.isdir(sdir):
             n = sum(1 for x in os.listdir(sdir) if x.endswith(".jsonl"))
-            out.append(f(OK, f"[{name}] sesiones (resume) en el path esperado",
-                         f"{n} sesión(es) · {os.path.basename(sdir)}"))
+            out.append(f(OK, _t("doctor.phase_brains.9", "[{name}] sesiones (resume) en el path esperado", name=name),
+                         _t("doctor.phase_brains.10", "{n} sesión(es) · {v}", n=n, v=os.path.basename(sdir))))
             continue
         cands = session_paths.mismatch_candidates(brain)
         if cands:
-            out.append(f(WARN, f"[{name}] resume no funcionará: el path calculado "
-                               "no coincide con el real",
-                         f"calculado: {os.path.basename(sdir)} · "
-                         f"Claude Code guarda en: {os.path.basename(cands[0])}",
-                         f"hay un symlink u otra codificación en la ruta del cerebro — "
-                         f"revisa `ls -l` sobre los componentes de \"{brain}\", declara la "
-                         f"ruta REAL (sin symlinks) en {dispatch._paths_local()} y "
+            out.append(f(WARN, _t("doctor.phase_brains.11", "[{name}] resume no funcionará: el path calculado no coincide con el real", name=name),
+                         _t("doctor.phase_brains.16", "calculado: {v} · Claude Code guarda en: {v2}", v=os.path.basename(sdir), v2=os.path.basename(cands[0])),
+                         _t("doctor.phase_brains.12", "hay un symlink u otra codificación en la ruta del cerebro — revisa `ls -l` sobre los componentes de \"{brain}\", declara la ruta REAL (sin symlinks) en {v} y ", brain=brain, v=dispatch._paths_local())
                          + _report_hint()))
         else:
-            out.append(f(OK, f"[{name}] sesiones (resume)",
-                         "sin sesiones aún — la carpeta se crea al primer arranque"))
+            out.append(f(OK, _t("doctor.phase_brains.13", "[{name}] sesiones (resume)", name=name),
+                         _t("doctor.phase_brains.14", "sin sesiones aún — la carpeta se crea al primer arranque")))
     return out
 
 
@@ -716,7 +885,7 @@ def _stale_interpreters(settings):
 def phase_hooks(ctx, fix):
     out = []
     if not _resolved_brains(ctx):
-        return [f(WARN, "sin cerebros resueltos", "nada que cablear", "resuelve la fase 4 primero")]
+        return [f(WARN, _t("doctor.phase_hooks.1", "sin cerebros resueltos"), _t("doctor.phase_hooks.2", "nada que cablear"), _t("doctor.phase_hooks.3", "resuelve la fase 4 primero"))]
     for a in ctx["agents"]:
         name, brain = a["name"], a["brain"]
         if not (brain and os.path.isdir(brain)):
@@ -736,26 +905,23 @@ def phase_hooks(ctx, fix):
         # env/mcpServers/model del socio EN SILENCIO. Reparación automática
         # sobre un archivo ilegible = destructiva → se ABORTA y se reporta.
         if install.json_corrupt(sp):
-            out.append(f(FAIL, f"[{name}] settings.local.json ilegible (JSON corrupto)",
-                         "el doctor NO lo reescribe: pisarlo descartaría "
-                         "permissions/env/mcpServers en silencio",
-                         f"revisa/respalda {sp} y bórralo o restáuralo; "
-                         f"luego corre `python3 install.py`"))
+            out.append(f(FAIL, _t("doctor.phase_hooks.17", "[{name}] settings.local.json ilegible (JSON corrupto)", name=name),
+                         _t("doctor.phase_hooks.4", "el doctor NO lo reescribe: pisarlo descartaría permissions/env/mcpServers en silencio"),
+                         _t("doctor.phase_hooks.5", "revisa/respalda {sp} y bórralo o restáuralo; luego corre `python3 install.py`", sp=sp)))
         elif not broken:
             detail = ("skill_review + transcript_backup + memory_flush + session_start/end"
                       if setup["session_journal"]
-                      else "skill_review + transcript_backup + memory_flush · setup ligero — "
-                           "sin journaling (por diseño)")
-            out.append(f(OK, f"[{name}] hooks cableados", detail))
+                      else _t("doctor.phase_hooks.6", "skill_review + transcript_backup + memory_flush · setup ligero — sin journaling (por diseño)"))
+            out.append(f(OK, _t("doctor.phase_hooks.18", "[{name}] hooks cableados", name=name), detail))
         elif not fix:
             falta = ", ".join(crit + minor +
-                              ([] if sline_ok else ["statusLine (ruta vieja)"]) +
-                              ([f"intérprete horneado roto/frágil: {py_bad[0]}"] if py_bad else [])) \
-                    or "settings.local.json no existe"
+                              ([] if sline_ok else [_t("doctor.phase_hooks.22", "statusLine (ruta vieja)")]) +
+                              ([_t("doctor.phase_hooks.23", "intérprete horneado roto/frágil: {v}", v=py_bad[0])] if py_bad else [])) \
+                    or _t("doctor.phase_hooks.19", "settings.local.json no existe")
             st = FAIL if (crit or not os.path.exists(sp)) else WARN
-            out.append(f(st, f"[{name}] hooks incompletos o con ruta vieja", f"falta: {falta}",
-                         "corre `workspace doctor` (reescribe SOLO hooks/statusLine"
-                         + (" con el intérprete estable" if py_bad else "") + ")"))
+            out.append(f(st, _t("doctor.phase_hooks.7", "[{name}] hooks incompletos o con ruta vieja", name=name), _t("doctor.phase_hooks.8", "falta: {falta}", falta=falta),
+                         _t("doctor.phase_hooks.9", "corre `workspace doctor` (reescribe SOLO hooks/statusLine")
+                         + (_t("doctor.phase_hooks.10", " con el intérprete estable") if py_bad else "") + ")"))
         else:
             # build_hooks YA aplica el gate `requires` (tiene el cfg→setup): para
             # un agente con session_journal=false omite los listeners gated. El
@@ -772,9 +938,9 @@ def phase_hooks(ctx, fix):
                     "command": install.hook_cmd(install.PY, scripts["statusline"], "--brain", brain),
                     "padding": 0, "refreshInterval": 60}
             install.write_json(sp, settings)
-            out.append(f(FIXED, f"[{name}] bloque hooks escrito",
+            out.append(f(FIXED, _t("doctor.phase_hooks.20", "[{name}] bloque hooks escrito", name=name),
                          "solo `hooks`" + ("" if not redo_sline else " + `statusLine`")
-                         + " — el resto del archivo se respeta"))
+                         + _t("doctor.phase_hooks.11", " — el resto del archivo se respeta")))
         # gitignore del cerebro (estado per-máquina nunca se sincroniza)
         gi = os.path.join(brain, ".gitignore")
         gi_cur = ""
@@ -787,20 +953,18 @@ def phase_hooks(ctx, fix):
         if missing_gi:
             if fix:
                 install.ensure_gitignore(brain, install.GITIGNORE_LINES)
-                out.append(f(FIXED, f"[{name}] .gitignore completado", ", ".join(missing_gi)))
+                out.append(f(FIXED, _t("doctor.phase_hooks.21", "[{name}] .gitignore completado", name=name), ", ".join(missing_gi)))
             else:
-                out.append(f(WARN, f"[{name}] .gitignore no excluye estado per-máquina",
-                             ", ".join(missing_gi), "corre `workspace doctor`"))
+                out.append(f(WARN, _t("doctor.phase_hooks.12", "[{name}] .gitignore no excluye estado per-máquina", name=name),
+                             ", ".join(missing_gi), _t("doctor.phase_hooks.13", "corre `workspace doctor`")))
         # modo autónomo: el doctor NO lo escribe (hard-block del clasificador) → manual.
         # Solo se menciona si el agente lo quiere (setup.autonomous) y SIEMPRE como
         # acción manual del socio (⚠ informativo), nunca ✗.
         if setup["autonomous"] and settings and \
                 settings.get("permissions", {}).get("defaultMode") != "dontAsk":
-            out.append(f(WARN, f"[{name}] modo autónomo no activo (permissions)",
-                         "el doctor no escribe `permissions` (bloqueado por seguridad)",
-                         f"ACCIÓN MANUAL: copia el bloque \"permissions\" desde el "
-                         f"settings.local.json de un cerebro ya configurado (p. ej. MI - BRAIN) "
-                         f"a {sp} — o corre `python3 install.py` tú mismo"))
+            out.append(f(WARN, _t("doctor.phase_hooks.14", "[{name}] modo autónomo no activo (permissions)", name=name),
+                         _t("doctor.phase_hooks.15", "el doctor no escribe `permissions` (bloqueado por seguridad)"),
+                         _t("doctor.phase_hooks.16", "ACCIÓN MANUAL: copia el bloque \"permissions\" desde el settings.local.json de un cerebro ya configurado (p. ej. MI - BRAIN) a {sp} — o corre `python3 install.py` tú mismo", sp=sp)))
     return out
 
 
@@ -825,8 +989,8 @@ def _mcps_drift(cfg, brain, settings):
 def phase_mcps(ctx, fix):
     out = []
     if not _resolved_brains(ctx):
-        return [f(WARN, "sin cerebros resueltos", "nada que materializar",
-                  "resuelve la fase 4 primero")]
+        return [f(WARN, _t("doctor.phase_mcps.1", "sin cerebros resueltos"), _t("doctor.phase_mcps.2", "nada que materializar"),
+                  _t("doctor.phase_mcps.3", "resuelve la fase 4 primero"))]
     for a in ctx["agents"]:
         name, brain = a["name"], a["brain"]
         if not (brain and os.path.isdir(brain)):
@@ -837,11 +1001,9 @@ def phase_mcps(ctx, fix):
         # del socio EN SILENCIO. Reparación automática sobre archivo ilegible =
         # destructiva → se ABORTA y se reporta.
         if install.json_corrupt(sp):
-            out.append(f(FAIL, f"[{name}] settings.local.json ilegible (JSON corrupto)",
-                         "el doctor NO materializa MCPs sobre un archivo corrupto: "
-                         "pisarlo descartaría permissions/env/mcpServers en silencio",
-                         f"revisa/respalda {sp} y bórralo o restáuralo; "
-                         f"luego corre `python3 install.py`"))
+            out.append(f(FAIL, _t("doctor.phase_mcps.12", "[{name}] settings.local.json ilegible (JSON corrupto)", name=name),
+                         _t("doctor.phase_mcps.4", "el doctor NO materializa MCPs sobre un archivo corrupto: pisarlo descartaría permissions/env/mcpServers en silencio"),
+                         _t("doctor.phase_mcps.5", "revisa/respalda {sp} y bórralo o restáuralo; luego corre `python3 install.py`", sp=sp)))
             continue
         settings = _read_json(sp)
         drift, n_scope, channel, reason = _mcps_drift(a["cfg"], brain, settings)
@@ -849,29 +1011,28 @@ def phase_mcps(ctx, fix):
             # motor sin proyector real (codex/gemini/local/API): honesto, no ✗.
             # Solo se menciona si HAY MCP en scope que no se están enchufando.
             if n_scope:
-                out.append(f(WARN, f"[{name}] {n_scope} MCP(s) en scope sin materializar",
+                out.append(f(WARN, _t("doctor.phase_mcps.6", "[{name}] {n_scope} MCP(s) en scope sin materializar", name=name, n_scope=n_scope),
                              reason))
             else:
-                out.append(f(OK, f"[{name}] sin MCPs para este motor",
-                             reason or channel or "motor sin canal MCP"))
+                out.append(f(OK, _t("doctor.phase_mcps.7", "[{name}] sin MCPs para este motor", name=name),
+                             reason or channel or _t("doctor.phase_mcps.8", "motor sin canal MCP")))
             continue
         if not drift:
-            out.append(f(OK, f"[{name}] MCPs materializados",
+            out.append(f(OK, _t("doctor.phase_mcps.16", "[{name}] MCPs materializados", name=name),
                          f"{n_scope} server(s) en `mcpServers`" if n_scope
-                         else "sin MCPs en scope"))
+                         else _t("doctor.phase_mcps.9", "sin MCPs en scope")))
         elif not fix:
-            out.append(f(WARN, f"[{name}] MCPs desincronizados (store ↔ mcpServers)",
-                         f"{n_scope} server(s) en scope no reflejados en settings.local.json",
-                         "corre `workspace doctor` (reescribe SOLO `mcpServers`)"))
+            out.append(f(WARN, _t("doctor.phase_mcps.13", "[{name}] MCPs desincronizados (store ↔ mcpServers)", name=name),
+                         _t("doctor.phase_mcps.14", "{n_scope} server(s) en scope no reflejados en settings.local.json", n_scope=n_scope),
+                         _t("doctor.phase_mcps.10", "corre `workspace doctor` (reescribe SOLO `mcpServers`)")))
         else:
             # P0-3: el RMW lo hace render_mcps_only (fuente única que comparten
             # doctor/CLI) — muta `settings` sin escribir; el write_json de abajo
             # persiste SOLO el bloque mcpServers, el resto del archivo se respeta.
             install.render_mcps_only(a["cfg"], brain, settings=settings)
             install.write_json(sp, settings)
-            out.append(f(FIXED, f"[{name}] bloque mcpServers materializado",
-                         f"{n_scope} server(s) — solo `mcpServers`, "
-                         f"el resto del archivo se respeta"))
+            out.append(f(FIXED, _t("doctor.phase_mcps.15", "[{name}] bloque mcpServers materializado", name=name),
+                         _t("doctor.phase_mcps.11", "{n_scope} server(s) — solo `mcpServers`, el resto del archivo se respeta", n_scope=n_scope)))
     return out
 
 
@@ -912,26 +1073,25 @@ def phase_launchers(ctx, fix):
         fragile = sorted(p for p in baked if os.path.exists(p) and install._store_versioned(p)
                          and os.path.normcase(p) != os.path.normcase(want))
         if not missing and prof_ok and not stale and not fragile and not dup:
-            out.append(f(OK, "comandos PowerShell instalados", ps1))
+            out.append(f(OK, _t("doctor.phase_launchers.15", "comandos PowerShell instalados"), ps1))
         elif fix:
             install.launchers_windows(names)
-            out.append(f(FIXED, "comandos PowerShell reescritos",
-                         f"{', '.join(['workspace', 'workspace'] + names)} · abre una PowerShell nueva"))
+            out.append(f(FIXED, _t("doctor.phase_launchers.16", "comandos PowerShell reescritos"),
+                         _t("doctor.phase_launchers.1", "{v} · abre una PowerShell nueva", v=', '.join(['workspace', 'workspace'] + names))))
         elif missing or not prof_ok:
-            out.append(f(FAIL, "launchers de Windows incompletos",
-                         f"faltan: {', '.join(missing) or 'dot-source en $PROFILE'}",
-                         "corre `workspace doctor` o `python install.py`"))
+            out.append(f(FAIL, _t("doctor.phase_launchers.2", "launchers de Windows incompletos"),
+                         _t("doctor.phase_launchers.3", "faltan: {v}", v=', '.join(missing) or 'dot-source en $PROFILE'),
+                         _t("doctor.phase_launchers.4", "corre `workspace doctor` o `python install.py`")))
         else:
             det = []
             if stale:
-                det.append(f"intérprete horneado ya no existe: {stale[0]}")
+                det.append(_t("doctor.phase_launchers.5", "intérprete horneado ya no existe: {v}", v=stale[0]))
             if fragile:
-                det.append("intérprete = python VERSIONADO de la Store (se rompe al actualizar)")
+                det.append(_t("doctor.phase_launchers.6", "intérprete = python VERSIONADO de la Store (se rompe al actualizar)"))
             if dup:
-                det.append("workspace-cmds.ps1 dot-sourceado más de una vez en $PROFILE")
-            out.append(f(WARN, "launchers de Windows por endurecer", " · ".join(det),
-                         f"corre `workspace doctor` — reescribe launchers con el intérprete "
-                         f"estable ({want}) y deduplica el $PROFILE"))
+                det.append(_t("doctor.phase_launchers.7", "workspace-cmds.ps1 dot-sourceado más de una vez en $PROFILE"))
+            out.append(f(WARN, _t("doctor.phase_launchers.8", "launchers de Windows por endurecer"), " · ".join(det),
+                         _t("doctor.phase_launchers.9", "corre `workspace doctor` — reescribe launchers con el intérprete estable ({want}) y deduplica el $PROFILE", want=want)))
         return out
     # Unix
     bindir = os.path.join(HOME, ".local", "bin")
@@ -953,15 +1113,14 @@ def phase_launchers(ctx, fix):
     if broken:
         if fix:
             install.install_launchers(names)
-            out.append(f(FIXED, "launchers reinstalados", ", ".join(broken)))
+            out.append(f(FIXED, _t("doctor.phase_launchers.17", "launchers reinstalados"), ", ".join(broken)))
         else:
-            out.append(f(FAIL, "launchers faltantes o apuntando a otra ruta",
-                         ", ".join(broken), "corre `workspace doctor` o `python3 install.py`"))
+            out.append(f(FAIL, _t("doctor.phase_launchers.10", "launchers faltantes o apuntando a otra ruta"),
+                         ", ".join(broken), _t("doctor.phase_launchers.11", "corre `workspace doctor` o `python3 install.py`")))
     if bindir not in os.environ.get("PATH", "").split(os.pathsep):
-        out.append(f(WARN, "~/.local/bin no está en tu PATH",
-                     "los comandos existen pero la terminal no los ve",
-                     'ACCIÓN MANUAL: agrega a tu ~/.zshrc:  export PATH="$HOME/.local/bin:$PATH"  '
-                     "y abre una terminal nueva"))
+        out.append(f(WARN, _t("doctor.phase_launchers.12", "~/.local/bin no está en tu PATH"),
+                     _t("doctor.phase_launchers.13", "los comandos existen pero la terminal no los ve"),
+                     _t("doctor.phase_launchers.14", "ACCIÓN MANUAL: agrega a tu ~/.zshrc:  export PATH=\"$HOME/.local/bin:$PATH\"  y abre una terminal nueva")))
     return out
 
 
@@ -981,7 +1140,7 @@ def phase_extras(ctx, fix):
             pass
         has = install.WIN_GREETER_MARK in content              # versión actual (v2)
         outdated = (not has) and ("# WORKSPACE-greeter" in content)   # bloque viejo sin guards
-        rc_label = "$PROFILE de PowerShell"
+        rc_label = _t("doctor.phase_extras.1", "$PROFILE de PowerShell")
     else:
         rc = os.path.join(HOME, ".zshrc")
         has = False
@@ -991,17 +1150,17 @@ def phase_extras(ctx, fix):
             pass
         rc_label = "~/.zshrc"
     if has:
-        out.append(f(OK, "greeter configurado", f"menú WORKSPACE al abrir terminal ({rc_label})"))
+        out.append(f(OK, _t("doctor.phase_extras.21", "greeter configurado"), _t("doctor.phase_extras.2", "menú WORKSPACE al abrir terminal ({rc_label})", rc_label=rc_label)))
     elif fix:
         install.install_greeter()
-        out.append(f(FIXED, "greeter al día", rc_label))
+        out.append(f(FIXED, _t("doctor.phase_extras.3", "greeter al día"), rc_label))
     elif outdated:
-        out.append(f(WARN, "greeter desactualizado (bloque viejo)",
-                     "sin guard de interactividad/Windows Terminal ni reset de colores",
-                     "corre `workspace doctor` (reemplaza el bloque por la versión actual)"))
+        out.append(f(WARN, _t("doctor.phase_extras.4", "greeter desactualizado (bloque viejo)"),
+                     _t("doctor.phase_extras.5", "sin guard de interactividad/Windows Terminal ni reset de colores"),
+                     _t("doctor.phase_extras.6", "corre `workspace doctor` (reemplaza el bloque por la versión actual)")))
     else:
-        out.append(f(WARN, "greeter no configurado", f"sin menú al abrir terminal ({rc_label})",
-                     "corre `workspace doctor` (es opt-out: WORKSPACE_NO_GREETER=1)"))
+        out.append(f(WARN, _t("doctor.phase_extras.22", "greeter no configurado"), _t("doctor.phase_extras.7", "sin menú al abrir terminal ({rc_label})", rc_label=rc_label),
+                     _t("doctor.phase_extras.8", "corre `workspace doctor` (es opt-out: WORKSPACE_NO_GREETER=1)")))
     # socio.local por cerebro — solo requerido si el agente usa session_journal
     # (el socio alimenta la ruta del journal). Setup ligero → nota neutra, sin ✗.
     socio = _get_socio(ctx, fix=False)
@@ -1017,17 +1176,17 @@ def phase_extras(ctx, fix):
         if cur and install.SOCIO_RE.match(cur):       # trío O dueño externo (D3)
             out.append(f(OK, f"[{name}] socio.local", cur))
         elif not journal:
-            out.append(f(OK, f"[{name}] socio.local no requerido",
-                         "setup ligero · sin journaling (por diseño)"))
+            out.append(f(OK, _t("doctor.phase_extras.23", "[{name}] socio.local no requerido", name=name),
+                         _t("doctor.phase_extras.9", "setup ligero · sin journaling (por diseño)")))
         elif fix:
             s = _get_socio(ctx, fix=True) or "max"
             install.write_text(sl, s)
-            out.append(f(FIXED, f"[{name}] socio.local escrito", s))
+            out.append(f(FIXED, _t("doctor.phase_extras.24", "[{name}] socio.local escrito", name=name), s))
         else:
             # ⚠ (no ✗): lo resuelve `workspace doctor` (fix) solo → es "por terminar", no una falla.
-            out.append(f(WARN, f"[{name}] socio.local por configurar", cur or "(no existe)",
-                         f"corre `workspace doctor` (preguntará quién eres)"
-                         + (f" — detectado en otro cerebro: {socio}" if socio else "")))
+            out.append(f(WARN, _t("doctor.phase_extras.10", "[{name}] socio.local por configurar", name=name), cur or _t("doctor.missing_paren", "(no existe)"),
+                         _t("doctor.phase_extras.11", "corre `workspace doctor` (preguntará quién eres)")
+                         + (_t("doctor.phase_extras.12", " — detectado en otro cerebro: {socio}", socio=socio) if socio else "")))
     # socio.local per-máquina (~/.claude/workspace/) — identidad del CHAT cuando
     # no hay cerebro activo (TUI abierta desde el menú workspace, cwd=$HOME).
     # Sin él, chat.self_ids puede caer a $USER ("maxgarcia") en instalaciones
@@ -1039,16 +1198,15 @@ def phase_extras(ctx, fix):
     except Exception:
         pass
     if cur and install.SOCIO_RE.match(cur):       # trío O dueño externo (D3)
-        out.append(f(OK, "socio.local per-máquina (chat)", cur))
+        out.append(f(OK, _t("doctor.phase_extras.13", "socio.local per-máquina (chat)"), cur))
     elif fix:
         s = _get_socio(ctx, fix=True) or "max"
         install.write_machine_socio(s)
-        out.append(f(FIXED, "socio.local per-máquina escrito", s))
+        out.append(f(FIXED, _t("doctor.phase_extras.14", "socio.local per-máquina escrito"), s))
     else:
-        out.append(f(WARN, "socio.local per-máquina por configurar",
-                     cur or "(no existe)",
-                     "corre `workspace doctor` — sin él, el chat del menú puede "
-                     "firmar como $USER en vez del socio"))
+        out.append(f(WARN, _t("doctor.phase_extras.15", "socio.local per-máquina por configurar"),
+                     cur or _t("doctor.missing_paren", "(no existe)"),
+                     _t("doctor.phase_extras.16", "corre `workspace doctor` — sin él, el chat del menú puede firmar como $USER en vez del socio")))
     # Tema in-app: ahora es POR-AGENTE (settings.local.json del cerebro, lo instala
     # configure_brain desde themes-cc/<agente>.json) — ya NO se hornea un tema global
     # 'zenith' en ~/.claude/settings.json (DEPLOY-1 + SEC-05: no tocar el settings
@@ -1059,16 +1217,15 @@ def phase_extras(ctx, fix):
     gset = _read_json(os.path.join(HOME, ".claude", "settings.json"))
     cur = gset.get("cleanupPeriodDays")
     if isinstance(cur, (int, float)) and not isinstance(cur, bool) and cur >= install.CLEANUP_DAYS:
-        out.append(f(OK, "retención de transcripts", f"cleanupPeriodDays={int(cur)}"))
+        out.append(f(OK, _t("doctor.phase_extras.17", "retención de transcripts"), f"cleanupPeriodDays={int(cur)}"))
     elif fix:
         install.ensure_cleanup_days()
-        out.append(f(FIXED, "retención de transcripts asegurada",
+        out.append(f(FIXED, _t("doctor.phase_extras.18", "retención de transcripts asegurada"),
                      f"cleanupPeriodDays={install.CLEANUP_DAYS} en ~/.claude/settings.json"))
     else:
-        out.append(f(WARN, "transcripts se borran a los 30 días (default)",
-                     f"cleanupPeriodDays actual: {cur if cur is not None else '(sin definir)'}",
-                     f"corre `workspace doctor` — fija cleanupPeriodDays={install.CLEANUP_DAYS} "
-                     "en ~/.claude/settings.json (no pisa nada más)"))
+        out.append(f(WARN, _t("doctor.phase_extras.19", "transcripts se borran a los 30 días (default)"),
+                     _t("doctor.phase_extras.25", "cleanupPeriodDays actual: {v}", v=cur if cur is not None else _t('doctor.undefined', '(sin definir)')),
+                     _t("doctor.phase_extras.20", "corre `workspace doctor` — fija cleanupPeriodDays={cleanup_days} en ~/.claude/settings.json (no pisa nada más)", cleanup_days=install.CLEANUP_DAYS)))
     # App de escritorio: YA NO se verifica ni se crea aquí (terminal-only,
     # decisión de producto 2026-10). Antes el doctor en fix re-creaba
     # ~/Desktop/WORKSPACE.app en cada `workspace update` — si el socio la borraba,
@@ -1092,7 +1249,7 @@ def phase_extras(ctx, fix):
 # territorio N3 — un cambio legítimo NO es error, por eso jamás ✗).
 # REGLA: toda esta fase es WARN-only y solo-lectura en --check (la huella
 # solo se escribe en modo fix). Estado per-máquina: ~/.claude/workspace/.
-DOCTOR_STATE = os.path.join(HOME, ".claude", "workspace", "doctor-state.json")
+DOCTOR_STATE = os.path.join(_paths.state_dir(HOME), "doctor-state.json")
 BOOT_BUDGET_FILE = 12_000    # chars/archivo — budget de bootstrap de OpenClaw (R3)
 BOOT_BUDGET_TOTAL = 96_000   # chars total (~24k tokens) = 8 archivos a presupuesto;
 #   referencia §10-bis.1: post-Y14 el boot de Zenith ronda ~78k (sano), el estado
@@ -1135,7 +1292,7 @@ def phase_brain_budget(ctx, fix):
     out = []
     brains = _resolved_brains(ctx)
     if not brains:
-        return [f(WARN, "sin cerebros resueltos", "nada que medir", "resuelve la fase 4 primero")]
+        return [f(WARN, _t("doctor.phase_brain_budget.1", "sin cerebros resueltos"), _t("doctor.phase_brain_budget.2", "nada que medir"), _t("doctor.phase_brain_budget.3", "resuelve la fase 4 primero"))]
     socio = _get_socio(ctx, fix=False)
     state = _read_json(DOCTOR_STATE)
     hashes = state.setdefault("boot_hash", {})
@@ -1145,25 +1302,18 @@ def phase_brain_budget(ctx, fix):
         sizes = [(rel, _read_len(p)) for rel, p in _boot_files(brain, socio)]
         sizes = [(rel, n) for rel, n in sizes if n >= 0]
         total = sum(n for _, n in sizes)
-        top = max(sizes, key=lambda x: x[1]) if sizes else ("(nada)", 0)
-        det = (f"{total:,} chars (~{total / CHARS_PER_TOKEN / 1000:.1f}k tokens) "
-               f"en {len(sizes)} archivos · mayor: {top[0]} ({top[1]:,})")
+        top = max(sizes, key=lambda x: x[1]) if sizes else (_t("doctor.phase_brain_budget.4", "(nada)"), 0)
+        det = (_t("doctor.phase_brain_budget.5", "{total:,} chars (~{v:.1f}k tokens) en {n} archivos · mayor: {v2} ({v3:,})", total=total, v=total / CHARS_PER_TOKEN / 1000, n=len(sizes), v2=top[0], v3=top[1]))
         if total > BOOT_BUDGET_TOTAL:
-            out.append(f(WARN, f"[{name}] boot sobre presupuesto total "
-                               f"(>{BOOT_BUDGET_TOTAL // 1000}k chars)", det,
-                         f"adelgaza el boot empezando por {top[0]}: lo volátil se rota "
-                         f"a archivo histórico (p. ej. STATE/log-archive/), lo curado "
-                         f"se destila — cada char se paga en TODOS los arranques (Y14)"))
+            out.append(f(WARN, _t("doctor.phase_brain_budget.6", "[{name}] boot sobre presupuesto total (>{v}k chars)", name=name, v=BOOT_BUDGET_TOTAL // 1000), det,
+                         _t("doctor.phase_brain_budget.7", "adelgaza el boot empezando por {v}: lo volátil se rota a archivo histórico (p. ej. STATE/log-archive/), lo curado se destila — cada char se paga en TODOS los arranques (Y14)", v=top[0])))
         else:
-            out.append(f(OK, f"[{name}] presupuesto de boot", det))
+            out.append(f(OK, _t("doctor.phase_brain_budget.8", "[{name}] presupuesto de boot", name=name), det))
         fat = [(rel, n) for rel, n in sizes if n > BOOT_BUDGET_FILE]
         if fat:
-            out.append(f(WARN, f"[{name}] archivo(s) de boot sobre presupuesto "
-                               f"(>{BOOT_BUDGET_FILE // 1000}k chars c/u)",
+            out.append(f(WARN, _t("doctor.phase_brain_budget.9", "[{name}] archivo(s) de boot sobre presupuesto (>{v}k chars c/u)", name=name, v=BOOT_BUDGET_FILE // 1000),
                          ", ".join(f"{rel} ({n:,})" for rel, n in fat),
-                         "rota o destila cada offender: log-recent → archivar entradas "
-                         "viejas a STATE/log-archive/ (convención Y14); MEMORY/PENDIENTES/"
-                         "CLAUDE.md → destilar (mover detalle a wiki/ y dejar punteros)"))
+                         _t("doctor.phase_brain_budget.10", "rota o destila cada offender: log-recent → archivar entradas viejas a STATE/log-archive/ (convención Y14); MEMORY/PENDIENTES/CLAUDE.md → destilar (mover detalle a wiki/ y dejar punteros)")))
         # — N13 · core blocks de MEMORY.md (read-only, WARN-only) —
         # El doctor MIDE y AVISA; archivar/destilar el excedente es humano
         # (o Atlas con gate). NADA aquí escribe MEMORY.md — jamás.
@@ -1174,31 +1324,23 @@ def phase_brain_budget(ctx, fix):
             except Exception:
                 mm = None
             if mm is None:
-                out.append(f(WARN, f"[{name}] MEMORY.md ilegible para medir "
-                                   f"core blocks (N13)", mem_path,
-                             "revisa permisos/encoding del archivo"))
+                out.append(f(WARN, _t("doctor.phase_brain_budget.11", "[{name}] MEMORY.md ilegible para medir core blocks (N13)", name=name), mem_path,
+                             _t("doctor.phase_brain_budget.12", "revisa permisos/encoding del archivo")))
             elif not mm["has_blocks"]:
-                out.append(f(OK, f"[{name}] MEMORY.md sin core blocks (N13)",
-                             f"{mm['total']:,} chars sin estructurar",
-                             "opcional: etiquetar headings `## [bloque] Título` "
-                             "(convención en memory_blocks.py) — migración "
-                             "humana, el harness solo mide"))
+                out.append(f(OK, _t("doctor.phase_brain_budget.13", "[{name}] MEMORY.md sin core blocks (N13)", name=name),
+                             _t("doctor.phase_brain_budget.14", "{total:,} chars sin estructurar", total=mm['total']),
+                             _t("doctor.phase_brain_budget.15", "opcional: etiquetar headings `## [bloque] Título` (convención en memory_blocks.py) — migración humana, el harness solo mide")))
             else:
                 over = memory_blocks.overflowing(mm)
                 det = " · ".join(f"[{lb}] {b['chars']:,}/{b['limit']:,}"
                                  for lb, b in mm["blocks"].items())
                 if over:
-                    out.append(f(WARN, f"[{name}] core block(s) de MEMORY.md "
-                                       f"sobre su cota (N13)",
+                    out.append(f(WARN, _t("doctor.phase_brain_budget.16", "[{name}] core block(s) de MEMORY.md sobre su cota (N13)", name=name),
                                  ", ".join(f"[{lb}] +{b['excess']:,} chars"
                                            for lb, b in over) + f" · {det}",
-                                 "destila/archiva el excedente menos relevante a "
-                                 "STATE/memoria-archivo/ (humano o Atlas con gate "
-                                 "— el pipeline JAMÁS edita MEMORY.md); detalle: "
-                                 f"python3 memory_blocks.py --brain \"{brain}\""))
+                                 _t("doctor.phase_brain_budget.17", "destila/archiva el excedente menos relevante a STATE/memoria-archivo/ (humano o Atlas con gate — el pipeline JAMÁS edita MEMORY.md); detalle: python3 memory_blocks.py --brain \"{brain}\"", brain=brain)))
                 else:
-                    out.append(f(OK, f"[{name}] core blocks de MEMORY.md "
-                                     f"dentro de cota", det))
+                    out.append(f(OK, _t("doctor.phase_brain_budget.18", "[{name}] core blocks de MEMORY.md dentro de cota", name=name), det))
         # — E2 · INDEX.md (contrato de retrieval) —
         # Solo AVISA (⚠) sobre los caps — JAMÁS edita INDEX.md ni MEMORY.md.
         index_path = os.path.join(brain, "STATE", "INDEX.md")
@@ -1214,24 +1356,19 @@ def phase_brain_budget(ctx, fix):
                     and not ln.strip().startswith("*"))
                 if idx_lines >= 100:
                     out.append(f(WARN,
-                                 f"[{name}] STATE/INDEX.md sobre tope (≥100 líneas útiles)",
-                                 f"~{idx_lines} entradas útiles",
-                                 "consolidar INDEX.md: fusionar/archivar entradas muertas — "
-                                 "el consolidador (nightly) puede añadir nuevas; "
-                                 "el humano archiva las que ya no aplican "
-                                 f"(python3 migrate_memory_v1.py --brain \"{brain}\" --apply)"))
+                                 _t("doctor.phase_brain_budget.19", "[{name}] STATE/INDEX.md sobre tope (≥100 líneas útiles)", name=name),
+                                 _t("doctor.phase_brain_budget.20", "~{idx_lines} entradas útiles", idx_lines=idx_lines),
+                                 _t("doctor.phase_brain_budget.21", "consolidar INDEX.md: fusionar/archivar entradas muertas — el consolidador (nightly) puede añadir nuevas; el humano archiva las que ya no aplican (python3 migrate_memory_v1.py --brain \"{brain}\" --apply)", brain=brain)))
                 else:
-                    out.append(f(OK, f"[{name}] STATE/INDEX.md dentro de tope",
-                                 f"~{idx_lines} entradas útiles de máx 100"))
+                    out.append(f(OK, _t("doctor.phase_brain_budget.22", "[{name}] STATE/INDEX.md dentro de tope", name=name),
+                                 _t("doctor.phase_brain_budget.23", "~{idx_lines} entradas útiles de máx 100", idx_lines=idx_lines)))
             except Exception:
-                out.append(f(WARN, f"[{name}] STATE/INDEX.md ilegible",
-                             index_path, "revisa permisos/encoding"))
+                out.append(f(WARN, _t("doctor.phase_brain_budget.43", "[{name}] STATE/INDEX.md ilegible", name=name),
+                             index_path, _t("doctor.phase_brain_budget.24", "revisa permisos/encoding")))
         else:
-            out.append(f(WARN, f"[{name}] STATE/INDEX.md no existe (E2)",
-                         "contrato de retrieval por capas ausente",
-                         "crear con: python3 migrate_memory_v1.py "
-                         f"--brain \"{brain}\" --apply --stage 2 "
-                         "(o dry-run primero sin --apply)"))
+            out.append(f(WARN, _t("doctor.phase_brain_budget.42", "[{name}] STATE/INDEX.md no existe (E2)", name=name),
+                         _t("doctor.phase_brain_budget.25", "contrato de retrieval por capas ausente"),
+                         _t("doctor.phase_brain_budget.26", "crear con: python3 migrate_memory_v1.py --brain \"{brain}\" --apply --stage 2 (o dry-run primero sin --apply)", brain=brain)))
 
         # — E1 · log-recent.md sobre cap → rotar —
         log_recent_path = os.path.join(brain, "STATE", "log-recent.md")
@@ -1246,12 +1383,9 @@ def phase_brain_budget(ctx, fix):
                     pass
                 if lr_len > _log_cap:
                     out.append(f(WARN,
-                                 f"[{name}] STATE/log-recent.md sobre cap "
-                                 f"(>{_log_cap // 1000}k chars)",
+                                 _t("doctor.phase_brain_budget.27", "[{name}] STATE/log-recent.md sobre cap (>{v}k chars)", name=name, v=_log_cap // 1000),
                                  f"{lr_len:,} chars · cap {_log_cap:,}",
-                                 "rotar el excedente al archivo histórico: "
-                                 f"python3 nightly.py --brain \"{brain}\" --rotate-logs "
-                                 "(es seguro y atómico; NUNCA toca BOOT/MEMORY)"))
+                                 _t("doctor.phase_brain_budget.28", "rotar el excedente al archivo histórico: python3 nightly.py --brain \"{brain}\" --rotate-logs (es seguro y atómico; NUNCA toca BOOT/MEMORY)", brain=brain)))
                 # else: ya cubierto por el chequeo de presupuesto general arriba
             except Exception:
                 pass
@@ -1264,40 +1398,37 @@ def phase_brain_budget(ctx, fix):
         cur = _boot_fingerprint(brain)
         prev = hashes.get(name)
         if not cur:
-            out.append(f(WARN, f"[{name}] BOOT/ sin archivos de identidad", brain,
-                         "el cerebro no tiene BOOT/*.md — revisa que el clon esté completo "
-                         "(fase 2) o " + _report_hint()))
+            out.append(f(WARN, _t("doctor.phase_brain_budget.29", "[{name}] BOOT/ sin archivos de identidad", name=name), brain,
+                         _t("doctor.phase_brain_budget.30", "el cerebro no tiene BOOT/*.md — revisa que el clon esté completo (fase 2) o ") + _report_hint()))
         elif prev is None:
             if fix:
                 hashes[name] = cur
                 dirty = True
-                out.append(f(OK, f"[{name}] identidad (BOOT/): huella registrada",
-                             f"baseline · {len(cur)} archivos"))
+                out.append(f(OK, _t("doctor.phase_brain_budget.31", "[{name}] identidad (BOOT/): huella registrada", name=name),
+                             _t("doctor.phase_brain_budget.32", "baseline · {n} archivos", n=len(cur))))
             else:
-                out.append(f(OK, f"[{name}] identidad (BOOT/): sin huella aún",
-                             "se registra al correr `workspace doctor` (sin --check)"))
+                out.append(f(OK, _t("doctor.phase_brain_budget.33", "[{name}] identidad (BOOT/): sin huella aún", name=name),
+                             _t("doctor.phase_brain_budget.34", "se registra al correr `workspace doctor` (sin --check)")))
         elif prev == cur:
-            out.append(f(OK, f"[{name}] identidad (BOOT/) sin cambios desde el último doctor",
-                         f"{len(cur)} archivos"))
+            out.append(f(OK, _t("doctor.phase_brain_budget.35", "[{name}] identidad (BOOT/) sin cambios desde el último doctor", name=name),
+                         _t("doctor.phase_brain_budget.36", "{n} archivos", n=len(cur))))
         else:
             diff = []
             for k in sorted(set(prev) | set(cur)):
                 if k not in cur:
                     diff.append(f"{k} (eliminado)")
                 elif k not in prev:
-                    diff.append(f"{k} (nuevo)")
+                    diff.append(_t("doctor.phase_brain_budget.37", "{k} (nuevo)", k=k))
                 elif prev[k] != cur[k]:
                     diff.append(k)
             if fix:
                 hashes[name] = cur
                 dirty = True
-            out.append(f(WARN, f"[{name}] la identidad cambió desde el último doctor",
+            out.append(f(WARN, _t("doctor.phase_brain_budget.38", "[{name}] la identidad cambió desde el último doctor", name=name),
                          ", ".join(diff),
-                         f"¿fue intencional? BOOT/ es territorio N3 (consenso de los 3 "
-                         f"socios) — revisa: git -C \"{brain}\" log --oneline -- BOOT/"
-                         + ("  · huella re-registrada: este aviso no se repetirá" if fix
-                            else "  · si fue legítimo, corre `workspace doctor` para "
-                                 "re-registrar la huella")))
+                         _t("doctor.phase_brain_budget.39", "¿fue intencional? BOOT/ es territorio N3 (consenso de los 3 socios) — revisa: git -C \"{brain}\" log --oneline -- BOOT/", brain=brain)
+                         + (_t("doctor.phase_brain_budget.40", "  · huella re-registrada: este aviso no se repetirá") if fix
+                            else _t("doctor.phase_brain_budget.41", "  · si fue legítimo, corre `workspace doctor` para re-registrar la huella"))))
     if dirty:
         install.write_json(DOCTOR_STATE, state)
     return out
@@ -1322,45 +1453,34 @@ def phase_brain_vitals(ctx, fix):
     out = []
     brains = _resolved_brains(ctx)
     if not brains:
-        return [f(WARN, "sin cerebros resueltos", "nada que medir",
-                  "resuelve la fase 4 primero")]
+        return [f(WARN, _t("doctor.phase_brain_vitals.1", "sin cerebros resueltos"), _t("doctor.phase_brain_vitals.2", "nada que medir"),
+                  _t("doctor.phase_brain_vitals.3", "resuelve la fase 4 primero"))]
     socio = _get_socio(ctx, fix=False)
     for name, brain in brains:
         # — superficie HOT real (boot + session del manifiesto) —
         try:
             m = brain_vitals.measure_hot(brain, socio)
         except Exception as e:
-            out.append(f(WARN, f"[{name}] signos vitales ilegibles", str(e),
-                         "revisa permisos del cerebro"))
+            out.append(f(WARN, _t("doctor.phase_brain_vitals.22", "[{name}] signos vitales ilegibles", name=name), str(e),
+                         _t("doctor.phase_brain_vitals.4", "revisa permisos del cerebro")))
             continue
         top = sorted(m["boot"] + m["session"], key=lambda x: -x[1])[:3]
-        det = (f"~{m['total_chars'] // brain_vitals.CHARS_PER_TOKEN / 1000:.1f}k tok "
-               f"(boot {brain_vitals.tokens_k(m['boot_chars'])} + sesión "
-               f"{brain_vitals.tokens_k(m['session_chars'])}) · mayor: "
+        det = (_t("doctor.phase_brain_vitals.5", "~{v:.1f}k tok (boot {v2} + sesión {v3}) · mayor: ", v=m['total_chars'] // brain_vitals.CHARS_PER_TOKEN / 1000, v2=brain_vitals.tokens_k(m['boot_chars']), v3=brain_vitals.tokens_k(m['session_chars']))
                + ", ".join(f"{rel} ({brain_vitals.tokens_k(n)})" for rel, n in top))
         if m["total_chars"] > brain_vitals.HOT_BUDGET_TOTAL:
-            offender = top[0][0] if top else "(nada)"
-            out.append(f(WARN, f"[{name}] superficie HOT sobre presupuesto "
-                               f"(>{brain_vitals.HOT_BUDGET_TOTAL // 1000}k chars "
-                               f"≈ {brain_vitals.tokens_k(brain_vitals.HOT_BUDGET_TOTAL)})",
+            offender = top[0][0] if top else _t("doctor.phase_brain_vitals.6", "(nada)")
+            out.append(f(WARN, _t("doctor.phase_brain_vitals.7", "[{name}] superficie HOT sobre presupuesto (>{v}k chars ≈ {v2})", name=name, v=brain_vitals.HOT_BUDGET_TOTAL // 1000, v2=brain_vitals.tokens_k(brain_vitals.HOT_BUDGET_TOTAL)),
                          det,
-                         f"cada char se paga en CADA sesión — destilar/partir es "
-                         f"decisión HUMANA del socio dueño (empezar por {offender}); "
-                         f"detalle: python3 brain_vitals.py --brain \"{brain}\""))
+                         _t("doctor.phase_brain_vitals.8", "cada char se paga en CADA sesión — destilar/partir es decisión HUMANA del socio dueño (empezar por {offender}); detalle: python3 brain_vitals.py --brain \"{brain}\"", offender=offender, brain=brain)))
         else:
-            out.append(f(OK, f"[{name}] superficie HOT dentro de presupuesto", det))
+            out.append(f(OK, _t("doctor.phase_brain_vitals.9", "[{name}] superficie HOT dentro de presupuesto", name=name), det))
         if not m["manifest"]:
-            out.append(f(OK, f"[{name}] sin STATE/hot-manifest.md — solo se "
-                             f"midió el boot",
-                         "las superficies session-time (índices retrieveados) "
-                         "no se ven sin manifiesto",
-                         "declara lo que ese cerebro carga por sesión en "
-                         "STATE/hot-manifest.md (formato: templates/agent/"
-                         "brain/STATE/hot-manifest.md)"))
+            out.append(f(OK, _t("doctor.phase_brain_vitals.10", "[{name}] sin STATE/hot-manifest.md — solo se midió el boot", name=name),
+                         _t("doctor.phase_brain_vitals.11", "las superficies session-time (índices retrieveados) no se ven sin manifiesto"),
+                         _t("doctor.phase_brain_vitals.12", "declara lo que ese cerebro carga por sesión en STATE/hot-manifest.md (formato: templates/agent/brain/STATE/hot-manifest.md)")))
         if m["missing"]:
-            out.append(f(WARN, f"[{name}] manifiesto HOT declara archivos "
-                               f"inexistentes", ", ".join(m["missing"]),
-                         "corrige o retira esas líneas de STATE/hot-manifest.md"))
+            out.append(f(WARN, _t("doctor.phase_brain_vitals.13", "[{name}] manifiesto HOT declara archivos inexistentes", name=name), ", ".join(m["missing"]),
+                         _t("doctor.phase_brain_vitals.14", "corrige o retira esas líneas de STATE/hot-manifest.md")))
         # — junk de disco/sync (no gasta tokens — solo avisar) —
         try:
             junk = brain_vitals.scan_junk(brain)
@@ -1371,26 +1491,21 @@ def phase_brain_vitals(ctx, fix):
             shown = ", ".join(f"{j['rel']} ({brain_vitals.human(j['bytes'])}"
                               f" · {j['kind']})" for j in junk[:MAX_JUNK_SHOWN])
             more = len(junk) - MAX_JUNK_SHOWN
-            out.append(f(WARN, f"[{name}] junk en el cerebro "
-                               f"({len(junk)} hallazgo(s) — disco/sync, NO tokens)",
-                         shown + (f" · +{more} más" if more > 0 else ""),
-                         brain_vitals.SYNC_HINT + "; regenerables → cuarentena "
-                         "opt-in: python3 brain_cleanup.py --brain "
-                         f"\"{brain}\" (dry-run; N3 — decisión del socio dueño)"))
+            out.append(f(WARN, _t("doctor.phase_brain_vitals.15", "[{name}] junk en el cerebro ({n} hallazgo(s) — disco/sync, NO tokens)", name=name, n=len(junk)),
+                         shown + (_t("doctor.phase_brain_vitals.16", " · +{more} más", more=more) if more > 0 else ""),
+                         brain_vitals.SYNC_HINT + _t("doctor.phase_brain_vitals.17", "; regenerables → cuarentena opt-in: python3 brain_cleanup.py --brain \"{brain}\" (dry-run; N3 — decisión del socio dueño)", brain=brain)))
         else:
-            out.append(f(OK, f"[{name}] sin junk detectado",
-                         "node_modules/dist/caches/.bak/binarios grandes: nada"))
+            out.append(f(OK, _t("doctor.phase_brain_vitals.18", "[{name}] sin junk detectado", name=name),
+                         _t("doctor.phase_brain_vitals.19", "node_modules/dist/caches/.bak/binarios grandes: nada")))
     # — stubs de path-pollution (hermanos duplicados del cerebro) —
     try:
         stubs = brain_vitals.detect_stubs(brains)
     except Exception:
         stubs = []
     for s in stubs:
-        out.append(f(WARN, "stub de path-pollution junto a un cerebro",
+        out.append(f(WARN, _t("doctor.phase_brain_vitals.20", "stub de path-pollution junto a un cerebro"),
                      f"{s['stub']} duplica {s['brain']}",
-                     "alguna sesión escribió a un path mal resuelto — revisar "
-                     "contenido, fusionar A MANO y retirar el stub (y "
-                     "paths.local.json si apunta ahí)"))
+                     _t("doctor.phase_brain_vitals.21", "alguna sesión escribió a un path mal resuelto — revisar contenido, fusionar A MANO y retirar el stub (y paths.local.json si apunta ahí)")))
     return out
 
 
@@ -1412,37 +1527,30 @@ def phase_secrets(ctx, fix):
     out = []
     brains = _resolved_brains(ctx)
     if not brains:
-        return [f(WARN, "sin cerebros resueltos", "nada que escanear",
-                  "resuelve la fase 4 primero")]
+        return [f(WARN, _t("doctor.phase_secrets.1", "sin cerebros resueltos"), _t("doctor.phase_secrets.2", "nada que escanear"),
+                  _t("doctor.phase_secrets.3", "resuelve la fase 4 primero"))]
     for name, brain in brains:
         try:
             findings, nfiles = secret_scan.scan_brain(brain)
         except Exception as e:   # falla-suave: el escáner jamás tumba al doctor
-            out.append(f(WARN, f"[{name}] el secret-scan falló",
+            out.append(f(WARN, _t("doctor.phase_secrets.4", "[{name}] el secret-scan falló", name=name),
                          f"{type(e).__name__}: {e}",
                          _report_hint()))
             continue
         if not findings:
-            out.append(f(OK, f"[{name}] sin secretos detectables en el working tree",
-                         f"{nfiles} archivo(s) escaneados · "
-                         f"{len(secret_scan.PATTERNS)} clases de credencial · "
-                         f"historia git no escaneada (audit manual: --history)"))
+            out.append(f(OK, _t("doctor.phase_secrets.5", "[{name}] sin secretos detectables en el working tree", name=name),
+                         _t("doctor.phase_secrets.6", "{nfiles} archivo(s) escaneados · {n} clases de credencial · historia git no escaneada (audit manual: --history)", nfiles=nfiles, n=len(secret_scan.PATTERNS))))
             continue
         shown = findings[:MAX_SECRET_FINDINGS_SHOWN]
         det = " · ".join(f"{x['path']}:{x['line']} [{x['class']}] {x['excerpt']}"
                          for x in shown)
         if len(findings) > len(shown):
-            det += f" · (+{len(findings) - len(shown)} más)"
+            det += _t("doctor.phase_secrets.7", " · (+{v} más)", v=len(findings) - len(shown))
         out.append(f(WARN, f"[{name}] posible(s) secreto(s) rumbo a git "
                           f"({len(findings)})", det,
-                     "NO lo commitees: mueve la clave a una variable de entorno "
-                     "o a un archivo en .gitignore — y si ya se commiteó alguna "
-                     "vez, RÓTALA (git guarda historia). ¿Falso positivo? marca "
-                     f"la línea con `{secret_scan.ALLOW_MARKER}`. Chequeo manual "
-                     f"pre-commit (opt-in): python3 "
-                     f"\"{os.path.join(ROOT, 'secret_scan.py')}\" --staged"
-                     f" · Auditar historia git (WARN-only): python3 "
-                     f"\"{os.path.join(ROOT, 'secret_scan.py')}\" --history \"{brain}\""))
+                     _t("doctor.phase_secrets.8", "NO lo commitees: mueve la clave a una variable de entorno o a un archivo en .gitignore — y si ya se commiteó alguna vez, RÓTALA (git guarda historia). ¿Falso positivo? marca la línea con `{allow_marker}`. Chequeo manual pre-commit (opt-in): python3 \"{v}\" --staged · Auditar historia git (WARN-only): python3 \"{v}\" --history \"{brain}\"", allow_marker=secret_scan.ALLOW_MARKER,
+                        v=os.path.join(ROOT, 'secret_scan.py'),
+                        brain=brain)))
     return out
 
 
@@ -1459,39 +1567,34 @@ def phase_skill_gating(ctx, fix):
     out = []
     brains = _resolved_brains(ctx)
     if not brains:
-        return [f(OK, "sin cerebros resueltos", "nada que evaluar")]
+        return [f(OK, _t("doctor.phase_skill_gating.1", "sin cerebros resueltos"), _t("doctor.phase_skill_gating.2", "nada que evaluar"))]
     for name, brain in brains:
         try:
             results = skill_meta.scan_catalog(brain)
         except Exception as e:   # falla-suave: el gating jamás tumba al doctor
-            out.append(f(WARN, f"[{name}] el escaneo de gating falló",
+            out.append(f(WARN, _t("doctor.phase_skill_gating.3", "[{name}] el escaneo de gating falló", name=name),
                          f"{type(e).__name__}: {e}",
                          _report_hint()))
             continue
         if not results:
-            out.append(f(OK, f"[{name}] sin skills que evaluar",
-                         "no hay skills/ con archivos de instrucciones"))
+            out.append(f(OK, _t("doctor.phase_skill_gating.4", "[{name}] sin skills que evaluar", name=name),
+                         _t("doctor.phase_skill_gating.5", "no hay skills/ con archivos de instrucciones")))
             continue
         declared = [r for r in results if r["requires"]]
         hidden = [r for r in results if not r["available"]]
         if not hidden:
-            out.append(f(OK, f"[{name}] catálogo completo disponible en esta "
-                             f"máquina",
-                         f"{len(results)} skill(s) · {len(declared)} declaran "
-                         f"`requires:` y todas se satisfacen aquí"))
+            out.append(f(OK, _t("doctor.phase_skill_gating.6", "[{name}] catálogo completo disponible en esta máquina", name=name),
+                         _t("doctor.phase_skill_gating.7", "{n} skill(s) · {n2} declaran `requires:` y todas se satisfacen aquí", n=len(results), n2=len(declared))))
             continue
         shown = hidden[:MAX_HIDDEN_SKILLS_SHOWN]
-        det = " · ".join(f"{r['name']} (falta {', '.join(r['missing'])})"
+        det = " · ".join(_t("doctor.phase_skill_gating.11", "{name} (falta {missing})", name=r['name'], missing=', '.join(r['missing']))
                          for r in shown)
         if len(hidden) > len(shown):
-            det += f" · (+{len(hidden) - len(shown)} más)"
-        out.append(f(OK, f"[{name}] {len(hidden)} skill(s) auto-oculta(s) en "
-                        f"esta máquina — por diseño (N11)", det,
-                     "informativo: la skill se omite del catálogo efectivo "
-                     "aquí, el archivo queda intacto. Instala lo que falta "
-                     "SOLO si la necesitas en esta máquina. Detalle: "
-                     f"python3 \"{os.path.join(ROOT, 'skill_meta.py')}\" "
-                     f"\"{brain}\" --hidden"))
+            det += _t("doctor.phase_skill_gating.8", " · (+{v} más)", v=len(hidden) - len(shown))
+        out.append(f(OK, _t("doctor.phase_skill_gating.9", "[{name}] {n} skill(s) auto-oculta(s) en esta máquina — por diseño (N11)", name=name, n=len(hidden)), det,
+                     _t("doctor.phase_skill_gating.10", "informativo: la skill se omite del catálogo efectivo aquí, el archivo queda intacto. Instala lo que falta SOLO si la necesitas en esta máquina. Detalle: python3 \"{v}\" \"{brain}\" --hidden",
+                        v=os.path.join(ROOT, 'skill_meta.py'),
+                        brain=brain)))
     return out
 
 
@@ -1518,39 +1621,40 @@ def phase_brand(ctx, fix):
         if not scripts.get("banner"):
             # Sin banner resoluble: o no está declarado, o expand lo descartó por
             # resolver FUERA del cerebro/harness (SEC) → en ambos casos no sale brand.
-            why = ("su agent.json no define scripts.banner"
+            why = (_t("doctor.phase_brand.1", "su agent.json no define scripts.banner")
                    if not declared.get("banner")
-                   else f"scripts.banner ({declared['banner']}) resuelve fuera "
-                        "del cerebro/harness y se descartó")
-            out.append(f(WARN, f"[{name}] sin banner resoluble", why,
-                         "declara scripts.banner = {root}/agents/<n>/brand/<n>-banner.py"))
+                   else _t("doctor.phase_brand.2", "scripts.banner ({banner}) resuelve fuera del cerebro/harness y se descartó", banner=declared['banner']))
+            out.append(f(WARN, _t("doctor.phase_brand.3", "[{name}] sin banner resoluble", name=name), why,
+                         _t("doctor.phase_brand.8", "declara scripts.banner = {root}/agents/<n>/brand/<n>-banner.py")))
             continue
         missing = [k for k in ("banner", "dashboard", "statusline")
                    if scripts.get(k) and not os.path.exists(scripts[k])]
         if missing:
-            out.append(f(WARN, f"[{name}] brand incompleto",
-                         "falta(n): " + " · ".join(f"{k}→{scripts[k]}" for k in missing),
-                         "verifica que los scripts existan en {root}/agents/<n>/brand/"))
+            out.append(f(WARN, _t("doctor.phase_brand.9", "[{name}] brand incompleto", name=name),
+                         _t("doctor.phase_brand.4", "falta(n): ") + " · ".join(f"{k}→{scripts[k]}" for k in missing),
+                         _t("doctor.phase_brand.5", "verifica que los scripts existan en {root}/agents/<n>/brand/")))
         else:
             # Canónico v2.3: viven en el harness ({root}); el cerebro como fallback
             # de compatibilidad sigue siendo válido. Lo que cuenta es que EXISTAN.
             from_brain = scripts["banner"].startswith(os.path.realpath(brain))
-            origen = "el cerebro" if from_brain else "WORKSPACE"
-            out.append(f(OK, f"[{name}] brand completo desde {origen}",
-                         "banner+dashboard+statusline resueltos y existentes"))
+            origen = _t("doctor.phase_brand.6", "el cerebro") if from_brain else "WORKSPACE"
+            out.append(f(OK, _t("doctor.phase_brand.10", "[{name}] brand completo desde {origen}", name=name, origen=origen),
+                         _t("doctor.phase_brand.7", "banner+dashboard+statusline resueltos y existentes")))
     return out
 
 
 # ══════════════════════════════════════════════════════════════════════════
-#  FASE 5d · Residuos del rename OLYMPUS→WORKSPACE (anti-recurrencia)
+#  FASE 5d · Restos de la instalación anterior (anti-recurrencia)
 # ══════════════════════════════════════════════════════════════════════════
-# Tras el rename OLYMPUS→WORKSPACE quedaron vestigios PER-MÁQUINA que rompen el
-# brand de un agente sin tocar el distro: (a) scripts de marca brain-resident de
-# generación vieja que resuelven la raíz con OLYMPUS_ROOT / ~/Desktop/OLYMPUS /
-# ~/.claude/olympus (env/rutas muertas → menú/statusline truenan y filtran
-# "OLYMPUS"); (b) entradas en agents.local.json con `brain` bajo ~/.claude/olympus
-# (puntero stale); (c) carpetas `.olympus/` sobrantes en los cerebros (el harness
-# lee SOLO `.workspace/` → config_engine). Reparación conservadora:
+# Tras el rename (2026-10; nombre viejo y sus rutas en legacy.py) quedaron
+# vestigios PER-MÁQUINA que rompen el brand de un agente sin tocar el distro:
+# (a) scripts de marca brain-resident de generación vieja que resuelven la raíz
+# con la env / carpeta de escritorio / estado de la instalación anterior
+# (legacy.DEAD_REFS: env/rutas muertas → menú/statusline truenan y filtran el
+# nombre viejo); (b) entradas en agents.local.json con `brain` bajo el estado
+# viejo (~/.claude/<viejo>, puntero stale); (c) la subcarpeta vieja de manifiesto
+# sobrante en los cerebros (el harness lee SOLO `.workspace/` → config_engine).
+# Reparación conservadora:
 #   · (b) es config del HARNESS per-máquina → auto-repara en --fix (repunta a la
 #     ruta equivalente bajo ~/.claude/workspace si existe; si no, WARN).
 #   · (c) es metadata MUERTA del harness en el cerebro → auto-borra en --fix SOLO
@@ -1558,13 +1662,13 @@ def phase_brand(ctx, fix):
 #   · (a) toca scripts que PORTAN identidad (paleta/scope) → SOLO detecta+WARN;
 #     regenerarlos desde templates/agent/workspace/brand/ es trabajo de dev, no
 #     algo que el doctor deba inventar. Fail-soft total: jamás tumba el doctor.
-_OLYMPUS_DEAD_REFS = ("OLYMPUS_ROOT", "OLYMPUS_BRAIN", "~/Desktop/OLYMPUS",
-                      "Desktop/OLYMPUS", ".claude/olympus")
+_LEGACY_DEAD_REFS = legacy.DEAD_REFS
 
 
-def _scan_brand_olympus(brain):
+def _scan_brand_legacy(brain):
     """[nombres] de scripts en {brain}/brand/*.py que referencian env/rutas muertas
-    de OLYMPUS (las que rompen la resolución de raíz). Solo lectura, fail-soft."""
+    de la instalación anterior (las que rompen la resolución de raíz). Solo
+    lectura, fail-soft."""
     bdir = os.path.join(brain or "", "brand")
     hits = []
     try:
@@ -1577,16 +1681,30 @@ def _scan_brand_olympus(brain):
                 txt = fh.read()
         except OSError:
             continue
-        if any(ref in txt for ref in _OLYMPUS_DEAD_REFS):
+        if any(ref in txt for ref in _LEGACY_DEAD_REFS):
             hits.append(n)
     return hits
 
 
-def phase_olympus_residue(ctx, fix):
+def phase_legacy_residue(ctx, fix):
     out = []
-    # (b) agents.local.json: punteros bajo ~/.claude/olympus (config del harness)
-    dead = os.path.join(os.path.expanduser("~"), ".claude", "olympus") + os.sep
-    live_root = os.path.join(os.path.expanduser("~"), ".claude", "workspace")
+    # (0) instalación anterior (launchers/perfil/hooks/estado/harness viejo):
+    # SOLO sugerencia — la migración/retirada es un comando aparte, explícito y
+    # recuperable (`workspace migrar-legado`); el doctor jamás la ejecuta.
+    try:
+        import migrate_legacy
+        n, resumen = migrate_legacy.summary()
+        if n:
+            out.append(f(WARN, _t("doctor.phase_legacy_residue.1", "restos de la instalación anterior detectados (%d artefacto(s))") % n,
+                         resumen,
+                         _t("doctor.phase_legacy_residue.21", "%s (plan) → --apply → --retire (respaldo + --rollback)")
+                         % migrate_legacy.CLI))
+    except Exception:
+        pass
+    # (b) agents.local.json: punteros bajo el estado viejo (config del harness)
+    dead_label = "~/.claude/" + legacy.STATE_SUBDIR
+    dead = os.path.join(os.path.expanduser("~"), ".claude", legacy.STATE_SUBDIR) + os.sep
+    live_root = _paths.state_dir()
     try:
         import agentsreg
         data = agentsreg.read_local()
@@ -1604,49 +1722,51 @@ def phase_olympus_residue(ctx, fix):
                 else:
                     unresolved.append("%s (%s)" % (a.get("name", "?"), old))
             if repaired and agentsreg._write_local(data):
-                out.append(f(FIXED, "agents.local.json repuntado fuera de ~/.claude/olympus",
+                out.append(f(FIXED, _t("doctor.phase_legacy_residue.2", "agents.local.json repuntado fuera del estado de la instalación anterior (%s)") % dead_label,
                              " · ".join(repaired)))
             for u in unresolved:
-                out.append(f(WARN, "agents.local.json apunta bajo ~/.claude/olympus", u,
-                             "repunta `brain` a la ubicación real bajo ~/.claude/workspace "
-                             "(o quita la entrada si ese agente ya no existe)"))
+                out.append(f(WARN, _t("doctor.phase_legacy_residue.3", "agents.local.json apunta al estado de la instalación anterior (%s)") % dead_label, u,
+                             _t("doctor.phase_legacy_residue.4", "repunta `brain` a la ubicación real bajo ~/.claude/workspace (o quita la entrada si ese agente ya no existe)")))
         else:
-            out.append(f(OK, "agents.local.json sin punteros a ~/.claude/olympus",
-                         "ninguna entrada bajo la ruta vieja"))
+            out.append(f(OK, _t("doctor.phase_legacy_residue.5", "agents.local.json sin punteros a la instalación anterior"),
+                         _t("doctor.phase_legacy_residue.6", "ninguna entrada bajo la ruta vieja")))
     except Exception as e:
-        out.append(f(OK, "agents.local.json no evaluable",
-                     "%s: %s — señal omitida (fail-soft)" % (type(e).__name__, e)))
+        out.append(f(OK, _t("doctor.phase_legacy_residue.22", "agents.local.json no evaluable"),
+                     _t("doctor.phase_legacy_residue.7", "%s: %s — señal omitida (fail-soft)") % (type(e).__name__, e)))
     # (a)/(c) por cerebro resuelto
     for name, brain in _resolved_brains(ctx):
-        hits = _scan_brand_olympus(brain)
+        hits = _scan_brand_legacy(brain)
         if hits:
-            out.append(f(WARN, "[%s] marca brain-resident con refs muertas de OLYMPUS" % name,
+            out.append(f(WARN, _t("doctor.phase_legacy_residue.8", "[%s] marca brain-resident con refs muertas de la instalación anterior") % name,
                          "brand/: " + ", ".join(hits),
-                         "regenera desde templates/agent/workspace/brand/ (usan "
-                         "WORKSPACE_ROOT y degradan con gracia); sustituye "
-                         "OLYMPUS_ROOT/OLYMPUS_BRAIN/~/Desktop/OLYMPUS/~/.claude/olympus"))
-        legacy = os.path.join(brain, ".olympus")
-        if os.path.isdir(legacy):
+                         _t("doctor.phase_legacy_residue.9", "regenera desde templates/agent/workspace/brand/ (usan WORKSPACE_ROOT y degradan con gracia); sustituye ")
+                         + "/".join(_LEGACY_DEAD_REFS)))
+        sub = legacy.BRAIN_SUBDIR + "/"
+        old_dir = os.path.join(brain, legacy.BRAIN_SUBDIR)
+        if os.path.isdir(old_dir):
             has_ws = os.path.isfile(os.path.join(brain, ".workspace", "agent.json"))
             if fix and has_ws:
                 try:
-                    shutil.rmtree(legacy)
-                    out.append(f(FIXED, "[%s] .olympus/ sobrante eliminado" % name,
-                                 "el harness lee solo .workspace/ (metadata muerta)"))
+                    shutil.rmtree(old_dir)
+                    out.append(f(FIXED, _t("doctor.phase_legacy_residue.10", "[%s] %s sobrante eliminado (instalación anterior)")
+                                 % (name, sub),
+                                 _t("doctor.phase_legacy_residue.11", "el harness lee solo .workspace/ (metadata muerta)")))
                 except OSError as e:
-                    out.append(f(WARN, "[%s] no se pudo borrar .olympus/" % name, str(e),
-                                 "bórralo a mano: rm -rf \"%s\"" % legacy))
+                    out.append(f(WARN, _t("doctor.phase_legacy_residue.23", "[%s] no se pudo borrar %s") % (name, sub), str(e),
+                                 _t("doctor.phase_legacy_residue.12", "bórralo a mano: rm -rf \"%s\"") % old_dir))
             elif has_ws:
-                out.append(f(WARN, "[%s] .olympus/ sobrante en el cerebro" % name,
-                             "el harness lee solo .workspace/ (está muerto)",
-                             "workspace doctor --fix lo borra (o: rm -rf \"%s\")" % legacy))
+                out.append(f(WARN, _t("doctor.phase_legacy_residue.13", "[%s] %s sobrante en el cerebro (instalación anterior)")
+                             % (name, sub),
+                             _t("doctor.phase_legacy_residue.14", "el harness lee solo .workspace/ (está muerto)"),
+                             _t("doctor.phase_legacy_residue.15", "workspace doctor --fix lo borra (o: rm -rf \"%s\")") % old_dir))
             else:
-                out.append(f(WARN, "[%s] .olympus/ sin .workspace/agent.json" % name,
-                             "NO borrar aún — puede tener la única definición",
-                             "migra .olympus/agent.json a .workspace/agent.json y luego borra .olympus/"))
-        if not hits and not os.path.isdir(legacy):
-            out.append(f(OK, "[%s] sin residuos de OLYMPUS" % name,
-                         "marca brain-resident limpia · sin .olympus/"))
+                out.append(f(WARN, _t("doctor.phase_legacy_residue.16", "[%s] %s sin .workspace/agent.json") % (name, sub),
+                             _t("doctor.phase_legacy_residue.17", "NO borrar aún — puede tener la única definición"),
+                             _t("doctor.phase_legacy_residue.18", "migra %sagent.json a .workspace/agent.json y luego borra %s")
+                             % (sub, sub)))
+        if not hits and not os.path.isdir(old_dir):
+            out.append(f(OK, _t("doctor.phase_legacy_residue.19", "[%s] sin restos de la instalación anterior") % name,
+                         _t("doctor.phase_legacy_residue.20", "marca brain-resident limpia · sin %s") % sub))
     return out
 
 
@@ -1668,18 +1788,16 @@ def phase_liveness(ctx, fix):
         warns = liveness.check()          # sin agent/brain → solo worktrees
         for w in warns:
             # liveness ya trae "⚠ " en el texto; el símbolo lo pone el doctor
-            out.append(f(WARN, "estado colgante detectado",
+            out.append(f(WARN, _t("doctor.phase_liveness.5", "estado colgante detectado"),
                          str(w).lstrip("⚠").strip(),
-                         "rescata el trabajo (commit en su rama) o descarta el "
-                         "worktree — el registry vive en ~/.claude/workspace/"
-                         "worktree-owners.json"))
+                         _t("doctor.phase_liveness.1", "rescata el trabajo (commit en su rama) o descarta el worktree — el registry vive en ~/.claude/workspace/worktree-owners.json")))
         if not out:
-            out.append(f(OK, "sin estado colgante",
-                         "registry de worktrees limpio (dash.dev.liveness)"))
+            out.append(f(OK, _t("doctor.phase_liveness.2", "sin estado colgante"),
+                         _t("doctor.phase_liveness.3", "registry de worktrees limpio (dash.dev.liveness)")))
     except Exception as e:
         # informativo: liveness roto/ausente no es un problema del harness
-        out.append(f(OK, "liveness no evaluable",
-                     f"{type(e).__name__}: {e} — señal omitida (fail-soft)"))
+        out.append(f(OK, _t("doctor.phase_liveness.6", "liveness no evaluable"),
+                     _t("doctor.phase_liveness.4", "{name}: {e} — señal omitida (fail-soft)", name=type(e).__name__, e=e)))
     return out
 
 
@@ -1697,51 +1815,49 @@ VOICE_SETUP_ENV = "WORKSPACE_VOICE_SETUP"
 
 
 def phase_voice(ctx, fix):
-    if sys.platform != "darwin":
-        return [f(OK, "voz (dictado)", "F1 es solo macOS — Windows/Linux en F3")]
+    import capabilities
+    vc = capabilities.voice()
+    if vc["state"] == "unsupported":     # no soportado por OS ≠ dependencia faltante
+        return [f(OK, _t("doctor.phase_voice.9", "voz (dictado)"), _t("doctor.phase_voice.14", "no soportado: ") + vc["detail"])]
     try:
         import voice
     except Exception as e:
-        return [f(WARN, "voz no evaluable", "%s: %s" % (type(e).__name__, e))]
+        return [f(WARN, _t("doctor.phase_voice.10", "voz no evaluable"), "%s: %s" % (type(e).__name__, e))]
     out = []
     brew = shutil.which("brew")
     setup = fix and os.environ.get(VOICE_SETUP_ENV) == "1"
     # whisper.cpp
     if voice._find_whisper():
-        out.append(f(OK, "whisper.cpp", "instalado (dictado local disponible)"))
+        out.append(f(OK, "whisper.cpp", _t("doctor.phase_voice.11", "instalado (dictado local disponible)")))
     else:
         if setup and brew:
             _run(["brew", "install", "whisper-cpp"], timeout=600)
         out.append(f(OK if voice._find_whisper() else WARN, "whisper.cpp",
-                     "STT local del dictado por voz (opcional)",
-                     "brew install whisper-cpp — o todo junto: "
-                     f"{VOICE_SETUP_ENV}=1 workspace doctor"))
+                     _t("doctor.phase_voice.1", "STT local del dictado por voz (opcional)"),
+                     _t("doctor.phase_voice.12", "brew install whisper-cpp — o todo junto: {voice_setup_env}=1 workspace doctor", voice_setup_env=VOICE_SETUP_ENV)))
     # modelo
     model = voice.default_model()
     if os.path.isfile(model):
-        out.append(f(OK, "modelo de whisper", os.path.basename(model)))
+        out.append(f(OK, _t("doctor.phase_voice.2", "modelo de whisper"), os.path.basename(model)))
     else:
         if setup:
             _download_whisper_model(model)
-        out.append(f(OK if os.path.isfile(model) else WARN, "modelo de whisper",
-                     "falta %s (~150MB)" % os.path.basename(model),
-                     f"{VOICE_SETUP_ENV}=1 workspace doctor lo baja, o descarga "
-                     "ggml-base.bin a " + os.path.dirname(model)))
+        out.append(f(OK if os.path.isfile(model) else WARN, _t("doctor.phase_voice.3", "modelo de whisper"),
+                     _t("doctor.phase_voice.4", "falta %s (~150MB)") % os.path.basename(model),
+                     _t("doctor.phase_voice.13", "{voice_setup_env}=1 workspace doctor lo baja, o descarga ggml-base.bin a ", voice_setup_env=VOICE_SETUP_ENV) + os.path.dirname(model)))
     # grabador
     tool, _ = voice._recorder_cmd("x.wav")
     if tool:
-        out.append(f(OK, "grabador de micro", tool))
+        out.append(f(OK, _t("doctor.phase_voice.5", "grabador de micro"), tool))
     else:
         if setup and brew:
             _run(["brew", "install", "ffmpeg"], timeout=600)
         tool2, _ = voice._recorder_cmd("x.wav")
-        out.append(f(OK if tool2 else WARN, "grabador de micro",
-                     "ffmpeg o sox para capturar el audio", "brew install ffmpeg"))
+        out.append(f(OK if tool2 else WARN, _t("doctor.phase_voice.6", "grabador de micro"),
+                     _t("doctor.phase_voice.7", "ffmpeg o sox para capturar el audio"), "brew install ffmpeg"))
     # guía del atajo + permisos (siempre informativo)
     out.append(f(OK, "atajo + permisos",
-                 "enlaza `workspace voice` a una tecla en Atajos de macOS; da permiso "
-                 "de Micrófono y Accesibilidad (para pegar). `workspace voice --check` "
-                 "reporta lo que falte"))
+                 _t("doctor.phase_voice.8", "enlaza `workspace voice` a una tecla en Atajos de macOS; da permiso de Micrófono y Accesibilidad (para pegar). `workspace voice --check` reporta lo que falte")))
     return out
 
 
@@ -1760,16 +1876,47 @@ def _download_whisper_model(dest):
         pass
 
 
+# ─── 13 · Capacidades efectivas (OS + motor + deps — capabilities.py) ──────────
+# Fuente única de «qué funciona AQUÍ» (U05/W-F06/W-F07): distingue no soportado
+# (por OS o motor) de dependencia faltante y de lo no verificable. Solo lectura:
+# PATH y archivos de config, sin red, sin login, sin lanzar motores.
+_CAP_STATUS = {"supported": OK, "unsupported": OK, "off": OK, "unknown": OK,
+               "missing_dependency": WARN}
+
+
+def phase_capabilities(ctx, fix):
+    import capabilities
+    out = []
+    base = capabilities.matrix()
+    for key in ("split", "panel", "voice"):
+        c = base[key]
+        out.append(f(_CAP_STATUS[c["state"]], key,
+                     "%s · %s" % (capabilities.label(c["state"]), c["detail"]), c["remedy"]))
+    engines = []
+    for a in ctx["agents"]:
+        e = (a.get("cfg") or {}).get("engine") or a["entry"].get("engine")
+        if e and e not in engines:
+            engines.append(e)
+    for e in engines:
+        m = capabilities.matrix(e)
+        for key in ("status_live", "headless"):
+            c = m[key]
+            out.append(f(_CAP_STATUS[c["state"]], "%s · %s" % (e, key),
+                         "%s · %s" % (capabilities.label(c["state"]), c["detail"]), c["remedy"]))
+    return out
+
+
 PHASES = [
     ("1 · Prerrequisitos (git · python · CLI de motores · gh)", phase_prereqs),
     ("1b · Rutas redirigidas (OneDrive/known-folders · solo detección)", phase_redirected_paths),
     ("2 · Repos hermanos (nombres exactos)", phase_siblings),
     ("3 · Repos al día con origin", phase_updated),
+    ("3b · Versión y ajustes de actualización", phase_update_state),
     ("4 · Cerebros resolubles (dispatch) · sesiones (resume)", phase_brains),
     ("5 · Hooks por cerebro (contrato de eventos N9 · events.py)", phase_hooks),
     ("5b · Brand por-agente (banner/dashboard/statusline resueltos y existentes)", phase_brand),
     ("5c · MCPs por cerebro (materialización · connectors.PORTABILITY)", phase_mcps),
-    ("5d · Residuos del rename OLYMPUS→WORKSPACE (anti-recurrencia)", phase_olympus_residue),
+    ("5d · Restos de la instalación anterior (anti-recurrencia)", phase_legacy_residue),
     ("6 · Launchers (workspace + agentes)", phase_launchers),
     ("7 · Greeter · socio · tema · retención", phase_extras),
     ("8 · Cerebro: presupuesto de boot + identidad (BOOT/)", phase_brain_budget),
@@ -1779,9 +1926,36 @@ PHASES = [
     ("10 · Skills por máquina (gating N11 · informativo)", phase_skill_gating),
     ("11 · Liveness (worktrees huérfanos · solo detección)", phase_liveness),
     ("12 · Voz global (dictado local whisper.cpp · macOS · opcional)", phase_voice),
+    ("13 · Capacidades efectivas (OS + motor + dependencias)", phase_capabilities),
 ]
 
 HEAD = {OK: "✓ ya conectada", FIXED: "✓ reparada", WARN: "⚠ atención", FAIL: "✗ falta"}
+_HEAD_KEYS = {OK: "doctor.head.ok", FIXED: "doctor.head.fixed",
+              WARN: "doctor.head.warn", FAIL: "doctor.head.fail"}
+
+
+def _source_label(src):
+    """Origen de la ruta de un cerebro (brain_resolver.SOURCE_LABELS = fuente
+    es), en el idioma activo."""
+    return _t("doctor.source." + str(src),
+              brain_resolver.SOURCE_LABELS.get(src, src))
+
+
+def head(st):
+    """Encabezado de estado de una fase, en el idioma activo (HEAD = fuente es)."""
+    return _t(_HEAD_KEYS[st], HEAD[st])
+
+
+def phase_title(title, fn=None):
+    """Título VISIBLE de una fase en el idioma activo. PHASES guarda el título
+    español (fuente, estable para tests/consumidores); la clave sale del nombre
+    de la función de la fase (`doctor.phase.<fn>`), así el idioma se resuelve
+    en el punto de uso (el hub cambia de idioma en vivo)."""
+    if fn is None:
+        fn = next((f_ for t_, f_ in PHASES if t_ == title), None)
+    if fn is None:
+        return title
+    return _t("doctor.phase." + fn.__name__, title)
 HEADC = {OK: GRN, FIXED: C, WARN: YEL, FAIL: RED}
 
 
@@ -1791,7 +1965,7 @@ def _worst(finds):
 
 def _print_phase(title, finds, fix_mode):
     st = _worst(finds)
-    print(f"\n  {BO}{WH}FASE {title}{R}   {HEADC[st]}{HEAD[st]}{R}")
+    print(_t("doctor.print_phase.1", "\n  {bo}{wh}FASE {title}{r}   {v}{v2}{r}", bo=BO, wh=WH, title=title, r=R, v=HEADC[st], v2=head(st)))
     if fix_mode and st == OK:
         return st   # fase ya conectada → se salta el detalle
     for x in finds:
@@ -1800,7 +1974,7 @@ def _print_phase(title, finds, fix_mode):
             line += f"  {DIM}— {x['detail']}{R}"
         print(line)
         if x["action"]:
-            print(f"        {YEL}→ acción:{R} {x['action']}")
+            print(_t("doctor.print_phase.2", "        {yel}→ acción:{r} {action}", yel=YEL, r=R, action=x['action']))
     return st
 
 
@@ -1822,7 +1996,7 @@ ZENITH_SESSION_NAME = "doctor"   # pestaña dedicada a resolver pendientes del d
 
 
 def _seed_path():
-    return os.path.join(HOME, ".claude", "workspace", "doctor-report.md")
+    return os.path.join(_paths.state_dir(HOME), "doctor-report.md")
 
 
 def pending_findings(results):
@@ -1840,27 +2014,24 @@ def build_zenith_report(pending, mode=""):
     doctor, con instrucciones de foco. Texto plano (sin ANSI)."""
     import datetime
     lines = [
-        "# workspace doctor — pendientes por resolver",
-        f"Generado: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"
-        + (f" · modo: {mode}" if mode else "") + f" · WORKSPACE: {ROOT}",
+        _t("doctor.build_zenith_report.1", "# workspace doctor — pendientes por resolver"),
+        _t("doctor.report.generated", "Generado: {when}",
+           when=datetime.datetime.now().strftime('%Y-%m-%d %H:%M'))
+        + (_t("doctor.report.mode", " · modo: {mode}", mode=mode) if mode else "")
+        + f" · WORKSPACE: {ROOT}",
         "",
-        "Esta sesión la abrió `workspace doctor`: quedaron hallazgos sin resolver "
-        "y el socio eligió resolverlos contigo. Tu ÚNICO objetivo aquí es guiarlo "
-        "a arreglar/configurar estos puntos, uno por uno, conversando.",
-        "Reglas: cambios mínimos y explicados antes de ejecutarlos; los fix-its "
-        "de abajo son la sugerencia del doctor (síguelos salvo mejor razón); "
-        "NO toques BOOT/ ni `permissions`; al terminar, sugiere re-correr "
-        "`workspace doctor --check` para verificar.",
+        _t("doctor.build_zenith_report.2", "Esta sesión la abrió `workspace doctor`: quedaron hallazgos sin resolver y el socio eligió resolverlos contigo. Tu ÚNICO objetivo aquí es guiarlo a arreglar/configurar estos puntos, uno por uno, conversando."),
+        _t("doctor.build_zenith_report.3", "Reglas: cambios mínimos y explicados antes de ejecutarlos; los fix-its de abajo son la sugerencia del doctor (síguelos salvo mejor razón); NO toques BOOT/ ni `permissions`; al terminar, sugiere re-correr `workspace doctor --check` para verificar."),
         "",
     ]
     for title, x in pending:
         sym = "✗" if x["status"] == FAIL else "⚠"
-        lines.append(f"## [{sym}] FASE {title}")
-        lines.append(f"- hallazgo: {x['label']}")
+        lines.append(_t("doctor.build_zenith_report.4", "## [{sym}] FASE {title}", sym=sym, title=title))
+        lines.append(_t("doctor.build_zenith_report.5", "- hallazgo: {label}", label=x['label']))
         if x["detail"]:
-            lines.append(f"- detalle: {x['detail']}")
+            lines.append(_t("doctor.report.detail", "- detalle: {detail}", detail=x['detail']))
         if x["action"]:
-            lines.append(f"- fix-it sugerido: {x['action']}")
+            lines.append(_t("doctor.report.fixit", "- fix-it sugerido: {action}", action=x['action']))
         lines.append("")
     return "\n".join(lines)
 
@@ -1878,7 +2049,7 @@ def launch_zenith_session(report):
             os.makedirs(os.path.dirname(seed), exist_ok=True)
             with open(seed, "w", encoding="utf-8") as fh:
                 fh.write(report)
-            report += f"\n(Este reporte también quedó en {seed}.)"
+            report += _t("doctor.launch_zenith_session.1", "\n(Este reporte también quedó en {seed}.)", seed=seed)
         except Exception:
             pass
         import uuid
@@ -1910,20 +2081,18 @@ def offer_zenith_handoff(results, check_only):
                 return False
         except Exception:
             return False
-        print(f"\n  {YEL}Quedan {len(pending)} punto(s) por resolver.{R}")
-        print(f"  {DIM}[s] enviarlos a Zenith (abre una sesión temporal con el reporte)"
-              f"   ·   [Enter] salir{R}")
+        print(_t("doctor.offer_zenith_handoff.1", "\n  {yel}Quedan {n} punto(s) por resolver.{r}", yel=YEL, n=len(pending), r=R))
+        print(_t("doctor.offer_zenith_handoff.2", "  {dim}[s] enviarlos a Zenith (abre una sesión temporal con el reporte)   ·   [Enter] salir{r}", dim=DIM, r=R))
         try:
             ans = input("  › ").strip().lower()
         except (EOFError, KeyboardInterrupt):
             return False
         if ans not in ("s", "si", "sí", "y", "yes"):
             return False
-        print(f"  {DIM}Abriendo sesión de Zenith con el reporte…{R}")
+        print(_t("doctor.offer_zenith_handoff.3", "  {dim}Abriendo sesión de Zenith con el reporte…{r}", dim=DIM, r=R))
         if launch_zenith_session(build_zenith_report(pending, mode="fix")):
             return True
-        print(f"  {YEL}No pude abrir la sesión de Zenith{R} {DIM}— los hallazgos y sus "
-              f"fix-its ya están arriba; resuélvelos a mano o corre `zenith` tú mismo.{R}")
+        print(_t("doctor.offer_zenith_handoff.4", "  {yel}No pude abrir la sesión de Zenith{r} {dim}— los hallazgos y sus fix-its ya están arriba; resuélvelos a mano o corre `zenith` tú mismo.{r}", yel=YEL, r=R, dim=DIM))
         return False
     except Exception:
         return False   # falla-suave total: el cierre jamás rompe el doctor
@@ -1931,12 +2100,16 @@ def offer_zenith_handoff(results, check_only):
 
 def main(argv=None):
     args = list(argv) if argv is not None else sys.argv[1:]
+    if "--bundle" in args:
+        # ZIP de diagnóstico REDACTADO para soporte (lógica en diag_bundle.py).
+        import diag_bundle
+        return diag_bundle.main([a for a in args if a != "--bundle"])
     if "--tests" in args:
         # Suite N18 (tests/run.py): la red de edición del harness. Aditivo —
         # solo corre con el flag explícito; el doctor normal no la toca.
         runner = os.path.join(ROOT, "tests", "run.py")
         if not os.path.exists(runner):
-            print(f"  {RED}✗{R} no encuentro la suite: {runner}")
+            print(_t("doctor.main.1", "  {red}✗{r} no encuentro la suite: {runner}", red=RED, r=R, runner=runner))
             return 1
         rest = [a for a in args if a != "--tests"]
         return subprocess.call([sys.executable, runner] + rest)
@@ -1949,43 +2122,45 @@ def main(argv=None):
                      and os.environ.get(install.FORCE_ENV) != "1")
     if wt_downgraded:
         check_only = True
-    mode = "diagnóstico (--check, no modifica nada)" if check_only else "revisar y reparar"
+    mode = _t("doctor.main.2", "diagnóstico (--check, no modifica nada)") if check_only else _t("doctor.main.3", "revisar y reparar")
     osname = "Windows" if IS_WIN else ("Mac" if sys.platform == "darwin" else "Linux")
     print(f"\n  {BO}{C}WORKSPACE doctor{R}  {DIM}· {mode} · {osname} · {ROOT}{R}")
     if wt_downgraded:
-        print(f"  {YEL}⚠ Este WORKSPACE es un git WORKTREE — modo reparación desactivado "
-              f"(solo diagnóstico).{R}")
-        print(f"  {DIM}Corre el doctor desde el checkout principal para reparar "
-              f"(override consciente: {install.FORCE_ENV}=1).{R}")
+        print(_t("doctor.main.4", "  {yel}⚠ Este WORKSPACE es un git WORKTREE — modo reparación desactivado (solo diagnóstico).{r}", yel=YEL, r=R))
+        print(_t("doctor.main.5", "  {dim}Corre el doctor desde el checkout principal para reparar (override consciente: {force_env}=1).{r}", dim=DIM, force_env=install.FORCE_ENV, r=R))
 
     # NO auto-descubrimos cerebros aquí: el harness se distribuye a clientes y debe
     # quedar VACÍO salvo lo que el usuario conecte explícitamente (Agregar agente).
     # El doctor configura/repara lo YA registrado; descubrir es acción manual
     # (`agentsreg.py discover --register` o el menú Agregar agente → Descubrir).
     ctx = build_ctx()
+    # W-F11: consultar el remoto es EXPLÍCITO en --check
+    ctx["remote"] = ("--remote" in args or "--fetch" in args)
+    if check_only:
+        print(f"  {DIM}" + (_t("doctor.main.6", "verificación remota explícita (--remote): se hará git fetch")
+                            if ctx["remote"] else
+                            _t("doctor.main.7", "sin consultar remoto: repos comparados contra refs locales (añade --remote para git fetch)")) + f"{R}")
     results = []
     for title, fn in PHASES:
         try:
             finds = fn(ctx, fix=not check_only)
         except Exception as e:
-            finds = [f(FAIL, "error interno de la fase", f"{type(e).__name__}: {e}",
+            finds = [f(FAIL, _t("doctor.main.8", "error interno de la fase"), f"{type(e).__name__}: {e}",
                        _report_hint())]
+        title = phase_title(title, fn)
         results.append((title, _print_phase(title, finds, not check_only), finds))
 
     # tabla de salud
     print(f"\n  {DIM}{'─' * 60}{R}")
-    print(f"  {BO}{WH}Salud del harness{R}")
+    print(_t("doctor.main.9", "  {bo}{wh}Salud del harness{r}", bo=BO, wh=WH, r=R))
     for title, st, _ in results:
         print(f"    {SYM[st]}  {title}")
     n = {s: sum(1 for _, st, _ in results if st == s) for s in (OK, FIXED, WARN, FAIL)}
-    print(f"\n  {DIM}Fases:{R} {GRN}{n[OK]} ✓{R} · {C}{n[FIXED]} reparadas{R} · "
-          f"{YEL}{n[WARN]} ⚠{R} · {RED}{n[FAIL]} ✗{R}")
+    print(_t("doctor.main.10", "\n  {dim}Fases:{r} {grn}{v} ✓{r} · {c}{v2} reparadas{r} · {yel}{v3} ⚠{r} · {red}{v4} ✗{r}", dim=DIM, r=R, grn=GRN, v=n[OK], c=C, v2=n[FIXED], yel=YEL, v3=n[WARN], red=RED, v4=n[FAIL]))
     if check_only and (n[WARN] or n[FAIL]):
-        print(f"  {DIM}Corre {R}{BO}workspace doctor{R}{DIM} (sin --check) para reparar lo automático; "
-              f"lo manual viene marcado como → acción.{R}")
+        print(_t("doctor.main.11", "  {dim}Corre {r}{bo}workspace doctor{r}{dim} (sin --check) para reparar lo automático; lo manual viene marcado como → acción.{r}", dim=DIM, r=R, bo=BO))
     elif not check_only and n[FAIL]:
-        print(f"  {DIM}Quedan pendientes manuales (→ acción). Resuélvelos y vuelve a correr "
-              f"{R}{BO}workspace doctor{R}{DIM} — es idempotente.{R}")
+        print(_t("doctor.main.12", "  {dim}Quedan pendientes manuales (→ acción). Resuélvelos y vuelve a correr {r}{bo}workspace doctor{r}{dim} — es idempotente.{r}", dim=DIM, r=R, bo=BO))
     # cierre: resolver lo pendiente con Zenith (interactivo, falla-suave;
     # NUNCA en --check ni sin TTY — no bloquea flujos automáticos ni la UI/CI)
     offer_zenith_handoff(results, check_only)

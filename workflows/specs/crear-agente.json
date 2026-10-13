@@ -1,6 +1,6 @@
 {
   "workflow": "crear-agente",
-  "version": 2,
+  "version": 3,
   "map": "workflows/MAPA.md · P8 (crear-agente) — el protocolo de creación de agentes HECHO harness. Protocolo del autor: protocols/agent-creation/.",
   "note": "Crea un agente NUEVO a nivel harness, guiado y verificado — el 'crear personaje de videojuego' del socio. La ESPINA que sirve para cualquier agente: intake (la forma) → gate de fit → crear (scaffold del cerebro desde el template) → identidad (llenar SOUL/BOOT) → verificar-cerebro (quality bar estructural) → aprobar (launch gate). El protocolo completo que el agente-autor lee vive en protocols/agent-creation/ (00-INTAKE la forma, 01-PROTOCOL las fases, 02-BRAIN-FORMAT la estructura, 03-QUALITY-BAR el gate). La fase pesada de research de dominio (FASE 1, para agentes de dominio profundo) es opcional aguas arriba — un agente simple no la necesita. Sin driver, los pasos agent son STUB honesto: el workflow es un CHECKLIST GUIADO donde el autor (socio/Zenith) llena el intake y la identidad, y el runner verifica con oráculo (agent.create scaffolda, agent.verify_brain chequea la estructura). Con driver real (la 'IA conectada' del socio), el agente autora solo. Config por artefacto `agent_config` (del intake) o por `--param` (name/display/tagline/owner/color/scope/soul/skills). Crear un agente es N3 (identidad/estructura) — el gate `aprobar` lo cubre.",
   "inputs": [
@@ -84,6 +84,19 @@
       ],
       "on_fail": "stop",
       "note": "agent_admin.create — scaffold del cerebro desde el template (placeholders renderizados) + agent.json + registro per-máquina. Config del artefacto agent_config (intake) o de --param. Idempotente: si ya existe, no-op. No sobrescribe carpetas"
+    },
+    {
+      "id": "validar-definicion",
+      "kind": "det",
+      "run": "agent.validate_definition",
+      "reads": [
+        "agent_brain"
+      ],
+      "produces": [
+        "definition_errors"
+      ],
+      "on_fail": "stop",
+      "note": "Z23: la definición pasa agent_schema (portable: sin rutas de máquina, versión soportada, sin placeholders) — el mismo validador que el estado compartido usa para invalid_config"
     },
     {
       "id": "banner",

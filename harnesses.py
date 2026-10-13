@@ -140,6 +140,40 @@ def selectable():
     return ok or [d["id"] for d in reg if d["installed"]]
 
 
+def enabled_ids():
+    """Motores que el socio HABILITÓ para el atajo M (settings
+    `modelos.enabled_engines`, U09). Vacío/sin setting = sin filtro (todos). Es una
+    preferencia de PRESENTACIÓN: no instala, no desinstala, no toca login."""
+    try:
+        import settings
+        v = settings.get_stored("modelos.enabled_engines")
+    except Exception:
+        return []
+    return [str(x) for x in v] if isinstance(v, list) else []
+
+
+def set_enabled(ids, actor="motores"):
+    """Persiste la lista de motores habilitados para M (vacía = todos)."""
+    try:
+        import config_engine
+        if not ids:
+            return config_engine.reset_setting("modelos.enabled_engines", actor=actor)
+        return config_engine.set_setting("modelos.enabled_engines", list(ids), actor=actor)
+    except Exception as e:
+        return {"ok": False, "error": "%s: %s" % (type(e).__name__, e)}
+
+
+def cycle_options():
+    """Opciones del atajo M: elegibles (selectable) ∩ habilitados por el
+    socio. Si el filtro deja la lista vacía se devuelve [] — la vista explica
+    cómo habilitar (no se ignora la preferencia en silencio)."""
+    opts = selectable()
+    en = enabled_ids()
+    if not en:
+        return opts
+    return [o for o in opts if o in en]
+
+
 # ── BINDING agente → harness ────────────────────────────────────────────────
 
 def binding(agent_name, agent_default=""):
@@ -178,16 +212,20 @@ def set_binding(agent_name, engine_id, agent_default="", actor="hub"):
         return {"ok": False, "error": "%s: %s" % (type(e).__name__, e)}
 
 
-def cycle(agent_name, agent_default=""):
-    """Avanza el binding del agente al SIGUIENTE harness elegible (circular) y
-    lo persiste. Devuelve {'ok', 'engine', 'source', 'error'?} — pensado para
-    el gesto del hub (una tecla = siguiente motor, guardado al instante)."""
-    opts = selectable()
-    if not opts:
+def cycle(agent_name, agent_default="", step=1):
+    """Avanza el binding del agente al SIGUIENTE harness elegible (circular;
+    step=-1 → el ANTERIOR) y lo persiste. Devuelve {'ok', 'engine', 'source',
+    'error'?} — pensado para el gesto del hub (una tecla = otro motor,
+    guardado al instante)."""
+    if not selectable():
         return {"ok": False, "error": "sin harnesses instalados"}
+    opts = cycle_options()
+    if not opts:
+        return {"ok": False, "error": "ningún motor habilitado para M — "
+                                      "habilítalos en Motores"}
     cur, _src = binding(agent_name, agent_default)
     try:
-        nxt = opts[(opts.index(cur) + 1) % len(opts)]
+        nxt = opts[(opts.index(cur) + (-1 if step < 0 else 1)) % len(opts)]
     except ValueError:            # el actual ya no es elegible → el primero
         nxt = opts[0]
     res = set_binding(agent_name, nxt, agent_default)

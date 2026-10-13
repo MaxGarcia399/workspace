@@ -29,7 +29,7 @@ API pública:
                      o tests que cambian el setting por fuera).
 
 Cómo se AGREGA una cadena traducible (lo que siguen las fases 1+): ver
-`lang/README.md`. Resumen: clave namespaced por pantalla (`"menu.github.label"`),
+`lang/README.md`. Resumen: clave namespaced por pantalla (`"menu.cal.label"`),
 texto español actual copiado TAL CUAL en `lang/es.py`, traducción en
 `lang/en.py`, y en el código `i18n.t("clave")` donde iba el literal.
 

@@ -6,6 +6,46 @@ from pathlib import Path
 import git_ops as O
 
 VIEWS = ('Mapa', 'Resumen', 'Acciones', 'Historial', 'Cambios', 'GitHub', 'Proyectos', 'Ayuda')
+#: id estable de cada vista (VIEWS es la etiqueta ES y se compara en código).
+_VIEW_IDS = ('map', 'summary', 'actions', 'history', 'changes', 'github', 'projects', 'help')
+
+
+def _t(key, es, **kw):
+    """i18n lado cliente, falla-suave: `key` en el idioma activo (catálogo
+    lang/<code>/versiones.py); sin i18n / clave faltante → el español inline
+    `es` (paridad exacta). .format(**kw) falla-suave."""
+    s = es
+    try:
+        import i18n
+        v = i18n.t(key)
+        if v != key:
+            s = v
+    except Exception:
+        s = es
+    if kw:
+        try:
+            return s.format(**kw)
+        except Exception:
+            return s
+    return s
+
+
+def _view_name(i):
+    """Etiqueta VISIBLE de la vista i en el idioma activo."""
+    return _t('versiones.p.view.' + _VIEW_IDS[i], VIEWS[i])
+
+
+def _act_title(aid, es):
+    """Título visible de una acción de git_ops.ACTIONS (por id)."""
+    return _t('versiones.p.act.%s.t' % aid, es)
+
+
+def _act_desc(aid, es):
+    return _t('versiones.p.act.%s.d' % aid, es)
+
+
+def _field_label(action, key, es):
+    return _t('versiones.p.form.%s.%s' % (action, key), es)
 
 
 def init(S, G):
@@ -79,67 +119,103 @@ def poll(S, G):
         elif job.plan['action'] not in ('commit', 'verify', 'promote'):
             # Do not present cloud data from before a remote mutation as current.
             S['cloud'] = {}
-        S['msg'] = ('Completado: ' + job.plan['title']) if job.ok else job.error
+        S['msg'] = (_t('versiones.p.job.done', 'Completado: {t}',
+                       t=_act_title(job.plan['action'], job.plan['title']))
+                    if job.ok else job.error)
         reload(S, G)
 
 
 def _rows(S, G):
     view = VIEWS[S['view']]
     if view == 'Acciones':
-        return [a[1] for a in O.ACTIONS]
+        return [_act_title(a[0], a[1]) for a in O.ACTIONS]
     if view == 'Historial':
         return [c['short'] + ' · ' + c['title'] for c in S['commits']]
     if view == 'Cambios':
         return [('● ' if r['path'] in S['selected_files'] else '○ ') + r['path'] for r in S['status'].get('files', [])]
     if view == 'GitHub':
         c = S['cloud']
-        result = ['Revisión #%s · %s' % (p['number'], p['title']) for p in c.get('prs', [])]
-        result += ['Prueba · %s · %s' % (r['conclusion'] or r['status'], r['displayTitle']) for r in c.get('runs', [])]
-        result += ['Release · %s · %s' % (r['tagName'], 'borrador' if r['isDraft'] else 'publicado') for r in c.get('releases', [])]
+        result = [_t('versiones.p.gh.pr_row', 'Revisión #{n} · {t}', n=p['number'], t=p['title'])
+                  for p in c.get('prs', [])]
+        result += [_t('versiones.p.gh.run_row', 'Prueba · {s} · {t}', s=r['conclusion'] or r['status'],
+                      t=r['displayTitle']) for r in c.get('runs', [])]
+        result += ['Release · %s · %s' % (r['tagName'], _t('versiones.p.draft', 'borrador') if r['isDraft']
+                                          else _t('versiones.p.published', 'publicado'))
+                   for r in c.get('releases', [])]
         return result
     if view == 'Proyectos':
-        return [os.path.basename(p) + (' · abierto' if p == S['D']['repo'] else '') for p in S['project_paths']]
+        return [os.path.basename(p) + ((' · ' + _t('versiones.p.proj.open', 'abierto'))
+                                       if p == S['D']['repo'] else '') for p in S['project_paths']]
     if view == 'Ayuda':
-        return ['Rama = una línea de trabajo', 'Commit = un punto de guardado',
-                'Push = subir lo guardado', 'Pull = traer lo de GitHub',
-                'Revisión = propuesta de cambios', 'Stable = versión para el equipo',
-                'Release = entrega con nombre', 'Worktree = carpeta separada']
+        return [_t('versiones.p.help.r%d' % i, es) for i, es in enumerate((
+            'Rama = una línea de trabajo', 'Commit = un punto de guardado',
+            'Push = subir lo guardado', 'Pull = traer lo de GitHub',
+            'Revisión = propuesta de cambios', 'Stable = versión para el equipo',
+            'Release = entrega con nombre', 'Worktree = carpeta separada'))]
     return []
 
 
 def _summary(S, G):
     d, status, m, c = S['D'], S['status'], S['machine'], S['cloud']
     branch, ref = selection(S, G)
-    rows = ['tu recorrido ───',
-            'Trabajo local · %d archivos por guardar' % len(status.get('files', [])),
-            'Guardado · ' + ((S['commits'][0]['short'] + ' ' + S['commits'][0]['title']) if S['commits'] else 'sin historial'),
-            'Subido · ' + ('sin origin conectado' if not status.get('remote') else
-                          'consulta pendiente' if status.get('ahead') is None else
-                          '%d commits por subir · %d por traer' % (status['ahead'], status['behind'])),
-            'Revisado · %d solicitudes abiertas' % len(c['prs']) if 'prs' in c and not any(e.startswith('prs:') for e in c.get('errors', [])) else 'Revisado · consulta pendiente o fallida',
-            'Entrega · ' + ((c['releases'][0]['tagName'] + (' · borrador' if c['releases'][0]['isDraft'] else ' · publicada')) if c.get('releases') else 'consulta pendiente o fallida' if 'releases' not in c or any(e.startswith('releases:') for e in c.get('errors', [])) else 'sin releases'),
-            '', 'tu máquina ───',
+    pend = _t('versiones.p.pending', 'consulta pendiente')
+    pend_fail = _t('versiones.p.pending_fail', 'consulta pendiente o fallida')
+    avail = lambda ok: (_t('versiones.p.avail', 'disponible') if ok
+                        else _t('versiones.p.absent', 'ausente'))
+    rows = [_t('versiones.p.s.journey', 'tu recorrido') + ' ───',
+            _t('versiones.p.s.local', 'Trabajo local · {n} archivos por guardar',
+               n=len(status.get('files', []))),
+            _t('versiones.p.s.saved', 'Guardado') + ' · ' + (
+                (S['commits'][0]['short'] + ' ' + S['commits'][0]['title']) if S['commits']
+                else _t('versiones.p.s.nohist', 'sin historial')),
+            _t('versiones.p.s.pushed', 'Subido') + ' · ' + (
+                _t('versiones.p.s.noorigin', 'sin origin conectado') if not status.get('remote') else
+                pend if status.get('ahead') is None else
+                _t('versiones.p.s.aheadbehind', '{a} commits por subir · {b} por traer',
+                   a=status['ahead'], b=status['behind'])),
+            _t('versiones.p.s.reviewed_n', 'Revisado · {n} solicitudes abiertas', n=len(c['prs']))
+            if 'prs' in c and not any(e.startswith('prs:') for e in c.get('errors', []))
+            else _t('versiones.p.s.reviewed', 'Revisado') + ' · ' + pend_fail,
+            _t('versiones.p.s.delivery', 'Entrega') + ' · ' + (
+                (c['releases'][0]['tagName'] + ' · ' + (
+                    _t('versiones.p.draft', 'borrador') if c['releases'][0]['isDraft']
+                    else _t('versiones.p.published_f', 'publicada')))
+                if c.get('releases') else pend_fail
+                if 'releases' not in c or any(e.startswith('releases:') for e in c.get('errors', []))
+                else _t('versiones.p.s.norel', 'sin releases')),
+            '', _t('versiones.p.s.machine', 'tu máquina') + ' ───',
             '%s · Python %s' % (m.get('system', '?'), m.get('python', '?')),
-            'Disco · %s GB libres · %s%% utilizado' % (m.get('free_gb', '?'), m.get('used_pct', '?')),
-            'Herramientas · Git %s · GitHub CLI %s' % ('disponible' if m.get('git') else 'ausente', 'disponible' if m.get('gh') else 'ausente'),
-            '', 'carpetas de trabajo ───',
-            '%d separadas · %d con trabajo sin guardar' % (len(d.get('wts', [])), sum(w['clean'] is False for w in d.get('wts', []))),
-            'Local leído · ' + time.strftime('%H:%M:%S', time.localtime(S['last_read'])),
-            'GitHub · ' + (time.strftime('%H:%M:%S', time.localtime(c['stamped'])) if c.get('stamped') else 'sin consultar en esta sesión'),
-            '', 'r relee la máquina · f consulta GitHub']
+            _t('versiones.p.s.disk', 'Disco · {f} GB libres · {u}% utilizado',
+               f=m.get('free_gb', '?'), u=m.get('used_pct', '?')),
+            _t('versiones.p.s.tools', 'Herramientas · Git {g} · GitHub CLI {h}',
+               g=avail(m.get('git')), h=avail(m.get('gh'))),
+            '', _t('versiones.p.s.folders', 'carpetas de trabajo') + ' ───',
+            _t('versiones.p.s.wts', '{n} separadas · {d} con trabajo sin guardar',
+               n=len(d.get('wts', [])), d=sum(w['clean'] is False for w in d.get('wts', []))),
+            _t('versiones.p.s.read', 'Local leído') + ' · '
+            + time.strftime('%H:%M:%S', time.localtime(S['last_read'])),
+            'GitHub · ' + (time.strftime('%H:%M:%S', time.localtime(c['stamped'])) if c.get('stamped')
+                           else _t('versiones.p.s.notqueried', 'sin consultar en esta sesión')),
+            '', _t('versiones.p.s.keys', 'r relee la máquina · f consulta GitHub')]
     if m.get('load') is not None:
-        rows.insert(11, 'Carga de máquina · %.2f (promedio, no %% CPU)' % m['load'])
+        rows.insert(11, _t('versiones.p.s.load', 'Carga de máquina · {l} (promedio, no % CPU)',
+                           l='%.2f' % m['load']))
     exact = S.get('target') or (S['commits'][0]['sha'] if S['commits'] else '')
     check = next((r for r in c.get('runs', []) if r.get('headSha') == exact), None)
-    rows.insert(7, 'Pruebas GitHub · ' + ((check.get('conclusion') or check['status']) if check else 'sin resultado consultado para este commit'))
-    next_step = ('Resolver el conflicto antes de guardar' if status.get('conflict') else
-                 'Guardar los archivos elegidos en Cambios' if status.get('files') else
-                 'Traer novedades de GitHub' if status.get('behind') else
-                 'Subir tus puntos de guardado' if status.get('ahead') else
-                 'Consultar GitHub para confirmar el estado')
-    rows.insert(0, 'Siguiente paso · ' + next_step)
+    rows.insert(7, _t('versiones.p.s.tests', 'Pruebas GitHub') + ' · ' + (
+        (check.get('conclusion') or check['status']) if check
+        else _t('versiones.p.s.notests', 'sin resultado consultado para este commit')))
+    next_step = (_t('versiones.p.next.conflict', 'Resolver el conflicto antes de guardar') if status.get('conflict') else
+                 _t('versiones.p.next.save', 'Guardar los archivos elegidos en Cambios') if status.get('files') else
+                 _t('versiones.p.next.pull', 'Traer novedades de GitHub') if status.get('behind') else
+                 _t('versiones.p.next.push', 'Subir tus puntos de guardado') if status.get('ahead') else
+                 _t('versiones.p.next.check', 'Consultar GitHub para confirmar el estado'))
+    rows.insert(0, _t('versiones.p.next', 'Siguiente paso') + ' · ' + next_step)
     if status.get('current_branch') != branch:
-        rows.insert(1, 'Archivos locales · carpeta abierta en ' + (status.get('current_branch') or 'un commit separado') + '; abre ' + branch + ' para editarla.')
+        rows.insert(1, _t('versiones.p.s.otherdir',
+                          'Archivos locales · carpeta abierta en {c}; abre {b} para editarla.',
+                          c=status.get('current_branch') or _t('versiones.p.s.detached', 'un commit separado'),
+                          b=branch))
     return rows
 
 
@@ -149,36 +225,50 @@ def _detail(S, G):
     cursor = S['cursor']
     if view == 'Acciones':
         a = O.ACTIONS[min(cursor, len(O.ACTIONS) - 1)]
-        return [a[1], '', a[2], '', 'Proyecto · ' + S['D']['repo'],
-                'Rama · ' + branch, 'Versión · ' + (ref or '?'), '',
-                'Enter prepara la acción.', 'Primero verás el destino y los pasos.',
-                'Se ejecuta solo al confirmar esa vista previa.', '',
-                'Local sin guardar no se incluye en un push.',
-                'Una publicación puede iniciar el despliegue del proyecto.']
+        return [_act_title(a[0], a[1]), '', _act_desc(a[0], a[2]), '',
+                _t('versiones.p.f.project', 'Proyecto') + ' · ' + S['D']['repo'],
+                _t('versiones.p.f.branch', 'Rama') + ' · ' + branch,
+                _t('versiones.p.f.version', 'Versión') + ' · ' + (ref or '?'), '',
+                _t('versiones.p.a.l1', 'Enter prepara la acción.'),
+                _t('versiones.p.a.l2', 'Primero verás el destino y los pasos.'),
+                _t('versiones.p.a.l3', 'Se ejecuta solo al confirmar esa vista previa.'), '',
+                _t('versiones.p.a.l4', 'Local sin guardar no se incluye en un push.'),
+                _t('versiones.p.a.l5', 'Una publicación puede iniciar el despliegue del proyecto.')]
     if view == 'Historial':
         if not S['commits']:
-            return ['No hay commits para mostrar.']
+            return [_t('versiones.p.h.none', 'No hay commits para mostrar.')]
         c = S['commits'][min(cursor, len(S['commits']) - 1)]
-        return [c['title'], c['sha'], c['ago'], '', 'Enter revisa sus diferencias.',
-                'c elige esta versión para subir o crear un release.',
-                'Elegir una versión no mueve tu rama ni tus archivos.',
-                't permite escribir cualquier commit o etiqueta.',
-                'b vuelve a la punta de la rama.']
+        return [c['title'], c['sha'], getattr(G, 'ago_text', str)(c['ago']), '',
+                _t('versiones.p.h.l1', 'Enter revisa sus diferencias.'),
+                _t('versiones.p.h.l2', 'c elige esta versión para subir o crear un release.'),
+                _t('versiones.p.h.l3', 'Elegir una versión no mueve tu rama ni tus archivos.'),
+                _t('versiones.p.h.l4', 't permite escribir cualquier commit o etiqueta.'),
+                _t('versiones.p.h.l5', 'b vuelve a la punta de la rama.')]
     if view == 'Cambios':
         files = S['status'].get('files', [])
         path = S.get('work_path', S['D']['repo'])
-        rows = ['Archivos en · ' + path, '', '%d marcados para guardar' % len(S['selected_files']),
-                'Espacio marca/quita un archivo.', 'Enter muestra qué cambió.',
-                'g prepara un punto de guardado con los marcados.',
-                'Los demás archivos preparados quedan aparte.']
+        rows = [_t('versiones.p.c.files_in', 'Archivos en') + ' · ' + path, '',
+                _t('versiones.p.c.marked', '{n} marcados para guardar', n=len(S['selected_files'])),
+                _t('versiones.p.c.l1', 'Espacio marca/quita un archivo.'),
+                _t('versiones.p.c.l2', 'Enter muestra qué cambió.'),
+                _t('versiones.p.c.l3', 'g prepara un punto de guardado con los marcados.'),
+                _t('versiones.p.c.l4', 'Los demás archivos preparados quedan aparte.')]
         if files:
             r = files[min(cursor, len(files) - 1)]
-            state = 'nuevo' if r['status'] == '??' else 'conflicto' if r['conflict'] else 'eliminado' if 'D' in r['status'] else 'modificado'
-            rows += ['', r['path'], 'Estado · ' + state]
+            state = (_t('versiones.p.c.new', 'nuevo') if r['status'] == '??' else
+                     _t('versiones.p.c.conflict', 'conflicto') if r['conflict'] else
+                     _t('versiones.p.c.deleted', 'eliminado') if 'D' in r['status'] else
+                     _t('versiones.p.c.modified', 'modificado'))
+            rows += ['', r['path'], _t('versiones.p.c.state', 'Estado') + ' · ' + state]
         return rows
     if view == 'GitHub':
         c = S['cloud']
-        rows = ['f consulta GitHub y actualiza origin.', 'Cuenta · ' + (c.get('account') or 'consulta pendiente'), 'Los datos llevan la hora de su consulta.', 'Acciones permite publicar y hacer review.', 'La revisión del diff es manual; no ejecuta un modelo de IA.', '']
+        rows = [_t('versiones.p.g.l1', 'f consulta GitHub y actualiza origin.'),
+                _t('versiones.p.g.account', 'Cuenta') + ' · ' + (
+                    c.get('account') or _t('versiones.p.pending', 'consulta pendiente')),
+                _t('versiones.p.g.l2', 'Los datos llevan la hora de su consulta.'),
+                _t('versiones.p.g.l3', 'Acciones permite publicar y hacer review.'),
+                _t('versiones.p.g.l4', 'La revisión del diff es manual; no ejecuta un modelo de IA.'), '']
         if c.get('error'):
             return rows + [c['error']]
         prs, runs, releases = c.get('prs', []), c.get('runs', []), c.get('releases', [])
@@ -186,29 +276,36 @@ def _detail(S, G):
             p = prs[cursor]
             rows += ['#%d · %s' % (p['number'], p['title']),
                      p['headRefName'] + ' → ' + p['baseRefName'],
-                     'Borrador' if p['isDraft'] else 'Abierta para revisión', p['url'],
-                     'Enter carga su número en el menú de acciones.']
+                     _t('versiones.p.g.draft', 'Borrador') if p['isDraft']
+                     else _t('versiones.p.g.open', 'Abierta para revisión'), p['url'],
+                     _t('versiones.p.g.load_pr', 'Enter carga su número en el menú de acciones.')]
         elif cursor < len(prs) + len(runs):
             r = runs[cursor - len(prs)]
             rows += [r['displayTitle'], r['headBranch'], r['headSha'],
-                     'Resultado · ' + (r.get('conclusion') or r['status']), r['url'],
-                     'CI son pruebas del servidor; no reemplazan las pruebas locales.']
+                     _t('versiones.p.g.result', 'Resultado') + ' · ' + (r.get('conclusion') or r['status']),
+                     r['url'],
+                     _t('versiones.p.g.ci', 'CI son pruebas del servidor; no reemplazan las pruebas locales.')]
         elif releases and cursor - len(prs) - len(runs) < len(releases):
             r = releases[cursor - len(prs) - len(runs)]
-            rows += [r['tagName'], r.get('name') or '', 'borrador' if r['isDraft'] else 'publicado',
-                     'Enter carga esta versión para publicarla.']
+            rows += [r['tagName'], r.get('name') or '',
+                     _t('versiones.p.draft', 'borrador') if r['isDraft']
+                     else _t('versiones.p.published', 'publicado'),
+                     _t('versiones.p.g.load_rel', 'Enter carga esta versión para publicarla.')]
         return rows + c.get('errors', [])
     if view == 'Proyectos':
         p = S['project_paths'][min(cursor, len(S['project_paths']) - 1)]
         st = S['project_states'].get(p, {})
-        return [p, '', 'Enter abre el proyecto.', 'n conecta otra carpeta Git.',
-                'm consulta el estado de las carpetas registradas.',
-                'No se escanea todo el disco.', '',
-                'Rama · ' + st.get('branch', 'consulta pendiente'),
-                'Archivos por guardar · ' + (str(len(st['files'])) if 'files' in st else '?'),
-                'Destino · ' + (st.get('remote') or 'consulta pendiente')]
+        pend = _t('versiones.p.pending', 'consulta pendiente')
+        return [p, '', _t('versiones.p.pr.l1', 'Enter abre el proyecto.'),
+                _t('versiones.p.pr.l2', 'n conecta otra carpeta Git.'),
+                _t('versiones.p.pr.l3', 'm consulta el estado de las carpetas registradas.'),
+                _t('versiones.p.pr.l4', 'No se escanea todo el disco.'), '',
+                _t('versiones.p.f.branch', 'Rama') + ' · ' + st.get('branch', pend),
+                _t('versiones.p.pr.tosave', 'Archivos por guardar') + ' · '
+                + (str(len(st['files'])) if 'files' in st else '?'),
+                _t('versiones.p.f.dest', 'Destino') + ' · ' + (st.get('remote') or pend)]
     if view == 'Ayuda':
-        explanations = [
+        explanations = [_t('versiones.p.help.x%d' % i, es) for i, es in enumerate((
             'Una rama es una línea de trabajo independiente. main suele ser la versión principal; feat/... es un cambio en desarrollo.',
             'Un commit guarda una versión en tu máquina. Los archivos editados después no forman parte de ese punto de guardado.',
             'Push envía commits al repositorio remoto. Si GitHub tiene cambios incompatibles, Git rechaza la subida y el panel explica el fallo.',
@@ -217,40 +314,57 @@ def _detail(S, G):
             'Stable es el canal que recibe el equipo. Marcar estable verifica main; Publicar para el equipo sube main y stable.',
             'Un release da nombre y notas a un commit. Primero prepara un borrador y después publícalo. Distribución WORKSPACE es otro destino.',
             'Un worktree permite abrir otra rama en una carpeta separada sin interrumpir el trabajo de tu carpeta actual.',
-        ]
+        ))]
         return [explanations[min(cursor, len(explanations) - 1)], '',
-                'Tab cambia vista · ↑↓ elige · Enter abre',
-                'a acciones · f GitHub · r máquina', 'h historial · d cambios · p proyectos',
-                't versión exacta · b punta de rama', 'Esc vuelve · q sale']
-    return ['Elige la rama en Mapa y abre Acciones.']
+                _t('versiones.p.help.k1', 'Tab cambia vista · ↑↓ elige · Enter abre'),
+                _t('versiones.p.help.k2', 'a acciones · f GitHub · r máquina'),
+                _t('versiones.p.help.k3', 'h historial · d cambios · p proyectos'),
+                _t('versiones.p.help.k4', 't versión exacta · b punta de rama'),
+                _t('versiones.p.help.k5', 'Esc vuelve · q sale')]
+    return [_t('versiones.p.pick', 'Elige la rama en Mapa y abre Acciones.')]
 
 
 def _body_view(S, G):
     if S.get('report_title'):
-        return S['report_title'], S['report'], ['↑↓ desplaza · Esc vuelve']
+        return S['report_title'], S['report'], [_t('versiones.p.b.scroll', '↑↓ desplaza · Esc vuelve')]
     if S.get('job') and not S.get('job_collected'):
         job = S['job']
-        return 'EJECUTANDO · ' + job.plan['title'], job.output()[-25:] or ['Iniciando…'], ['La salida se actualiza mientras trabaja.', 'Espera el resultado antes de iniciar otra acción.']
+        return (_t('versiones.p.b.running', 'EJECUTANDO') + ' · '
+                + _act_title(job.plan['action'], job.plan['title']),
+                job.output()[-25:] or [_t('versiones.p.b.starting', 'Iniciando…')],
+                [_t('versiones.p.b.live', 'La salida se actualiza mientras trabaja.'),
+                 _t('versiones.p.b.wait', 'Espera el resultado antes de iniciar otra acción.')])
     if S.get('plan'):
         plan = S['plan']
-        lines = [plan['description'], '', 'Proyecto · ' + plan['repo'],
-                 'Rama de origen · ' + plan['branch'], 'Commit exacto · ' + plan['source'],
-                 'Destino · ' + (plan.get('destination') or plan.get('remote') or 'esta máquina')]
+        lines = [_act_desc(plan['action'], plan['description']), '',
+                 _t('versiones.p.f.project', 'Proyecto') + ' · ' + plan['repo'],
+                 _t('versiones.p.pl.src_branch', 'Rama de origen') + ' · ' + plan['branch'],
+                 _t('versiones.p.pl.exact', 'Commit exacto') + ' · ' + plan['source'],
+                 _t('versiones.p.f.dest', 'Destino') + ' · ' + (
+                     plan.get('destination') or plan.get('remote')
+                     or _t('versiones.p.pl.this_machine', 'esta máquina'))]
         if plan.get('distribution_remote'):
-            lines += ['Repositorio de distribución · ' + plan['distribution_remote']]
+            lines += [_t('versiones.p.pl.dist', 'Repositorio de distribución') + ' · '
+                      + plan['distribution_remote']]
         if plan.get('pr_head'):
-            lines += ['Versión de la revisión · ' + plan['pr_head']]
+            lines += [_t('versiones.p.pl.pr_head', 'Versión de la revisión') + ' · ' + plan['pr_head']]
         if plan['files']:
-            lines += ['', 'Solo se guardan estos archivos:'] + plan['files']
+            lines += ['', _t('versiones.p.pl.only_files', 'Solo se guardan estos archivos:')] + plan['files']
         if plan['fields'].get('body'):
-            lines += ['', 'Tu texto · ' + plan['fields']['body']]
-        lines += ['', 'Comandos que se ejecutarán:'] + [O.display_command(c) for c in plan['commands']]
-        return 'CONFIRMAR · ' + plan['title'], lines, ['Enter ejecuta estos pasos · Esc cancela', '↑↓ desplaza la vista previa']
+            lines += ['', _t('versiones.p.pl.your_text', 'Tu texto') + ' · ' + plan['fields']['body']]
+        lines += ['', _t('versiones.p.pl.commands', 'Comandos que se ejecutarán:')] + [
+            O.display_command(c) for c in plan['commands']]
+        return (_t('versiones.p.pl.confirm', 'CONFIRMAR') + ' · '
+                + _act_title(plan['action'], plan['title']), lines,
+                [_t('versiones.p.pl.h1', 'Enter ejecuta estos pasos · Esc cancela'),
+                 _t('versiones.p.pl.h2', '↑↓ desplaza la vista previa')])
     view = VIEWS[S['view']]
     if view == 'Resumen':
-        return 'ESTADO DEL PROYECTO', _summary(S, G), ['Acciones para guardar, subir o publicar.', 'Ayuda explica cada etapa sin comandos.']
+        return (_t('versiones.p.sum.title', 'ESTADO DEL PROYECTO'), _summary(S, G),
+                [_t('versiones.p.sum.h1', 'Acciones para guardar, subir o publicar.'),
+                 _t('versiones.p.sum.h2', 'Ayuda explica cada etapa sin comandos.')])
     rows = _rows(S, G)
-    return view.upper(), rows, _detail(S, G)
+    return _view_name(S['view']).upper(), rows, _detail(S, G)
 
 
 def render(S, w, h, G, legacy):
@@ -258,7 +372,8 @@ def render(S, w, h, G, legacy):
         return legacy(S, w, h)
     K, H = G._K(), G.HL
     branch, ref = selection(S, G)
-    tabs = ' · '.join(('[' + name + ']') if i == S['view'] else name for i, name in enumerate(VIEWS))
+    tabs = ' · '.join(('[' + _view_name(i) + ']') if i == S['view'] else _view_name(i)
+                      for i in range(len(VIEWS)))
     tabs = H.clip(tabs, w - 1)
     if S['view'] == 0 and not S.get('form') and not S.get('plan') and not S.get('report_title') and not (S.get('job') and not S.get('job_collected')):
         lines = legacy(S, w, h - 2)
@@ -267,21 +382,37 @@ def render(S, w, h, G, legacy):
         if len(title_lines) > 1:
             tab_row += len(H.title_reflection(K, w, indent=' ', center=True))
         lines.insert(tab_row, K['C'] + tabs + K['R'])
-        line = ' a acciones · Tab vistas · h historial · d cambios · f GitHub · q vuelve'
+        line = ' ' + _t('versiones.p.r.maphint',
+                        'a acciones · Tab vistas · h historial · d cambios · f GitHub · q vuelve')
         if S.get('target'):
-            line = ' Versión elegida ' + S['target'][:12] + ' · a acciones · b punta de rama · q vuelve'
+            line = ' ' + _t('versiones.p.r.target',
+                            'Versión elegida {v} · a acciones · b punta de rama · q vuelve',
+                            v=S['target'][:12])
         lines.insert(tab_row + 1, H.clip(line, w - 1))
         return lines[:h - 1]
+    if S.get('form'):
+        _f = S['form']
+        _fk, _fl = _f['fields'][_f['index']][0], _f['fields'][_f['index']][1]
+        _ftitle = (_act_title(_f['action'], _f['title'])
+                   if any(a[0] == _f['action'] for a in O.ACTIONS)
+                   else _t('versiones.p.form.%s.title' % _f['action'], _f['title']))
     title, body, detail = _body_view(S, G) if not S.get('form') else (
-        S['form']['title'], [S['form']['fields'][S['form']['index']][1], '', '❯ ' + S['form']['buffer'], '',
-                            'Campo %d/%d' % (S['form']['index'] + 1, len(S['form']['fields']))],
-        ['Enter acepta el valor escrito.', 'Ctrl+U borra el campo.', 'Esc cancela sin ejecutar.', '',
-         'Proyecto · ' + S['D']['repo'], 'Rama · ' + branch, 'Versión · ' + ref])
+        _ftitle, [_field_label(_f['action'], _fk, _fl), '', '❯ ' + _f['buffer'], '',
+                  _t('versiones.p.fm.field', 'Campo {i}/{n}', i=_f['index'] + 1, n=len(_f['fields']))],
+        [_t('versiones.p.fm.l1', 'Enter acepta el valor escrito.'),
+         _t('versiones.p.fm.l2', 'Ctrl+U borra el campo.'),
+         _t('versiones.p.fm.l3', 'Esc cancela sin ejecutar.'), '',
+         _t('versiones.p.f.project', 'Proyecto') + ' · ' + S['D']['repo'],
+         _t('versiones.p.f.branch', 'Rama') + ' · ' + branch,
+         _t('versiones.p.f.version', 'Versión') + ' · ' + ref])
     special = bool(S.get('plan') or S.get('form') or S.get('report_title') or (S.get('job') and not S.get('job_collected')))
     lines = [''] + H.big_title(K, w, h, indent=' ', compact=h < 30, center=True)
     if len(lines) > 2:
         lines += H.title_reflection(K, w, indent=' ', center=True)
-    lines += [K['C'] + tabs + K['R'], H.clip(' %s · rama %s · versión %s' % (S['D'].get('nombre', '?'), branch or 'sin rama', ref[:12] if ref else '?'), w - 1), '']
+    lines += [K['C'] + tabs + K['R'], H.clip(' ' + _t('versiones.p.r.ctx', '{n} · rama {b} · versión {v}',
+                                                     n=S['D'].get('nombre', '?'),
+                                                     b=branch or _t('versiones.p.r.nobranch', 'sin rama'),
+                                                     v=ref[:12] if ref else '?'), w - 1), '']
     available = max(4, h - 1 - len(lines) - 3)
     if special or w < 100 or S['view'] == 1:
         inner = w - 6
@@ -291,7 +422,8 @@ def render(S, w, h, G, legacy):
         offset = min(S.get('scroll', 0), max(0, len(content) - max(1, available - 2)))
         shown = content[offset:offset + available - 2]
         if S.get('plan') or S.get('report_title'):
-            detail = list(detail) + ['Líneas %d–%d de %d' % (offset + 1, min(len(content), offset + len(shown)), len(content))]
+            detail = list(detail) + [_t('versiones.p.r.lines', 'Líneas {a}–{b} de {n}', a=offset + 1,
+                                        b=min(len(content), offset + len(shown)), n=len(content))]
         if not special and S['view'] != 1:
             # On narrow terminals, reserve a separate explanation panel.
             left_height = max(3, (available - 4) // 2)
@@ -301,7 +433,8 @@ def render(S, w, h, G, legacy):
             lines += [' ' + l for l in H.full_box(title, menu[start:start + left_height], K, w - 2, left_height, True, border=K['C'])]
             right_height = max(1, available - left_height - 4)
             wrapped = [part for row in detail for part in G._wrap(O.clean_text(row), inner)]
-            lines += [' ' + l for l in H.full_box('QUÉ SIGNIFICA', wrapped, K, w - 2, right_height, False, border=K['B2'])]
+            lines += [' ' + l for l in H.full_box(_t('versiones.p.r.meaning', 'QUÉ SIGNIFICA'), wrapped, K,
+                                                  w - 2, right_height, False, border=K['B2'])]
         else:
             lines += [' ' + l for l in H.full_box(title, shown, K, w - 2, available - 2, True, border=K['C'])]
     else:
@@ -313,18 +446,23 @@ def render(S, w, h, G, legacy):
         menu = [('❯ ' if i == selected else '  ') + row for i, row in enumerate(body)]
         left = H.full_box(title, menu[start:start + ih], K, lw, ih, True, border=K['C'])
         wrapped = [part for row in detail for part in G._wrap(O.clean_text(row), rw - 4)]
-        right = H.full_box('QUÉ SIGNIFICA', wrapped, K, rw, ih, False, border=K['B2'])
+        right = H.full_box(_t('versiones.p.r.meaning', 'QUÉ SIGNIFICA'), wrapped, K, rw, ih, False,
+                           border=K['B2'])
         lines += [' ' + H.pad(a, lw) + '  ' + b for a, b in zip(left, right)]
     msg = O.clean_text(S.get('msg', ''))
     if S.get('job') and S.get('job_collected') and not S.get('report_title'):
-        msg = ('Listo · ' if S['job'].ok else 'Revisa · ') + S['job'].plan['title'] + ' · l muestra salida'
-    hints = ('Enter confirma · ↑↓ detalle · Esc cancela · q vuelve' if S.get('plan') else
-             'Enter sigue · Esc cancela · q vuelve' if S.get('form') else
-             '↑↓ desplaza · Esc vuelve · q vuelve' if S.get('report_title') else
-             '↑↓ elige · Enter abre · Tab vista · a acciones · r · q vuelve')
+        msg = (_t('versiones.p.r.ok', 'Listo · {t} · l muestra salida',
+                  t=_act_title(S['job'].plan['action'], S['job'].plan['title']))
+               if S['job'].ok else
+               _t('versiones.p.r.check', 'Revisa · {t} · l muestra salida',
+                  t=_act_title(S['job'].plan['action'], S['job'].plan['title'])))
+    hints = (_t('versiones.p.r.h.plan', 'Enter confirma · ↑↓ detalle · Esc cancela · q vuelve') if S.get('plan') else
+             _t('versiones.p.r.h.form', 'Enter sigue · Esc cancela · q vuelve') if S.get('form') else
+             _t('versiones.p.r.h.report', '↑↓ desplaza · Esc vuelve · q vuelve') if S.get('report_title') else
+             _t('versiones.p.r.h.nav', '↑↓ elige · Enter abre · Tab vista · a acciones · r · q vuelve'))
     lines = lines[:h - 4]
     lines += [''] * max(0, h - 4 - len(lines))
-    lines += [H.clip(' ' + msg, w - 1), H.clip(' ' + (detail[0] if special and detail else 'f GitHub · t versión · b punta · p proyectos · ? ayuda'), w - 1), H.clip(' ' + hints, w - 1)]
+    lines += [H.clip(' ' + msg, w - 1), H.clip(' ' + (detail[0] if special and detail else _t('versiones.p.r.foot', 'f GitHub · t versión · b punta · p proyectos · ? ayuda')), w - 1), H.clip(' ' + hints, w - 1)]
     return [H.clip(l, w - 1) for l in lines]
 
 
@@ -347,7 +485,9 @@ def _prepare(S, G, action, fields):
         S['scroll'] = 0
     except ValueError as e:
         S['msg'] = str(e)
-        S['report_title'], S['report'], S['scroll'] = 'ANTES DE CONTINUAR', [str(e), '', 'Esc vuelve sin ejecutar nada.'], 0
+        S['report_title'], S['report'], S['scroll'] = (
+            _t('versiones.p.h.before', 'ANTES DE CONTINUAR'),
+            [str(e), '', _t('versiones.p.h.esc_back', 'Esc vuelve sin ejecutar nada.')], 0)
 
 
 def handle(S, key, G):
@@ -357,7 +497,7 @@ def handle(S, key, G):
     if not key:
         return True
     if S.get('job') and not S.get('job_collected'):
-        S['msg'] = 'Trabajando · puedes leer la salida; espera antes de salir.'
+        S['msg'] = _t('versiones.p.m.working', 'Trabajando · puedes leer la salida; espera antes de salir.')
         return True
     if S.get('report_title'):
         if key in ('\x1b', 'q', 'Q'):
@@ -368,7 +508,7 @@ def handle(S, key, G):
     if S.get('plan'):
         if key in ('\x1b', 'q', 'Q'):
             S['plan'] = None
-            S['msg'] = 'Cancelado · no se ejecutó la acción.'
+            S['msg'] = _t('versiones.p.m.cancel_plan', 'Cancelado · no se ejecutó la acción.')
         elif key in ('up', 'down'):
             S['scroll'] = max(0, S['scroll'] + (1 if key == 'down' else -1))
         elif key in ('\r', '\n'):
@@ -380,7 +520,7 @@ def handle(S, key, G):
         f = S['form']
         if key in ('\x1b', '\x03'):
             S['form'] = None
-            S['msg'] = 'Cancelado · sin cambios.'
+            S['msg'] = _t('versiones.p.m.cancel_form', 'Cancelado · sin cambios.')
         elif key == '\x15':
             f['buffer'] = ''
         elif key in ('\x7f', '\b', '\x08'):
@@ -407,9 +547,10 @@ def handle(S, key, G):
                     if target:
                         S['target'], S['target_branch'] = target, selection(S, G)[0]
                         reload(S, G)
-                        S['msg'] = 'Versión elegida · ' + target[:12]
+                        S['msg'] = _t('versiones.p.m.chosen', 'Versión elegida · {v}', v=target[:12])
                     else:
-                        S['msg'] = 'No encuentro ese commit o etiqueta. No moví tu rama.'
+                        S['msg'] = _t('versiones.p.m.notfound',
+                                      'No encuentro ese commit o etiqueta. No moví tu rama.')
                 else:
                     _prepare(S, G, f['action'], f['values'])
         elif len(key) == 1 and key.isprintable() and len(f['buffer']) < 1000:
@@ -436,13 +577,15 @@ def handle(S, key, G):
         return True
     if key in ('r', 'R'):
         reload(S, G)
-        S['msg'] = 'Estado local releído; f consulta el servidor.'
+        S['msg'] = _t('versiones.p.m.reread', 'Estado local releído; f consulta el servidor.')
         return True
     if key in ('f', 'F'):
         _start_action(S, G, 'fetch')
         return True
     if key == 'l' and S.get('job'):
-        S['report'], S['report_title'], S['scroll'] = S['job'].output(), 'SALIDA · ' + S['job'].plan['title'], 0
+        S['report'], S['report_title'], S['scroll'] = S['job'].output(), (
+            _t('versiones.p.m.output', 'SALIDA') + ' · '
+            + _act_title(S['job'].plan['action'], S['job'].plan['title'])), 0
         return True
     if key == 't':
         S['form'] = dict(action='target', title='Elegir versión exacta', fields=[('ref', 'Commit, rama o etiqueta', '')], index=0, buffer='', values={})
@@ -450,7 +593,7 @@ def handle(S, key, G):
     if key == 'b':
         S['target'] = ''
         reload(S, G)
-        S['msg'] = 'Acciones sobre la punta de la rama.'
+        S['msg'] = _t('versiones.p.m.tip', 'Acciones sobre la punta de la rama.')
         return True
     if S['view'] == 0:
         return None
@@ -467,10 +610,11 @@ def handle(S, key, G):
         commit = S['commits'][cursor]
         if key == 'c':
             S['target'], S['target_branch'] = commit['sha'], selection(S, G)[0]
-            S['msg'] = 'Versión elegida · ' + commit['short'] + ' · a abre acciones'
+            S['msg'] = _t('versiones.p.m.chosen_a', 'Versión elegida · {v} · a abre acciones',
+                          v=commit['short'])
         elif key in ('\r', '\n'):
             S['report'] = O.review(S['D']['repo'], commit['sha'])
-            S['report_title'], S['scroll'] = 'REVISAR · ' + commit['short'], 0
+            S['report_title'], S['scroll'] = _t('versiones.p.m.review', 'REVISAR') + ' · ' + commit['short'], 0
     elif S['view'] == 4:
         files = S['status'].get('files', [])
         if key == 'g':
@@ -486,10 +630,12 @@ def handle(S, key, G):
             path = O.branch_path(S['D']['repo'], branch) or S['D']['repo']
             file = files[cursor]
             if file['status'] == '??':
-                S['msg'] = 'Archivo nuevo; ábrelo en tu editor para revisarlo antes de guardarlo.'
+                S['msg'] = _t('versiones.p.m.newfile',
+                              'Archivo nuevo; ábrelo en tu editor para revisarlo antes de guardarlo.')
             else:
                 rc, out, err = O.git(path, 'diff', 'HEAD', '--', file['path'])
-                S['report'], S['report_title'], S['scroll'] = O.clean_text(out if rc == 0 else err).splitlines() or ['Sin diferencias de texto.'], 'CAMBIO · ' + file['path'], 0
+                S['report'], S['report_title'], S['scroll'] = O.clean_text(out if rc == 0 else err).splitlines() or [_t('versiones.p.m.nodiff', 'Sin diferencias de texto.')], (
+                    _t('versiones.p.m.change', 'CAMBIO') + ' · ' + file['path']), 0
     elif S['view'] == 5 and key in ('\r', '\n'):
         prs = S['cloud'].get('prs', [])
         releases = S['cloud'].get('releases', [])
@@ -504,7 +650,7 @@ def handle(S, key, G):
             S['form'] = dict(action='project', title='Conectar proyecto', fields=[('path', 'Carpeta del proyecto Git', '')], index=0, buffer='', values={})
         elif key == 'm':
             S['project_states'] = {p: O.local_status(p) for p in S['project_paths']}
-            S['msg'] = 'Estado local de tus proyectos actualizado.'
+            S['msg'] = _t('versiones.p.m.projects', 'Estado local de tus proyectos actualizado.')
         elif key in ('\r', '\n') and S['project_paths']:
             S['repo_path'] = S['project_paths'][cursor]
             S['si'], S['cursor'], S['target'] = 0, 0, ''

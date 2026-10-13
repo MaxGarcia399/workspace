@@ -20,17 +20,49 @@ Cambio de motor (precedencia, de más explícita a menos):
 La elección explícita (1/2) es ESTRICTA (selection-source policy — sin fallbacks).
 
 Cero dependencias (stdlib, Python 3.9+). Config en JSON.
-Resolución del cerebro (en orden):
-  1. WORKSPACE/paths.local.json  → brains.<agente>  (per-máquina, gitignored)
-  2. campo "brain" del agent.json, relativo a la raíz de WORKSPACE
+Resolución del cerebro (en orden) — brain_resolver.py es la ÚNICA implementación:
+  1. ~/.claude/workspace/paths.local.json → brains.<agente>  (per-máquina)
+  2. agente cargado (agents.local.json, ruta absoluta per-máquina)
+  3. campo "brain" del agent.json, relativo a la raíz de WORKSPACE
 """
 import sys, os, json
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 sys.dont_write_bytecode = True   # no generar __pycache__ (mantiene limpio el sync)
 if os.name == "nt":
     os.system("")  # habilita ANSI en Windows 10+ (también para banner/dashboard hijos) — igual que doctor.py
 import _utf8; _utf8.harden()  # B2 · UTF-8 en stdout/err (cp1252 reventaría con box-drawing)
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
+
+# Agentes de SISTEMA: motores internos del harness que NO son dioses del altar
+# (pedido del socio 2026-10-02: «Workspace Doctor» no es un agente del equipo).
+# SSOT del filtro: vive aquí, en la capa de registro, para que TODA pantalla que
+# liste agentes para el socio (hub, Tonos, onboarding…) filtre por la MISMA
+# fuente. Es filtrado SOLO-display: dispatch/launch/update los siguen viendo
+# (lanzar `workspace doctor` y actualizar su cerebro funciona igual). Al agregar
+# una pantalla nueva que pinte agentes, consúmela vía `visible_agents()`.
+SYSTEM_AGENTS = frozenset({"doctor"})
+
+# Empty compatibility fallback: roster always belongs to the effective profile.
+# Compatibility export only. An unreadable/empty profile must not invent users.
+FALLBACK_ROSTER = ()
+
+
+def visible_agents(reg=None):
+    """Las entradas de agentes que ve el SOCIO — el registry EFECTIVO menos los
+    de SISTEMA. `reg` = un registry ya cargado (evita re-leer); None = lo carga.
+    Falla-suave → lista vacía. Úsalo en vez de filtrar `SYSTEM_AGENTS` a mano en
+    cada consumidor (esa duplicación fue el bug: Tonos mostraba `doctor` porque
+    re-derivaba la lista sin el filtro que solo vivía en el hub)."""
+    try:
+        if reg is None:
+            reg = load_registry()
+        return [a for a in (reg.get("agents") or ())
+                if isinstance(a, dict) and isinstance(a.get("name"), str)
+                and a['name'].strip()
+                and a['name'].strip().lower() not in SYSTEM_AGENTS]
+    except Exception:
+        return []
 
 
 def _read_json(path):
@@ -112,17 +144,14 @@ def find_agent(name):
 
 def _paths_local():
     # per-máquina, FUERA del vault (no se sincroniza). Override de rutas de cerebros.
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace", "paths.local.json")
+    # SSOT: brain_resolver (Z20) — aquí solo se delega.
+    import brain_resolver
+    return brain_resolver.paths_local()
 
 
 def _local_overrides():
-    for p in (_paths_local(), os.path.join(ROOT, "paths.local.json")):  # nuevo · legacy
-        if os.path.exists(p):
-            try:
-                return _read_json(p)
-            except Exception:
-                pass
-    return {}
+    import brain_resolver                  # nuevo per-máquina · legacy en ROOT
+    return brain_resolver.local_overrides(ROOT)
 
 
 def obsidian_sync_enabled(path):
@@ -158,15 +187,12 @@ def brain_transport(agent_name, brain=None):
 
 
 def resolve_brain(agent_name, agent_cfg):
-    ov = _local_overrides().get("brains", {})
-    if agent_name in ov:
-        return os.path.abspath(os.path.expanduser(ov[agent_name]))
-    raw = agent_cfg.get("brain", "")
-    if not raw:
-        return ""
-    if os.path.isabs(raw):
-        return raw
-    return os.path.abspath(os.path.join(ROOT, raw))
+    """Ruta efectiva del cerebro. FACHADA de brain_resolver.resolve (Z20): la
+    única resolución del producto (override por máquina > registro por máquina
+    > definición committeada relativa a ROOT). Para fuente/estado usa
+    brain_resolver.resolve directamente."""
+    import brain_resolver
+    return brain_resolver.resolve_path(agent_name, agent_cfg, root=ROOT)
 
 
 def load_agent_cfg(entry):
@@ -320,7 +346,7 @@ def _warn_engine_broken(full, exc):
 def _agent_home(agent_name):
     """Home per-agente para AISLAR credenciales de subprocesos. Per-máquina, fuera del
     repo. NO es el HOME del proceso — Claude Code necesita el HOME real para su auth."""
-    return os.path.join(os.path.expanduser("~"), ".claude", "workspace", "agents",
+    return os.path.join(_paths.state_dir(), "agents",
                         (agent_name or "agent"), "home")
 
 
@@ -415,58 +441,112 @@ def _spawn_repair():
 
 
 def maybe_autoupdate():
-    """Auto-update silencioso al arrancar (canal git del equipo).
+    """Auto-update silencioso al arrancar (canal git del equipo y de clientes).
 
     Diseñado para ser INOFENSIVO: es NO-OP si la carpeta no es un repo git
     (instalaciones viejas por sync), si hay cambios locales sin commitear, si está
     offline, o ante cualquier error. Nunca bloquea ni rompe el arranque del agente.
-    Throttle: máximo 1 chequeo cada 6 h. Desactivable con WORKSPACE_NO_AUTOUPDATE=1.
+    Throttle: máximo 1 chequeo cada 6 h. Es ELECCIÓN del usuario
+    (updater.auto_mode: ajuste `otros.auto_update` o WORKSPACE_NO_AUTOUPDATE=1):
+    auto = instala · notify = solo avisa (1 vez al día) · off = ni consulta.
+
+    El trabajo lo hace `updater.update_harness(mode="auto")` — el MISMO motor que
+    `workspace update`: candado, solo fast-forward, comprueba que la versión nueva
+    arranca en esta máquina (si no, vuelve sola a la anterior y la fija) y aplica
+    los ajustes registrados. Aquí solo queda el throttle y UNA línea visible.
     """
     if os.environ.get("WORKSPACE_NO_AUTOUPDATE"):
         return
-    if not os.path.isdir(os.path.join(ROOT, ".git")):
+    # Ajustes pendientes SIN mirar el throttle NI el modo: no traen nada de
+    # internet, adaptan esta máquina al código que YA está en ella (llegue por
+    # update, `git pull` a mano o un actualizador viejo). Apagar las
+    # actualizaciones no debe dejar a nadie con código nuevo a medio ajustar.: el código nuevo puede haber
+    # llegado por un actualizador viejo (que no lanza `repair` tras un pull
+    # silencioso) o por un `git pull` a mano. `repair` los aplica en segundo
+    # plano con el código nuevo; jamás bloquea este arranque.
+    try:
+        import migrate
+        if migrate.has_runnable_pending():
+            _spawn_repair()
+    except Exception:
+        pass
+    if not os.path.exists(os.path.join(ROOT, ".git")):
         return  # no es repo git → instalación por sync; no tocar nada
     try:
-        import subprocess, time
-        stamp = os.path.join(os.path.expanduser("~"), ".claude", "workspace", "last_update_check")
+        import time
+        import updater
+        modo = updater.auto_mode()
+        if modo == "off":
+            return  # el usuario lo apagó: ni red, ni aviso
+        stamp = os.path.join(_paths.state_dir(), "last_update_check")
 
         def _seal():
             """Sella el throttle: el próximo chequeo no corre hasta dentro de 6h.
             Se sella en TODO desenlace cuyo resultado no cambiará en el siguiente
-            arranque (sin remote, repo sucio, ya al día, pull OK) — F7: el
-            early-return por repo sucio NO sellaba, así dos `git` corrían en cada
-            arranque de un desarrollador con cambios locales. NO se sella si el
-            pull FALLA (transitorio: red/conflicto) → reintentar pronto, no quedar
-            6h ciego a un fix urgente."""
+            arranque (sin remote, repo sucio, ya al día, actualizado, fijado) — F7.
+            NO se sella si el intento FALLA por algo transitorio (red/candado) →
+            reintentar pronto, no quedar 6h ciego a un fix urgente."""
             try:
                 os.makedirs(os.path.dirname(stamp), exist_ok=True)
                 open(stamp, "w").close()
             except Exception:
                 pass
 
-        if os.path.exists(stamp) and time.time() - os.path.getmtime(stamp) < 6 * 3600:
+        # solo avisar = una vez al día (avisar cada 6 h sería insistir)
+        ventana = 24 * 3600 if modo == "notify" else 6 * 3600
+        if os.path.exists(stamp) and time.time() - os.path.getmtime(stamp) < ventana:
             return  # throttle
-        rem = subprocess.run(["git", "-C", ROOT, "remote"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=4)
-        if rem.returncode != 0 or not rem.stdout.strip():
+
+        def _notify(txt):
+            sys.stderr.write("\033[38;5;221m%s\033[0m\n" % txt)
+            sys.stderr.flush()
+
+        res = updater.update_harness(ROOT, mode="auto", fetch_timeout=20, notify=_notify,
+                                     apply=(modo == "auto"))
+        st, why = res.get("status"), res.get("reason")
+        if why == "offline":
+            # Sin red: reintentar en ~30 min, no en cada arranque (cada intento
+            # cuesta hasta 20 s de espera con la red caída).
             _seal()
-            return  # sin remote configurado (no cambia en el próximo arranque)
-        st = subprocess.run(["git", "-C", ROOT, "status", "--porcelain"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=4)
-        if st.returncode != 0 or st.stdout.strip():
-            _seal()
-            return  # cambios locales → no arriesgar conflicto (throttle 6h igual)
-        r = subprocess.run(["git", "-C", ROOT, "pull", "--ff-only", "--quiet"],
-                           capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=20)
-        out = (r.stdout + r.stderr).strip()
-        if r.returncode != 0:
-            return  # pull falló (red/conflicto) → NO sellar: reintentar al próximo arranque
-        _seal()      # éxito o ya-al-día → sellar el throttle
-        if out and "up to date" not in out.lower():
-            sys.stderr.write("\033[38;5;221m✓ WORKSPACE actualizado a la última versión.\033[0m\n")
+            try:
+                t = time.time() - (6 * 3600 - 30 * 60)
+                os.utime(stamp, (t, t))
+            except Exception:
+                pass
+            return
+        if st == updater.BUSY or why in ("failed", "interrupted"):
+            return  # transitorio → NO sellar: reintentar al próximo arranque
+        _seal()
+        if st == updater.AVAILABLE:
+            v = res.get("to_version")
+            sys.stderr.write("\033[38;5;221m%s\033[0m\n" % updater._t(
+                "updater.auto.available",
+                "Hay una versión nueva de Workspace{v}. Para instalarla: `workspace update` "
+                "(elegiste solo avisar; se cambia en Actualizaciones).",
+                v=(" (v%s)" % v) if v else ""))
+        elif st == updater.UPDATED:
+            v = res.get("to_version")
+            sys.stderr.write("\033[38;5;221m%s\033[0m\n" % updater._t(
+                "updater.auto.updated", "✓ Workspace actualizado a v{v}.", v=v or "?"))
+            mig = res.get("migrations") or {}
+            if mig.get("failed"):
+                import migrate
+                sys.stderr.write("\033[38;5;221m%s\033[0m\n" % migrate.summary_line(mig))
             # P0-3 · self-healing: el pull trajo código nuevo (quizá renombró un
             # hook o sumó un listener) → recablear settings.local.json de cada
             # cerebro. Fire-and-forget, jamás bloquea el arranque (ver _spawn_repair).
             _spawn_repair()
+        elif st == updater.ROLLBACK_FAILED:
+            sys.stderr.write("\033[38;5;221m%s\033[0m\n" % updater._t(
+                "updater.auto.rollback_failed",
+                "⚠ La versión nueva de Workspace no arrancó y no pude volver limpio a la "
+                "anterior. Corre `workspace doctor` (y si sigue, `workspace doctor "
+                "--bundle` para pedir ayuda)."))
+        elif st == updater.ROLLED_BACK:
+            sys.stderr.write("\033[38;5;221m%s\033[0m\n" % updater._t(
+                "updater.auto.rolled_back",
+                "⚠ Llegó una versión nueva de Workspace que no arranca en esta máquina; "
+                "sigues en la anterior. No tienes que hacer nada."))
     except Exception:
         return  # offline / timeout / lo que sea → seguir normal
 
@@ -527,6 +607,18 @@ def main():
             show_banner = False
         elif a == "--pick-only":
             pick_only = True
+        elif a == "--agent-sandbox" or (a == "--sandbox" and i + 1 < len(rest)
+                                         and rest[i + 1] in ("on", "off")):
+            # Compat: el sandbox de archivos por agente NO viaja en esta
+            # versión (vive en feat/agent-sandbox). Sus flags se IGNORAN (no
+            # llegan al motor) y el agente arranca normal. `--sandbox
+            # read-only|…` del motor sigue pasando tal cual.
+            if a == "--agent-sandbox" and i + 1 < len(rest) and not rest[i + 1].startswith("--"):
+                i += 1
+            elif a == "--sandbox":
+                i += 1
+        elif a in ("--sandbox=on", "--sandbox=off", "--agent-sandbox=on", "--agent-sandbox=off"):
+            pass                                  # idem: compat, se ignora
         elif a == "--engine":
             engine_cli = _flag_value(a, i); i += 1
         elif a in ("--plan", "-n"):
@@ -557,6 +649,14 @@ def main():
     if not brain or not os.path.isdir(brain):
         print(f"WORKSPACE: no encuentro el cerebro de '{name}':\n  {brain or '(sin definir)'}\n"
               f"Corre el instalador (lo detecta solo) o defínelo en {_paths_local()}  (clave brains.{name}).")
+        try:                                   # Z03: sugerencia del índice de discovery (sin escanear)
+            import agentsreg
+            for s in agentsreg.repair_suggestions(scan_mode="index"):
+                if s["name"] == entry["name"] and s.get("found"):
+                    print(f"Encontrado en {s['found']} — repáralo:  "
+                          f"workspace agentes reubicar {s['name']} \"{s['found']}\"")
+        except Exception:
+            pass
         sys.exit(1)
 
     cfg["_brain"] = brain
@@ -627,6 +727,15 @@ def main():
                 theme.apply_colors(_osc)   # tema no-default: SU fondo/tinta
             else:
                 theme.apply("workspace")     # olympo: el recinto dorado de siempre
+        except Exception:
+            pass
+        # Y el tema DENTRO del motor (Claude Code: ~/.claude/themes/<n>.json)
+        # también sale del tema del hub — cambiar el tema en el hub llega a la
+        # siguiente sesión de cada agente. Lo editado a mano se respeta.
+        try:
+            import theme_render
+            theme_render.sync_engine_theme(engine, cfg.get("theme") or entry["name"],
+                                           display=cfg.get("display"), brain=brain)
         except Exception:
             pass
     mod.launch(cfg, passthrough, plan=plan, preselect=preselect, show_banner=show_banner)

@@ -55,7 +55,6 @@ _EMOJI_STATUS = [
     ("🚫", "skip"), ("🔕", "skip"),
 ]
 _CHECKBOX_RE = re.compile(r"^[-*]\s*\[([ xX])\]\s+(.+)$")
-_NOMBRES = ("max", "fer", "mau", "zenith", "atlas", "equipo")
 
 
 # ═══════════════════════════════════════════════════════════════════════════

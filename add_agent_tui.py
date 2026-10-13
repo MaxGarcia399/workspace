@@ -46,6 +46,7 @@ Teclas:  ↑↓ campo/fila · escribir edita · ⌫ borra · Enter avanza
 Cero dependencias (stdlib, Python 3.9+). Mac y Windows.
 """
 import sys
+import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import datetime
 import math
 import json
@@ -58,6 +59,7 @@ import re
 import sys
 import threading
 import time
+from theme import screen as _theme_screen  # fondo/tinta del tema
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 if ROOT not in sys.path:
@@ -376,20 +378,6 @@ def _harn_elegibles(S):
             if d.get("ready")]
 
 
-def _harn_estado_txt(K, d):
-    """(color, texto) honesto del estado de UN harness."""
-    if not d.get("installed"):
-        return K["DK"], _t("addagent.ui.engine.not_installed", "no instalado")
-    if not d.get("binaries_ok"):
-        return K["BAD"], "✗ " + (d.get("detail") or _t("addagent.ui.engine.missing_binary", "falta su binario"))
-    if d.get("ready") and d.get("probed"):
-        return K["OK"], _t("addagent.ui.engine.session_active", "sesión activa ✓")
-    if d.get("ready"):
-        return K["GREY"], _t("addagent.ui.engine.binary_ok", "binario ✓ · sesión se valida al lanzar")
-    return K["BAD"], "✗ " + (d.get("detail") or _t("addagent.ui.engine.no_session", "sin sesión"))
-
-
-# ── personalizar con el modelo (opt-in) — disponibilidad del backend ─────────
 def _perso_disp(S):
     """(disponible, nota) de la pasada de personalización PARA el harness
     elegido en el plan. Cacheado por engine: pick_backend solo consulta el
@@ -439,7 +427,7 @@ def _lanza_saldo(S):
         claude = None
         try:
             from pathlib import Path
-            usage = json.loads((Path.home() / ".claude/workspace/usage.json").read_text())
+            usage = json.loads((Path(_paths.state_dir(str(Path.home()))) / "usage.json").read_text(encoding="utf-8"))
             def reset(value):
                 if isinstance(value, (int, float)):
                     return value
@@ -531,8 +519,13 @@ _STDIO_LOCK = threading.Lock()
 
 
 def _ljob_steps_single():
-    return [{"key": k, "label": lbl, "st": "pend", "note": ""}
+    return [{"key": k, "label": _lstep_t(k, lbl), "st": "pend", "note": ""}
             for k, lbl in agent_admin.LOAD_STEPS]
+
+
+def _lstep_t(k, lbl):
+    """Label de un paso de LOAD_STEPS en el idioma de la UI."""
+    return _t("addagent.lstep.%s" % k, lbl)
 
 
 def _ljob_start(S, items, origen):
@@ -664,8 +657,10 @@ def _ruta_corta(p):
 
 
 # ── escaneo de DESCUBRIR en 2º plano ─────────────────────────────────────────
-_SCAN_DONDE = ("vaults de Obsidian (obsidian.json)", "~/Desktop",
-               "~/Documents", "~/Documents/Obsidian · ~/Obsidian")
+_SCAN_DONDE = ("vaults de Obsidian (obsidian.json)",
+               "junto al harness · raíz del disco (Windows, 1 nivel)",
+               "~ · ~/Desktop · ~/Documents (+ OneDrive)",
+               "~/Documents/Obsidian · ~/Obsidian  (acotado: 1 nivel, tope de tiempo)")
 
 
 def _lanza_scan(S):
@@ -701,7 +696,9 @@ def _lanza_scan(S):
         for ln in errtxt.splitlines():
             ln = ln.strip()
             if ln:
-                avisos.append(ln.replace("WORKSPACE · aviso: ", ""))
+                avisos.append(ln.replace("WORKSPACE · aviso: ", "").replace(
+                    _t("addagent.discover.warn_prefix", "WORKSPACE · aviso: "),
+                    ""))
         reg, estados = {}, {}
         try:
             reg = {a["name"]: a["brain"] for a in agentsreg.agents()}
@@ -773,7 +770,7 @@ def _b_menu_det(S, K, iw):
     out.append(_divisor(K, _t("addagent.ui.howitworks", "cómo funciona"), iw, tono=4))
     for ln in (_t("addagent.ui.menu.how.1", "todo queda en TU máquina (registro per-máquina)"),
                _t("addagent.ui.menu.how.2", "nada se comparte ni se sube a ningún lado"),
-               _t("addagent.ui.menu.how.3", "quitar un agente: workspace config · agentes")):
+               _t("addagent.ui.menu.how.3", "quitar un agente: Agentes › x")):
         for sub in _wrap(ln, max(8, iw - 4)):
             out.append(HL.clip(" %s·%s %s%s%s" % (K["DK"], K["R"], K["DIM"],
                                                   sub, K["R"]), iw))
@@ -963,227 +960,6 @@ def _b_crear_det(S, K, iw, full=2):
 
 
 # ── vista PLAN: el cerebro que nace · harness · costo · pasos ───────────────
-def _b_plan_mapa(S, K, iw, full=2):
-    """Caja izquierda del plan: EL CEREBRO QUE VA A NACER — mapa real
-    derivado del template (conteos medidos) + qué es cada concepto."""
-    nombre = S["vals"].get("nombre", "").strip().lower()
-    out = [HL.clip((" %s" + _t("addagent.ui.plan.dest", "destino:") + "%s %s~/Desktop/%s - BRAIN%s")
-                   % (K["DIM"], K["R"], K["WH"], nombre.upper(), K["R"]),
-                   iw), ""]
-    out.append(_divisor(K, _t("addagent.ui.plan.brain_format", "el formato del cerebro"), iw, tono=1))
-    mapa = _mapa_cerebro()
-    for i, (etiqueta, n, desc) in enumerate(mapa):
-        desc = _t("addagent.ui.concept." + etiqueta.strip("/.").replace(".", "_").lower(), desc)
-        agrega = etiqueta in (".workspace/", ".claude/")
-        if agrega and full >= 1 and i and not mapa[i - 1][0].startswith("."):
-            out.append(_divisor(K, _t("addagent.ui.plan.added_on_create", "se agrega al crear"), iw))
-        ncol = K["GREY"] if not agrega else K["DIM"]
-        cnt = ("·%d" % n) if n else ""
-        pre = " %s%s%s %s%s%s " % (ncol, HL.pad(etiqueta, 10), K["R"],
-                                   K["DK"], HL.pad(cnt, 3), K["R"])
-        if full >= 1:
-            dw = max(10, iw - 17)                 # col de descripción
-            lineas = _wrap(desc, dw)[:2 if full >= 2 else 1]
-            out.append(HL.clip(pre + "%s%s%s" % (K["DK"], lineas[0],
-                                                 K["R"]), iw))
-            for sub in lineas[1:]:                # sangría colgante
-                out.append(HL.clip(" " * 16 + "%s%s%s"
-                                   % (K["DK"], sub, K["R"]), iw))
-        else:
-            out.append(HL.clip(pre, iw))
-    if full >= 2:
-        out.append("")
-        lineas = _wrap(_t("addagent.ui.plan.selfcontained", "autocontenido: identidad, memoria y skills viajan en la carpeta — portátil entre máquinas"),
-                       max(8, iw - 4))
-        out.append(HL.clip(" %s·%s %s%s%s" % (K["DK"], K["R"], K["DIM"],
-                                              lineas[0], K["R"]), iw))
-        for sub in lineas[1:]:                    # sangría colgante
-            out.append(HL.clip("   %s%s%s" % (K["DIM"], sub, K["R"]), iw))
-    return out
-
-
-def _b_plan_der(S, K, iw, full=2):
-    """Caja derecha del plan: harness (elegible entre los CON sesión) +
-    costo honesto + los pasos explícitos de la creación."""
-    out = [_divisor(K, _t("addagent.ui.plan.harness_title", "harness — quién lo corre"), iw, tono=2)]
-    harn = S.get("harn") or {}
-    if harn.get("state") != "done":
-        out.append(HL.clip((" %s●%s %s" + _t("addagent.ui.plan.verifying_sessions", "verificando sesiones de los harnesses…") + "%s")
-                           % (K["WCOL"][int(time.monotonic() * 6) % 6],
-                              K["R"], K["DIM"], K["R"]), iw))
-    else:
-        lst = harn.get("list", [])
-        eleg = _harn_elegibles(S)
-        for d in lst:
-            sel = (d["id"] == S.get("engine_id"))
-            cur = "%s%s%s" % (K["C"] + K["BO"], K["PTR"], K["R"]) \
-                if sel else " "
-            mark = ("%s●%s" % (K["C"] + K["BO"], K["R"])) if sel \
-                else ("%s○%s" % (K["DK"], K["R"]))
-            ncol = (K["WH"] + K["BO"]) if sel \
-                else (K["GREY"] if d["id"] in eleg else K["DK"])
-            ecol, etxt = _harn_estado_txt(K, d)
-            out.append(HL.clip(" %s %s %s%s%s %s%s%s" % (
-                cur, mark, ncol, HL.pad(d["id"], 12), K["R"],
-                ecol, etxt, K["R"]), iw))
-        if not lst:
-            out.append(HL.clip(" %s%s%s" % (K["DK"], _t("addagent.ui.plan.no_harnesses", "no pude leer los harnesses — se crea con claude-code"), K["R"]), iw))
-        elif not eleg:
-            for sub in _wrap(_t("addagent.ui.plan.no_session", "ninguno tiene sesión verificada — se crea igual y el login se hace al lanzar"), iw - 3):
-                out.append(HL.clip(" %s%s%s" % (K["B"], sub, K["R"]), iw))
-        if full >= 1 and eleg:
-            out.append(HL.clip(" %s%s%s" % (K["DK"], _t("addagent.ui.plan.switch_engine", "◄► cambia · el agente nace con el marcado"), K["R"]), iw))
-    source = S.get("sourcing") or {}
-    enabled = S.get("source_skills", True)
-    status = _t("addagent.ui.plan.searching", "buscando") if source.get("state") == "busy" else (_t("addagent.ui.plan.n_chosen", "%d elegidas") % len(S.get("skill_selected", [])))
-    out.append(HL.clip((" %s" + _t("addagent.ui.plan.official_skills", "skills oficiales: %s · %s") + "%s") %
-                       (K["C"], "ON" if enabled else "OFF", status, K["R"]), iw))
-    out.append(HL.clip(" %s%s%s" % (K["DK"], _t("addagent.ui.plan.skills_keys", "s activa/apaga · k revisa · 0 tokens"), K["R"]), iw))
-    # ── LA FEATURE: personalización con IA (toggle «p» · default OFF) ──
-    # Pedido del socio 2026-10-02: el toggle pasaba desapercibido como una línea
-    # gris más. Ahora es el bloque más fuerte de la caja: divisor con ✦ y
-    # acento, estado grande, y el VALOR dicho de frente (a tu medida vs
-    # plantilla genérica). Sigue OFF por default — pero imposible de no ver.
-    out.append("")
-    out.append(_divisor(K, _t("addagent.ui.perso.title", "✦ personalización con IA"), iw, tono=1))
-    disp, pnota = _perso_disp(S)
-    p_on = bool(S.get("personalize")) and disp
-    if disp:
-        if p_on:
-            out.append(HL.clip((" %s◉ ON %s %s" + _t("addagent.ui.perso.on", "el modelo redacta el cerebro A TU MEDIDA") + "%s")
-                               % (K["OK"] + K["BO"], K["R"],
-                                  K["WH"] + K["BO"], K["R"]), iw))
-            detalle = _t("addagent.ui.perso.on_detail", "SOUL · scope · perfil del dueño, con TUS datos del formulario — p la apaga")
-        else:
-            out.append(HL.clip((" %s○ OFF%s %s" + _t("addagent.ui.perso.off", "agente a TU medida") + "%s %s" + _t("addagent.ui.perso.off_press", "— pulsa") + "%s %sp%s")
-                               % (K["DK"], K["R"], K["WH"] + K["BO"],
-                                  K["R"], K["GREY"], K["R"],
-                                  K["C"] + K["BO"], K["R"]), iw))
-            detalle = _t("addagent.ui.perso.off_detail", "OFF = plantilla genérica (0 tokens) · ON = el modelo redacta SOUL, scope y perfil del dueño con TUS datos")
-        if full >= 1:
-            for sub in _wrap(detalle, max(8, iw - 8)):
-                out.append(HL.clip("       %s%s%s" % (K["DIM"], sub,
-                                                      K["R"]), iw))
-        if p_on and pnota:               # matiz honesto (ej. codex read-only)
-            lineas = _wrap(pnota, max(8, iw - 4))
-            out.append(HL.clip(" %s·%s %s%s%s" % (K["DK"], K["R"], K["DIM"],
-                                                  lineas[0], K["R"]), iw))
-            for sub in lineas[1:]:                # sangría colgante
-                out.append(HL.clip("   %s%s%s" % (K["DIM"], sub, K["R"]), iw))
-    else:                                # sin backend headless → deshabilitado
-        out.append(HL.clip((" %s○ OFF%s %s" + _t("addagent.ui.perso.off_disabled", "agente a tu medida con el modelo") + "%s %s" + _t("addagent.ui.perso.unavailable_short", "— no disponible") + "%s")
-                           % (K["DK"], K["R"], K["GREY"], K["R"], K["DK"],
-                              K["R"]), iw))
-        lineas = _wrap(pnota or _t("addagent.ui.perso.no_headless", "el harness elegido no tiene modo headless"),
-                       max(8, iw - 4))
-        out.append(HL.clip(" %s✗%s %s%s%s" % (K["BAD"], K["R"], K["DIM"],
-                                              lineas[0], K["R"]), iw))
-        for sub in lineas[1:]:                    # sangría colgante
-            out.append(HL.clip("   %s%s%s" % (K["DIM"], sub, K["R"]), iw))
-    # ── costo estimado VS lo que tienes (saldo real donde es legible) ──
-    out.append("")
-    out.append(_divisor(K, _t("addagent.ui.cost.title", "costo vs tu límite"), iw, tono=3))
-    est = agent_create_job.estimate()
-    eng = S.get("engine_id") or "claude-code"
-    sal = _saldo_eval(S)                 # None = saldo no legible / no codex
-    if p_on:
-        pt = est.get("personalize_tokens")
-        if pt:
-            out.append(HL.clip((" %s" + _t("addagent.ui.cost.pass_estimate", "pasada: ~%s tokens") + "%s %s" + _t("addagent.ui.cost.estimated_eng", "— ESTIMADO · %s") + "%s")
-                               % (K["WH"] + K["BO"], _fmt_ktok(pt), K["R"],
-                                  K["DK"], eng, K["R"]), iw))
-        else:
-            out.append(HL.clip((" %s" + _t("addagent.ui.cost.pass_unmeasured", "pasada con %s — no medible aquí; se reporta al correr") + "%s") % (K["B"], eng, K["R"]),
-                               iw))
-        if sal:                          # ── codex: barras + semáforo ──
-            vcol = {"ok": K["OK"], "justo": K["B"],
-                    "sin": K["BAD"]}[sal["verdict"]]
-            bw = max(6, iw - 30)         # las barras NO ceden: son LA info
-            for lbl, libre, rtxt, reseteada in sal["vent"]:
-                col = K["OK"] if libre >= _SALDO_JUSTO else \
-                    (K["B"] if libre >= _SALDO_SIN else K["BAD"])
-                extra = _t("addagent.ui.cost.already_reset", "ya se reinició") if reseteada else \
-                    ((_t("addagent.ui.cost.reset_at", "reset %s") % rtxt) if rtxt else "")
-                out.append(HL.clip(" %s%s%s %s %s%3d%%%s %s%s%s" % (
-                    K["GREY"], HL.pad(lbl, 8), K["R"],
-                    _barra_saldo(K, libre, bw, col),
-                    col + K["BO"], int(libre), K["R"],
-                    K["DK"], extra, K["R"]), iw))
-            if sal["verdict"] == "ok":
-                ver = _t("addagent.ui.cost.verdict_ok", "✓ saldo disponible — consumo real depende del modelo")
-            elif sal["verdict"] == "justo":
-                ver = _t("addagent.ui.cost.verdict_tight", "⚠ vas justo — debería alcanzar; si truena, el agente queda con plantilla (se recorre luego)")
-            else:
-                ver = (_t("addagent.ui.cost.verdict_none", "✗ no te alcanza para la pasada — créalo sin personalizar (p) o espera al reset%s")
-                       % ((" %s" % sal["reset"]) if sal["reset"] else ""))
-            lineas = _wrap(ver, max(8, iw - 3))
-            out.append(HL.clip(" %s%s%s%s" % (vcol, K["BO"], lineas[0],
-                                              K["R"]), iw))
-            for sub in lineas[1:]:                # sangría colgante
-                out.append(HL.clip("   %s%s%s%s" % (vcol, K["BO"], sub,
-                                                    K["R"]), iw))
-            if full >= 1:
-                pl = ((" · " + _t("addagent.ui.cost.plan", "plan %s")) % sal["plan"]) if sal["plan"] else ""
-                out.append(HL.clip((" %s" + _t("addagent.ui.cost.codex_read", "saldo leído de tu última corrida de codex (%s · 0 tokens)") + "%s%s")
-                                   % (K["DK"], sal["edad"], pl, K["R"]), iw))
-        elif eng == "codex":             # codex sin snapshot — honesto
-            if (S.get("saldo") or {}).get("state") == "busy":
-                out.append(HL.clip((" %s %s" + _t("addagent.ui.cost.reading_balance", "leyendo tu saldo (corridas locales · 0 tokens)…") + "%s")
-                                   % (_icono(K, "run"), K["DIM"], K["R"]),
-                                   iw))
-            else:
-                for sub in _wrap(_t("addagent.ui.cost.no_codex_runs", "sin corridas locales de codex que leer — tu saldo se pinta en su statusline al correr"), max(8, iw - 3)):
-                    out.append(HL.clip(" %s%s%s" % (K["DIM"], sub, K["R"]),
-                                       iw))
-        else:                            # ── claude/otros: sin dato = sin bar ──
-            donde = _t("addagent.ui.cost.where_claude", "/status dentro de la sesión lo muestra") \
-                if eng == "claude-code" else _t("addagent.ui.cost.where_other", "se ve al lanzar el harness")
-            for sub in _wrap(_t("addagent.ui.cost.cant_read", "no puedo leer tu saldo de %s desde aquí — no invento un número ni un bloqueo; %s · se crea bajo tu criterio") % (eng, donde),
-                             max(8, iw - 3)):
-                out.append(HL.clip(" %s%s%s" % (K["DIM"], sub, K["R"]), iw))
-    else:
-        out.append(HL.clip((" %s" + _t("addagent.ui.cost.create_free", "crear: 0 tokens") + "%s %s" + _t("addagent.ui.cost.create_free_detail", "— plantilla local, sin modelo") + "%s")
-                           % (K["OK"], K["R"], K["DK"], K["R"]), iw))
-        if sal and full >= 1:            # saldo visible aun con el toggle OFF
-            cortos = {_t("addagent.ui.saldo.window.5h", "5 horas"): _t("addagent.ui.saldo.short.5h", "5h"),
-                      _t("addagent.ui.saldo.window.week", "semana"): _t("addagent.ui.saldo.short.week", "sem")}
-            out.append(HL.clip((" %s" + _t("addagent.ui.cost.codex_balance", "saldo codex: %s libre (%s)") + "%s")
-                               % (K["DK"],
-                                  " · ".join("%s %d%%" % (cortos.get(lbl,
-                                                                     lbl),
-                                                          int(libre))
-                                             for lbl, libre, _r, _x
-                                             in sal["vent"]),
-                                  sal["edad"], K["R"]), iw))
-    if est.get("boot_tokens") and full >= 1:     # cede antes que la feature
-        for sub in _wrap(_t("addagent.ui.cost.boot_each_session", "cada sesión futura carga ~%.1fk tokens de arranque (estimado: %d docs HOT del template, ~4 chars/token)")
-                         % (est["boot_tokens"] / 1000.0, est["files"]),
-                         max(8, iw - 3)):
-            out.append(HL.clip(" %s%s%s" % (K["GREY"], sub, K["R"]), iw))
-    lim = _LIMITES.get(eng, "")
-    if lim and full >= 1 and sal is None:     # con barras, la línea sobra
-        lineas = _wrap(_t("addagent.ui.limit.%s" % eng, lim), max(8, iw - 4))
-        out.append(HL.clip(" %s·%s %s%s%s" % (K["DK"], K["R"], K["DIM"],
-                                              lineas[0], K["R"]), iw))
-        for sub in lineas[1:]:                    # sangría colgante
-            out.append(HL.clip("   %s%s%s" % (K["DIM"], sub, K["R"]), iw))
-    out.append("")
-    out.append(_divisor(K, _t("addagent.ui.plan.whatwillhappen", "qué va a pasar"), iw, tono=4))
-    if full >= 2:
-        for i, (_k, lbl) in enumerate(agent_admin.CREATE_STEPS):
-            out.append(HL.clip(" %s%d%s %s%s%s"
-                               % (K["DK"], i + 1, K["R"], K["GREY"], lbl,
-                                  K["R"]), iw))
-    else:
-        out.append(HL.clip((" %s" + _t("addagent.ui.plan.n_steps_create", "%d pasos — se pintan EN VIVO al crear") + "%s")
-                           % (K["GREY"], len(agent_admin.CREATE_STEPS),
-                              K["R"]), iw))
-    if full >= 2:
-        for sub in _wrap(_t("addagent.ui.plan.rollback", "si algo crítico falla, TODO se revierte — jamás un cerebro a medias"), max(8, iw - 3)):
-            out.append(HL.clip(" %s%s%s" % (K["DK"], sub, K["R"]), iw))
-    return out
-
-
 # ── vista RUN: creando EN VIVO (patrón actualizaciones_tui) ─────────────────
 _ICO = {"pend": ("DK", "·"), "ok": ("OK", "✓"), "warn": ("B", "⚠"),
         "fail": ("BAD", "✗"), "skip": ("DK", "—")}
@@ -1523,7 +1299,8 @@ def _b_cargar_det(S, K, iw, full=2):
     if full >= 2:
         for i, (_k, lbl) in enumerate(agent_admin.LOAD_STEPS):
             out.append(HL.clip(" %s%d%s %s%s%s"
-                               % (K["DK"], i + 1, K["R"], K["GREY"], lbl,
+                               % (K["DK"], i + 1, K["R"], K["GREY"],
+                                  _lstep_t(_k, lbl),
                                   K["R"]), iw))
     else:
         out.append(HL.clip((" %s" + _t("addagent.ui.load.n_steps", "%d pasos — se pintan EN VIVO al conectar") + "%s")
@@ -1578,7 +1355,8 @@ def _b_descubrir(S, K, iw):
         sel = (i == S["di"])
         cur = "%s%s%s" % (K["C"] + K["BO"], K["PTR"], K["R"]) if sel else " "
         est = S["estados"].get(a["name"], "")
-        tag = (" %s◆olympus%s" % (K["B"], K["R"])) if a.get("legacy_olympus") else ""
+        tag = ((" %s◆%s%s" % (K["B"], _t("addagent.ui.discover.legacy_tag", "anterior"), K["R"]))
+               if a.get("legacy_install") else "")
         out.append(HL.clip(" %s %s %s%s%s  %s%s%s%s" % (
             cur, _desc_mark(K, est),
             (K["WH"] + K["BO"]) if sel else K["GREY"],
@@ -1630,9 +1408,9 @@ def _b_descubrir_det(S, K, iw, full=2):
     if d is None:
         try:
             d = agentsreg.load_definition(a["brain"]) or {}
-            if not d and a.get("legacy_olympus"):     # cerebro OLYMPUS legacy: lee su def real
+            if not d and a.get("legacy_install"):     # cerebro de la instalación anterior: lee su def real
                 d = agentsreg._read_json(
-                    agentsreg.olympus_json_path(a["brain"])) or {}
+                    agentsreg.legacy_json_path(a["brain"])) or {}
         except Exception:
             d = {}
         S["defs"][a["brain"]] = d
@@ -1643,8 +1421,8 @@ def _b_descubrir_det(S, K, iw, full=2):
     if d.get("tagline"):
         for sub in _wrap(d["tagline"], max(8, iw - 3))[:2]:
             out.append(HL.clip(" %s%s%s" % (K["DIM"], sub, K["R"]), iw))
-    if a.get("legacy_olympus"):
-        out.append(HL.clip(" %s%s%s" % (K["B"], _t("addagent.ui.discover.migrate", "◆ venía de OLYMPUS → se migra a .workspace/ al conectar"), K["R"]), iw))
+    if a.get("legacy_install"):
+        out.append(HL.clip(" %s%s%s" % (K["B"], _t("addagent.ui.discover.migrate", "◆ venía de la instalación anterior → se migra a .workspace/ al conectar"), K["R"]), iw))
     out.append("")
     out.append(HL.clip((" %s" + _t("addagent.ui.discover.folder", "carpeta:") + "%s %s%s%s")
                        % (K["DK"], K["R"], K["GREY"],
@@ -1871,12 +1649,12 @@ def render(S, w, h):
     # cabecera COMPARTIDA (wordmark + subtítulo + atajos clave + regla);
     # los atajos de arriba siguen la VISTA — nunca mienten
     L = HL.screen_header(K, w, h, sub,
-                         hints=_hints_t(S["view"]))
+                         hints=_hints_t(S["view"]), word=HL.section_word('crear'))
     top = len(L)
     apilado = w < 100
     lw = (w - 1) if apilado else max(36, min(52, (w - 6) * 48 // 100))
     rw = (w - 1) if apilado else (w - 1) - lw - 3
-    avail = max(8, (h - 1) - top - 3)
+    avail = max(8, (h - 1) - top - 5)
     v = S["view"]
     bi = bd = None
     if v in ("plan", "brain"):
@@ -1967,12 +1745,12 @@ def render(S, w, h):
 
 def _finish_frame(S, K, L, w, h):
     v = S["view"]
-    L = L[:max(0, (h - 1) - 3)]
-    L += [""] * max(0, (h - 1) - 3 - len(L))
+    L = L[:max(0, (h - 1) - 5)]
+    L += [""] * max(0, (h - 1) - 5 - len(L))
     L.append("")
     L.append((" %s%s%s" % (K["B2"], S["msg"], K["R"]))
              if S.get("msg") else "")
-    L.append(HL.foot_hints(K, _hints_t(v), w))
+    L.extend(HL.instruction_buttons(K, _hints_t(v), w-1))
     L = L[:h - 1]
     L += [""] * max(0, (h - 1) - len(L))
     return [HL.clip(x, w - 1) for x in L]
@@ -2543,6 +2321,7 @@ def _estado_inicial():
     return S
 
 
+@_theme_screen
 def run():
     """Punto de entrada desde el menú (loop-back: vuelve al recinto)."""
     S = _estado_inicial()

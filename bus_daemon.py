@@ -128,7 +128,7 @@ def _load_state():
 
 def _save_state(st):
     os.makedirs(bus_dir(), exist_ok=True)
-    tmp = _state_path() + ".tmp"
+    tmp = "%s.tmp-%d-%d" % (_state_path(), os.getpid(), int(time.time() * 1e6))
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(st, fh)
     os.replace(tmp, _state_path())
@@ -626,9 +626,34 @@ def _publish_diff_review(msg, agent, diff, output):
 
 
 # ── un tick del watcher (procesa lo elegible, con todos los rieles) ─────────
+def _bus_lock(name, stale=6 * 3600):
+    """Lock entre procesos (olock) bajo bus_dir(): `dispatch` = un barrido a la
+    vez; `watcher` = un solo watcher vivo. timeout=0: si está tomado, no se
+    espera (el que llegó segundo se retira). Auditoría 2026-07: sin esto, dos
+    daemons (o watch + once) despachaban el MISMO mensaje dos veces."""
+    from olock import file_lock
+    os.makedirs(bus_dir(), exist_ok=True)
+    return file_lock(os.path.join(bus_dir(), name), timeout=0, stale=stale)
+
+
 def tick(out=print, limit=None):
     """Un barrido del bus: procesa mensajes elegibles bajo TODOS los rieles.
-    Devuelve la lista de resultados. Falla-suave. Respeta el kill-switch."""
+    Devuelve la lista de resultados. Falla-suave. Respeta el kill-switch.
+    Single-flight: si otro proceso está barriendo, este no despacha nada."""
+    from olock import LockTimeout
+    try:
+        lk = _bus_lock("dispatch")
+        lk.__enter__()
+    except LockTimeout:
+        out("BUS: otro proceso está despachando — salto este barrido.")
+        return []
+    try:
+        return _tick_locked(out=out, limit=limit)
+    finally:
+        lk.__exit__(None, None, None)
+
+
+def _tick_locked(out=print, limit=None):
     if stop_requested():
         out("BUS: kill-switch activo — no despacho.")
         return []
@@ -638,7 +663,10 @@ def tick(out=print, limit=None):
     st = _load_state()
     agents = _agents()
     done = []
-    all_pending = messages.all_messages(statuses=("pending",))
+    # limit alto: all_messages devuelve los MÁS NUEVOS; con el default (200)
+    # un backlog grande dejaba fuera mensajes elegibles más viejos que luego
+    # quedaban bajo el watermark para siempre (auditoría 2026-07).
+    all_pending = messages.all_messages(statuses=("pending",), limit=10 ** 6)
     offset = _load_offset()
     # PRIMER ARRANQUE (sin offset): fija el watermark en el mensaje MÁS NUEVO que
     # existe hoy y SALTA el backlog una vez (loguea). Así el daemon no re-mastica
@@ -702,7 +730,38 @@ def tick(out=print, limit=None):
 
 def watch(out=print):
     """Loop del watcher: tick cada POLL_SECONDS hasta el kill-switch. Fail-closed:
-    ante cualquier excepción del tick, espera y sigue (nunca muere callado)."""
+    ante cualquier excepción del tick, espera y sigue (nunca muere callado).
+    Un solo watcher por máquina (lock `watcher`); SIGTERM/SIGINT = kill-switch
+    (termina el barrido en vuelo y sale limpio, sin clones huérfanos)."""
+    from olock import LockTimeout
+    try:
+        lk = _bus_lock("watcher", stale=10 ** 9)
+        lk.__enter__()
+    except LockTimeout:
+        out("BUS: ya hay un watcher activo — no arranco otro.")
+        return 1
+    try:
+        _install_stop_signals()
+        return _watch_locked(out=out)
+    finally:
+        lk.__exit__(None, None, None)
+
+
+def _install_stop_signals():
+    try:
+        import signal
+
+        def _stop(*_a):
+            request_stop()
+        for name in ("SIGTERM", "SIGINT"):
+            sig = getattr(signal, name, None)
+            if sig is not None:
+                signal.signal(sig, _stop)
+    except Exception:
+        pass                        # fuera del hilo principal: sin señales
+
+
+def _watch_locked(out=print):
     clear_stop()
     out("BUS: watcher activo (opt-in: %s · %ds) — `workspace bus stop` para parar."
         % (", ".join(opt_in()), POLL_SECONDS))
@@ -722,6 +781,7 @@ def watch(out=print):
                 break
             time.sleep(1)
     out("BUS: watcher detenido (kill-switch).")
+    return 0
 
 
 def _sweep_worktrees(out=print):
@@ -742,7 +802,7 @@ def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     cmd = argv[0] if argv else "status"
     if cmd == "watch":
-        watch(); return 0
+        return watch() or 0
     if cmd == "stop":
         request_stop(); print("BUS: kill-switch escrito (el watcher para en el próximo tick)."); return 0
     if cmd == "once":
