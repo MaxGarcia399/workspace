@@ -166,8 +166,15 @@ def resumen_pendiente():
     d = leer_flag()
     if not d or d.get("modo") != "onboarding" or d.get("completo"):
         return ""
-    pend = d.get("pendientes") or [e for e in _ETAPAS
-                                   if (d.get("etapas") or {}).get(e) != "completa"]
+    # «pendientes» es lo VERIFICADO al salir (motor/agente). Si existe, manda
+    # aunque esté vacío: quien ya tenía motores y agentes y solo se asomó al
+    # onboarding no debe cargar el aviso para siempre (cliente 2026-10-14).
+    # Sin esa clave (salida abrupta a medias) se cae a las etapas.
+    if "pendientes" in d:
+        pend = d.get("pendientes") or []
+    else:
+        pend = [e for e in _ETAPAS
+                if (d.get("etapas") or {}).get(e) != "completa"]
     if not pend:
         return ""
     nombres = ", ".join(_t("onboarding.etapa.%s" % (p if p != "motor" else "motores"),

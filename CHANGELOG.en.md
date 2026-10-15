@@ -8,6 +8,12 @@ How to read this: every version has a number (`MAJOR.MINOR.PATCH`). A PATCH
 change fixes things; a MINOR one brings new features without breaking
 anything; a MAJOR one warns you well in advance if something changes shape.
 
+## 0.3.2 — 2026-10-14
+
+**Fixes**
+- If you already had engines and agents and only peeked at the first run, the
+  hub no longer shows the "setup unfinished" notice forever.
+
 ## 0.3.1 — 2026-10-14
 
 **A simpler hub: every section in one small box**

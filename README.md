@@ -206,6 +206,11 @@ installs on demand and `workspace update --rollback` takes you back. Updates
 only change Workspace's code: your agents, brains and settings stay as they are.
 More in [the manual](manual/en/updates.md).
 
+### What's new in v0.3.2
+
+- **A fix.** If you already had engines and agents and only peeked at the
+  first run, the hub no longer shows the "setup unfinished" notice forever.
+
 ### What's new in v0.3.1
 
 - **A simpler hub.** Every section shows only what you need, in one centered
@@ -454,6 +459,12 @@ Se cambia en el hub (**Actualizaciones**, fila «automáticas») o con
 instala cuando lo pides y `workspace update --rollback` te regresa. Una actualización
 solo cambia el código de Workspace: tus agentes, cerebros y ajustes se quedan como están.
 Más en [el manual](manual/es/actualizaciones.md).
+
+### Novedades de la v0.3.2
+
+- **Un arreglo.** Si ya tenías motores y agentes y solo te asomaste al primer
+  arranque, el hub ya no te muestra para siempre el aviso de «configuración sin
+  terminar».
 
 ### Novedades de la v0.3.1
 

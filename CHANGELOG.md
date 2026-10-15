@@ -8,6 +8,12 @@ Cómo leer esto: cada versión tiene su número (`MAYOR.MENOR.PARCHE`). Un
 cambio de PARCHE arregla cosas; uno de MENOR trae funciones nuevas sin romper
 nada; uno de MAYOR avisa con tiempo si algo cambia de forma.
 
+## 0.3.2 — 2026-10-14
+
+**Arreglos**
+- Si ya tenías motores y agentes y solo te asomaste al primer arranque, el hub
+  ya no te muestra para siempre el aviso de «configuración sin terminar».
+
 ## 0.3.1 — 2026-10-14
 
 **El hub, más simple: cada sección en una cajita**
