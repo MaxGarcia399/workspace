@@ -37,7 +37,9 @@ if ROOT not in sys.path:
 #:                   envuelto en el ciclo neutral · repl = loop propio de WORKSPACE)
 #:   inject_context  cómo llega identidad/memoria al harness (hooks = inyección
 #:                   real · print = se imprime al socio · none)
-#:   mcp / hooks     ¿el harness soporta MCPs / hook-system? (bool o "native")
+#:   mcp / hooks     ¿el harness soporta MCPs / avisos de sesión? (bool,
+#:                   "native", o "wrapper" = solo inicio/cierre emitidos por
+#:                   el ciclo neutral de WORKSPACE)
 #:   sessions        quién gestiona sesiones ("workspace" = picker/journals
 #:                   propios · "vendor" = el CLI oficial · "none")
 #:   status_live     ¿publica tarea-en-vivo (now.json/statusline)? (bool)
@@ -141,7 +143,7 @@ def selectable():
 
 
 def enabled_ids():
-    """Motores que el socio HABILITÓ para el atajo M (settings
+    """Motores que el socio HABILITÓ para cambiar con ←→ en el hub (settings
     `modelos.enabled_engines`, U09). Vacío/sin setting = sin filtro (todos). Es una
     preferencia de PRESENTACIÓN: no instala, no desinstala, no toca login."""
     try:
@@ -153,7 +155,7 @@ def enabled_ids():
 
 
 def set_enabled(ids, actor="motores"):
-    """Persiste la lista de motores habilitados para M (vacía = todos)."""
+    """Persiste la lista de motores habilitados para ←→ (vacía = todos)."""
     try:
         import config_engine
         if not ids:
@@ -164,7 +166,7 @@ def set_enabled(ids, actor="motores"):
 
 
 def cycle_options():
-    """Opciones del atajo M: elegibles (selectable) ∩ habilitados por el
+    """Opciones de ←→ en el hub: elegibles (selectable) ∩ habilitados por el
     socio. Si el filtro deja la lista vacía se devuelve [] — la vista explica
     cómo habilitar (no se ignora la preferencia en silencio)."""
     opts = selectable()

@@ -6,12 +6,20 @@
 workspace doctor
 ```
 
-Checks Workspace **phase by phase** (requirements, engines, brains, commands, permissions,
-what your OS supports…) and **repairs** what it can. Phases that are already fine are
-skipped. Running it twice breaks or duplicates nothing.
+Checks **only what Workspace needs to work** and **repairs** what it can:
 
-Look only, changing nothing and without checking for updates (the only thing that may go
-online is the check of your GitHub session, if you have `gh` installed):
+- git, Python and the program of the engine **your** agents use;
+- updates (version, pending or failed adjustments);
+- **your agents**: that their folder exists, that their *hooks* point to this install and
+  that their command is installed;
+- leftovers of a previous install.
+
+It's the same check that runs at the end of `workspace update`. Phases that are already
+fine are skipped; running it twice breaks or duplicates nothing. It doesn't check optional
+features (voice, split terminal: [Compatibility](compatibility.md)) or how you organize your
+brains, and **having no agents yet is normal**: it isn't a warning.
+
+Look only, changing nothing and without going online:
 
 ```bash
 workspace doctor --check
@@ -27,7 +35,8 @@ suggested action.
 | `workspace` doesn't exist after installing | open a **new terminal**; if it persists, run the installer again |
 | The menu looks misaligned | make the window bigger; on Windows use Windows Terminal |
 | An agent can't find its brain | `workspace doctor` tells you where it looked and how to point it to the right folder |
-| An engine shows "missing dependency" | install its official program and log in ([Engines](engines.md)) |
+| The doctor says an engine's CLI is missing | install its official program and log in ([Engines](engines.md)) |
+| You moved or reinstalled Workspace and an agent fails to open | `workspace doctor` points its *hooks* back to this install |
 | You installed inside OneDrive | move Workspace out (e.g. `%LOCALAPPDATA%\Workspace`); the doctor detects it |
 
 ## Asking for help

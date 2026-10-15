@@ -240,10 +240,9 @@ def foot_hints(K, items, w):
 def screen_header(K, w, h, sub, hints=None, compact_h=30, refl_min_h=0,
                   hints_min_h=None, word="WORKSPACE"):
     """Cabecera COMPARTIDA de las pantallas-sección del hub (tono /
-    calendario / atajos / github / dev / …): wordmark centrado + reflejo +
-    subtítulo + atajos clave (top_hints) + regla + aire. `refl_min_h` > 0
-    cede el reflejo bajo ese alto (pantallas densas); `hints_min_h` idem
-    para la fila de atajos (default: el mismo umbral del wordmark
+    calendario / github / dev / …): wordmark centrado + subtítulo + atajos
+    clave (top_hints) + regla + aire. `hints_min_h` = alto bajo el cual
+    cede la fila de atajos (default: el mismo umbral del wordmark
     compacto). `word` titula la sección en el wordmark (default WORKSPACE).
     Devuelve las líneas iniciales del render."""
     K = cols(K)
@@ -251,8 +250,8 @@ def screen_header(K, w, h, sub, hints=None, compact_h=30, refl_min_h=0,
     bt = big_title(K, w, h, indent=" ", compact=(h < compact_h), center=True,
                    word=word)
     L += bt
-    if len(bt) > 1 and h >= refl_min_h:
-        L += title_reflection(K, w, indent=" ", center=True, word=word)
+    # sin reflejo ░ bajo el título (como el wordmark del hub; 2026-10-14).
+    # `refl_min_h` se acepta por compatibilidad.
     L.append(" " * max(0, ((w - 1) - vis(sub)) // 2)
              + "%s%s%s" % (K["DIM"], sub, K["R"]))
     if hints:
@@ -700,7 +699,7 @@ def lanzador_items(data, level=None, q=""):
     if not qn:
         if not ags:
             ags = [{"kind": "info", "label": _t(
-                "hub.lanzador.empty", "sin agentes — Menú › Agregar agente")}]
+                "hub.lanzador.empty", "sin agentes — Menú › Agentes")}]
         return ags + [{"kind": "sep"}] + subs
     out = [a for a in ags if qn in _lz_norm(a["label"])]
     out += [s for s in subs if qn in _lz_norm(s["label"])]
@@ -744,6 +743,8 @@ def _lz_arrows(it):
 
 
 def _lz_row_width(it):
+    if it.get("kind") == "info":                 # «sin agentes — Menú › …»: se
+        return vis(_sane(str(it.get("label") or "")))   # lee ENTERO (1er uso)
     if it.get("kind") not in _LZ_SELECTABLE:
         return 0
     d = vis(_sane(str(it.get("dato") or "")))
@@ -767,7 +768,11 @@ def _lz_row(it, on, ancho, K):
     tinta = (K["C"] + K["BO"]) if on else (K["DK"] if off else K["INACTIVE"])
     crumb = it.get("crumb")
     dato = _sane(str(crumb if crumb else (it.get("dato") or "")))
-    lab = clip(lab, max(1, ancho - 2 - (4 if dato else 0)))
+    # reserva para el dato: lo justo para un dato corto («›», «●»: 3 col) y
+    # 4 para los largos, como siempre (la etiqueta manda). Un 4 fijo
+    # recortaba «Personalización» en la caja más angosta (sin agentes).
+    reserva = min(4, 2 + vis(dato)) if dato else 0
+    lab = clip(lab, max(1, ancho - 2 - reserva))
     ln = "%s%s%s%s" % (cur, tinta, lab, K["R"])
     if dato:
         flechas = _lz_arrows(it)
@@ -907,12 +912,15 @@ def render_lanzador(data, view, K, w):
 
     elegido, ih = None, LZ_ROWS
     if H:
-        for nv in niveles:
+        for nv in niveles[:-1]:
             if H - fijo(nv) >= LZ_ROWS:
                 elegido = nv
                 break
         if elegido is None:
-            elegido = niveles[-1]
+            # ventana más baja que la caja: la lista cede filas ANTES que la
+            # línea de atajos (sin ella nadie sabe cómo moverse); sin sitio
+            # ni para eso, solo la caja
+            elegido = niveles[-2] if H - fijo(niveles[-2]) >= 4 else niveles[-1]
         ih = max(1, min(LZ_ROWS, H - fijo(elegido)))
     else:
         # sin alto (banner): altura NATURAL fija — no depende del nivel

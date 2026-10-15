@@ -49,18 +49,6 @@ _also: `bienvenida`_
 
 ## your day
 
-### `workspace focus [text]`
-
-Sets the focus of the day shown in the hub.
-
-**When:** At the start of the day.
-
-_also: `foco`_
-
-**Examples:**
-
-    workspace focus "close the proposal"
-
 ### `workspace agenda [add | rm]`
 
 Your local agenda: events with date and time.
@@ -144,7 +132,7 @@ Shows your version, your last update and what's new.
 
 _also: `versión`_
 
-### `workspace migrate [--run | --pending | --offer <id>]`
+### `workspace migrate [--run | --pending | --offer <id> | --decline <id>]`
 
 Shows and applies the adjustments each update brings.
 

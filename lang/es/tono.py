@@ -143,7 +143,7 @@ STRINGS = {
     "tono.hint.direct": "directo",
     "tono.hint.mode": "modo",
     "tono.hint.neutral": "neutro",
-    "tono.hint.back": "vuelve al menú",
+    "tono.hint.back": "vuelve",
 
     # mensajes de la statusline (cada cambio se guarda ya)
     "tono.msg.saved": "{label} → {v}/5 · guardado ✓ (aplica al siguiente mensaje)",
@@ -157,4 +157,19 @@ STRINGS = {
     "tono.cli.default": "por defecto",
     "tono.cli.all_neutral": "(todo en neutro: no se inyecta nada)",
     "tono.msg.removed": "El agente seleccionado ya no está registrado. Elige un destino antes de editar.",
+    # ── rediseño 2026-10-14: cajita + cuadro de i ──
+    "tono.hint.info": "cómo funciona",
+    "tono.box.title": "TONO",
+    "tono.info.title": "CÓMO FUNCIONA EL TONO",
+    "tono.info.n1": "tus diales",
+    "tono.info.c1": "en esta máquina",
+    "tono.info.n2": "nota invisible",
+    "tono.info.c2": "viaja con cada mensaje",
+    "tono.info.n3": "tu agente",
+    "tono.info.c3": "responde con ese estilo",
+    "tono.list.title": "para",
+    "tono.info.p2": "Con cada mensaje tuyo, Workspace le agrega a tu agente una instrucción que no ves, armada con estos diales. Solo cambia el estilo, nunca quién es. El 3 es neutro (no envía nada) y lo de un agente (●) pisa lo de GLOBAL.",
+    "tono.info.keys_line": "1-5 nivel directo · p siguiente modo · r todo a neutro",
+    "tono.continuar": "✦ continuar",
+    "tono.hint.continue": "continúa",
 }

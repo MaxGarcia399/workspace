@@ -70,6 +70,7 @@ STRINGS = {
     "uninstall.x.main.6": "\n  {c}Listo.{r} WORKSPACE desinstalado de esta máquina.",
     "uninstall.x.main.7": "  {dim}Los CEREBROS (carpetas de agentes) y los transcripts NO se tocaron.{r}",
     "uninstall.x.main.8": "  {dim}Abre una terminal NUEVA para soltar el PATH/greeter viejos.{r}",
+    "uninstall.x.main.9": "  {dim}Si vuelves a instalar Workspace, carga de nuevo cada agente (Agregar agente → cargar su carpeta) para que apunte a la instalación nueva; si restauraste tu respaldo, basta con `workspace doctor`.{r}",
     "uninstall.x.rm_path.3": "{label} borrado: {p}",
     "uninstall.x.no_value": "sin valor",
     "uninstall.x.ps_cmds": "comandos PowerShell",

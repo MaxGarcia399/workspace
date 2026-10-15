@@ -49,18 +49,6 @@ _también: `onboarding`_
 
 ## tu día
 
-### `workspace foco [texto]`
-
-Fija el foco del día que ves en el hub.
-
-**Cuándo:** Al empezar el día.
-
-_también: `focus`_
-
-**Ejemplos:**
-
-    workspace foco "cerrar la propuesta"
-
 ### `workspace agenda [add | rm]`
 
 Tu agenda local: eventos con fecha y hora.
@@ -144,7 +132,7 @@ Muestra tu versión, tu última actualización y sus novedades.
 
 _también: `versión`_
 
-### `workspace migrar [--run | --pending | --offer <id>]`
+### `workspace migrar [--run | --pending | --offer <id> | --decline <id>]`
 
 Muestra y aplica los ajustes que trae cada actualización.
 

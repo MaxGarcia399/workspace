@@ -177,13 +177,89 @@ def workspace_installed():
         or os.path.isfile(os.path.join(_home(), ".claude", "workspace-cmds.ps1"))
 
 
+#: registro per-máquina de agentes (dentro del estado; viejo y nuevo)
+REGISTRY_FILE = "agents.local.json"
+
+
+def _in_harness_agents(brain):
+    """True si `brain` vive en la carpeta agents/ de un harness (cerebro interno
+    del producto, no del usuario). Si ya no existe y su carpeta padre se llama
+    agents/, también: era un agente in-repo de un harness que ya se borró."""
+    b = os.path.abspath(os.path.expanduser(brain))
+    d = b
+    while True:
+        parent = os.path.dirname(d)
+        if parent == d:
+            return False
+        if os.path.basename(parent) == "agents":
+            if _looks_like_harness(os.path.dirname(parent)):
+                return True
+            if parent == os.path.dirname(b) and not os.path.isdir(b):
+                return True
+        d = parent
+
+
+def importable_agent(entry):
+    """¿Esta entrada del registro es un agente DEL USUARIO? False para motores
+    internos: nombre en dispatch.SYSTEM_AGENTS, `hidden: true` (en la entrada o
+    en su definición) o cerebro dentro de la carpeta agents/ de un harness.
+    Esas entradas no se traen de la instalación anterior (se copiaban tal cual
+    y el doctor terminaba revisando un agente que el usuario ni conoce)."""
+    if not isinstance(entry, dict):
+        return True                   # forma desconocida: no la juzgamos
+    try:
+        import dispatch
+        system = dispatch.SYSTEM_AGENTS
+    except Exception:
+        system = frozenset({"doctor"})
+    if str(entry.get("name", "")).strip().lower() in system or entry.get("hidden") is True:
+        return False
+    brain = str(entry.get("brain", "") or "").strip()
+    if not brain:
+        return True
+    b = os.path.abspath(os.path.expanduser(brain))
+    for sub in (".workspace", legacy.BRAIN_SUBDIR):
+        try:
+            with open(os.path.join(b, sub, "agent.json"), encoding="utf-8") as fh:
+                d = json.load(fh)
+            if isinstance(d, dict) and d.get("hidden") is True:
+                return False
+            break
+        except Exception:
+            continue
+    return not _in_harness_agents(b)
+
+
+def filter_registry(data):
+    """(data_filtrada, [nombres quitados]) — copia de un agents.local.json sin
+    las entradas que no son del usuario (importable_agent). No muta `data`."""
+    if not isinstance(data, dict) or not isinstance(data.get("agents"), list):
+        return data, []
+    keep, gone = [], []
+    for a in data["agents"]:
+        (keep if importable_agent(a) else gone).append(a)
+    out = dict(data)
+    out["agents"] = keep
+    return out, [str((a or {}).get("name", "?")) for a in gone if isinstance(a, dict)]
+
+
+def _read_json_file(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return None
+
+
 def _brains():
-    """Cerebros conocidos en esta máquina (registro per-máquina + paths.local)."""
+    """Cerebros conocidos en esta máquina (registro per-máquina + paths.local).
+    Los agentes internos (importable_agent → False) no cuentan: su "cerebro"
+    vive dentro de un harness y protegerlo impedía retirar el harness viejo."""
     out, seen = [], set()
     cands = []
     try:
         import agentsreg
-        cands += [a["brain"] for a in agentsreg.agents()]
+        cands += [a["brain"] for a in agentsreg.agents() if importable_agent(a)]
     except Exception:
         pass
     try:                                  # Z20: overrides vía el resolver único
@@ -675,12 +751,27 @@ def _state_differs(st):
             src = os.path.join(dp, n)
             rel = os.path.relpath(src, st)
             dst = os.path.join(_state_dir(), rel)
+            if rel == REGISTRY_FILE and _registry_covered(src, dst):
+                continue
             try:
                 if not os.path.isfile(dst) or _sha(dst) != _sha(src):
                     out.append(rel)
             except OSError:
                 out.append(rel)
     return out
+
+
+def _registry_covered(old, new):
+    """El registro viejo se trajo FILTRADO (sin agentes internos): está cubierto
+    si cada agente del usuario que tenía sigue registrado en el nuevo."""
+    o, n = _read_json_file(old), _read_json_file(new)
+    if not isinstance(o, dict) or not isinstance(n, dict):
+        return False
+    have = {str((a or {}).get("name", "")).strip().lower()
+            for a in (n.get("agents") or []) if isinstance(a, dict)}
+    want = filter_registry(o)[0].get("agents") or []
+    return all(str((a or {}).get("name", "")).strip().lower() in have
+               for a in want if isinstance(a, dict))
 
 
 # ── 2. PLAN ─────────────────────────────────────────────────────────────────
@@ -848,7 +939,15 @@ def apply(det=None):
             if it["kind"] == "estado":
                 if os.path.exists(it["dest"]):
                     continue                                  # idempotente: no pisa
-                _atomic_copy(it["path"], it["dest"])
+                data = (_read_json_file(it["path"])
+                        if os.path.basename(it["path"]) == REGISTRY_FILE
+                        and os.path.dirname(it["dest"]) == _state_dir() else None)
+                if isinstance(data, dict):
+                    # el registro se trae SIN los agentes internos (no copia ciega)
+                    _atomic_write(it["dest"], json.dumps(filter_registry(data)[0],
+                                                         indent=2, ensure_ascii=False) + "\n")
+                else:
+                    _atomic_copy(it["path"], it["dest"])
                 bk.created(it["dest"])
             elif it["kind"] == "definición":
                 import agentsreg

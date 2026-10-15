@@ -67,23 +67,42 @@ independence comes from the pluggable engine, not from re-implementing the hard 
 
 ### Features
 
-- **Multi-agent launcher** — a terminal menu to pick and launch any agent, each
-  with its own banner, theme, and flow.
-- **Per-agent brains** — knowledge as folders of Markdown (identity, memory,
-  skills, sessions). Readable, editable, yours.
-- **Pluggable engines** — a documented contract (`engines/CONTRACT.md`); adding an
-  engine is dropping a file. Claude Code, Codex and Antigravity ship today
-  ([what works with each](manual/en/compatibility.md)).
-- **Workflows** — declarative, multi-step procedures with a deterministic spine
-  (`workflows/`): review code, create an agent, build a feature.
-- **Doctor** — a phase-by-phase self-diagnosis and repair (`workspace doctor`).
-- **Memory distillation** — background curation of long-term memory from session
-  transcripts, with secret/PII gates.
-- **Evals** — run an agent against a golden set in a sandbox and track results.
-- **Security by tiers** — layered approval (drafts → apply → anything touching
-  production); credentials gitignored, never committed; a build-time leak gate.
-- **Voice, split terminal, inter-agent bus** — dictation, a side-by-side live
-  panel, and a file-based message bus between agents.
+What a fresh install gives you today:
+
+- **One hub for all your agents** — `workspace` opens a terminal menu to create,
+  load and launch agents; each agent also gets its own command. Every section
+  shows only the essentials in one centered box, and `i` explains how it works.
+- **Brains you own** — each agent's identity, memory, skills and sessions live in
+  a folder of Markdown outside Workspace. Readable, editable, portable; updating
+  or reinstalling Workspace never touches them.
+- **Three engines** — Claude Code, Codex and Antigravity, each through its
+  official CLI and your own login; switch an agent's engine from the hub. Claude
+  Code is the most integrated ([what works with each](manual/en/compatibility.md)).
+  Engines plug in through a documented contract (`engines/CONTRACT.md`).
+- **Permissions per brain** — by default an agent reads, creates and edits files
+  inside its own brain without asking you; for terminal commands, files outside
+  its brain and the network it asks first (Codex runs commands inside its sandbox,
+  which only lets it write to its brain and temporary folders, with no network).
+  You can turn off that free access per agent in **Agents** (pick the agent and Enter). Nothing ever
+  switches off the engine's protections.
+- **Skills** — reusable procedures in each brain, looked up when a task needs
+  them; when you create an agent you can fetch skills from public sources, and
+  they are checked before being added. Skill review at the end of each session
+  is **optional** (off by default, on in Agents (Enter on the agent); it uses a little of your
+  subscription).
+- **Doctor and safe updates** — `workspace doctor` checks the essentials and
+  repairs what it can (`--bundle` makes a redacted zip to ask for help). Updates
+  are automatic, notify-only or off; a new version is tested on your machine
+  before it's used, and `workspace update --rollback` takes you back.
+- **Workflows** — step-by-step procedures (`workspace wf`). The one meant for you
+  today is creating an agent; the others are for developing Workspace itself.
+- **On demand, not in the background** — memory distillation (turns past sessions
+  into a journal and candidate memories that you approve; `python3 dream.py` in
+  Workspace's folder, uses Claude Code) and evals against a golden set
+  (`workspace eval`, Claude Code).
+- **Optional extras** — voice dictation (macOS only, `workspace voice --setup`),
+  a split terminal with a live panel (`workspace split`, needs tmux) and a
+  file-based message bus between agents.
 
 > Status: **early / upcoming.** The core works end to end and is covered by a
 > test suite; polish, the public roadmap, pricing, and audience are still being
@@ -104,15 +123,18 @@ workspace  →  front.py  →  dispatch.py  →  engines/<engine>.launch()
 front.py        # the door: menu + CLI (the `workspace` command)
 dispatch.py     # <agent> → resolves brain → loads config → starts its engine
 engines/        # pluggable engines + CONTRACT.md (the interface)
-agents/         # registry + one folder per agent (agent.json)
+agents/         # empty registry (your agents live in their brains)
 hooks/          # event listeners (session start/end, …)
 workflows/      # declarative multi-step procedures
+migrations/     # adjustments an update applies on your machine
+manual/         # the user manual (English and Spanish)
 install.py      # per-machine installer (writes only to your machine)
 doctor.py       # phase-by-phase diagnose / repair
 ```
 
 Brains do **not** live in this repo — each agent's brain is its own folder that
-Workspace references.
+Workspace references; the agent's definition travels inside it
+(`<brain>/.workspace/agent.json`).
 
 ### Install
 
@@ -156,7 +178,8 @@ hooks, and writes only to your machine's local config — never to the shared re
 **Requirements:** Python 3.9+, Git, and at least one engine CLI logged in with
 your own account: **Claude Code** (`claude`), **Codex** (`codex`) or
 **Antigravity** (`agy`). Claude Code is the most integrated today. On Windows use
-`python` (not `python3`).
+`python` (not `python3`). Optional: tmux for the split terminal, macOS for voice
+dictation.
 
 ### Quickstart
 
@@ -177,25 +200,41 @@ Workspace keeps itself up to date, and **you choose how**:
   it with `workspace update` when you want.
 - **Off:** it never checks on its own.
 
-Change it in the hub (**Updates** screen, key `a`) or with
+Change it in the hub (**Updates**, the «automatic» row) or with
 `workspace update --auto auto|notify|off`. Whatever you pick, `workspace update`
 installs on demand and `workspace update --rollback` takes you back. Updates
 only change Workspace's code: your agents, brains and settings stay as they are.
 More in [the manual](manual/en/updates.md).
 
-### What's new in v0.2.0
+### What's new in v0.3.1
 
-- **A new hub, the Launcher:** one box with your agents and a menu that filters as you type;
-  ← → switch an agent's engine. The box keeps its size, so the window can be as small as it.
-- **Updates with a safety net, and optional.** Before using a new version,
-  Workspace checks that it starts on your computer and goes back by itself if
-  it doesn't. You choose whether updates are automatic, notify-only or off.
-- **`workspace version`** shows your version and what changed; **`workspace doctor --bundle`**
-  builds a diagnostic ZIP with your personal data blanked out.
-- **Commands in Spanish and English**, a Commands screen that searches (`/`) and runs, and
-  a user manual in `manual/`.
-- **A safer install and uninstall:** the installer checks your computer before touching
-  anything; uninstalling shows what goes and what stays, and offers a backup.
+- **A simpler hub.** Every section shows only what you need, in one centered
+  box; the explanation and its maps are behind `i`. Agents shows your agents
+  with the options of the one you pick below and «+ add agent» at the end;
+  Engines checks for real whether you're signed in; Updates shows only what you
+  can do right then, including going back to the previous version; Commands
+  opens each command's map on the right with `i`.
+- **Less clutter.** Shortcuts left the menu (keys `1`–`9` follow your agents'
+  order) and Google Calendar is paused while we improve it.
+
+### What's new in v0.3.0
+
+- **You choose how each agent works.** Creating or loading an agent offers two
+  switches: reading and writing its own brain without asking (on: it's its main
+  job; for everything else it asks you) and automatic skill review (off). Change
+  them anytime in **Agents** (pick the agent and Enter).
+- **No more blanket permissions for Claude Code agents.** The installer used to let
+  every agent run any command without asking. Updating switches your agents to
+  "free only inside their brain" on its own. Auto-accept edits is now off by default.
+- **Skill review is optional and works with all three engines** — off by default;
+  when on, the agent's own engine (Claude Code, Codex or Antigravity) does it in
+  the background and uses a little of your subscription.
+- **The doctor checks and repairs only the essentials** — your agents, their hooks
+  and commands, git/Python/the engine you use, and updates — and fixes hooks that
+  point to a Workspace folder that no longer exists.
+- **Simpler install, sessions kept for a year** (it was ten): no "Who are you?"
+  question, and it asks for the CLI of the engine you'll use. A retention you
+  chose yourself is never touched.
 
 Full list: [CHANGELOG.en.md](CHANGELOG.en.md).
 
@@ -203,7 +242,8 @@ Full list: [CHANGELOG.en.md](CHANGELOG.en.md).
 
 The user manual lives in [`manual/`](manual/README.md) — short chapters in
 [English](manual/en/README.md) and [Spanish](manual/es/README.md): install, first
-run, the hub, engines, themes, updates, troubleshooting, uninstall and privacy.
+run, the hub, engines, what works with each engine, commands, themes, updates,
+troubleshooting, uninstall and privacy.
 What Workspace stands for, in ten lines: [the manifesto](manual/MANIFESTO.md).
 Found a security problem? See [SECURITY.md](SECURITY.md) — please don't open a
 public issue.
@@ -273,24 +313,44 @@ La independencia viene del motor enchufable, no de reimplementar la parte difíc
 
 ### Features
 
-- **Lanzador multi-agente** — un menú de terminal para elegir y lanzar cualquier
-  agente, cada uno con su banner, tema y flujo.
-- **Cerebros por agente** — el conocimiento como carpetas de Markdown (identidad,
-  memoria, skills, sesiones). Legible, editable, tuyo.
-- **Motores enchufables** — un contrato documentado (`engines/CONTRACT.md`);
-  agregar un motor es soltar un archivo. Claude Code, Codex y Antigravity ya
-  vienen incluidos ([qué funciona con cada uno](manual/es/compatibilidad.md)).
-- **Workflows** — procedimientos declarativos de varios pasos con un espinazo
-  determinista (`workflows/`): revisar código, crear un agente, construir features.
-- **Doctor** — autodiagnóstico y reparación por fases (`workspace doctor`).
-- **Destilado de memoria** — curación en segundo plano de la memoria de largo
-  plazo desde los transcripts, con gates de secretos/PII.
-- **Evals** — corre un agente contra un golden set en un sandbox y guarda resultados.
-- **Seguridad por tiers** — aprobación por capas (borradores → aplicar → cualquier
-  cosa que toque producción); credenciales gitignored, nunca commiteadas; un gate
-  de fuga en el build.
-- **Voz, terminal partida, bus entre agentes** — dictado, un panel en vivo al
-  costado, y un bus de mensajes por archivos entre agentes.
+Lo que te da una instalación nueva hoy:
+
+- **Un hub para todos tus agentes** — `workspace` abre un menú de terminal para
+  crear, cargar y lanzar agentes; cada agente tiene además su propio comando.
+  Cada sección muestra solo lo esencial en una caja centrada, y `i` explica cómo
+  funciona.
+- **Cerebros que son tuyos** — la identidad, memoria, skills y sesiones de cada
+  agente viven en una carpeta de Markdown fuera de Workspace. Legibles, editables,
+  portables; actualizar o reinstalar Workspace no los toca.
+- **Tres motores** — Claude Code, Codex y Antigravity, cada uno con su CLI oficial
+  y tu propia sesión; cambias el motor de un agente desde el hub. Claude Code es el
+  más integrado ([qué funciona con cada uno](manual/es/compatibilidad.md)). Los
+  motores se enchufan con un contrato documentado (`engines/CONTRACT.md`).
+- **Permisos por cerebro** — de entrada, un agente lee, crea y edita archivos
+  dentro de su cerebro sin preguntarte; para comandos de terminal, archivos fuera
+  de su cerebro y la red te pregunta antes (Codex corre comandos dentro de su caja,
+  que solo le deja escribir en su cerebro y en carpetas temporales, sin red). Ese
+  acceso libre se apaga por agente en **Agentes** (elige el agente y Enter). Nada desactiva las
+  protecciones del motor.
+- **Skills** — procedimientos reutilizables en cada cerebro, que el agente consulta
+  cuando una tarea los necesita; al crear un agente puedes traer skills de fuentes
+  públicas, revisadas antes de agregarse. La revisión de skills al cerrar cada
+  sesión es **opcional** (viene apagada, se prende en Agentes (Enter sobre el agente); usa un poco
+  de tu suscripción).
+- **Doctor y actualizaciones seguras** — `workspace doctor` revisa lo esencial y
+  repara lo que puede (`--bundle` arma un zip con tus datos tachados para pedir
+  ayuda). Las actualizaciones son automáticas, solo-avisar o apagadas; una versión
+  nueva se prueba en tu máquina antes de usarse y `workspace update --rollback` te
+  regresa.
+- **Workflows** — procedimientos paso a paso (`workspace wf`). El que es para ti hoy
+  es crear un agente; los demás son para desarrollar el propio Workspace.
+- **Cuando tú lo pides, no en segundo plano** — destilado de memoria (convierte
+  sesiones pasadas en un diario y memorias candidatas que tú apruebas; `python3
+  dream.py` en la carpeta de Workspace, usa Claude Code) y evals contra un set de
+  referencia (`workspace eval`, Claude Code).
+- **Extras opcionales** — dictado por voz (solo macOS, `workspace voice --setup`),
+  terminal partida con un panel en vivo (`workspace split`, requiere tmux) y un bus
+  de mensajes por archivos entre agentes.
 
 > Estado: **early / upcoming (temprano).** El núcleo funciona end-to-end y está
 > cubierto por una suite de tests; el pulido, el roadmap público, el precio y el
@@ -313,15 +373,18 @@ workspace  →  front.py  →  dispatch.py  →  engines/<motor>.launch()
 front.py        # la puerta: menú + CLI (el comando `workspace`)
 dispatch.py     # <agente> → resuelve cerebro → carga config → arranca su motor
 engines/        # motores enchufables + CONTRACT.md (la interfaz)
-agents/         # registry + una carpeta por agente (agent.json)
+agents/         # registro vacío (tus agentes viven en sus cerebros)
 hooks/          # listeners por evento (inicio/fin de sesión, …)
 workflows/      # procedimientos declarativos de varios pasos
+migrations/     # ajustes que una actualización aplica en tu máquina
+manual/         # el manual de usuario (español e inglés)
 install.py      # instalador per-máquina (solo escribe en tu máquina)
 doctor.py       # diagnóstico / reparación por fases
 ```
 
 Los cerebros **no** viven en este repo — el cerebro de cada agente es su propia
-carpeta que Workspace referencia.
+carpeta que Workspace referencia; la definición del agente viaja dentro de él
+(`<cerebro>/.workspace/agent.json`).
 
 ### Instalación
 
@@ -365,6 +428,7 @@ solo escribe en la config local de tu máquina — nunca en el repo compartido.
 **Requisitos:** Python 3.9+, Git, y al menos un CLI de motor con tu propia sesión
 iniciada: **Claude Code** (`claude`), **Codex** (`codex`) o **Antigravity** (`agy`).
 Hoy Claude Code es el más integrado. En Windows usa `python` (no `python3`).
+Opcional: tmux para la terminal partida, macOS para el dictado por voz.
 
 ### Inicio rápido
 
@@ -385,26 +449,42 @@ Workspace se mantiene al día solo, y **tú eliges cómo**:
   `workspace update` cuando quieras.
 - **Apagadas:** nunca consulta por su cuenta.
 
-Se cambia en el hub (pantalla **Actualizaciones**, tecla `a`) o con
+Se cambia en el hub (**Actualizaciones**, fila «automáticas») o con
 `workspace update --auto auto|notify|off`. Elijas lo que elijas, `workspace update`
 instala cuando lo pides y `workspace update --rollback` te regresa. Una actualización
 solo cambia el código de Workspace: tus agentes, cerebros y ajustes se quedan como están.
 Más en [el manual](manual/es/actualizaciones.md).
 
-### Novedades de la v0.2.0
+### Novedades de la v0.3.1
 
-- **Un hub nuevo, el Lanzador:** una caja con tus agentes y un menú que se filtra al
-  escribir; ← → cambian el motor de un agente. La caja no cambia de tamaño, así que la
-  ventana puede ser tan chica como ella.
-- **Actualizaciones con red de seguridad, y opcionales.** Antes de usar una versión
-  nueva, Workspace comprueba que arranca en tu computadora y, si no, vuelve sola a la
-  anterior. Tú eliges si las actualizaciones son automáticas, solo avisan o están apagadas.
-- **`workspace version`** muestra tu versión y qué cambió; **`workspace doctor --bundle`**
-  arma un ZIP de diagnóstico con tus datos personales tachados.
-- **Comandos en español e inglés**, una pantalla Comandos que busca (`/`) y ejecuta, y un
-  manual de uso en `manual/`.
-- **Instalar y desinstalar más seguros:** el instalador revisa tu computadora antes de
-  tocar nada; desinstalar muestra qué se va y qué se queda, y ofrece un respaldo.
+- **Un hub más simple.** Cada sección muestra solo lo que necesitas, en una caja
+  centrada; la explicación y sus mapas están detrás de `i`. Agentes muestra tus
+  agentes con las opciones del elegido debajo y «+ agregar agente» al final;
+  Motores verifica de verdad si tienes sesión; Actualizaciones muestra solo
+  lo que puedes hacer en ese momento, incluido volver a la versión anterior;
+  Comandos abre con `i` el mapa de cada comando a la derecha.
+- **Menos ruido.** Atajos salió del menú (las teclas `1`–`9` siguen el orden de
+  tus agentes) y Google Calendar queda en pausa mientras lo mejoramos.
+
+### Novedades de la v0.3.0
+
+- **Tú eliges cómo trabaja cada agente.** Crear o cargar un agente te da dos
+  interruptores: leer y escribir su cerebro sin preguntar (encendido: es su trabajo
+  principal; lo demás te lo pregunta) y la revisión automática de skills (apagada).
+  Los cambias cuando quieras en **Agentes** (elige el agente y Enter).
+- **Se acabaron los permisos sin límite en los agentes de Claude Code.** El instalador
+  dejaba a todo agente correr cualquier comando sin preguntar. Al actualizar, tus agentes
+  pasan solos a «libres solo dentro de su cerebro». Auto-aceptar ediciones viene ahora
+  apagado.
+- **La revisión de skills es opcional y funciona con los tres motores** — viene
+  apagada; si la prendes, el propio motor del agente (Claude Code, Codex o Antigravity)
+  la hace en segundo plano y usa un poco de tu suscripción.
+- **El doctor revisa y repara solo lo esencial** — tus agentes, sus hooks y comandos,
+  git/Python/el motor que usas y las actualizaciones — y arregla los hooks que apuntan a
+  una carpeta de Workspace que ya no existe.
+- **Instalar es más simple y tus sesiones se conservan un año** (antes, diez): ya no
+  pregunta «¿Quién eres?» y pide el CLI del motor que vayas a usar. Una retención que tú
+  elegiste jamás se toca.
 
 Lista completa: [CHANGELOG.md](CHANGELOG.md).
 
@@ -412,8 +492,8 @@ Lista completa: [CHANGELOG.md](CHANGELOG.md).
 
 El manual de usuario vive en [`manual/`](manual/README.md) — capítulos cortos en
 [español](manual/es/README.md) e [inglés](manual/en/README.md): instalar, primer
-arranque, el hub, motores, temas, actualizaciones, diagnóstico, desinstalar y
-privacidad. Lo que Workspace defiende, en diez líneas: [el manifiesto](manual/MANIFIESTO.md).
+arranque, el hub, motores, qué funciona con cada motor, comandos, temas,
+actualizaciones, diagnóstico, desinstalar y privacidad. Lo que Workspace defiende, en diez líneas: [el manifiesto](manual/MANIFIESTO.md).
 ¿Encontraste un problema de seguridad? Lee [SECURITY.md](SECURITY.md) — por favor
 no abras un issue público.
 

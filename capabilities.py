@@ -2,8 +2,10 @@
 """WORKSPACE · capabilities.py — matriz de capacidades EFECTIVAS (OS + motor + deps).
 
 Fuente única de «qué puede hacer Workspace AQUÍ» (U05 / W-F06 / W-F07 / Z23).
-La UI y `workspace doctor` derivan de aquí; NO comparan `sys.platform` por su
-cuenta para decidir disponibilidad (lo vigila tests/test_capabilities.py).
+La UI y el manual (manual/*/compatibilidad.md, recalculado por
+tests/test_manual_compat.py) derivan de aquí; NO comparan `sys.platform` por
+su cuenta para decidir disponibilidad (lo vigila tests/test_capabilities.py).
+El doctor ya no tiene fase de capacidades: revisa solo lo esencial.
 
 Estados por capacidad (contrato):
   supported           funciona en este OS + motor con lo instalado
@@ -94,7 +96,7 @@ def voice(os_id=None, which=None):
         missing.append("osascript")
     if missing:
         return cap("missing_dependency", _t("doctor.caps.missing", "falta: ") + ", ".join(missing),
-                   _t("doctor.caps.voice.6", "WORKSPACE_VOICE_SETUP=1 workspace doctor (o brew install whisper-cpp ffmpeg)"), source="deps")
+                   _t("doctor.caps.voice.6", "workspace voice --setup (o brew install whisper-cpp ffmpeg)"), source="deps")
     return cap("supported", _t("doctor.caps.voice.7", "dictado local listo"), source="deps")
 
 

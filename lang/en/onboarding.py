@@ -25,14 +25,14 @@ STRINGS = {
     "onboarding.action.agente": "Enter opens “{lbl}”",
     "onboarding.action.gcal": "Esc skips · Enter connects",
     "onboarding.action.gcal_done": "Enter takes you to the summary",
-    "onboarding.action.resumen": "Enter drops you into the hub",
+    "onboarding.action.resumen": "Enter opens the hub",
 
     # step 0: language
     "onboarding.idioma.divisor": "language",
     "onboarding.idioma.heading": "Choose your Workspace language.",
-    "onboarding.idioma.body": "You can change it anytime from the hub menu "
-                              "(“Language”) or in Config. Developer "
-                              "screens stay in Spanish.",
+    "onboarding.idioma.body": "You can change it anytime from the hub "
+                              "(“Language”). Developer screens stay in "
+                              "Spanish.",
 
     # welcome
     "onboarding.welcome.title_l": "WHAT IS WORKSPACE",
@@ -132,11 +132,11 @@ STRINGS = {
                                         "background color and pairs with any "
                                         "theme.",
     "onboarding.apariencia.donde_p": "ui.theme and ui.background in "
-                                     "~/.claude/workspace/settings.json. More "
-                                     "options (custom #RRGGBB color, "
-                                     "animations, stars) in Config → THEME.",
+                                     "~/.claude/workspace/settings.json. "
+                                     "Brightness and red light: in the hub's "
+                                     "“Personalization”.",
     # background labels (the id stays; we translate the visible text)
-    "onboarding.fondo.tema": "the active theme's",
+    "onboarding.fondo.tema": "the theme's",
     "onboarding.fondo.negro": "pure black",
     "onboarding.fondo.grafito": "graphite",
     "onboarding.fondo.azul": "night blue",
@@ -244,16 +244,17 @@ STRINGS = {
     "onboarding.resumen.fila_agentes": "registered agents",
     "onboarding.resumen.fila_onboarding": "this onboarding",
     "onboarding.resumen.adelante_p1": "Enter drops you into the hub: there you "
-                                      "launch agents, open Config, Tone and "
-                                      "“Add agent”.",
+                                      "launch agents, and the Menu has Tone, "
+                                      "Agents and “Add agent”.",
     "onboarding.resumen.adelante_p2": "Repeat this flow: "
                                       "`workspace onboarding`.",
     "onboarding.resumen.div_teclas": "the keys that matter",
     "onboarding.resumen.tecla_abrir": "opens the hub from any terminal",
-    "onboarding.resumen.tecla_atajos": "Shortcuts — every key, remappable",
-    "onboarding.resumen.tecla_comandos": "Commands — what each command does",
+    "onboarding.resumen.tecla_buscar": "type to search for an agent or a "
+                                       "section",
+    "onboarding.resumen.tecla_agentes": "points at your agent; the same key "
+                                        "again opens it",
     "onboarding.resumen.tecla_salir": "leaves the hub to your terminal",
-    "onboarding.resumen.sin_tecla": "no key",
 
     # ephemeral messages (footer, S["msg"])
     "onboarding.msg.default_saved": "default engine: {motor} · saved ✓",
@@ -296,4 +297,26 @@ STRINGS = {
     'onboarding.cli.no_tty': 'onboarding needs an interactive terminal.',
     'onboarding.cli.no_tty2': 'open `workspace` in a terminal and run: workspace onboarding',
     'onboarding.probe_fail': 'check failed: {err}',
+
+    # ── rediseño 2026-10-14: el pie corto de cada paso ──
+    "onboarding.k.info": "how it works",
+    "onboarding.k.pick": "pick",
+    "onboarding.k.choose": "choose",
+    "onboarding.k.skip": "skip",
+    "onboarding.k.start": "start",
+    "onboarding.k.to_hub": "to the hub",
+    "onboarding.k.engine": "engine",
+    "onboarding.k.space": "space",
+    "onboarding.k.mark": "mark",
+    "onboarding.k.next": "continue",
+    "onboarding.k.back": "back",
+    "onboarding.k.option": "option",
+    "onboarding.k.apply": "apply",
+    "onboarding.k.path": "path",
+    "onboarding.k.open": "open",
+    "onboarding.k.connect": "connect",
+    "onboarding.continuar_sin_agente": "✦ continue without an agent",
+    "onboarding.ir_al_hub": "✦ go to the hub",
+    "onboarding.action.sin_agente": "Enter continues without an agent (add one later)",
+    "onboarding.msg.as_chosen": "«{lbl}» chosen · ✦ continue saves it",
 }

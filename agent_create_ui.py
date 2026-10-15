@@ -32,7 +32,38 @@ def _t(key, es):
         return es
 
 
-VIEWS = {'plan', 'motor', 'sources', 'repo', 'process', 'cost', 'brain', 'community', 'skill_receipt'}
+VIEWS = {'plan', 'motor', 'sources', 'repo', 'process', 'cost', 'brain', 'community', 'skill_receipt', 'perms'}
+
+
+def _onoff(v):
+    return 'ON' if v else 'OFF'
+
+
+def _pref_keys(S):
+    """Claves de estado de las dos preguntas: el plan de CREAR y la vista
+    previa a CARGAR guardan su respuesta aparte (no se contagian)."""
+    if S.get('view') == 'perms':
+        return 'perms_brain', 'perms_review'
+    return 'brain_free', 'skill_review'
+
+
+def _pref_rows(S):
+    """Los DOS interruptores de permisos y aprendizaje (crear y cargar): leer y
+    escribir su cerebro sin preguntar (ON de entrada) y revisión de skills."""
+    kf, kr = _pref_keys(S)
+    return [('autonomy', _t('addagent.plan.row.brain_free', 'Su cerebro sin preguntar: ') + _onoff(S.get(kf, True))),
+            ('review', _t('addagent.plan.row.review', 'Revisión de skills al cerrar: ') + _onoff(S.get(kr)))]
+
+
+def _pref_details():
+    return {
+        'autonomy': [_t('addagent.detail.brain_free.1', 'ON (recomendado): lee, crea y edita dentro de su cerebro sin preguntarte; la terminal, los archivos de fuera y la red te los pregunta.'),
+                     _t('addagent.detail.brain_free.2', 'OFF: te pregunta antes de crear o editar cada archivo, también en su cerebro.'),
+                     _t('addagent.detail.autonomy.3', 'Enter cambia esta preferencia. Después la cambias cuando quieras en Agentes (Enter sobre el agente).')],
+        'review': [_t('addagent.detail.review.1', 'OFF: al cerrar una sesión no corre nada.'),
+                   _t('addagent.detail.review.2', 'ON: al cerrar cada sesión su motor revisa, en segundo plano, lo que corregiste y mejora sus skills; las skills nuevas quedan como propuesta para que tú las apruebes.'),
+                   _t('addagent.detail.review.3', 'Usa un poco de tu suscripción. Enter cambia esta preferencia; después, en Agentes (Enter sobre el agente).')],
+    }
 
 
 def _process():
@@ -59,12 +90,15 @@ def rows(S, api):
     if 'source_config' not in S:
         S['source_config'] = prefs.load()
     config = S['source_config']
+    if v == 'perms':
+        return _pref_rows(S) + [('connect', _t('addagent.perms.row.connect', 'CONECTAR')),
+                                ('back', _t('addagent.perms.row.back', 'Volver sin conectar'))]
     if v == 'plan':
         return [('motor', _t('addagent.plan.row.motor', 'Motor: ') + (S.get('engine_id') or 'claude-code')),
                 ('personalize', _t('addagent.plan.row.personalize', 'Personalización con IA: ') + ('ON' if S.get('personalize') else 'OFF')),
                 ('toggle', _t('addagent.plan.row.toggle', 'Obtener skills: ') + ('ON' if S.get('source_skills') else 'OFF')),
                 ('skills', _t('addagent.plan.row.skills', 'Elegir skills: %d seleccionadas') % len(S.get('skill_selected', []))),
-                ('sources', _t('addagent.plan.row.sources', 'Fuentes permitidas y repos propios')),
+                ('sources', _t('addagent.plan.row.sources', 'Fuentes permitidas y repos propios'))] + _pref_rows(S) + [
                 ('process', _t('addagent.plan.row.process', 'Cómo se revisan las skills')),
                 ('cost', _t('addagent.plan.row.cost', 'Consumo y límites de sesión')),
                 ('brain', _t('addagent.plan.row.brain', 'Vistas del mapa · sólo información')),
@@ -100,6 +134,14 @@ def details(S, action, api):
     v = S['view']
     if v == 'process':
         return _process()
+    if action in ('autonomy', 'review'):
+        return _pref_details()[action]
+    if v == 'perms':
+        names = ', '.join(n or '?' for n, _c in (S.get('perms_items') or [])[:4])
+        if action == 'connect':
+            return [_t('addagent.perms.connect.1', 'Conecta: %s') % names,
+                    _t('addagent.perms.connect.2', 'Tus respuestas se anotan en su agent.json (viajan con el cerebro) y sus permisos se ajustan a ellas.')]
+        return [_t('addagent.perms.back.1', 'Vuelve sin conectar nada.')]
     if v == 'brain':
         route = S.get('brain_route', 'setup')
         return list(brain_view.routes()[route][:3]) + ['', _t('addagent.brain.note.disk', 'DISCO: 0 tokens de modelo · leer contexto y redactar: variables.'), _t('addagent.brain.note.fts5', 'FTS5: índice local derivado; no es una base vectorial.'), _t('addagent.brain.note.capture', 'Al cerrar trabajo significativo: captura del agente, no un temporizador.'), _t('addagent.brain.note.hooks', 'Hooks de respaldo: según motor/configuración; cierre abrupto puede omitirlos.')] + overview_detail(S, api)
@@ -171,7 +213,7 @@ def panels(S, api, iw, dw, cap):
     for i in range(start, min(len(menu), start + cap)):
         K = api._K()
         style = K['C'] + K['BO'] if i == cursor else K['GREY']
-        left.append(api.HL.clip(style + ('› ' if i == cursor else '  ') + menu[i][1] + K['R'], iw))
+        left.append(api.HL.clip(style + ((K['PTR'] + ' ') if i == cursor else '  ') + menu[i][1] + K['R'], iw))
     action = menu[cursor][0]
     text = details(S, action, api)
     if S['view'] == 'plan':
@@ -234,13 +276,32 @@ def action(S, key, api):
         S['detail_scroll'] = max(0, S.get('detail_scroll', 0) + (1 if key == 'right' else -1))
         return True
     if key == '\x1b':
-        S['view'] = 'crear' if v == 'plan' else ('done' if v == 'skill_receipt' else 'plan')
+        if v == 'perms':
+            S['view'] = S.get('perms_origen') or 'menu'
+        else:
+            S['view'] = 'crear' if v == 'plan' else ('done' if v == 'skill_receipt' else 'plan')
         S['option_cursor'] = 0
         return True
     shortcut = {'p': 'personalize', 's': 'toggle', 'k': 'skills'}
     if v == 'plan' and key.lower() in shortcut:
         chosen = shortcut[key.lower()]
     elif key not in ('\r', '\n', ' '):
+        return True
+    kf, kr = _pref_keys(S)
+    if chosen == 'autonomy':
+        S[kf] = not S.get(kf, True)
+        return True
+    if chosen == 'review':
+        S[kr] = not S.get(kr)
+        return True
+    if v == 'perms':
+        if chosen == 'connect':
+            api._ljob_start(S, S.get('perms_items') or [], S.get('perms_origen') or 'menu',
+                            prefs={'autonomy': (S.get('perms_base') or 'brain') if S.get(kf, True) else 'ask',
+                                   'skill_review': bool(S.get(kr))})
+        else:
+            S['view'] = S.get('perms_origen') or 'menu'
+        S['option_cursor'] = 0
         return True
     if v == 'brain':
         if chosen == 'back':
@@ -333,6 +394,10 @@ def _plan_guide():
               _t('addagent.guide.motor.body', 'El motor ejecuta las tareas y aporta el modelo, las herramientas y su cuota de uso. La identidad, la memoria y las skills permanecen en la carpeta del cerebro. Elegir otro motor cambia la ejecución; los hooks y funciones disponibles dependen de ese runtime.'), _t('addagent.guide.motor.enter', 'Abrir motores')),
     'personalize': (_t('addagent.guide.personalize.head', 'UNA IDENTIDAD A TU MEDIDA'), _t('addagent.guide.personalize.lead', 'Tus respuestas pueden convertirse en su voz y criterio.'),
                     _t('addagent.guide.personalize.body', 'Con ON, el modelo usa tus respuestas para redactar identidad, alcance y perfil del dueño: define su voz, sus tareas y los límites con los que empezará. Con OFF, esos datos se incorporan a la plantilla local sin una llamada al modelo. La estimación de esta redacción aparece bajo el mapa.'), _t('addagent.guide.personalize.enter', 'Cambiar ON / OFF')),
+    'autonomy': (_t('addagent.guide.brain_free.head', 'SU CEREBRO, SIN PEDIR PERMISO'), _t('addagent.guide.brain_free.lead', 'Leer y escribir su cerebro es su trabajo principal.'),
+                 _t('addagent.guide.brain_free.body', 'Con ON (recomendado), el agente lee, crea y edita archivos dentro de su cerebro sin pedirte permiso; para usar la terminal, tocar archivos fuera de su cerebro o salir a la red te pregunta. Con OFF, te pregunta antes de crear o editar cualquier archivo, también en su cerebro. En ningún caso se desactivan las protecciones del motor.'), _t('addagent.guide.autonomy.enter', 'Cambiar ON / OFF')),
+    'review': (_t('addagent.guide.review.head', 'APRENDE DE TUS CORRECCIONES'), _t('addagent.guide.review.lead', 'Opcional: mejora sus skills al cerrar cada sesión.'),
+               _t('addagent.guide.review.body', 'Con ON, al cerrar cada sesión su motor lee en segundo plano lo que pasó y mejora las skills que usó con lo que corregiste; las skills nuevas quedan como propuesta hasta que tú las apruebes. No bloquea el cierre y usa un poco de tu suscripción. Con OFF no corre nada.'), _t('addagent.guide.review.enter', 'Cambiar ON / OFF')),
     'toggle': (_t('addagent.guide.toggle.head', 'PROCEDIMIENTOS PARA SUS TAREAS'), _t('addagent.guide.toggle.lead', 'Decide si quieres incorporar skills al crear.'),
                _t('addagent.guide.toggle.body', 'Al activar esta opción se obtienen las propuestas seleccionadas desde las fuentes permitidas y se revisan antes de incorporarlas. Buscar y revisar no usa un modelo ni ejecuta código remoto. Los paquetes con alertas quedan pendientes y se muestran por separado; desactivarla conserva las skills base del cerebro.'), _t('addagent.guide.toggle.enter', 'Cambiar ON / OFF')),
     'skills': (_t('addagent.guide.skills.head', 'TÚ ELIGES QUÉ SABRÁ HACER'), _t('addagent.guide.skills.lead', 'Revisa las propuestas antes de incorporarlas.'),
@@ -369,6 +434,17 @@ def _plan_explanations():
                 'El resultado se guarda como archivos editables del cerebro. Podrás ajustar su voz o sus '
                 'límites después de crearlo. La personalización consume tokens de una llamada al modelo; la '
                 'cifra es una estimación y no incluye todas las conversaciones futuras del agente.'),
+ 'autonomy': _t('addagent.impact.brain_free', 'Queda en su agent.json y viaja con el cerebro; cada motor lo traduce a sus propios permisos. '
+             'Lo que pide permiso depende del motor: Claude Code te pregunta, Codex y Antigravity te preguntan o lo '
+             'bloquean cuando no pueden preguntar.\n'
+             '\n'
+             'Lo cambias cuando quieras en Agentes (Enter sobre el agente).'),
+ 'review': _t('addagent.impact.review', 'La revisión corre con el motor del agente (o con Claude Code si su motor no está) y '
+           'solo escribe dentro de skills/ de su cerebro, más una nota en su bandeja cuando propone una skill nueva. '
+           'Las sesiones muy cortas no se revisan y, como mucho, corre una vez cada dos horas por cerebro.\n'
+           '\n'
+           'Queda anotado en su agent.json ("skill_review"). Si un agente no dice nada, manda el ajuste '
+           'global hooks.skill_review, que viene apagado.'),
  'toggle': _t('addagent.impact.toggle', 'Las skills amplían los procedimientos que el agente puede consultar para resolver tareas. '
            'Obtenerlas no equivale a ejecutarlas durante la creación ni a cargar todo su contenido en cada '
            'conversación: el catálogo permite localizar las relevantes cuando hacen falta.\n'
@@ -519,6 +595,8 @@ def overview_sections(S, api):
                 (_t('addagent.ov.f.review', 'Revisión'), _t('addagent.ov.review_val', 'estática · hashes, rutas, textos, recursos y licencia'))]),
         (_t('addagent.ov.sec.setup', 'SETUP · ESTRUCTURA DEL CEREBRO'), [(_t('addagent.ov.f.engine', 'Motor'), S.get('engine_id') or 'claude-code'),
              (_t('addagent.ov.f.identity', 'Identidad'), _t('addagent.ov.identity_ai', 'redacción con IA') if S.get('personalize') else _t('addagent.ov.identity_tpl', 'plantilla local')),
+             (_t('addagent.ov.f.perms', 'Permisos'), _t('addagent.ov.perms_brain', 'libre en su cerebro; lo demás te lo pregunta') if S.get('brain_free', True) else _t('addagent.ov.perms_ask', 'te pregunta antes de escribir, también en su cerebro')),
+             (_t('addagent.ov.f.skillreview', 'Revisión de skills al cerrar'), _onoff(S.get('skill_review'))),
              (_t('addagent.ov.f.dest', 'Destino'), api._ruta_corta(api.agent_admin.default_brain_dest(values.get('nombre') or 'agente')))]
              + [(_t('addagent.ov.f.structure', 'Estructura'), line) for line in structure]
              + [(_t('addagent.ov.f.atcreate', 'Al crear'), _t('addagent.ov.atcreate_val', 'identidad portable + registro + tema + hooks/statusline + launcher')),
@@ -537,8 +615,6 @@ def overview_detail(S, api):
         result += ['%s: %s' % pair for pair in fields]
     result += [_t('addagent.ov.not_installed', 'Las skills propuestas todavía no están instaladas. Las alertas quedan pendientes.')]
     return result
-
-
 
 
 class _MapCanvas:
@@ -660,82 +736,3 @@ def onboarding(S):
 
 
 
-def plan_screen(S, api, K, w, avail):
-    width = w - 2
-    stacked = width < 84
-    # Reservar el panorama incluso en terminal pequeña; el menú se desplaza.
-    bottom = max(17, min(36, avail - 23)) if avail >= 28 else 6
-    top = avail - bottom - 1
-    if stacked:
-        top = max(8, top)
-        bottom = max(6, avail - top - 1)
-    menu = rows(S, api)
-    cursor = min(S.get('option_cursor', 0), len(menu) - 1)
-    S['option_cursor'] = cursor
-    roomy = top >= 22 and not stacked
-    if stacked:
-        left_h = max(4, top * 55 // 100)
-        right_h = top - left_h
-        lw = rw = width
-        content = left_h - 2
-    else:
-        lw = min(60, max(38, width * 40 // 100))
-        rw = width - lw - 2
-        left_h = right_h = top
-        content = top - 2
-    groups={0: _t('addagent.group.motor_identity', 'motor e identidad'),2: _t('addagent.group.procedures', 'procedimientos'),5: _t('addagent.group.info', 'información'),8: _t('addagent.group.create', 'crear')} if S['view']=='plan' else {0: _t('addagent.group.brain_views', 'vistas del cerebro')}
-    structured=[]; anchors={}
-    for i,(_,label) in enumerate(menu):
-        if i in groups:
-            if structured: structured.append('')
-            title=groups[i]
-            structured.append(K['DIM']+title+' '+('─'*max(0,lw-6-api.HL.vis(title)))+K['R'])
-        anchors[i]=len(structured)
-        prefix='%s %02d  ' % ('›' if i==cursor and not S.get('map_focus') else ' ',i+1)
-        ink=K['C']+K['BO'] if i==cursor and not S.get('map_focus') else K['WH']
-        structured.append(ink+prefix+api.HL.clip(label,max(1,lw-4-api.HL.vis(prefix)))+K['R'])
-    # Scroll by rows (headers and whitespace count) so focus is never hidden.
-    start=max(0,min(anchors[cursor]-content//2,len(structured)-content))
-    controls=structured[start:start+content]
-    explored, remaining = onboarding(S)
-    left_title=_t('addagent.plan.title_brain', 'VISTAS DEL CEREBRO') if S['view']=='brain' else _t('addagent.plan.title_config', 'CONFIGURA · PASO 2/4')
-    left=api.HL.full_box(left_title,controls,K,lw,left_h-2,True,border=K['C'])
-    action = menu[cursor][0]
-    if S['view'] == 'brain' or S.get('map_focus'):
-        route = action.split(':',1)[1] if action.startswith('route:') else S.get('brain_route','setup')
-        S['brain_route'] = route
-        heading, lead, explanation = brain_view.routes()[route][:3]
-        enter = _t('addagent.plan.enter_reconfig', 'Volver a configurar') if S.get('map_focus') else (_t('addagent.nav.back_plan', 'Volver al plan') if action == 'back' else _t('addagent.plan.enter_view_route', 'Ver esta ruta'))
-    else:
-        heading, lead, explanation, enter = _plan_guide()[action]
-    center = lambda text: ' ' * max(0,(rw-4-api.HL.vis(text))//2) + text
-    viewing=S['view']=='brain' or S.get('map_focus')
-    value=brain_view.routes()[S.get('brain_route','setup')][0] if viewing else menu[cursor][1]
-    impact=explanation+"\n\n"+_plan_explanations().get(action, "")
-    if viewing:
-        impact=_route_explanations().get(S.get("brain_route","setup"),lead)
-    def divider(label):
-        return K['DIM']+'─ '+label+K['R']
-    right=[K['C']+K['BO']+heading+K['R'],'',divider(_t('addagent.plan.div_choice', 'tu elección')),
-           K['WH']+K['BO']+api.HL.clip(value,rw-4)+K['R'],'',divider(_t('addagent.plan.div_change', 'qué cambia'))]
-    for paragraph in impact.split('\n\n'):
-        if right[-1] != divider(_t('addagent.plan.div_change', 'qué cambia')): right.append('')
-        right += [K['WH']+part+K['R'] for part in api._wrap(paragraph,max(8,rw-6))]
-    if viewing:
-        right += [K['DIM']+part+K['R'] for part in api._wrap(explanation,max(8,rw-6))]
-        if S.get('map_focus'):
-            right += ['',K['DIM']+_t('addagent.plan.map_hint', '←→ cambia vista · sólo información')+K['R']]
-    right += ['',divider(_t('addagent.plan.div_next', 'siguiente paso')),K['OK']+K['BO']+_t('addagent.plan.enter_prefix', 'ENTER · ')+enter+K['R']]
-    # ←→ recorre explicación conservando el título de la elección.
-    capacity = right_h - 2
-    offset = min(S.get('detail_scroll', 0), max(0, len(right) - capacity))
-    S['detail_scroll'] = offset
-    detail = api.HL.full_box(_t('addagent.plan.box_title', 'COMPRENDE TU ELECCIÓN'), [right[0]] + right[1 + offset:1 + offset + capacity - 1], K, rw, capacity, border=K['B2'], label=K['B'] + K['BO'])
-    result = []
-    if stacked:
-        result = [' ' + line for line in left + detail]
-    else:
-        result = [' ' + api.HL.pad(a, lw) + '  ' + b for a, b in zip(left, detail)]
-    result += ['']
-    result += [' ' + line for line in overview_panel(S, api, K, width, bottom)]
-    return result[:avail]

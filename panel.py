@@ -204,6 +204,9 @@ def _resolve_brain(agent):
 
 def _identity(agent, brain):
     """{display, emoji, color(256), tagline} — best-effort."""
+    # el color por defecto (ACC) es el ACENTO DEL TEMA: resolverlo antes de
+    # leerlo (se llama antes del 1er render; sin esto quedaba el dorado fijo)
+    _apply_theme()
     ident = {"display": (agent or _t("panel.agent", "agente")).capitalize(),
              "emoji": "",
              "tagline": "", "col": ACC}
@@ -692,7 +695,7 @@ def _view_config(ctx, w, h):
     out = _title("config", w, GREY + _t("panel.cfg.ro", "solo lectura") + R)
     for lbl, val in rows:
         out.append(LM + MID + lbl.ljust(10) + R + " " + val)
-    out += ["", LM + FAINT + _t("panel.cfg.edit", "┈ se edita en workspace config / agent.json") + R]
+    out += ["", LM + FAINT + _t("panel.cfg.edit", "┈ se cambia con: python3 settings.py set <clave> <valor>") + R]
     return out
 
 
@@ -710,8 +713,8 @@ def _view_delegar(ctx, w, h):
     try:
         import dispatch
         reg = dispatch.load_registry() if hasattr(dispatch, "load_registry") else {}
-        # SSOT: visible_agents() descuenta los de SISTEMA (doctor) — no tiene
-        # sentido delegar una tarea por el bus al Workspace Doctor.
+        # SSOT: visible_agents() descuenta los internos (filtro heredado de
+        # SYSTEM_AGENTS) — no tiene sentido delegarles una tarea por el bus.
         for a in dispatch.visible_agents(reg):
             nm = _safe(a.get("name"))
             if nm and nm.lower() != (ctx.agent or ""):

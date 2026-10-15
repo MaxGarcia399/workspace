@@ -19,7 +19,7 @@ Agente = identidad + cerebro + motor
 - Le da a cada agente su memoria al arrancar, para que no empiece de cero cada vez.
 - Te deja **cambiar de motor** sin rehacer al agente.
 - Se **revisa y repara solo** (`workspace doctor`) y se **actualiza solo**.
-- Herramientas alrededor: calendario, tono de los agentes, atajos.
+- Herramientas alrededor: calendario y tono de los agentes.
 
 ## Qué NO hace
 

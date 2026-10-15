@@ -42,7 +42,7 @@ STRINGS = {
     'cli.repo.no_remote': 'sin remote configurado — nada que jalar',
     'cli.repo.no_upstream': "la rama '{branch}' no rastrea a origin",
     'cli.repo.not_git': 'no es repo git (instalación por sync) — sin auto-update',
-    'cli.repo.obsidian': 'gestionado por Obsidian Sync (sin git)',
+    "cli.repo.obsidian": "carpeta local (no se actualiza por git)",
     'cli.repo.offline': 'sin conexión con origin (¿offline?) — se queda como está',
     'cli.repo.pull_failed': 'pull falló',
     'cli.repo.updated_to': 'actualizado a',

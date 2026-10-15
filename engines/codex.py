@@ -27,8 +27,15 @@ con `-`. NADA inventado.
 
 Seguridad / sandbox (🔴 REVISA ARGUS): por default lo más CONTENIDO que corre —
 headless = `read-only` (solo lecturas); interactivo = `workspace-write`
-(escribe solo dentro del cerebro, red restringida, approvals OnRequest). Nunca
-`--dangerously-bypass-*`. Override por `engine_config.sandbox` en agent.json.
+(escribe solo dentro del cerebro). La AUTONOMÍA del agente (agent.json
+"autonomy", contrato común) decide las aprobaciones — VERIFICADO con codex
+0.162 en un cerebro de prueba:
+  · brain (default): `-s workspace-write -a on-request -c sandbox_workspace_
+    write.network_access=false` → lee/crea/edita en el cerebro sin preguntar;
+    escribir fuera o usar la red pide permiso.
+  · full: `-s workspace-write -a never` → además no pregunta por comandos;
+    sigue DENTRO del sandbox (fuera del cerebro y la red siguen bloqueados).
+Nunca `--dangerously-bypass-*`. Override por `engine_config.sandbox`.
 
 MODELO (fix de prod): con login ChatGPT, codex AUTO-ELIGE el modelo que la
 cuenta soporta (hoy `gpt-5.6-sol`) y RECHAZA con 400 cualquier `-m` ajeno
@@ -42,6 +49,7 @@ import calendar
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -61,14 +69,23 @@ CAPABILITIES = {
     "launch": "wrapper",          # TUI oficial envuelto en el ciclo neutral
     "inject_context": "project-doc",  # AGENTS.md puntero → doc de identidad
     "mcp": True,                  # codex soporta MCP servers (config propia)
-    "hooks": False,               # sin hook-system expuesto
+    # Avisos de sesión: SOLO inicio y cierre, los emite el wrapper de
+    # Workspace (interactive.run_official_cli_interactive → neutral_hooks:
+    # journal, skill review, backup de transcript). Codex 0.162 SÍ trae hooks
+    # nativos (SessionStart/UserPromptSubmit/Stop/SessionEnd — verificado,
+    # requieren confianza por hash), pero NO se cablean: dispararían doble
+    # junto al session_end del wrapper. Sin eventos por herramienta.
+    "hooks": "wrapper",
     "sessions": "workspace",        # pestañas del registro NEUTRAL (sessions_
                                   # registry) + resume con `codex resume <id>`
                                   # (binding post-hoc del session_id del rollout)
-    "status_live": False,         # sin now.json desde dentro (sin hooks)
-    "statusline": "native-config",  # barra nativa configurada por corrida
-                                    # (-c tui.status_line; VERIFICADO 0.160)
-    "headless": True,             # run_turn (codex exec, verificado v0.144)
+    "status_live": False,         # sin now.json desde dentro (sin hooks por turno)
+    "statusline": "native-config",  # UNA barra: la nativa, configurada por
+                                    # corrida (-c tui.status_line; VERIFICADO
+                                    # 0.162). El pie tmux de Workspace es opt-in.
+                                    # Tema: $CODEX_HOME/themes/workspace-
+                                    # <agente>.tmTheme (-c tui.theme).
+    "headless": True,            # run_turn (codex exec, verificado v0.144)
 }
 
 BINARY = "codex"
@@ -89,6 +106,18 @@ _FULL_ACCESS_ENV = "WORKSPACE_CODEX_ALLOW_FULL_ACCESS"
 #: default de codex (podría cambiar). `on-request` = el modelo pide aprobación
 #: cuando toca algo sensible. El socio puede pasar su propio `-a` (gana).
 APPROVAL_POLICY = "on-request"
+#: Aprobaciones por autonomía del agente (contrato común; ver docstring).
+#: `never` NO apaga el sandbox: fuera del cerebro y la red siguen bloqueados,
+#: solo deja de preguntar (lo que el sandbox no permite, falla).
+APPROVAL_BY_AUTONOMY = {"ask": APPROVAL_POLICY, "brain": APPROVAL_POLICY}
+#: Sandbox por autonomía cuando el agent.json no fija uno (engine_config.sandbox
+#: gana): "ask" = solo lectura + on-request → Codex pide aprobación antes de
+#: editar o correr algo (su preset «Read Only»).
+SANDBOX_BY_AUTONOMY = {"ask": "read-only"}
+#: Red EXPLÍCITAMENTE apagada en brain (no depender del default de codex ni de
+#: un config.toml que la haya prendido). El socio puede pasar su propio -c.
+NETWORK_KEY = "sandbox_workspace_write.network_access"
+NETWORK_OFF = NETWORK_KEY + "=false"
 
 #: Cache corto de session_active — no spamear `codex login status` por tick.
 _SESSION_TTL = 30.0
@@ -114,6 +143,15 @@ def _exe(override=None):
     return override or None
 
 
+# La verificación de sesión corre el programa oficial DESPEGADO de la
+# terminal: sin stdin y, en Mac/Linux, en su propia sesión (sin terminal de
+# control). Si hereda la terminal, al salir la deja en modo normal y la
+# pantalla que lo llamó (Motores, el hub) se queda sin teclado.
+_DETACHED = {"stdin": subprocess.DEVNULL}
+if os.name != "nt":
+    _DETACHED["start_new_session"] = True
+
+
 def session_active(exe_override=None, runner=None):
     """¿Hay sesión de codex ACTIVA (login del socio)? Vía `codex login status`
     — rápido, sin red pesada, y JAMÁS toca el token/auth.json. Cache 30s (se
@@ -132,7 +170,7 @@ def session_active(exe_override=None, runner=None):
             else:
                 r = subprocess.run([exe, "login", "status"],
                                    capture_output=True, text=True, timeout=15,
-                                   encoding="utf-8", errors="replace")
+                                   encoding="utf-8", errors="replace", **_DETACHED)
             out = ((getattr(r, "stdout", "") or "")
                    + (getattr(r, "stderr", "") or "")).lower()
             # Negar ANTES de afirmar: «not logged in» contiene «logged in»
@@ -287,46 +325,52 @@ def run_turn(prompt, *, model=None, cwd=None, timeout=120, sandbox=None,
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Statusline — la info de abajo estilo Claude Code (capability `status` §3)
+# Statusline — UNA sola barra: la NATIVA de codex (plan motores 2026-10-13)
 # ═══════════════════════════════════════════════════════════════════════════
-# Codex 0.160.0 SÍ trae un status line configurable — VERIFICADO contra su
-# fuente real (codex-rs/tui/src/bottom_pane/status_line_setup.rs, mismo tag
-# que el binario instalado): `[tui] status_line = [<ids kebab-case>]`, con
-# items nativos para TODO lo medible: `context-remaining`/`context-used` (%
-# de contexto), `five-hour-limit` (límite primario ≈ "uso sesión"),
-# `weekly-limit` (límite secundario ≈ "uso semanal"), `model`, `permissions`
-# (sandbox activo), `approval-mode`, `git-branch`, `used-tokens`, etc. Los
-# datos de límites salen de la cuenta ChatGPT del socio vía el propio codex
-# (RateLimitWindow: used_percent/resets_at) — WORKSPACE no fabrica números.
+# Codex trae un status line configurable — `[tui] status_line = [<ids>]` —
+# con items nativos para lo medible: `model-with-reasoning`, `context-
+# remaining`, `five-hour-limit` (límite primario), `weekly-limit` (semanal),
+# `project-name`… (VERIFICADO 0.162 en una pty). Los datos de límites salen
+# de la cuenta ChatGPT del socio vía el propio codex — WORKSPACE no fabrica
+# números. El item `permissions` NO va: codex lo rotula «Workspace» (su nombre
+# para workspace-write) y se confundía con el producto.
 #
 # El adapter lo activa con un override POR CORRIDA (`-c 'tui.status_line=
 # […]'`) — jamás escribe la preferencia persistida del socio. Precedencia:
 #   1. el socio ya fijó su status line (config.toml `[tui] status_line`, o
 #      un -c propio en el comando) → WORKSPACE no agrega nada (lo suyo gana);
 #   2. engine_config.status_line (lista de ids) en agent.json → esa;
-#   3. default de WORKSPACE (espejo de la barra de Claude Code).
-# Opt-out total: WORKSPACE_CODEX_NO_STATUSLINE=1 (queda la barra nativa).
+#   3. default de WORKSPACE (abajo).
+# Opt-out total: WORKSPACE_CODEX_NO_STATUSLINE=1 (queda la barra de codex).
+# El pie tmux de Workspace (codex_status) es OPT-IN (WORKSPACE_CODEX_LIVE_BAR
+# =1); cuando de verdad corre, apaga la nativa en esa corrida → una barra.
 #
-# LÍMITES HONESTOS (lo que codex NO expone como item): el nombre del AGENTE
-# como texto libre (lo más cercano: `project-name` = carpeta del cerebro),
-# el "brain vX" de WORKSPACE, el tiempo "activa Xm" y el costo $ en cuentas
-# no-Enterprise (`estimated-thread-cost` se omite solo). Sin hook-system ni
-# item custom, eso no se puede inyectar en SU barra — queda para la vista
-# del hub (pestañas/now.json). El launch añade codex_status: una barra
-# de Workspace vía tmux con reinicios/uptime; no modifica el binario ni su TUI.
+# Colores: los pinta el TEMA de codex (`tui.theme`): modelo = scope
+# `entity.name.type`, contexto = `constant.numeric`, límites =
+# `keyword.operator`, permisos = `storage.modifier`, proyecto = `string`
+# (VERIFICADO por códigos de escape con .tmTheme de prueba; codex ajusta el
+# contraste contra el fondo de la terminal y, si el tema no define el scope,
+# cae al verde ANSI). `project-name` solo aparece si el cerebro es un repo
+# git. Ver _theme_args / theme_render (engine-codex).
+#
+# Nombre del AGENTE: codex no acepta texto libre en su barra ni en su título
+# (`tui.terminal_title` solo toma ids). Por eso WORKSPACE apaga el título de
+# codex (`-c tui.terminal_title=[]`, verificado: deja de emitir OSC 0) y pone
+# el suyo «<Agente> · Codex» antes de lanzar; se limpia al salir.
 
 #: Items default (ids kebab-case REALES del enum StatusLineItem de codex).
-STATUS_LINE_DEFAULT = ("model", "context-remaining", "five-hour-limit",
-                       "weekly-limit", "permissions", "approval-mode")
+STATUS_LINE_DEFAULT = ("model-with-reasoning", "context-remaining",
+                       "five-hour-limit", "weekly-limit", "project-name")
 _NO_STATUSLINE_ENV = "WORKSPACE_CODEX_NO_STATUSLINE"
 #: Saneo de ids (van DENTRO de un literal TOML que armamos): solo kebab-case.
 _SL_ID_RX = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
 
 
-def _user_has_status_line():
-    """¿El socio ya fijó `status_line` en el `[tui]` de su config.toml de
-    codex? (su elección persistida de /statusline — se respeta). Lectura de
-    texto, sin parser TOML (stdlib 3.9). Falla-suave → False."""
+def _user_tui_key(name):
+    """¿El socio ya fijó `[tui] <name>` en su config.toml de codex (o
+    `tui.<name> = …` con clave punteada en la raíz)? Su elección persistida
+    se respeta. Lectura de texto, sin parser TOML (stdlib 3.9). Falla-suave
+    → False."""
     try:
         with open(_codex_config_path(), encoding="utf-8",
                   errors="replace") as fh:
@@ -334,11 +378,27 @@ def _user_has_status_line():
             for ln in fh:
                 s = ln.strip()
                 if s.startswith("[") and s.endswith("]"):
-                    section = s
-                elif section == "[tui]" and re.match(r"^status_line\s*=", s):
+                    section = s.replace(" ", "")
+                elif section == "[tui]" and re.match(r"^%s\s*=" % re.escape(name), s):
+                    return True
+                elif section == "" and re.match(r"^tui\.%s\s*=" % re.escape(name), s):
                     return True
     except Exception:
         pass
+    return False
+
+
+def _user_has_status_line():
+    """Compat: ¿el socio fijó `[tui] status_line`?"""
+    return _user_tui_key("status_line")
+
+
+def _has_override(passthrough, key):
+    """¿El socio trae su propio `-c <key>=…` en el comando? (gana)."""
+    for a in passthrough or []:
+        s = str(a).replace(" ", "")
+        if s.startswith(key + "=") or s.startswith("-c" + key + "="):
+            return True
     return False
 
 
@@ -348,11 +408,8 @@ def _status_line_args(cfg, passthrough):
     de un literal TOML construido aquí — un agent.json raro no inyecta)."""
     if os.environ.get(_NO_STATUSLINE_ENV, "").strip():
         return []
-    for a in passthrough or []:
-        # el socio trae su propio override de status line en el comando
-        if str(a).replace(" ", "").startswith(("tui.status_line=",
-                                               "-ctui.status_line=")):
-            return []
+    if _has_override(passthrough, "tui.status_line"):
+        return []
     if _user_has_status_line():
         return []
     ec = (cfg or {}).get("engine_config") or {}
@@ -366,11 +423,91 @@ def _status_line_args(cfg, passthrough):
     return ["-c", "tui.status_line=%s" % toml_list]
 
 
+def _terminal_title_args(cfg, passthrough):
+    """`-c tui.terminal_title=[]` (codex deja el título en paz y WORKSPACE
+    pone «<Agente> · Codex»), salvo que el socio ya eligió su título (config
+    o -c propio) o apagó la barra de WORKSPACE."""
+    if os.environ.get(_NO_STATUSLINE_ENV, "").strip():
+        return []
+    if _has_override(passthrough, "tui.terminal_title") \
+            or _user_tui_key("terminal_title"):
+        return []
+    return ["-c", "tui.terminal_title=[]"]
+
+
+def _theme_key(cfg):
+    """Clave del tema in-app del agente — la MISMA que usa dispatch para
+    sincronizarlo (`theme` del agent.json, o su nombre)."""
+    return str((cfg or {}).get("theme") or (cfg or {}).get("name") or "")
+
+
+def _theme_args(cfg, passthrough):
+    """`-c tui.theme="workspace-<agente>"` — el .tmTheme que theme_render
+    genera desde la paleta del hub en $CODEX_HOME/themes/. Solo si el socio
+    NO fijó `tui.theme` (config.toml o -c propio) y el archivo existe (un
+    nombre sin archivo hace que codex avise y caiga a su default). Un tema
+    editado a mano se respeta: se sigue usando, no se pisa."""
+    if _has_override(passthrough, "tui.theme") or _user_tui_key("theme"):
+        return []
+    try:
+        import theme_render
+        name = theme_render.codex_theme_name(_theme_key(cfg))
+        path = theme_render.codex_theme_path(name) if name else None
+        if not path or not os.path.isfile(path):
+            return []
+        return ["-c", 'tui.theme="%s"' % name]
+    except Exception:
+        return []
+
+
+def _autonomy(cfg):
+    try:
+        from engines import _ui
+        return _ui.autonomy(cfg)
+    except Exception:
+        return "brain"
+
+
+def _t(key, es, en=None, **kw):
+    try:
+        import workspace_status
+        return workspace_status.t(key, es, en, **kw)
+    except Exception:
+        return es
+
+
+def _interactive_sandbox(cfg):
+    """Sandbox de la sesión interactiva: el de engine_config.sandbox si el
+    agent.json fija uno; si no, el de su autonomía ("ask" → read-only) o el
+    default (workspace-write)."""
+    return _sandbox(cfg, SANDBOX_BY_AUTONOMY.get(_autonomy(cfg), SANDBOX_INTERACTIVE))
+
+
+def _autonomy_text(auto):
+    """Qué significa la autonomía del agente EN CODEX, en una línea."""
+    if auto == "ask":
+        return _t("motorbar.codex.ask",
+                  "ask — pregunta antes de editar en el cerebro o correr "
+                  "comandos (sandbox de solo lectura)",
+                  "ask — asks before editing in the brain or running "
+                  "commands (read-only sandbox)")
+    return _t("motorbar.codex.brain",
+              "brain — edita en el cerebro sin preguntar; fuera del cerebro, "
+              "la red y lo sensible piden permiso",
+              "brain — edits in the brain without asking; outside the brain, "
+              "network and sensitive steps ask first")
+
+
 def _interactive_argv(cfg, passthrough, resume_sid="", first_prompt=""):
     """argv DESPUÉS de `codex` para la sesión interactiva: -s <sandbox>,
-    -a <approval> (anclado por WORKSPACE), -m <model> (si el socio no lo pasó
-    explícito), -c tui.status_line=… (info de abajo estilo Claude Code) +
-    passthrough del socio.
+    -a <approval> + red según la AUTONOMÍA del agente (anclado por
+    WORKSPACE), -m <model> (si el socio no lo pasó explícito), la barra
+    nativa (-c tui.status_line=…), el título y el tema + passthrough.
+
+    Autonomía (agent.json "autonomy"; falta = brain):
+      · ask   → `-s read-only -a on-request` (pide aprobación para editar)
+      · brain → `-a on-request -c sandbox_workspace_write.network_access=false`
+    Lo que el socio pase (-a, -c de red) gana siempre.
 
     Pestañas (registro neutral — sessions_registry):
       · `resume_sid` → la sesión se REANUDA: `codex resume <id> [flags]`
@@ -378,8 +515,7 @@ def _interactive_argv(cfg, passthrough, resume_sid="", first_prompt=""):
         y SIN prompt de arranque (la conversación ya tiene el contexto).
       · `first_prompt` → pestaña nueva en un harness sin hooks: el arranque
         + la memoria de ESA pestaña van como primer prompt (paridad honesta
-        con el hook SessionStart de Claude Code).
-    Sin estos kwargs el comportamiento es EXACTAMENTE el histórico."""
+        con el hook SessionStart de Claude Code)."""
     argv = []
     pt = list(passthrough or [])
     resume_sid = str(resume_sid or "").strip()
@@ -387,20 +523,26 @@ def _interactive_argv(cfg, passthrough, resume_sid="", first_prompt=""):
     # passthrough, WORKSPACE no mete el suyo.
     if resume_sid and not any(str(a) in ("resume", "fork") for a in pt):
         argv += ["resume", resume_sid]
-    sb = _sandbox(cfg, SANDBOX_INTERACTIVE)
+    auto = _autonomy(cfg)
+    sb = _interactive_sandbox(cfg)
     argv += ["-s", sb]
     # L1: anclar la política de aprobación (no depender del default de codex).
     # Si el socio pasó su propio -a/--ask-for-approval, gana (no se duplica).
     has_appr = any(str(a) in ("-a", "--ask-for-approval")
                    or str(a).startswith("--ask-for-approval=") for a in pt)
     if not has_appr:
-        argv += ["-a", APPROVAL_POLICY]
+        argv += ["-a", APPROVAL_BY_AUTONOMY.get(auto, APPROVAL_POLICY)]
+    if auto == "brain" and sb == "workspace-write" \
+            and not _has_override(pt, NETWORK_KEY):
+        argv += ["-c", NETWORK_OFF]
     has_model = any(str(a) in ("-m", "--model") or str(a).startswith("--model=")
                     for a in pt)
     model = _resolve_model(cfg)
     if model and not has_model:
         argv += ["-m", model]
     argv += _status_line_args(cfg, pt)
+    argv += _terminal_title_args(cfg, pt)
+    argv += _theme_args(cfg, pt)
     # A bare hub launch starts boot immediately. Explicit prompts, flags and
     # resume/fork commands remain owned by the caller. Al REANUDAR no se
     # inyecta prompt (el hilo ya está en contexto; el socio sigue donde iba).
@@ -435,22 +577,33 @@ def _sessions_root():
     return os.path.join(home, "sessions")
 
 
-def _recent_rollouts(root, limit=_RL_FILES):
-    """Los rollouts más recientes, más nuevos primero. El nombre del archivo
-    EMBEBE su timestamp (rollout-YYYY-MM-DDThh-mm-ss-…) y los dirs son
-    YYYY/MM/DD → ordenar strings al revés = cronología inversa, sin stat."""
-    out = []
+def _recent_rollouts(root, limit=_RL_FILES, max_files=20000):
+    """Los rollouts MODIFICADOS más recientemente, más nuevos primero (por
+    mtime). Antes se ordenaba por NOMBRE (= fecha de CREACIÓN): una sesión
+    vieja reanudada hoy —la que de verdad trae los límites frescos— quedaba
+    al fondo y el pie mostraba datos de días atrás. Acotado (`max_files`) y
+    falla-suave."""
+    found = []
     try:
+        seen = 0
         for base, dirs, files in os.walk(root):
-            dirs.sort(reverse=True)
-            out.extend(os.path.join(base, f)
-                       for f in sorted(files, reverse=True)
-                       if f.endswith(".jsonl"))
-            if len(out) >= limit:
+            for f in files:
+                if not f.endswith(".jsonl"):
+                    continue
+                p = os.path.join(base, f)
+                try:
+                    found.append((os.path.getmtime(p), p))
+                except OSError:
+                    continue
+                seen += 1
+                if seen >= max_files:
+                    break
+            if seen >= max_files:
                 break
     except Exception:
         pass
-    return out[:limit]
+    found.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    return [p for _m, p in found[:limit]]
 
 
 def _last_rate_limits(path):
@@ -898,7 +1051,7 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
     lanza: imprime el wiring + chequeos."""
     brain = cfg.get("_brain", "")
     model = _resolve_model(cfg)
-    sandbox = _sandbox(cfg, SANDBOX_INTERACTIVE)
+    sandbox = _interactive_sandbox(cfg)
     exe = _exe()
     active = session_active() if exe else False
 
@@ -913,7 +1066,11 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
         print("  modelo      : %s" % (model or "(el default de codex)"))
         print("  sandbox     : %s (interactivo; headless one-shot = %s)"
               % (sandbox, SANDBOX_HEADLESS))
-        print("  approval    : %s (anclado por WORKSPACE)" % APPROVAL_POLICY)
+        auto = _autonomy(cfg)
+        print("  %s: %s" % (_t("motorbar.plan.autonomy", "autonomía   ",
+                                "autonomy    "), _autonomy_text(auto)))
+        print("  approval    : %s (anclado por WORKSPACE)"
+              % APPROVAL_BY_AUTONOMY.get(auto, APPROVAL_POLICY))
         if sandbox == _SANDBOX_FULL:
             print("  !! FULL-ACCESS: sandbox APAGADO (disco+red, sin approvals) "
                   "— opt-in por %s (N3)." % _FULL_ACCESS_ENV)
@@ -932,6 +1089,15 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
               % (("-c %s  (por corrida; su /statusline persistido gana; "
                   "opt-out %s)" % (sl[1], _NO_STATUSLINE_ENV)) if sl
                  else "la del socio / nativa (sin override de WORKSPACE)"))
+        print("  %s: %s" % (_t("motorbar.plan.footer", "pie tmux    ",
+                                "tmux footer "),
+                           _t("motorbar.plan.footer_optin",
+                              "apagado (opt-in WORKSPACE_CODEX_LIVE_BAR=1; si "
+                              "corre, apaga la barra nativa: una sola barra)",
+                              "off (opt-in WORKSPACE_CODEX_LIVE_BAR=1; when it "
+                              "runs it hides the native bar: one bar only)")))
+        print("  argv        : codex %s" % " ".join(
+            shlex.quote(str(a)) for a in _interactive_argv(cfg, passthrough)))
         print("  flujo       : inject_context → trust → banner → "
               "interactive.run_official_cli_interactive('codex') → codex -s "
               "%s%s (TUI en el cerebro)"
@@ -1076,8 +1242,28 @@ def _launch_selected(cfg, passthrough, brain, agent, tab, resume_sid, session_bl
         except Exception:
             pass
 
+    # Tema in-app desde la paleta del hub (dispatch ya lo sincroniza; esto
+    # cubre un launch directo). Idempotente; lo editado a mano no se pisa.
+    try:
+        import theme_render
+        theme_render.sync_engine_theme("codex", _theme_key(cfg),
+                                       display=cfg.get("display"))
+    except Exception:
+        pass
+
     argv = _interactive_argv(cfg, passthrough, resume_sid=resume_sid,
                              first_prompt=first_prompt)
+
+    # Nombre del agente en el TÍTULO de la terminal (codex no acepta texto
+    # libre ahí): solo si WORKSPACE apagó el título de codex en este argv.
+    own_title = "tui.terminal_title=[]" in argv
+    if own_title:
+        try:
+            from engines import _ui
+            _ui.set_title("%s · Codex" % (cfg.get("display") or cfg.get("name")
+                                          or "Workspace"))
+        except Exception:
+            own_title = False
 
     _doc_dirty = []       # ¿quedó contexto de corrida en el AGENTS.md?
 
@@ -1111,6 +1297,13 @@ def _launch_selected(cfg, passthrough, brain, agent, tab, resume_sid, session_bl
         print("WORKSPACE: no pude lanzar codex interactivo (%s: %s)"
               % (type(e).__name__, e))
         sys.exit(1)
+    finally:
+        if own_title:
+            try:
+                from engines import _ui
+                _ui.clear_title()
+            except Exception:
+                pass
     # Limpieza (session_end): el bloque de sesión/contexto del AGENTS.md era
     # de ESTA corrida — doc generado → se restaura el puntero base (sin
     # bloque); doc del socio → se le quita el bloque anexado (strip) y queda
@@ -1141,7 +1334,9 @@ def pick(cfg):
     elección cruda ('WS\\t<wid>\\t<name>') que claude_code.pick — lo usa el
     hub tmux (mux.py). Falla-suave → ''."""
     try:
-        from engines import claude_code as _cc
-        return _cc.pick(cfg)
+        from engines import _ui
+        cfg.setdefault("_engine", "codex")
+        return _ui.pick_keep_label(
+            cfg, "Codex · " + (_resolve_model(cfg) or "auto (cuenta ChatGPT)"))
     except Exception:
         return ""

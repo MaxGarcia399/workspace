@@ -8,11 +8,22 @@ ella por PLANTILLA. Aquí las plantillas viven en `templates/theme/`:
     osc.json.tpl                   fondo/tinta/cursor de la terminal (OSC 10/11/12)
     tui.json.tpl                   bloque `tui` (roles ANSI del recinto)
     web.json.tpl                   `web.tokens` del dev panel
-    engine-<motor>.json.tpl        tema DENTRO del motor (hoy: claude-code)
+    engine-<motor>.json.tpl        tema DENTRO del motor (claude-code, codex)
 
 Agregar un motor = dropear `engine-<motor>.json.tpl` (y anotarlo en ENGINES).
-Codex y Antigravity quedan con el hook VACÍO a propósito: su formato de tema
-in-app no está documentado/verificado — no se inventa (ver ENGINES).
+  · claude-code → ~/.claude/themes/<n>.json (`custom:<n>` en settings).
+  · codex → $CODEX_HOME/themes/workspace-<agente>.tmTheme (plist de
+    TextMate; la plantilla describe sus `settings` en JSON y aquí se
+    serializa con plistlib). VERIFICADO con codex 0.162: un .tmTheme ahí se
+    elige con `-c tui.theme="<nombre>"` y pinta la barra nativa — modelo =
+    `entity.name.type`, contexto = `constant.numeric`, límites =
+    `keyword.operator`, permisos = `storage.modifier`, proyecto = `string` —
+    además del resaltado de código y diffs. Un archivo inválido → codex avisa
+    y usa su default.
+  · antigravity → SIN plantilla in-app: sus `colorScheme` son fijos
+    (terminal/dark/light/…). Con "terminal" (default) su UI usa los colores
+    ANSI básicos, que Workspace recolorea por corrida con OSC 4 (ver
+    ansi_slots) — no se escribe nada en su configuración.
 
 De dónde sale la paleta de un tema (`palette_from_manifest`):
   1. el bloque `palette` de `themes/<id>/theme.json` (ADITIVO, opcional);
@@ -87,8 +98,15 @@ _BASE = {"background": "#121316", "foreground": "#e6e8ee", "accent": "#d2a64b",
 # archivo y dropear la plantilla en templates/theme/.
 ENGINES = {
     "claude-code": "engine-claude-code.json.tpl",   # ~/.claude/themes/<n>.json (custom:<n>)
-    "codex": None,          # sin formato de tema in-app documentado (2026-10)
-    "antigravity": None,    # idem — no se inventa
+    "codex": None,          # sin JSON de Claude Code: su tema va por NATIVE_THEMES
+    "antigravity": None,    # colorScheme fijos → recoloreo ANSI por OSC 4 (ansi_slots)
+}
+#: Motores con tema in-app en SU propio formato (no el JSON de Claude Code
+#: que agent_admin guarda en themes-cc/ — por eso NO van en ENGINES, cuyo
+#: engine_supported() significa justo eso). sync_engine_theme los escribe
+#: donde el motor los lee.
+NATIVE_THEMES = {
+    "codex": "engine-codex.json.tpl",   # → $CODEX_HOME/themes/workspace-<n>.tmTheme
 }
 
 
@@ -270,15 +288,24 @@ def web_tokens(palette):
 
 
 def engine_supported(engine):
-    """¿El motor tiene plantilla de tema in-app (y existe en disco)?"""
+    """¿El motor tiene plantilla de tema in-app al estilo Claude Code (el JSON
+    que va a themes-cc/), y existe en disco? Codex NO cuenta aquí: su tema es
+    un .tmTheme (ver native_theme_supported)."""
     tpl = ENGINES.get(engine or "")
+    return bool(tpl) and os.path.isfile(os.path.join(TEMPLATES_DIR, tpl))
+
+
+def native_theme_supported(engine):
+    """¿El motor tiene tema in-app en SU formato (NATIVE_THEMES) en disco?"""
+    tpl = NATIVE_THEMES.get(engine or "")
     return bool(tpl) and os.path.isfile(os.path.join(TEMPLATES_DIR, tpl))
 
 
 def engine_theme(engine, palette, name):
     """Tema in-app del `engine` para la paleta → dict, o None si el motor no
-    tiene plantilla (codex/antigravity hoy) o el render falla."""
-    if not engine_supported(engine):
+    tiene plantilla (antigravity) o el render falla. Para codex es el dict
+    del .tmTheme (tmtheme_text lo serializa)."""
+    if not (engine_supported(engine) or native_theme_supported(engine)):
         return None
     return _safe("engine-%s" % engine, palette, name=name)
 
@@ -304,12 +331,62 @@ def hub_engine_palette():
         return None
 
 
+def codex_theme_name(key):
+    """Nombre del tema de codex de un agente: `workspace-<agente>` (saneado
+    a [a-z0-9_-]). None si no queda un nombre válido."""
+    k = re.sub(r"[^a-z0-9_-]+", "-", str(key or "").strip().lower()).strip("-_")
+    name = ("workspace-" + k)[:40] if k else ""
+    return name if _ID_RX.match(name) else None
+
+
+def codex_home(home=None):
+    """Carpeta de codex: con `home` explícito (tests/herramientas) →
+    <home>/.codex; si no, $CODEX_HOME si está fijado (lo que codex usa) o
+    ~/.codex."""
+    if home:
+        return os.path.join(home, ".codex")
+    env = (os.environ.get("CODEX_HOME") or "").strip()
+    return env or os.path.join(os.path.expanduser("~"), ".codex")
+
+
+def codex_theme_path(name, home=None):
+    """$CODEX_HOME/themes/<name>.tmTheme (donde codex busca un tema custom)."""
+    if not name or not _ID_RX.match(str(name)):
+        return None
+    return os.path.join(codex_home(home), "themes", "%s.tmTheme" % name)
+
+
+def tmtheme_text(data):
+    """Tema renderizado (dict con name/settings) → texto .tmTheme (plist XML,
+    el formato de TextMate que lee codex). LEVANTA si el dict no sirve."""
+    import plistlib
+    if not isinstance(data, dict) or not isinstance(data.get("settings"), list):
+        raise ValueError("tema de codex sin 'settings'")
+    return plistlib.dumps(data, sort_keys=False).decode("utf-8")
+
+
 def engine_theme_path(engine, name, home=None):
-    """Dónde lee el motor su tema in-app (hoy solo claude-code), o None."""
+    """Dónde lee el motor su tema in-app, o None (motor sin tema in-app)."""
+    if engine == "codex":
+        return codex_theme_path(codex_theme_name(name), home)
     if engine != "claude-code" or not _ID_RX.match(str(name or "")):
         return None
     return os.path.join(home or os.path.expanduser("~"), ".claude", "themes",
                         "%s.json" % name)
+
+
+#: Antigravity con colorScheme "terminal" (su default) pinta con los colores
+#: ANSI básicos de la terminal: 2 (verde: «+» de diffs, modo accept-edits),
+#: 4/12 (azul: acento, «> you», atajos), 8 (gris: bordes, texto tenue) —
+#: VERIFICADO capturando su UI en una pty (agy 1.3.4). Workspace los
+#: recolorea por corrida (OSC 4) y los restaura al salir (OSC 104).
+ANSI_SLOTS = ((2, "success"), (4, "accent"), (8, "muted"), (12, "accent_hi"))
+
+
+def ansi_slots(palette):
+    """[(slot, #hex)] para OSC 4 desde la paleta semántica (completada)."""
+    p = complete(palette or {})
+    return [(n, p[k]) for n, k in ANSI_SLOTS if _hex(p.get(k))]
 
 
 def sync_engine_theme(engine, name, display=None, brain=None, home=None):
@@ -319,16 +396,24 @@ def sync_engine_theme(engine, name, display=None, brain=None, home=None):
     si el settings.local.json del cerebro no nombra ningún tema, le pone
     custom:<name>. Lo HECHO A MANO GANA: un tema editado a mano no se pisa
     (stage_write) y un `theme` que el socio ya puso en settings no se toca.
+    Codex: escribe $CODEX_HOME/themes/workspace-<agente>.tmTheme (el adapter
+    lo elige con -c tui.theme solo si el socio no fijó el suyo).
     Devuelve el resultado de stage_write, o None si no aplica. Jamás levanta."""
     try:
         dst = engine_theme_path(engine, name, home)
-        if not dst or not engine_supported(engine):
+        if not dst or not (engine_supported(engine) or native_theme_supported(engine)):
             return None
         pal = hub_engine_palette()
-        data = engine_theme(engine, pal, display or str(name).capitalize()) if pal else None
+        label = display or str(name).capitalize()
+        if engine == "codex":
+            label = "Workspace · %s" % label
+        data = engine_theme(engine, pal, label) if pal else None
         if data is None:
             return None
-        res = stage_write([(dst, json_text(data), True)], home)
+        text = tmtheme_text(data) if engine == "codex" else json_text(data)
+        res = stage_write([(dst, text, True)], home)
+        if engine != "claude-code":
+            return res
         if brain:
             sp = os.path.join(brain, ".claude", "settings.local.json")
             try:

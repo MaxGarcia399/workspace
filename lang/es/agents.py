@@ -106,13 +106,13 @@ STRINGS = {
     "agents.x.display": "El nombre que ves en el hub, el banner y las pestañas.",
     "agents.x.display.where": "campo display del agent.json",
     "agents.x.display.edit": "Editando agent.json; el hub lo relee al volver.",
-    "agents.x.tagline": "La línea que acompaña al agente en el altar del hub.",
+    "agents.x.tagline": "La línea que acompaña al agente en el hub.",
     "agents.x.tagline.where": "campo tagline del agent.json",
     "agents.x.tagline.edit": "Editando agent.json.",
     "agents.x.engine": "El programa que conversa con el modelo usando este cerebro (claude-code, codex, antigravity…). El cerebro no cambia al cambiar de motor: es la misma carpeta leída por otro programa.",
     "agents.x.engine.where": "agent.json → engine, salvo override per-máquina en settings agentes.<nombre>.engine (harnesses.binding).",
     "agents.x.engine.effect": "Decide qué CLI lanza dispatch y qué adaptador de hooks se usa (Claude Code: workspace_hook.py; los demás: neutral_hooks vía interactive.py).",
-    "agents.x.engine.edit": "Tecla m en el hub sobre el agente (se guarda per-máquina); --engine <motor> para una sola corrida.",
+    "agents.x.engine.edit": "← → en el hub sobre el agente (se guarda per-máquina); --engine <motor> para una sola corrida.",
     "agents.x.model": "Modelo fijado para este agente. Vacío = el motor elige.",
     "agents.x.model.where": "settings agentes.<nombre>.model (per-máquina).",
     "agents.x.model.effect": "Claude Code recibe --model <valor> al lanzar (engines/claude_code.model_args); un --model explícito o ANTHROPIC_MODEL ganan.",
@@ -451,4 +451,16 @@ STRINGS.update({
     "agentes.mg.removed": "{n} quitado del registro · cerebro y sesiones "
                           "intactos en {p}",
     "agentes.add_unavail": "agregar agente no disponible ({e})",
+    "agentes.mg.no_brain": "no encuentro su cerebro",
+    "agentes.mg.no_def": "no pude escribir su .workspace/agent.json",
+    "agentes.mg.perm_fail": "guardé la preferencia, pero no pude ajustar los permisos de "
+                            "Claude Code ({e}) — corre `workspace doctor`",
+    "agentes.mg.bad_level": "nivel desconocido: {v}",
+    "agentes.mg.auto_ask": "{n} preguntará antes de escribir en su cerebro · desde su "
+                           "próxima sesión",
+    "agentes.mg.auto_brain": "{n} lee y escribe en su cerebro sin preguntar · desde su "
+                             "próxima sesión",
+    "agentes.mg.review_on": "revisión de skills prendida para {n} · corre al cerrar cada "
+                            "sesión",
+    "agentes.mg.review_off": "revisión de skills apagada para {n}",
 })

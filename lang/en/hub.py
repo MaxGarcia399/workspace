@@ -9,12 +9,10 @@ STRINGS = {
     "menu.cal.tag": "your day's agenda, editable full-screen",
     "menu.tono.label": "Tone",
     "menu.tono.tag": "the personality dials for your agents",
-    "menu.keybinds.label": "Shortcuts",
-    "menu.keybinds.tag": "remap the hub's quick keys",
     "menu.updates.label": "Updates",
     "menu.updates.tag": "check · repair · update",
     "menu.agents.label": "Agents",
-    "menu.agents.tag": "each agent's configuration and brain",
+    "menu.agents.tag": "each agent's brain, permissions and skills",
     "menu.add_agent.label": "Add agent",
     "menu.add_agent.tag": "create or load an agent",
     "menu.shell.label": "Normal terminal",
@@ -44,12 +42,8 @@ STRINGS = {
     "hub.pin.split": "split",
     "hub.pin.anim": "anim",
     # red light toggle notice (recinto key `l`)
-    "hub.redlight.on": "red light ON — night mode",
-    "hub.redlight.off": "red light OFF",
-    "hub.redlight.fail": "couldn't toggle red light — unchanged",
 
     # ── instrument bar / monitor (centro) ───────────────────────────────────
-    "hub.instr.usage5h": "5h use",
     "hub.act.bus_n": "bus {n}",
     "hub.act.git_n": "git {n}",
 
@@ -85,24 +79,17 @@ STRINGS = {
 
     # ── tall/split window (responsive_ui.vertical_hub) ──────────────────────
     "hub.fullscreen_notice": "Full screen: full experience",
-    "hub.fullscreen_rec": "Full screen recommended",
-    "hub.menu_header.title": "◆ Where do you go?",
-    "hub.menu_header.hint": "↑↓ · Enter · q = normal terminal",
 
     # ── safe / narrow screen (front._narrow_draw) ───────────────────────────
-    "hub.narrow.agents_hint": "m engine · Enter opens · i info",
-    "hub.narrow.cfg_hint": "Enter changes · settings available in the menu",
-    "hub.narrow.lang_hint": "Enter switches language · Enter cambia el idioma",
-    "hub.narrow.window_title": "WORKSPACE",
 
     # ── hub notices + heartbeat (front/_menu_machinery, hublayout) ──
     'hub.agent.gone': '{name} is no longer registered (changed from another window)',
     'hub.agent.info': '{name} ▸ engine {eng} ({orig}) · brain {brain} · {live}',
     'hub.agent.no_live_task': 'no live task',
-    'hub.agent.none_go_add': 'no agents — go to TOOLS › Add agent',
+    'hub.agent.none_go_add': 'no agents — Menu › Agents',
     'hub.agent.not_launched': '{name}: {why} — not launching (check Agents)',
-    'hub.agent.not_yet': "{name} can't be summoned yet — coming soon.",
-    'hub.agent.not_yet_engine': "{name} can't be summoned yet — no engine to pick.",
+    'hub.agent.not_yet': "{name} isn't available yet.",
+    'hub.agent.not_yet_engine': "{name} isn't available yet — no engine to pick.",
     'hub.agent.now_task': 'now: {task}',
     'hub.agent.soon_tag': 'coming soon',
     'hub.engine.agent_default': "agent's default",
@@ -111,9 +98,6 @@ STRINGS = {
     'hub.engine.local_override': 'local override',
     'hub.engine.no_selector': 'engine selector unavailable (harnesses.py missing)',
     'hub.engine.saved_local': 'saved per machine',
-    'hub.hb.label': 'heartbeat',
-    'hub.hb.queue_waiting': 'queue on hold',
-    'hub.hb.queue_word': 'queue',
     'hub.hb.tag.auto': 'the cron launches on its own',
     'hub.hb.tag.manual': 'the cron only notifies, you launch',
     'hub.hb.tag.off': 'heartbeat off',
@@ -127,7 +111,6 @@ STRINGS = {
     # small window / viewport (responsive_ui)
     'hub.viewport.back': 'q back',
     'hub.viewport.scroll': 'Ctrl+B/F scrolls',
-    'hub.frame.hint': '↑↓ section · ◄► pick · Enter · q',
     'hub.size.title': 'RESIZE THE WINDOW',
     'hub.size.horizontal': 'Horizontal: 100 columns × 36 rows',
     'hub.size.vertical': 'Vertical:    72 columns × 50 rows',
@@ -143,7 +126,7 @@ STRINGS = {
     'hub.lanzador.root': 'WORKSPACE',
     'hub.lanzador.search_ph': 'search…',
     'hub.lanzador.no_results': 'no results',
-    'hub.lanzador.empty': 'no agents — Menu › Add agent',
+    'hub.lanzador.empty': 'no agents — Menu › Agents',
     'hub.lanzador.hint.type_key': 'abc',
     'hub.lanzador.hint.search': 'search',
     'hub.lanzador.hint.erase': 'erase',
@@ -152,5 +135,7 @@ STRINGS = {
     'hub.lanzador.tab.menu': 'Menu',
     'hub.lanzador.tab.personalization': 'Personalization',
     'hub.lanzador.tab.lang': 'Language',
+    # vista estática (ui.anim apagado): la lista en la caja del lanzador
+    'hub.static.hint.direct': 'direct',
     'hub.layout.lanzador': 'Launcher — agents at the center, minimal',
 }

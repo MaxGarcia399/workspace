@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-# Banner de {{AGENT_DISPLAY}} — TEMPLATE de WORKSPACE (templates/agent/): stub SOBRIO
-# pero digno (título en bloques + caja con rol/skills, paleta de marca). El arte
-# definitivo (p. ej. un emblema braille) es follow-up — ver el banner de otro agente
-# del equipo como referencia de a dónde llevarlo.
+# Banner de {{AGENT_DISPLAY}} — TEMPLATE de WORKSPACE (templates/agent/): el
+# TÍTULO del agente en el estilo actual del hub (la misma fuente ANSI Shadow y el
+# neón del tema que el wordmark WORKSPACE y agent_ui.heading) + una línea tenue
+# con su tagline y el motor real. Nada más: es lo que el menú de sesiones muestra
+# arriba (agent_ui.session_screen), así el arranque no «parpadea» de un banner a
+# otro. (Antes: título espaciado «<NOMBRE> AGENT» + una caja Skills/Sistema/
+# Dominio con placeholders sin llenar — el look del recinto viejo.)
 # Sin sustituir los placeholders, cae a paleta gris y sigue corriendo.
 import os, re, sys
 
@@ -80,25 +83,6 @@ try:
 except Exception:
     _EMOJI = ""
 
-# ── i18n (falla-suave) — las cadenas ESTÁTICAS siguen el idioma del socio
-# (i18n.lang(): WORKSPACE_LANG > settings ui.lang > "es"). El template corre
-# brain-resident; i18n vive en la raíz de WORKSPACE, ya insertada en sys.path
-# arriba (_root). Si no se resuelve (cerebro sin harness), _t cae al ES inline
-# → el banner JAMÁS truena ni muestra una clave cruda. Ver lang/README.md.
-try:
-    import i18n as _i18n  # noqa: E402
-except Exception:
-    _i18n = None
-
-def _t(key, es, **kw):
-    if _i18n is None:
-        return es.format(**kw) if kw else es
-    try:
-        s = _i18n.t(key, **kw)
-        return s if s != key else (es.format(**kw) if kw else es)
-    except Exception:
-        return es.format(**kw) if kw else es
-
 def fg(n): return f"\033[38;5;{n}m"
 R = "\033[0m"; BO = "\033[1m"
 # Paleta FALLBACK por color de marca: B (brillante), B2 (medio), DK (oscuro),
@@ -138,7 +122,7 @@ def _pal_key(c):
 # El banner se pinta con la paleta del TEMA ACTIVO de WORKSPACE (tuitheme:
 # env WORKSPACE_THEME > ui.theme > default) — igual que el recinto, el Tono y
 # el resto del hub. Con muchos agentes el color-por-agente no escala (arcoíris);
-# la identidad del agente queda en su NOMBRE, emblema y tagline. El gradiente
+# la identidad del agente queda en su NOMBRE y tagline. El gradiente
 # del título usa el WCOL del tema (el mismo del wordmark WORKSPACE).
 # Falla-suave: sin tuitheme resoluble (cerebro sin harness) → la paleta por
 # color de marca de siempre; el banner JAMÁS truena por un tema.
@@ -206,119 +190,38 @@ if not ROWCOL or len(ROWCOL) != 6:
     ROWCOL = [B, B, B2, B2, C, C]   # degradado fallback del título (6 filas)
 
 def title_lines(text):
-    # el título es "<NOMBRE> AGENT" (el sufijo distingue al agente, como el equipo)
-    glyphs = [FONT.get(ch, FONT[" "]) for ch in ((text or "").upper() + " AGENT")]
-    return [" ".join(gl[r] for gl in glyphs) for r in range(6)]
+    # el título es el NOMBRE del agente, sin espaciado ni sufijo — idéntico a
+    # agent_ui.heading (la fuente única del greeter)
+    glyphs = [FONT.get(ch, FONT[" "]) for ch in (text or "").upper()]
+    return ["".join(gl[r] for gl in glyphs) for r in range(6)]
 
 def vis(s):
     return len(re.sub(r"\033\[[0-9;]*m", "", s))
 
-def wrap(text, width):
-    words, lines, cur = (text or "").split(), [], ""
-    for w in words:
-        if cur and len(cur) + 1 + len(w) > width:
-            lines.append(cur); cur = w
-        else:
-            cur = f"{cur} {w}".strip()
-    if cur:
-        lines.append(cur)
-    return lines or [""]
-
-def pad(s, w):
-    return s + " " * max(0, w - vis(s))
-
-# ── dimensiones de la caja: emblema (izq) + info (der), estilo equipo ──
-ACOL = 34       # columna del emblema (= AW de los banners de equipo → calzan)
-ICOL = 66       # columna de info
-LW = 12         # ancho del campo etiqueta
-W = 1 + ACOL + 2 + ICOL     # ancho interno de la caja
-
-def emblem_lines():
-    """Arte del emblema (monocromo, ACOL de ancho). 1) GALERÍA: el paso brand
-    copia el emblema elegido a `{brain}/brand/emblem.txt`. 2) DEFAULT: monograma
-    — la inicial del agente en la fuente shadow, enmarcada (auto, distintivo,
-    nunca vacío; el doctor sugiere elegir uno de la galería). Falla-suave."""
+def _neon(row, i):
+    """Fila del título en el neón del tema (hublayout._neon_row: núcleo █ con
+    el gradiente del wordmark, sombra ╔╗╚╝║═ en el acento medio). Sin
+    hublayout → la fila en su color, plana."""
     try:
-        p = os.path.join(_find_brain(), "brand", "emblem.txt")
-        with open(p, encoding="utf-8") as fh:
-            raw = [ln.rstrip("\n")[:ACOL] for ln in fh]
-        if any(s.strip() for s in raw):
-            return raw
-    except OSError:
-        pass
-    init = ((AGENT_DISPLAY or "?").strip()[:1] or "?").upper()
-    glyph = FONT.get(init, FONT[" "])
-    inner = ACOL - 2
-    body = ["", ""] + [g.center(inner) for g in glyph] + ["", ""]
-    top = "╭" + "─" * (ACOL - 2) + "╮"
-    bot = "╰" + "─" * (ACOL - 2) + "╯"
-    return [top] + ["│" + b.center(inner) + "│" for b in body] + [bot]
-
-def _field(label, desc):
-    """Una fila (label, desc) → 1+ filas envueltas a la columna (el desc que no
-    entra en ICOL se parte; la etiqueta va solo en la primera). Evita el
-    desborde del borde derecho."""
-    lines = wrap(desc, ICOL - LW - 2) if desc else [""]
-    return [(label if i == 0 else "", ln) for i, ln in enumerate(lines)]
-
-def info_rows():
-    """Filas de la columna de info (der): Skills · Sistema · Dominio — de la
-    config del agente. ('##', titulo) = subtítulo; (label, desc) = fila."""
-    cats, seen = [], set()
-    _defcats = _t("banner.cats.default", "investigación · meta")
-    for c in f"{SKILL_CATS} · {_defcats}".split(" · "):
-        c = c.strip()
-        if c and c.lower() not in seen:
-            seen.add(c.lower()); cats.append(c)
-    rows = [("##", _t("banner.sec.skills", "Skills"))]
-    rows += _field(_t("banner.lbl.categories", "categorías"), " · ".join(cats))
-    rows += _field(_t("banner.lbl.base", "base"),
-                   _t("banner.base.row1", "skill-creator · skill-improver · skill-curator · reload-brain"))
-    rows += _field("", _t("banner.base.row2", "deep-research · research-session"))
-    rows += [("", ""), ("##", _t("banner.sec.system", "Sistema"))]
-    rows += _field(_t("banner.lbl.memory", "memoria"),
-                   _t("banner.sys.memory", "tiers caliente/tibia/fría · core blocks · Dreaming→DESTILADO"))
-    rows += _field(_t("banner.lbl.loop", "loop"),
-                   _t("banner.sys.loop", "skill loop SIEMPRE activo · bloque 🧠 obligatorio"))
-    if (SCOPE or "").strip():
-        rows += [("", ""), ("##", _t("banner.sec.domain", "Dominio"))]
-        rows += _field(_t("banner.lbl.scope", "alcance"), SCOPE)
-    return rows
+        import hublayout as _H
+        return _H._neon_row(row, ROWCOL[i % len(ROWCOL)] + BO, B2, R)
+    except Exception:
+        return f"{ROWCOL[i % len(ROWCOL)]}{row}{R}"
 
 def main():
-    ICOL = W - 2   # panel de texto a TODO el ancho — SIN columna de
-                   # arte (branding en transición: emblema fuera por ahora)
-    info = info_rows()
-    out = ["\n"]
-    _ttl = title_lines(AGENT_DISPLAY)
-    _tpad = " " * max(0, (W + 2 - max((len(_t) for _t in _ttl), default=0)) // 2)
-    for i, ln in enumerate(_ttl):
-        out.append(f"  {_tpad}{ROWCOL[i]}{ln}{R}")
-    out.append("")
-
+    rows = title_lines(AGENT_DISPLAY)
+    tw = max((len(r) for r in rows), default=0)
     _eng = (os.environ.get("WORKSPACE_ENGINE_LABEL") or "").strip()
-    head = f" {AGENT_DISPLAY.upper()}-AGENT · {TAGLINE}" + (f" · {_eng}" if _eng else "") + " "   # motor+modelo REAL (dinámico)
-    if len(head) > W - 4:
-        head = head[:W - 7] + "… "
-    side = max(0, (W - len(head)) // 2)
-    out.append(f"  {B}╭{'─'*side}{R}{BO}{C}{head}{R}{B}{'─'*(W-side-len(head))}╮{R}")
-
-    for i in range(len(info)):
-        if i < len(info):
-            label, desc = info[i]
-            if label == "##":
-                iseg = pad(f"{BO}{C}{desc}{R}", ICOL)
-            elif label or desc:
-                iseg = pad(f"{WH}{label.ljust(LW)}{R} {DIM}{desc}{R}", ICOL)
-            else:
-                iseg = " " * ICOL
-        else:
-            iseg = " " * ICOL
-        out.append(f"  {B}│{R} {iseg} {B}│{R}")
-
-    foot = f" {_t('banner.foot', 'nacido del template de WORKSPACE')} "
-    fside = max(0, (W - len(foot)) // 2)
-    out.append(f"  {B}╰{'─'*fside}{R}{DIM}{foot}{R}{B}{'─'*(W-fside-len(foot))}╯{R}")
+    tag = (TAGLINE or "").strip()
+    if tag.startswith("{{"):
+        tag = ""
+    sub = " · ".join(p for p in (tag, _eng) if p)
+    bw = max(tw, len(sub))
+    out = [""]
+    pad_t = " " * max(0, (bw - tw) // 2)
+    out += [pad_t + _neon(r, i) for i, r in enumerate(rows)]
+    if sub:
+        out += ["", " " * max(0, (bw - len(sub)) // 2) + f"{DIM}{sub}{R}"]
     out.append("")
     print("\n".join(out))
 

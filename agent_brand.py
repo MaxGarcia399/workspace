@@ -298,7 +298,10 @@ def parse_identity_md(brain):
     for line in lines:
         for m in re.finditer(r"\*\*\s*([^*:]+?)\s*:\s*\*\*\s*([^*\n]*)", line):
             label = m.group(1).strip().lower()
-            val = m.group(2).strip().strip("·").strip()
+            # sin comentarios HTML del template («◆ <!-- elegir uno propio -->»
+            # se pintaba tal cual en la cabecera del panel)
+            val = re.sub(r"<!--.*?-->", "", m.group(2))
+            val = val.strip().strip("·").strip()
             if label and val and label not in out:
                 out[label] = val
     return out

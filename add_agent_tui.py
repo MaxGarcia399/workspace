@@ -70,6 +70,7 @@ import agent_create_job                                         # noqa: E402
 import agent_skill_sources
 import agentsreg                                                # noqa: E402
 import hublayout as HL                                          # noqa: E402
+import section_box as SB                                        # noqa: E402
 
 # i18n (lado cliente): esta pantalla la ve el cliente. Import guardado con red
 # de seguridad inline — si i18n no se puede importar, _t() devuelve el español
@@ -178,10 +179,12 @@ ACCION_ROW = len(ORDEN_F)                     # índice virtual: ✦ continuar
 ML_FIELDS = frozenset(("skills", "rol", "proposito", "estilo", "alcance", "limites",
                        "ejemplos", "dueño_quien", "dueño_como",
                        "dueño_necesita"))
-#: líneas visibles del editor embebido del campo largo ENFOCADO — contrato de
-#: altura ACOTADA: por más que crezca el texto, el campo nunca pasa de esto
+#: Líneas del texto COMPLETO del campo enfocado en la ayuda bajo el formulario
 #: (cola visible: siempre ves dónde escribes; «…» marca que hay más arriba).
-_ML_VIS = 3
+_TXT_VIS = 6
+#: Alto FIJO de la ayuda bajo el formulario (regla + qué es + ejemplo o el
+#: texto completo): la caja no brinca al cambiar de campo ni al escribir.
+_AYUDA_H = 2 + 2 + _TXT_VIS
 
 
 def _maxlen(key):
@@ -528,10 +531,12 @@ def _lstep_t(k, lbl):
     return _t("addagent.lstep.%s" % k, lbl)
 
 
-def _ljob_start(S, items, origen):
+def _ljob_start(S, items, origen, prefs=None):
     """Arranca la carga en un hilo daemon. items = [(name, carpeta)]; 1 solo
     = pasos LOAD_STEPS reales; varios (descubrir · a) = un paso por cerebro.
-    `origen` = vista a la que vuelve el resultado (menu/cargar/descubrir)."""
+    `origen` = vista a la que vuelve el resultado (menu/cargar/descubrir).
+    `prefs` = {autonomy, skill_review} elegidos en la vista de permisos (se
+    pasan a agent_admin.load; None = respetar lo que declara cada cerebro)."""
     if S.get("ljob") and not S["ljob"].get("done"):
         S["msg"] = _t("addagent.ui.msg.load_in_progress", "ya hay una carga en curso — un momento")
         return
@@ -548,6 +553,7 @@ def _ljob_start(S, items, origen):
     job = {"items": list(items), "bulk": bulk, "steps": steps, "live": [],
            "warns": [], "res_map": {}, "done": False, "ok": False,
            "error": "", "res": "", "origen": origen,
+           "prefs": dict(prefs or {}),
            "t0": time.monotonic(), "t1": None}
     S["ljob"] = job
     S["view"], S["msg"] = "lrun", ""
@@ -590,7 +596,8 @@ def _ljob_worker(job):
                         break
                 s["st"] = "run"
                 try:
-                    ok, res = agent_admin.load(folder, out=_out)
+                    ok, res = agent_admin.load(folder, out=_out,
+                                               **(job.get("prefs") or {}))
                 except Exception as e:
                     ok, res = False, "%s: %s" % (type(e).__name__, e)
                 s["st"] = "ok" if ok else "fail"
@@ -605,7 +612,8 @@ def _ljob_worker(job):
             name, folder = job["items"][0]
             try:
                 ok, res = agent_admin.load(folder, out=_out,
-                                           progress=_on_step)
+                                           progress=_on_step,
+                                           **(job.get("prefs") or {}))
             except Exception as e:
                 ok, res = False, "%s: %s" % (type(e).__name__, e)
             job["ok"] = bool(ok)
@@ -770,7 +778,7 @@ def _b_menu_det(S, K, iw):
     out.append(_divisor(K, _t("addagent.ui.howitworks", "cómo funciona"), iw, tono=4))
     for ln in (_t("addagent.ui.menu.how.1", "todo queda en TU máquina (registro per-máquina)"),
                _t("addagent.ui.menu.how.2", "nada se comparte ni se sube a ningún lado"),
-               _t("addagent.ui.menu.how.3", "quitar un agente: Agentes › x")):
+               _t("addagent.ui.menu.how.3", "quitar un agente: Agentes › Enter › quitar")):
         for sub in _wrap(ln, max(8, iw - 4)):
             out.append(HL.clip(" %s·%s %s%s%s" % (K["DK"], K["R"], K["DIM"],
                                                   sub, K["R"]), iw))
@@ -787,49 +795,83 @@ def _val_lineas(val, w):
 
 
 def _fila_campo(S, K, iw, key, idx):
-    """Las filas de UN campo (lista de líneas). Campo corto — o largo SIN
-    foco — es una línea: cursor · label · valor (o placeholder; «⏎» marca
-    saltos de línea que no se ven). El campo LARGO enfocado se expande a su
-    editor embebido: ≤ _ML_VIS líneas con wrapping y COLA visible (siempre
-    ves dónde escribes; «…» = hay más texto arriba). Altura acotada."""
+    """Las filas de UN campo: SIEMPRE una línea — cursor · label · valor
+    («⏎» marca saltos de línea). Un campo vacío se ve VACÍO: el ejemplo y la
+    explicación viven en la ayuda bajo el formulario (pedido del dueño
+    2026-10-14: con «ej. …» adentro, algunos clientes creían que ya venía
+    lleno). Al editar se ve la COLA del texto; el texto completo, en la ayuda."""
     sel = (idx == S["fi"])
-    label, default, _hint, ej = FIELDS[key]
+    label, default, _hint, _ej = FIELDS[key]
     label = _t("addagent.ui.field.%s.label" % key, label)
     default = _t("addagent.ui.field.%s.default" % key, default) if default else default
-    ej = _t("addagent.ui.field.%s.ej" % key, ej) if ej else ej
     val = S["vals"].get(key, "")
     cur = "%s%s%s" % (K["C"] + K["BO"], K["PTR"], K["R"]) if sel else " "
     lcol = (K["WH"] + K["BO"]) if sel else (K["GREY"] if val else K["DK"])
     lab = "%s%s%s" % (lcol, HL.pad(label, 10), K["R"])
     caret = ("%s█%s" % (K["C"] + K["BO"], K["R"])) if sel else ""
     vw = max(10, iw - 16)                        # ancho útil del valor
-    # ── editor embebido: largo + enfocado + con texto ──
-    if sel and key in ML_FIELDS and val:
-        lineas = _val_lineas(val, vw)
-        vis = lineas[-_ML_VIS:]
-        if len(lineas) > _ML_VIS:
-            vis[0] = "…" + vis[0][1:] if vis[0] else "…"
-        out = []
-        for i, ln in enumerate(vis):
-            pre = (" %s %s " % (cur, lab)) if i == 0 else " " * 14
-            tail = caret if i == len(vis) - 1 else ""
-            out.append(HL.clip(pre + "%s%s%s%s" % (K["WH"], ln, K["R"],
-                                                   tail), iw))
-        return out
-    # ── una línea ──
     if val:
         plano = val.replace("\n", " ⏎ ")
-        if sel and len(plano) > vw:              # cola visible al editar
-            plano = "…" + plano[-(vw - 1):]
-        v = "%s%s%s%s" % (K["WH"] if sel else K["GREY"], plano, K["R"],
-                          caret)
+        if sel and (len(plano) > vw or "\n" in val):
+            caret = ""        # el cursor pasa a la ayuda, donde se ve COMPLETO
+        if len(plano) > vw:   # al editar, la COLA; sin foco, el principio
+            plano = ("…" + plano[-(vw - 2):]) if sel else (plano[:vw - 1] + "…")
+        v = "%s%s%s%s" % (K["WH"] if sel else K["GREY"], plano, K["R"], caret)
     elif default:
-        v = "%s%s%s%s" % (K["DIM"], default, K["R"],
-                          (" " + caret) if sel else "")
+        # un valor por omisión REAL (se usa si lo dejas vacío), tenue
+        v = "%s%s%s%s" % (K["DIM"], default, K["R"], (" " + caret) if sel else "")
     else:
-        v = "%s%s%s%s" % (K["DK"], ej or "—", K["R"],
-                          (" " + caret) if sel else "")
+        v = caret
     return [HL.clip(" %s %s %s" % (cur, lab, v), iw)]
+
+
+def _b_crear_ayuda(S, K, iw):
+    """La ayuda bajo el formulario, del campo ENFOCADO: qué es y un ejemplo
+    (o, si lo que escribes ya no cabe en su renglón, el texto COMPLETO con la
+    cola a la vista). Alto FIJO (_AYUDA_H): la caja no brinca."""
+    if S["fi"] >= ACCION_ROW:
+        out = [_divisor(K, _t("addagent.ui.form.continue_title", "continuar"), iw, tono=2)]
+        out += ["  %s%s%s" % (K["GREY"], ln, K["R"]) for ln in _wrap(_t(
+            "addagent.ui.form.continue_help",
+            "Enter te muestra el plan completo antes de crear nada: el cerebro que va a nacer, "
+            "su motor y lo que cuesta. Solo «nombre» es obligatorio."), max(8, iw - 4))[:3]]
+        return [HL.clip(x, iw) for x in out] + [""] * max(0, _AYUDA_H - 1 - len(out))
+    key = ORDEN_F[S["fi"]]
+    label, default, hint, ej = FIELDS[key]
+    label = _t("addagent.ui.field.%s.label" % key, label)
+    default = _t("addagent.ui.field.%s.default" % key, default) if default else default
+    hint = _t("addagent.ui.field.%s.hint" % key, hint)
+    ej = " ".join((_t("addagent.ui.field.%s.ej" % key, ej) if ej else "").split())
+    val = S["vals"].get(key, "")
+    ancho = max(8, iw - 4)
+    out = [_divisor(K, label, iw, tono=2)]
+    out += ["  %s%s%s" % (K["GREY"], ln, K["R"]) for ln in _wrap(hint, ancho)[:2]]
+    if key == "nombre":                          # el nombre se valida EN VIVO
+        est, txt = _valida_nombre(val)
+        col = K["OK"] if est == "ok" else (K["BAD"] if est == "bad" else K["DIM"])
+        out += ["  %s%s%s" % (col, ln, K["R"]) for ln in _wrap(txt, ancho)[:2]]
+    plano = val.replace("\n", " ⏎ ")
+    if val and (len(plano) > max(10, iw - 16) or "\n" in val):
+        # ya no cabe en su renglón: aquí se ve COMPLETO, con la cola a la vista
+        lineas = _val_lineas(val, ancho)
+        vis = lineas[-_TXT_VIS:]
+        if len(lineas) > _TXT_VIS:
+            vis[0] = "…" + vis[0][1:] if vis[0] else "…"
+        for i, ln in enumerate(vis):
+            fin = ("%s█%s" % (K["C"] + K["BO"], K["R"])) if i == len(vis) - 1 else ""
+            out.append("  %s%s%s%s" % (K["WH"], ln, K["R"], fin))
+    else:
+        if ej:
+            out += ["  %s%s%s" % (K["DIM"], ln, K["R"]) for ln in _wrap(ej, ancho)[:2]]
+        if default:
+            out.append(("  %s" + _t("addagent.ui.form.empty_default", "vacío = «%s»") + "%s")
+                       % (K["DIM"], default, K["R"]))
+        if key in ML_FIELDS:
+            out.append("  %s%s%s" % (K["DK"], _t("addagent.ui.form.freetext",
+                                                  "texto libre — Enter = nueva línea · ↓/Tab sigue"),
+                                     K["R"]))
+    out = [HL.clip(x, iw) for x in out][:_AYUDA_H - 1]
+    return out + [""] * max(0, _AYUDA_H - 1 - len(out))
 
 
 def _b_crear(S, K, iw, grupos=True, max_h=None):
@@ -1108,7 +1150,7 @@ def _b_done(S, K, iw):
                                % (K["DIM"], _t("addagent.ui.done.review_warns", "→ revisa los avisos antes de usar el agente"), K["R"]), iw))
         out.append("")
         out.append(_divisor(K, _t("addagent.ui.done.nextsteps", "próximos pasos"), iw, tono=2))
-        for ln in (_t("addagent.ui.done.next.1", "ábrelo: vuelve al recinto y selecciónalo en el altar"),
+        for ln in (_t("addagent.ui.done.next.1", "ábrelo: vuelve al hub y elígelo en la lista"),
                    _t("addagent.ui.done.next.2", "o escribe  %s  en una terminal nueva") % job["name"],
                    _t("addagent.ui.done.next.3", "afina su voz en BOOT/00-SOUL.md · skills en skills/")):
             out.append(HL.clip(" %s·%s %s%s%s" % (K["DK"], K["R"], K["DIM"],
@@ -1382,7 +1424,7 @@ _DESC_EXPL = {
              ("no se puede conectar desde aquí — renombra uno o "
               "cárgalo por CLI con otro nombre.",)),
     "ok": ("OK", "✓ conectado ahora mismo",
-           ("listo — ábrelo desde el recinto o con su comando.",)),
+           ("listo — ábrelo desde el hub o con su comando.",)),
 }
 
 
@@ -1530,7 +1572,7 @@ def _b_listo(S, K, iw):
     if d.get("bulk") is None:
         out.append("")
         out.append(_divisor(K, _t("addagent.ui.done.nextsteps", "próximos pasos"), iw, tono=2))
-        for ln in (_t("addagent.ui.done.next.1", "ábrelo: vuelve al recinto y selecciónalo en el altar"),
+        for ln in (_t("addagent.ui.done.next.1", "ábrelo: vuelve al hub y elígelo en la lista"),
                    _t("addagent.ui.done.next.2", "o escribe  %s  en una terminal nueva")
                    % d.get("name", ""),
                    _t("addagent.ui.done.next.3", "afina su voz en BOOT/00-SOUL.md · skills en skills/")):
@@ -1555,9 +1597,10 @@ _TITULOS.update({"motor": ("ELIGE EL MOTOR", "DISPONIBILIDAD"),
                  "sources": ("FUENTES PERMITIDAS", "TÚ DECIDES EL ORIGEN"),
                  "repo": ("AGREGAR REPOSITORIO", "GITHUB PÚBLICO"),
                  "community": ("CONSULTA DE COMUNIDAD", "QUÉ SE ENVÍA"),
-                 "process": ("REVISIÓN AUTOMÁTICA", "PASO A PASO"),
-                 "cost": ("CONSUMO Y LÍMITES", "LECTURAS Y ESTIMACIONES"),
+                 "process": ("CÓMO SE REVISAN LAS SKILLS", "POR QUÉ ASÍ"),
+                 "cost": ("CONSUMO Y LÍMITES", "POR QUÉ ASÍ"),
                  "brain": ("TU CEREBRO", "ARCHIVOS QUE SE CREAN"),
+                 "perms": ("PERMISOS", "QUÉ CAMBIA"),
                  "skill_receipt": ("RESULTADOS DE SKILLS", "MOTIVOS Y AVISOS")})
 
 # Atajos POR VISTA como pares (tecla, acción): UNA fuente de verdad — la
@@ -1566,7 +1609,7 @@ _TITULOS.update({"motor": ("ELIGE EL MOTOR", "DISPONIBILIDAD"),
 # media palabra).
 _HINTS = {
     "menu": (("↑↓", "elige"), ("Enter", "entra"), ("1-3", "directo"),
-             ("q", "vuelve al menú")),
+             ("q", "vuelve")),
     "crear": (("↑↓/Tab", "campo"), ("escribe", "edita"),
               ("Enter", "avanza (campo largo con texto: nueva línea)"),
               ("Esc", "vuelve")),
@@ -1576,7 +1619,7 @@ _HINTS = {
              ("p", "IA"), ("s", "skills"), ("k", "revisa"),
              ("Esc", "vuelve")),
     "run": (("q", "cancela (cooperativo)"),
-            ("Esc", "vuelve al recinto — la creación sigue en 2º plano")),
+            ("Esc", "vuelve al hub — la creación sigue en 2º plano")),
     "done": (("↓", "revisión de skills"), ("Enter/q", "continúa")),
     "stale": (("l", "limpia"), ("r", "limpia y reintenta"),
               ("Enter/q", "después")),
@@ -1597,6 +1640,7 @@ _SUBS = {"plan": "agregar agente — el plan, antes de tocar el disco",
          "cargar": "agregar agente — conectar un cerebro que ya existe",
          "descubrir": "agregar agente — lo que el disco ya tiene",
          "lrun": "agregar agente — conectando en vivo",
+         "perms": "agregar agente — permisos antes de conectar",
          "listo": "agregar agente — resultado"}
 
 
@@ -1643,117 +1687,466 @@ def _solo_w(w, apilado):
     return (w - 2) if apilado else min(w - 2, 100)
 
 
+# ── REDISEÑO 2026-10-14 (concepto Omarchy): la cajita ─────────────────────
+# Cada vista muestra SOLO lo necesario para usarla (el menú, el formulario,
+# las filas del plan, los pasos en vivo) en una caja centrada (section_box).
+# Lo que antes iba en el panel derecho —qué es cada opción, el campo
+# explicado con su ejemplo, la guía del plan, el mapa del cerebro, el costo,
+# la bitácora en vivo— pasa ÍNTEGRO al cuadro de `i` (en las vistas donde se
+# escribe, `?`). Ningún texto se perdió; la lógica de crear/cargar es la misma.
+_TYPING = ("crear", "cargar", "repo", "community")
+_SIN_INFO = ("done", "stale", "listo")
+_BOX_W = {"menu": 52, "crear": 64, "plan": 60, "brain": 78, "run": 60, "lrun": 60,
+          "done": 70, "stale": 64, "listo": 70, "cargar": 64, "descubrir": 64,
+          "skills": 64}
+
+
+def _chips_vista(v):
+    """Pie corto por vista: elegir/escribir · la acción · la ayuda · salir."""
+    import section_frame as SF
+    T = SF.t
+    ayuda = (("?" if v in _TYPING else "i"),
+             T("addagent.chip.help", "cómo funciona", "how it works"))
+    elige = ("↑↓", T("addagent.chip.pick", "elige", "pick"))
+    vuelve = ("Esc", T("addagent.chip.back", "vuelve", "back"))
+    tabla = {
+        "menu": (elige, ("Enter", T("addagent.chip.enter", "entra", "enter")), ayuda,
+                 ("q", T("addagent.chip.back", "vuelve", "back"))),
+        "crear": (("↑↓", T("addagent.chip.field", "campo", "field")),
+                  ("Enter", T("addagent.chip.next", "sigue", "next")), ayuda, vuelve),
+        "cargar": ((T("addagent.chip.type", "escribe", "type"),
+                    T("addagent.chip.path", "la ruta", "the path")),
+                   ("Enter", T("addagent.chip.connect", "conecta", "connect")), ayuda, vuelve),
+        "descubrir": (elige, ("Enter", T("addagent.chip.connect", "conecta", "connect")),
+                      ("a", T("addagent.chip.new_ones", "los nuevos", "the new ones")),
+                      ayuda, vuelve),
+        "skills": (elige, (T("addagent.ui.hintkey.space", "Espacio"),
+                           T("addagent.chip.mark", "marca", "mark")),
+                   ("Enter", T("addagent.chip.apply", "aplica", "apply")), ayuda, vuelve),
+        "run": (("q", T("addagent.chip.cancel", "cancela", "cancel")),
+                ("i", T("addagent.chip.live", "en vivo", "live")),
+                ("Esc", T("addagent.chip.bg", "sigue en 2º plano", "keeps going"))),
+        "lrun": (("i", T("addagent.chip.live", "en vivo", "live")),
+                 ("Esc", T("addagent.chip.bg", "sigue en 2º plano", "keeps going"))),
+        "done": (("↓", T("addagent.chip.review", "revisión de skills", "skill review")),
+                 ("Enter", T("addagent.chip.continue", "continúa", "continue"))),
+        "stale": (("l", T("addagent.chip.clean", "limpia", "clean")),
+                  ("r", T("addagent.chip.retry", "limpia y reintenta", "clean and retry")),
+                  ("Enter", T("addagent.chip.later", "después", "later"))),
+        "listo": (("Enter", T("addagent.chip.back", "vuelve", "back")),),
+    }
+    return tabla.get(v, (elige, ("Enter", T("addagent.chip.apply", "aplica", "apply")),
+                         ayuda, vuelve))
+
+
+#: Alto FIJO de la ayuda bajo «tus preferencias» (regla + qué es + Enter);
+#: con 5 el plan cabe entero en 100×36 con sus botones de 3 filas.
+_PLAN_AYUDA_H = 5
+
+
+def _plan_fila(S, key):
+    """(etiqueta, tipo, valor) de un renglón del plan — el TIPO dice qué es:
+    "switch" (sí/no, Enter lo cambia) · "valor" (lo que elegiste; Enter abre
+    la lista) · "abre" (otra pantalla) · "leer" (solo información) ·
+    "crear" / "volver" (acciones)."""
+    kf, kr = agent_create_ui._pref_keys(S)
+    T = _t
+    tabla = {
+        "motor": (T("addagent.plan.l.motor", "motor"), "valor", S.get("engine_id") or "claude-code"),
+        "personalize": (T("addagent.plan.l.personalize", "personalización con IA"), "switch",
+                        bool(S.get("personalize"))),
+        "toggle": (T("addagent.plan.l.toggle", "obtener skills"), "switch", bool(S.get("source_skills"))),
+        "skills": (T("addagent.plan.l.skills", "elegir skills"), "valor",
+                   T("addagent.plan.v.chosen", "%d elegidas") % len(S.get("skill_selected", []))),
+        "sources": (T("addagent.plan.l.sources", "fuentes y repos propios"), "abre", ""),
+        "autonomy": (T("addagent.plan.l.brain_free", "su cerebro sin preguntar"), "switch",
+                     bool(S.get(kf, True))),
+        "review": (T("addagent.plan.l.review", "revisión de skills al cerrar"), "switch", bool(S.get(kr))),
+        "process": (T("addagent.plan.l.process", "cómo se revisan las skills"), "leer", ""),
+        "cost": (T("addagent.plan.l.cost", "consumo y límites"), "leer", ""),
+        "brain": (T("addagent.plan.l.brain", "mapa del cerebro"), "leer", ""),
+        "create": (T("addagent.plan.l.create", "crear agente"), "crear", ""),
+        "back": (T("addagent.plan.l.back", "volver al formulario"), "volver", ""),
+    }
+    return tabla.get(key)
+
+
+def _plan_main(S, K, iw):
+    """Las filas del plan (o de las vistas del mapa), agrupadas, con el
+    cursor. En el plan cada renglón dice QUÉ ES (pedido del dueño 2026-10-14:
+    «las opciones se pueden pasar por alto, no se sabe si es para elegir»):
+    interruptores `━━● sí` / `○━━ no`, valores elegidos con «›» (Enter abre
+    la lista), pantallas con «›» y la acción ✦ CREAR en acento."""
+    menu = agent_create_ui.rows(S, sys.modules[__name__])
+    if S["view"] == "plan":
+        return _plan_main_rediseno(S, K, iw, menu)
+    cursor = min(S.get("option_cursor", 0), len(menu) - 1)
+    S["option_cursor"] = cursor
+    if S["view"] == "plan":
+        grupos = {0: _t("addagent.group.motor_identity", "motor e identidad"),
+                  2: _t("addagent.group.procedures", "procedimientos"),
+                  5: _t("addagent.group.permissions", "permisos y aprendizaje"),
+                  7: _t("addagent.group.info", "información"),
+                  10: _t("addagent.group.create", "crear")}
+    else:
+        grupos = {0: _t("addagent.group.brain_views", "vistas del cerebro")}
+    out = []
+    for n, (_k, label) in enumerate(menu):
+        if n in grupos:
+            if out:
+                out.append("")
+            out.append(_divisor(K, grupos[n], iw))
+        on = (n == cursor) and not S.get("map_focus")
+        tinta = (K["C"] + K["BO"]) if on else K["WH"]
+        cur = (K["PTR"] + " ") if on else "  "
+        out.append(HL.clip("%s%s%s%s" % (tinta, cur, label, K["R"]), iw))
+    S["_cursor_line"] = next((i for i, ln in enumerate(out) if K["PTR"] in ln), 0)
+    return out
+
+
+def _plan_main_rediseno(S, K, iw, menu):
+    cursor = min(S.get("option_cursor", 0), len(menu) - 1)
+    S["option_cursor"] = cursor
+    grupos = {0: _t("addagent.group.motor_identity", "motor e identidad"),
+              2: _t("addagent.group.procedures", "procedimientos"),
+              5: _t("addagent.group.permissions", "permisos y aprendizaje"),
+              7: _t("addagent.plan.group.read", "para leer"),
+              10: ""}
+    filas = [(k, _plan_fila(S, k)) for k, _l in menu]
+    lab_w = max(HL.vis(f[0]) for _k, f in filas if f and f[1] in ("switch", "valor")) + 2
+    out = []
+    for n, (key, f) in enumerate(filas):
+        if n in grupos:
+            if out:
+                out.append("")
+            if grupos[n]:
+                out.append(_divisor(K, grupos[n], iw))
+        on = (n == cursor) and not S.get("map_focus")
+        cur = ("%s%s %s" % (K["C"] + K["BO"], K["PTR"], K["R"])) if on else "  "
+        if f is None:                           # un renglón que el rediseño no conoce
+            out.append(HL.clip("%s%s%s%s" % (cur, K["WH"], menu[n][1], K["R"]), iw))
+            continue
+        lab, tipo, val = f
+        tinta = (K["WH"] + K["BO"]) if on else K["GREY"]
+        flecha = "%s›%s" % ((K["C"] + K["BO"]) if on else K["DK"], K["R"])
+        if tipo == "switch":
+            valor = "%s %s%s%s" % (SB.switch(K, val), K["OK"] if val else K["DIM"],
+                                    _t("addagent.plan.v.yes", "sí") if val else _t("addagent.plan.v.no", "no"),
+                                    K["R"])
+            out.append(HL.clip("%s%s%s%s%s" % (cur, tinta, HL.pad(lab, lab_w), K["R"], valor), iw))
+        elif tipo == "valor":
+            izq = "%s%s%s%s%s%s%s" % (cur, tinta, HL.pad(lab, lab_w), K["R"], K["C"], val, K["R"])
+            out.append(HL.clip(HL.pad(izq, iw - 1) + flecha, iw))
+        elif tipo in ("abre", "leer"):
+            izq = "%s%s%s%s" % (cur, tinta, lab, K["R"])
+            out.append(HL.clip(HL.pad(izq, iw - 1) + flecha, iw))
+        elif tipo == "crear":
+            out.append(HL.clip("%s%s✦ %s%s" % (cur, (K["C"] + K["BO"]) if on else K["B2"] + K["BO"],
+                                                lab.upper(), K["R"]), iw))
+        else:                                   # volver
+            out.append(HL.clip("%s%s← %s%s" % (cur, tinta if on else K["DIM"], lab, K["R"]), iw))
+    S["_cursor_line"] = next((i for i, ln in enumerate(out) if K["PTR"] in ln), 0)
+    return out
+
+
+def _plan_ayuda(S, K, iw):
+    """La ayuda bajo «tus preferencias», del renglón elegido: qué es (una
+    frase) y qué hace Enter. Alto FIJO (_PLAN_AYUDA_H): la caja no brinca.
+    Lo completo vive en la i."""
+    menu = agent_create_ui.rows(S, sys.modules[__name__])
+    action = menu[min(S.get("option_cursor", 0), len(menu) - 1)][0]
+    try:
+        head, lead, _body, enter = agent_create_ui._plan_guide()[action]
+    except Exception:
+        return [""] * (_PLAN_AYUDA_H - 1)
+    f = _plan_fila(S, action)
+    titulo = f[0] if f else head.lower()
+    ancho = max(8, iw - 4)
+    out = [_divisor(K, titulo, iw, tono=2)]
+    out += ["  %s%s%s" % (K["GREY"], ln, K["R"]) for ln in _wrap(lead, ancho)[:2]]
+    if f and f[1] == "switch":
+        detalle = _t("addagent.plan.help.switch", "Enter lo cambia (sí / no).")
+    elif action == "create":
+        detalle = _t("addagent.plan.help.create", "Enter crea el agente con lo que ves aquí.")
+    else:
+        detalle = _t("addagent.plan.help.enter", "Enter: %s.") % enter.lower()
+    out += ["  %s▸ %s%s" % (K["B2"], ln, K["R"]) for ln in _wrap(detalle, ancho - 2)[:1]]
+    out = [HL.clip(x, iw) for x in out][:_PLAN_AYUDA_H - 1]
+    return out + [""] * max(0, _PLAN_AYUDA_H - 1 - len(out))
+
+
+def _plan_info_blocks(S, K):
+    """El cuadro de i del plan, ordenado: el renglón elegido (qué es, qué
+    cambia), lo que vas a crear (un resumen con tus elecciones) y cómo nace
+    tu agente (un mapa corto). El mapa completo del cerebro vive en «mapa
+    del cerebro», a su ancho."""
+    api = sys.modules[__name__]
+    menu = agent_create_ui.rows(S, api)
+    action = menu[min(S.get("option_cursor", 0), len(menu) - 1)][0]
+    blocks = []
+    try:
+        head, lead, body, _enter = agent_create_ui._plan_guide()[action]
+        impacto = agent_create_ui._plan_explanations().get(action, "")
+        f = _plan_fila(S, action)
+        blocks += [("h", f[0] if f else head.capitalize()), ("p", lead), ("gap",), ("p", body)]
+        for par in [p for p in impacto.split("\n\n") if p.strip()]:
+            blocks += [("gap",), ("dim", par)]
+        blocks.append(("gap",))
+    except Exception:
+        pass
+    kf, kr = agent_create_ui._pref_keys(S)
+    si, no = _t("addagent.plan.v.yes", "sí"), _t("addagent.plan.v.no", "no")
+    resumen = [(_t("addagent.ui.field.nombre.label", "nombre"),
+                S.get("vals", {}).get("nombre", "").strip() or "—"),
+               (_t("addagent.plan.l.motor", "motor"), S.get("engine_id") or "claude-code"),
+               (_t("addagent.plan.l.skills", "elegir skills"),
+                (_t("addagent.plan.v.chosen", "%d elegidas") % len(S.get("skill_selected", [])))
+                if S.get("source_skills") else no),
+               (_t("addagent.plan.l.brain_free", "su cerebro sin preguntar"), si if S.get(kf, True) else no),
+               (_t("addagent.plan.l.review", "revisión de skills al cerrar"), si if S.get(kr) else no),
+               (_t("addagent.plan.l.personalize", "personalización con IA"), si if S.get("personalize") else no)]
+
+    def _consumo(iw):
+        try:
+            return agent_create_ui.quota_lines(S, api, K, iw)
+        except Exception:
+            return []
+    blocks += [("h", _t("addagent.plan.i.summary", "lo que vas a crear")), ("kv", resumen), ("gap",),
+               ("h", _t("addagent.plan.l.cost", "consumo y límites")), ("lines", _consumo), ("gap",),
+               ("h", _t("addagent.plan.i.how", "cómo nace tu agente")),
+               ("flow", [(_t("addagent.plan.i.n1", "tus respuestas"),
+                          _t("addagent.plan.i.c1", "el formulario y estas preferencias")),
+                         (_t("addagent.plan.i.n2", "su cerebro"),
+                          _t("addagent.plan.i.c2", "una carpeta tuya: identidad, memoria y skills")),
+                         (_t("addagent.plan.i.n3", "el motor"), S.get("engine_id") or "claude-code"),
+                         (_t("addagent.plan.i.n4", "tu agente"),
+                          _t("addagent.plan.i.c4", "listo en el hub"))]),
+               ("gap",),
+               ("dim", _t("addagent.plan.i.map", "El mapa completo del cerebro (carpetas, arranque, "
+                          "dónde guarda y cómo recupera): «mapa del cerebro», en esta misma pantalla."))]
+    return blocks
+
+
+def _leer(S, K, iw):
+    """Las pantallas «para leer» del plan (cómo se revisan las skills ·
+    consumo y límites): el contenido A LA VISTA (pedido del dueño
+    2026-10-14: «están vacías» — vivía solo en la i) y, debajo, sus
+    acciones (actualizar la lectura, volver al plan)."""
+    api = sys.modules[__name__]
+    ancho = max(8, iw - 4)
+    out = []
+    if S["view"] == "process":
+        pasos = agent_create_ui._process()
+        for p in pasos[:7]:                       # 1. … 7. con sangría colgante
+            num, _sp, txt = p.partition(" ")
+            partes = _wrap(txt, ancho - 4) or [""]
+            out.append("  %s%s%s%s%s%s" % (K["C"] + K["BO"], HL.pad(num, 4), K["R"],
+                                           K["GREY"], partes[0], K["R"]))
+            out += ["      %s%s%s" % (K["GREY"], s, K["R"]) for s in partes[1:]]
+        out += ["", _divisor(K, _t("addagent.read.important", "importante"), iw, tono=2)]
+        for p in pasos[7:]:
+            out += ["  %s%s%s" % (K["DIM"], s, K["R"]) for s in _wrap(p, ancho)]
+    else:
+        for ln in agent_create_ui.cost(S, api):
+            etq, sep, resto = ln.partition(": ")
+            if sep and "\x1b" not in etq and HL.vis(etq) <= 28:
+                partes = _wrap(resto, max(8, ancho - HL.vis(etq) - 2)) or [""]
+                out.append("  %s%s:%s %s%s%s" % (K["C"], etq, K["R"], K["GREY"], partes[0], K["R"]))
+                out += [" " * (HL.vis(etq) + 4) + "%s%s%s" % (K["GREY"], s, K["R"]) for s in partes[1:]]
+            else:
+                out += ["  %s%s%s" % (K["GREY"], s, K["R"]) for s in _wrap(ln, ancho)]
+    out.append("")
+    menu = agent_create_ui.rows(S, api)
+    cursor = min(S.get("option_cursor", 0), len(menu) - 1)
+    S["option_cursor"] = cursor
+    for i, (clave, lab) in enumerate(menu):
+        on = (i == cursor)
+        cur = ("%s%s %s" % (K["C"] + K["BO"], K["PTR"], K["R"])) if on else "  "
+        if clave == "back":
+            out.append("%s%s← %s%s" % (cur, (K["WH"] + K["BO"]) if on else K["DIM"], lab, K["R"]))
+        else:
+            out.append("%s%s%s%s" % (cur, (K["WH"] + K["BO"]) if on else K["GREY"], lab, K["R"]))
+    return [HL.clip(x, iw) for x in out]
+
+
+def _leer_info(S, K, iw):
+    """La i de las pantallas «para leer»: el porqué (la guía del plan)."""
+    try:
+        head, lead, body, _enter = agent_create_ui._plan_guide()[S["view"]]
+        impacto = agent_create_ui._plan_explanations().get(S["view"], "")
+    except Exception:
+        return []
+    out = ["%s%s%s" % (K["C"] + K["BO"], head.capitalize(), K["R"]),
+           "%s%s%s" % (K["WH"], lead, K["R"])]
+    for par in [body] + [p for p in impacto.split("\n\n") if p.strip()]:
+        out.append("")
+        out += ["%s%s%s" % (K["GREY"], s, K["R"]) for s in _wrap(par, max(8, iw))]
+    return [HL.clip(x, iw) for x in out]
+
+
+def _plan_info(S, K, iw):
+    """El cuadro de i del plan: la guía de la fila elegida (qué es, tu
+    elección, qué cambia), el consumo y el mapa del cerebro."""
+    api = sys.modules[__name__]
+    menu = agent_create_ui.rows(S, api)
+    cursor = min(S.get("option_cursor", 0), len(menu) - 1)
+    action, valor = menu[cursor]
+    out = []
+    try:
+        import brain_view
+        if S["view"] == "brain" or action.startswith("route:"):
+            route = action.split(":", 1)[1] if action.startswith("route:") else "setup"
+            heading, lead, explanation = brain_view.routes()[route][:3]
+            impact = agent_create_ui._route_explanations().get(route, lead)
+        else:
+            heading, lead, explanation, _enter = agent_create_ui._plan_guide()[action]
+            impact = explanation + "\n\n" + agent_create_ui._plan_explanations().get(action, "")
+    except Exception:
+        heading, impact = valor, ""
+    out.append(HL.clip("%s%s%s" % (K["C"] + K["BO"], heading, K["R"]), iw))
+    out.append(HL.clip("%s%s%s" % (K["WH"] + K["BO"], valor, K["R"]), iw))
+    for par in [p for p in impact.split("\n\n") if p.strip()]:
+        out.append("")
+        out += ["%s%s%s" % (K["GREY"], ln, K["R"]) for ln in _wrap(par, iw)]
+    if S["view"] == "plan":
+        out.append("")
+        out.append(_divisor(K, _t("addagent.plan.box_overview", "tu cerebro en construcción"), iw))
+        try:
+            out += [HL.clip(ln, iw) for ln in
+                    agent_create_ui.overview_panel(S, api, K, iw, 12)]
+        except Exception:
+            pass
+    return out
+
+
+def _vista(S, K, w, h):
+    """(principal(iw), info(iw)|None, título, título de i) de la vista."""
+    v = S["view"]
+    api = sys.modules[__name__]
+    alto = max(6, h - 16)
+    if v == "menu":
+        return (lambda iw: _b_menu(S, K, iw), lambda iw: _b_menu_det(S, K, iw))
+    if v == "crear":
+        return (lambda iw: (_b_crear(S, K, iw, grupos=True, max_h=max(6, alto - _AYUDA_H))
+                            + [""] + _b_crear_ayuda(S, K, iw)),
+                lambda iw: _b_crear_det(S, K, iw, full=2))
+    if v == "brain":
+        # «Vistas del cerebro» es solo para MIRAR el mapa: va a la vista
+        def _rutas_y_mapa(iw):
+            out = _plan_main(S, K, iw) + [""]
+            try:
+                out += [HL.clip(ln, iw) for ln in agent_create_ui.overview_panel(
+                    S, api, K, iw, max(10, h - 26))]
+            except Exception:
+                pass
+            return out
+        return (_rutas_y_mapa, lambda iw: _plan_info(S, K, iw))
+    if v == "plan":
+        return (lambda iw: _plan_main(S, K, iw) + [""] + _plan_ayuda(S, K, iw),
+                lambda iw: _plan_info(S, K, iw))
+    if v in ("process", "cost"):
+        return (lambda iw: _leer(S, K, iw), lambda iw: _leer_info(S, K, iw))
+    if v in agent_create_ui.VIEWS:
+        def _pan(iw, parte):
+            izq, der = agent_create_ui.panels(S, api, iw, iw, 999)
+            return izq if parte == 0 else der
+        return (lambda iw: _pan(iw, 0), lambda iw: _pan(iw, 1))
+    if v == "skills":
+        return (lambda iw: _b_skills(S, K, iw, iw, alto)[0],
+                lambda iw: _b_skills(S, K, iw, iw, 999)[1])
+    if v == "run":
+        return (lambda iw: _b_run_pasos(S["job"], K, iw),
+                lambda iw: _b_run_vivo(S, K, iw, max(8, h - 14)))
+    if v == "lrun":
+        return (lambda iw: _b_run_pasos(S["ljob"], K, iw),
+                lambda iw: _b_lrun_vivo(S["ljob"], K, iw, max(8, h - 14)))
+    if v == "cargar":
+        return (lambda iw: _b_cargar(S, K, iw), lambda iw: _b_cargar_det(S, K, iw, full=2))
+    if v == "descubrir":
+        return (lambda iw: _b_descubrir(S, K, iw),
+                lambda iw: _b_descubrir_det(S, K, iw, full=2))
+    if v == "done":
+        return (lambda iw: _b_done(S, K, iw), None)
+    if v == "stale":
+        return (lambda iw: _b_stale(S, K, iw), None)
+    return (lambda iw: _b_listo(S, K, iw), None)
+
+
+def _mapa(S, K, w, h, palabra):
+    """«Vistas del mapa» (map_focus): el mapa del cerebro en su propio
+    cuadro; ←→ cambia de vista, Enter vuelve al plan."""
+    import section_frame as SF
+    api = sys.modules[__name__]
+    # el mapa es ancho por naturaleza: su cuadro usa la ventana (con techo)
+    ancho = max(78, min(w - 12, 150))
+    _pw, iw = SB.widths(w, ancho)
+    route = S.get("brain_route", "setup")
+    try:
+        import brain_view
+        heading, lead, _expl = brain_view.routes()[route][:3]
+        texto = agent_create_ui._route_explanations().get(route, lead)
+    except Exception:
+        heading, texto = route, ""
+    cuerpo = [HL.clip("%s%s%s" % (K["C"] + K["BO"], heading, K["R"]), iw)]
+    cuerpo += ["%s%s%s" % (K["GREY"], ln, K["R"]) for ln in _wrap(texto, iw)[:5]]
+    cuerpo.append("")
+    try:
+        cuerpo += [HL.clip(ln, iw) for ln in
+                   agent_create_ui.overview_panel(S, api, K, iw, max(10, h - 22))]
+    except Exception:
+        pass
+    chips = (("←→", SF.t("addagent.chip.view", "cambia la vista", "change view")),
+             ("Enter", SF.t("addagent.chip.back_plan", "vuelve al plan", "back to plan")))
+    return SB.frame(K, w, h, palabra, _t("addagent.plan.title_brain", "VISTAS DEL CEREBRO"),
+                    cuerpo, chips, msg=S.get("msg", ""), box_w=ancho)
+
+
 def render(S, w, h):
     K = _K()
-    sub = _sub_t(S["view"])
-    # cabecera COMPARTIDA (wordmark + subtítulo + atajos clave + regla);
-    # los atajos de arriba siguen la VISTA — nunca mienten
-    L = HL.screen_header(K, w, h, sub,
-                         hints=_hints_t(S["view"]), word=HL.section_word('crear'))
-    top = len(L)
-    apilado = w < 100
-    lw = (w - 1) if apilado else max(36, min(52, (w - 6) * 48 // 100))
-    rw = (w - 1) if apilado else (w - 1) - lw - 3
-    avail = max(8, (h - 1) - top - 5)
     v = S["view"]
-    bi = bd = None
-    if v in ("plan", "brain"):
-        L += agent_create_ui.plan_screen(S, sys.modules[__name__], K, w, avail)
-        return _finish_frame(S, K, L, w, h)
-    if v == "menu":
-        bi, bd = _b_menu(S, K, lw - 4), _b_menu_det(S, K, rw - 4)
-    elif v == "crear":
-        # presupuesto del formulario: si no cabe, _b_crear abre su ventana
-        # deslizante (el campo enfocado SIEMPRE visible, altura estable)
-        cap = (avail - 2) if not apilado \
-            else max(6, (avail - 4) * 55 // 100)
-        for grupos, full in ((True, 2), (True, 1), (False, 1), (False, 0)):
-            bi = _b_crear(S, K, lw - 4, grupos=grupos, max_h=cap)
-            bd = _b_crear_det(S, K, rw - 4, full=full)
-            need = (len(bi) + len(bd) + 4) if apilado \
-                else (max(len(bi), len(bd)) + 2)
-            if need <= avail:
-                break
-    elif v in agent_create_ui.VIEWS:
-        cap = max(3, (avail - 4) // 2 if apilado else avail - 2)
-        bi, bd = agent_create_ui.panels(S, sys.modules[__name__], lw - 4, rw - 4, cap)
-    elif v == "skills":
-        bi, bd = _b_skills(S, K, lw - 4, rw - 4,
-                            max(3, (avail - 4) // 2 if apilado else avail - 2))
-    elif v == "run":
-        bi = _b_run_pasos(S["job"], K, lw - 4)
-        ih_d = max(4, (avail - len(bi) - 4) if apilado else (avail - 2))
-        bd = _b_run_vivo(S, K, rw - 4, ih_d)
-    elif v == "lrun":
-        bi = _b_run_pasos(S["ljob"], K, lw - 4)
-        ih_d = max(4, (avail - len(bi) - 4) if apilado else (avail - 2))
-        bd = _b_lrun_vivo(S["ljob"], K, rw - 4, ih_d)
-    elif v == "done":
-        bi, bd = _b_done(S, K, _solo_w(w, apilado) - 4), []
-    elif v == "stale":
-        bi, bd = _b_stale(S, K, _solo_w(w, apilado) - 4), []
-    elif v == "cargar":
-        for full in (2, 1, 0):
-            bi = _b_cargar(S, K, lw - 4)
-            bd = _b_cargar_det(S, K, rw - 4, full=full)
-            need = (len(bi) + len(bd) + 4) if apilado \
-                else (max(len(bi), len(bd)) + 2)
-            if need <= avail:
-                break
-    elif v == "descubrir":
-        for full in (2, 1, 0):
-            bi = _b_descubrir(S, K, lw - 4)
-            bd = _b_descubrir_det(S, K, rw - 4, full=full)
-            need = (len(bi) + len(bd) + 4) if apilado \
-                else (max(len(bi), len(bd)) + 2)
-            if need <= avail:
-                break
-    else:                                            # listo
-        bi, bd = _b_listo(S, K, _solo_w(w, apilado) - 4), []
-    t_izq, t_der = _titulos_t(v)
-    solo = v in ("listo", "done", "stale")
-    if solo or apilado:
-        dos = bool(bd) and apilado and not solo
-        # presupuesto APILADO: ambas cajas caben SIEMPRE (reparto ~55/45,
-        # patrón actualizaciones); con una sola caja, todo el alto para ella
-        ih = min(len(bi), max(3, ((avail - 4) * 55 // 100) if dos
-                              else (avail - 2)))
-        bw = _solo_w(w, apilado) if solo \
-            else (lw - (0 if not apilado else 1))
-        for ln in HL.full_box(t_izq, bi, K, bw,
-                              max(3, ih), True, border=K["C"]):
-            L.append(HL.clip(" " + ln, w - 1))
-        if dos:
-            ih_d = max(3, min(len(bd), avail - (ih + 2) - 2))
-            for ln in HL.full_box(t_der, bd, K, rw - 1, ih_d, False,
-                                  border=K["B2"], label=K["B"] + K["BO"]):
-                L.append(HL.clip(" " + ln, w - 1))
-    else:
-        ch = min(avail, max(len(bi), len(bd)) + 2)
-        izq = HL.full_box(t_izq, bi, K, lw, ch - 2, True, border=K["C"])
-        der = HL.full_box(t_der, bd, K, rw, ch - 2, False, border=K["B2"],
-                          label=K["B"] + K["BO"])
-        for i in range(ch):
-            L.append(HL.clip(" " + HL.pad(izq[i] if i < len(izq) else "", lw)
-                             + "  " + (der[i] if i < len(der) else ""),
-                             w - 1))
-    # pie SIEMPRE visible (el cuerpo cede antes que el pie — regla dura) +
-    # contrato de altura ESTABLE: SIEMPRE h-1 líneas (cambiar de vista con
-    # `H` + `\033[K` no deja residuos de la vista anterior)
-    return _finish_frame(S, K, L, w, h)
+    if v == "plan" and S.get("map_focus") and not S.get("info"):
+        return _mapa(S, K, w, h, HL.section_word("agentes"))
+    principal, info = _vista(S, K, w, h)
+    t_main, t_info = _titulos_t(v)
+    palabra = HL.section_word("agentes")
+    if S.get("info") and v == "plan":
+        return SB.info_frame(K, w, h, palabra, t_info or t_main,
+                             _plan_info_blocks(S, K), state=S["info"], box_w=66)
+    if S.get("info") and info is not None:
+        return SB.info_frame(K, w, h, palabra, t_info or t_main,
+                             [("lines", info)], state=S["info"], box_w=66)
+    S.pop("info", None)
+    bw = max(78, min(w - 12, 150)) if v == "brain" else _BOX_W.get(v, 60)
+    # el contenido PRIMERO: así se sabe en qué fila quedó el cursor y, si no
+    # cabe todo, la ventana se desplaza para que la fila elegida se vea
+    S.pop("_cursor_line", None)
+    lineas = principal(SB.widths(w, bw)[1])
+    cursor = S.get("_cursor_line") if v in ("plan", "brain") else None
+    msg = S.get("msg", "")
+    if v == "plan" and not msg:
+        # lo que cuesta crear, SIEMPRE a la vista antes de actuar: va en la
+        # línea de aviso bajo la caja, que nunca se recorta
+        try:
+            msg = agent_create_ui._generation_label(S, sys.modules[__name__])
+        except Exception:
+            msg = ""
+    return SB.frame(K, w, h, palabra, t_main, lineas, _chips_vista(v),
+                    msg=msg, cursor_line=cursor, box_w=bw)
 
 
-def _finish_frame(S, K, L, w, h):
+def _info_tecla(S, key):
+    """`i` (o `?` donde se escribe) abre/cierra la explicación de la vista."""
     v = S["view"]
-    L = L[:max(0, (h - 1) - 5)]
-    L += [""] * max(0, (h - 1) - 5 - len(L))
-    L.append("")
-    L.append((" %s%s%s" % (K["B2"], S["msg"], K["R"]))
-             if S.get("msg") else "")
-    L.extend(HL.instruction_buttons(K, _hints_t(v), w-1))
-    L = L[:h - 1]
-    L += [""] * max(0, (h - 1) - len(L))
-    return [HL.clip(x, w - 1) for x in L]
+    if S.get("info"):
+        return SB.info_key(S, key)
+    if v in _SIN_INFO:
+        return False
+    if key == "i" and v in _TYPING:
+        return False
+    if key == "i" and v in ("run", "lrun"):
+        S["info"] = {"scroll": 0}
+        return True
+    return SB.info_key(S, key)
 
 
 def _lanza_skills(S, force=False):
@@ -1859,7 +2252,10 @@ def _params_de_form(S):
     params = {"name": nombre, "display": g("visible") or nombre.capitalize(),
               "tagline": plano(g("rol")), "owner": owner, "scope": scope,
               "skills": plano(g("skills")), "soul": soul, "intake": intake,
-              "engine": S.get("engine_id") or "claude-code"}
+              "engine": S.get("engine_id") or "claude-code",
+              # las dos preguntas del plan (permisos y aprendizaje)
+              "autonomy": "brain" if S.get("brain_free", True) else "ask",
+              "skill_review": bool(S.get("skill_review"))}
     # toggle del plan: solo viaja si está ON y el backend headless existe
     # (agent_create_job agrega los pasos de la pasada al ver el flag)
     if S.get("personalize") and _perso_disp(S)[0]:
@@ -1902,15 +2298,36 @@ def _cargar_ya(S):
         S["msg"] = (_t("addagent.ui.msg.collision_cant", "«%s» ya está cargado desde otra carpeta — no se puede")
                     % info.get("name", "?"))
         return
-    _ljob_start(S, [(info.get("name") or "", info["folder"])], "cargar")
+    _ir_perms(S, [(info.get("name") or "", info["folder"])], "cargar")
+
+
+def _ir_perms(S, items, origen):
+    """Antes de conectar: los DOS interruptores (su cerebro sin preguntar ·
+    revisión de skills). Con UN cerebro arrancan con lo que ese cerebro ya
+    declara en su agent.json; con varios, en los defaults (ON/OFF)."""
+    free, review, base = True, False, "brain"
+    if len(items) == 1:
+        try:
+            d = agentsreg.load_definition(items[0][1]) or {}
+            auto = str(d.get("autonomy") or "").lower()
+            free = auto != "ask"
+            review = d.get("skill_review") is True
+            # («comandos sin preguntar» ya no existe: un "full" de antes queda en brain)
+        except Exception:
+            pass
+    S["perms_brain"], S["perms_review"], S["perms_base"] = free, review, base
+    S["perms_items"], S["perms_origen"] = list(items), origen
+    S["view"], S["option_cursor"], S["msg"] = "perms", 0, ""
 
 
 def _accion(S, key):
     """True = sigue · False = salir al recinto."""
     v = S["view"]
-    S["msg"] = ""
     if key == "\x03":
         return False
+    if _info_tecla(S, key):
+        return True
+    S["msg"] = ""
     # ── menú ──
     if v == "menu":
         if key in ("q", "Q", "\x1b"):
@@ -1974,6 +2391,7 @@ def _accion(S, key):
             S["job"] = None
             if ok:
                 S["vals"] = {k: "" for k in ORDEN_F}     # formulario limpio
+                S["brain_free"], S["skill_review"] = True, False
                 S["view"] = "menu"
             else:
                 S["view"], S["fi"] = "crear", 0          # campos intactos
@@ -2083,13 +2501,13 @@ def _accion(S, key):
             if est == "otro":
                 S["msg"] = (_t("addagent.ui.msg.collision_cant_here", "«%s» ya está cargado desde otra carpeta — no se puede conectar desde aquí") % a["name"])
             else:
-                _ljob_start(S, [(a["name"], a["brain"])], "descubrir")
+                _ir_perms(S, [(a["name"], a["brain"])], "descubrir")
         elif key in ("a", "A") and n and not ocupado:
             items = [(a["name"], a["brain"]) for a in S["found"]
                      if S["estados"].get(a["name"]) in ("nuevo", "")
                      or S["estados"].get(a["name"], "").startswith("err")]
             if items:
-                _ljob_start(S, items, "descubrir")
+                _ir_perms(S, items, "descubrir")
             else:
                 S["msg"] = _t("addagent.ui.msg.no_new_brains", "no hay cerebros nuevos que conectar")
         elif key in ("q", "Q"):
@@ -2294,7 +2712,7 @@ def _run_windows(S):
 def _sin_tty():
     """Sin terminal interactiva: señala el camino CLI y no truena."""
     print(_t("addagent.ui.notty.need_tty", "agregar agente necesita una terminal interactiva."))
-    print(_t("addagent.ui.notty.cli", "por CLI:  python3 agent_admin.py create <nombre> [--engine claude-code|codex] …  ·  python3 agent_admin.py load <carpeta>"))
+    print(_t("addagent.ui.notty.cli", "por CLI:  python3 agent_admin.py create <nombre> [--engine claude-code|codex|antigravity] [--autonomy brain|full] [--skill-review] …  ·  python3 agent_admin.py load <carpeta> [--autonomy brain|full] [--skill-review]"))
     return 0
 
 
@@ -2305,6 +2723,8 @@ def _estado_inicial():
          "done": {}, "job": None, "harn": None, "engine_id": None,
          "stale": None, "insp": None, "ljob": None, "lret": "menu",
          "scan": None, "defs": {}, "personalize": False, "pbk": {},
+         # las dos preguntas (defaults: libre solo en su cerebro · sin revisión)
+         "brain_free": True, "skill_review": False,
          "saldo": None, "source_skills": True, "sourcing": None,
          "skill_selected": set(), "skill_cursor": 0,
          "source_config": skill_source_preferences.load(), "option_cursor": 0, "community_query": ""}

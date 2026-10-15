@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """WORKSPACE · comandos_tui — sección COMANDOS del hub (lanzador).
 
-Todo lo que puedes escribir en la terminal, agrupado, con lo justo:
-  izquierda  los comandos por grupo (tus agentes · tu día · trabajo · esta
-             máquina; «desarrollo» solo en modo dev)
-  derecha    el elegido: cómo se escribe, qué hace, cuándo te sirve y sus
-             otros nombres
-  ↑↓ elige · / busca (nombre, alias o qué hace) · Enter ejecuta · q vuelve
+Todo lo que puedes escribir en la terminal, agrupado, con lo justo
+(rediseño 2026-10-14: una caja centrada y vertical):
+  arriba  los comandos por grupo (tus agentes · tu día · trabajo · esta
+          máquina; «desarrollo» solo en modo dev), en una ventana fija
+  abajo   el elegido: cómo se escribe, qué hace y qué hace Enter
+  i       abre a la DERECHA un segundo cuadro con el mapa del elegido (vertical),
+          cuándo te sirve y sus otros nombres; cambia al moverte por la lista
+          (en una ventana angosta ocupa la caja)
+  ↑↓ elige · ◄► grupo · / busca (nombre, alias o qué hace) · Enter ejecuta · q vuelve
 
 Todo sale del catálogo único (comandos.py): nombres en el idioma de la UI,
 mismos datos que `workspace --help` y `workspace comandos --json`.
@@ -16,7 +19,7 @@ corre `workspace <cmd>` y, si vino del hub, espera Enter y vuelve al hub.
   · los marcados peligrosos piden «¿Seguro? s/n» aquí mismo;
   · los que necesitan argumentos solo muestran cómo se escriben;
   · los no ejecutables (el hub, `<agente>`, esta misma lista) avisan.
-Mismo lenguaje que Atajos/Tono (section_frame).
+Mismo lenguaje que Agentes/Actualizaciones (section_box).
 """
 import os
 import subprocess
@@ -25,6 +28,7 @@ import time
 
 import comandos as C
 import hublayout as HL
+import section_box as SB
 import section_frame as SF
 from theme import screen as _theme_screen  # fondo/tinta del tema
 
@@ -96,9 +100,10 @@ def pares(S):
         return (("Enter", _t("comandos.k.done", "listo", "done")),
                 ("Esc", _t("comandos.k.clear", "borrar filtro", "clear filter")))
     return (("↑↓", _t("comandos.k.pick", "elige", "pick")),
-            ("◄►", _t("comandos.k.group", "grupo", "group")),
-            ("/", _t("comandos.k.find", "busca", "find")),
             ("Enter", _t("comandos.k.run", "ejecuta", "run")),
+            ("/", _t("comandos.k.find", "busca", "find")),
+            ("i", _t("comandos.k.hide", "oculta la explicación", "hides the explanation")
+             if S.get("panel") else _t("comandos.k.info", "cómo funciona", "how it works")),
             ("q", _t("comandos.k.back", "vuelve", "back")))
 
 
@@ -113,67 +118,6 @@ def _hint(c):
         return _t("comandos.hint.danger", "Enter lo ejecuta (pide confirmación)",
                   "Enter runs it (asks for confirmation)")
     return _t("comandos.hint.run", "Enter lo ejecuta", "Enter runs it")
-
-
-def _also(c):
-    al = C.shown_aliases(c)
-    if not al or not c["dispatch"]:
-        return ""
-    return _t("comandos.also", "también: {names}", "also: {names}", names=" · ".join(al))
-
-
-def _detail_lines(S, K, c, tw):
-    txt = SF.text(K, C.usage_of(c), tw, K["C"] + K["BO"], max_lines=3) + [""]
-    txt += SF.text(K, C.summary_of(c), tw, K["WH"], max_lines=4) + [""]
-    txt += [SF.divisor(K, _t("comandos.when", "cuándo", "when"), tw, tono=4)]
-    txt += SF.text(K, C.when_of(c), tw, K["DIM"], max_lines=3)
-    also = _also(c)
-    if also:
-        txt += SF.text(K, also, tw, K["DIM"], max_lines=2)
-    txt += SF.text(K, "▸ " + _hint(c), tw, K["B2"], max_lines=2)
-    return txt
-
-
-def _left(S, K):
-    def build(iw, ih):
-        rows = visible(S)
-        out, cur_line, last = [], 0, None
-        if S.get("filtering") or S.get("query"):
-            out.append(HL.clip(" %s/ %s%s%s" % (K["C"] + K["BO"], K["WH"] + K["BO"], S["query"],
-                                                "▏" if S.get("filtering") else "") + K["R"], iw))
-            out.append("")
-        gname = {g[0]: (g[2] if _en() else g[1]) for g in S["groups"]}
-        gids = [g[0] for g in S["groups"]]
-        for n, c in enumerate(rows):
-            if c["group"] != last:
-                if last is not None:
-                    out.append("")
-                out.append(SF.divisor(K, gname.get(c["group"], c["group"]), iw,
-                                      tono=gids.index(c["group"]) * 2))
-                last = c["group"]
-            if n == S["i"]:
-                cur_line = len(out)
-            out.append(SF.row(K, _name(c), "", iw, sel=(n == S["i"])))
-        if not rows:
-            out += SF.text(K, _t("comandos.none", "ningún comando coincide", "no command matches"), iw, K["DK"])
-        S["_cursor"] = cur_line
-        return out
-    return build
-
-
-def _right(S, K):
-    def build(iw, ih):
-        c = current(S)
-        if c is None:
-            return []
-        out = _detail_lines(S, K, c, iw)
-        mp = _mini_map(K, c["id"], iw, max(0, ih - len(out) - 2))
-        if mp:
-            out.append("")
-            out.append(SF.divisor(K, _t("comandos.map", "cómo funciona", "how it works"), iw, tono=2))
-            out += mp
-        return out
-    return build
 
 
 def _mini_map(K, name, iw, ih):
@@ -203,98 +147,211 @@ def _columns(S):
     return cols
 
 
-def _grid_box(S, K, w):
-    """Caja de comandos en COLUMNAS por grupo (aprovecha el ancho): ↑↓
-    dentro del grupo, ◄► entre grupos."""
-    cols = _columns(S)
-    iw = w - 6
-    cw = max(16, iw // max(1, len(cols)))
-    height = max((len(items) for _g, _n, items in cols), default=0)
-    lines = []
-    head = ""
-    for k, (_gid, name, _items) in enumerate(cols):
-        head += HL.pad(SF.divisor(K, name, cw - 2, tono=k * 2), cw)
-    lines.append(HL.clip(head, iw))
-    for r in range(height):
-        ln = ""
-        for _gid, _gn, items in cols:
-            if r < len(items):
-                n, c = items[r]
-                ln += HL.pad(SF.row(K, _name(c), "", cw - 1, sel=(n == S["i"])), cw)
-            else:
-                ln += " " * cw
-        lines.append(HL.clip(ln, iw))
-    if S.get("filtering") or S.get("query"):
-        lines.insert(0, HL.clip(" %s/ %s%s%s%s" % (K["C"] + K["BO"], K["WH"] + K["BO"], S["query"],
-                                                   "▏" if S.get("filtering") else "", K["R"]), iw))
-    if not cols:
-        lines = SF.text(K, _t("comandos.none", "ningún comando coincide", "no command matches"), iw, K["DK"])
-    return HL.full_box(_t("comandos.box", "COMANDOS", "COMMANDS"), lines, K, w - 2, len(lines), True,
-                       border=K["C"])
+# ══ REDISEÑO 2026-10-14 (concepto Omarchy, pedido del dueño) ═══════════════
+# Una caja centrada y VERTICAL: la lista agrupada (ventana fija con «▲/▼ n
+# más», no se sacude al moverte) y, bajo una regla con su nombre, cómo se
+# escribe el elegido, qué hace y qué hace Enter. Lo didáctico (cuándo te
+# sirve, sus otros nombres, su mapa y cómo funciona la lista) va en `i`.
+BOX_W = 56
+#: Filas MÍNIMAS de la lista (encabezados de grupo incluidos); con alto de
+#: sobra la ventana crece y, si cabe, se ve la lista entera.
+LIST_ROWS = 8
+#: Lo que ocupa todo lo demás en pantalla (wordmark, botones, bordes,
+#: búsqueda y el detalle del elegido).
+_RESTO = 30
 
 
-def _detail_box(S, K, w, max_h):
-    """El comando elegido: a la izquierda cómo se escribe / qué hace /
-    cuándo; a la derecha su mapa conceptual (si cabe)."""
+def _lista(S, K, iw):
+    rows = visible(S)
+    gname = {g[0]: (g[2] if _en() else g[1]) for g in S["groups"]}
+    gids = [g[0] for g in S["groups"]]
+    lines, last = [], None                      # [(línea, índice del comando | None)]
+    for n, c in enumerate(rows):
+        if c["group"] != last:
+            if last is not None:
+                lines.append(("", None))
+            lines.append((SF.divisor(K, gname.get(c["group"], c["group"]), iw,
+                                     tono=gids.index(c["group"]) * 2), None))
+            last = c["group"]
+        on = (n == S["i"])
+        cur = ("%s›%s " % (K["C"] + K["BO"], K["R"])) if on else "  "
+        tinta = (K["C"] + K["BO"]) if on else K["GREY"]
+        lines.append((HL.clip("%s%s%s%s" % (cur, tinta, _name(c), K["R"]), iw), n))
+    if not rows:
+        return [HL.clip("%s%s%s" % (K["DK"], _t("comandos.none", "ningún comando coincide",
+                                                 "no command matches"), K["R"]), iw)]
+    alto = S.get("_rows", LIST_ROWS)
+    if len(lines) <= alto:
+        return [ln for ln, _n in lines]
+    # ventana FIJA de `alto` filas con el elegido a la vista
+    filas = alto - 2
+    sel = next(k for k, (_ln, n) in enumerate(lines) if n == S["i"])
+    start = max(0, min(sel - filas // 2, len(lines) - filas))
+    arriba = sum(1 for _ln, n in lines[:start] if n is not None)
+    abajo = sum(1 for _ln, n in lines[start + filas:] if n is not None)
+
+    def mas(flecha, k):
+        return ("%s%s %s%s" % (K["DIM"], flecha, _t("comandos.more", "{n} más", "{n} more", n=k),
+                               K["R"])) if k else ""
+    vista = lines[start:start + filas]
+    # que la ventana no termine en un encabezado (o un hueco) sin sus comandos
+    sobra = 0
+    while vista and vista[-1][1] is None:
+        vista.pop()
+        sobra += 1
+    return ([mas("▲", arriba)] + [ln for ln, _n in vista] + [""] * sobra
+            + [mas("▼", abajo)])
+
+
+def _detalle(S, K, iw):
+    """El elegido: cómo se escribe, qué hace y qué hace Enter."""
     c = current(S)
     if c is None:
         return []
-    iw = w - 6
-    tw = max(30, min(56, iw * 45 // 100))
-    mw = iw - tw - 2
-    txt = _detail_lines(S, K, c, tw)
-    mp = _mini_map(K, c["id"], mw, 7) if mw >= 30 else None
-    if mp:
-        body = []
-        n = max(len(txt), len(mp))
-        for k in range(n):
-            a = txt[k] if k < len(txt) else ""
-            b = mp[k] if k < len(mp) else ""
-            body.append(HL.pad(a, tw) + "  " + b)
-    else:
-        body = txt
-        mp2 = _mini_map(K, c["id"], iw, 7)
-        if mp2 and len(body) + len(mp2) + 1 <= max_h - 2:
-            body += [""] + mp2
-    body = body[:max(1, max_h - 2)]
-    return HL.full_box(_name(c).upper(), body, K, w - 2, len(body), False,
-                       border=K["B2"], label=K["B"] + K["BO"])
+    out = [SB.stack(K, [], [], iw, label=_name(c))[1]]
+    out += ["  %s%s%s" % (K["C"] + K["BO"], ln, K["R"])
+            for ln in SB._wrap(C.usage_of(c), max(8, iw - 2))[:2]]
+    out += ["  %s%s%s" % (K["GREY"], ln, K["R"])
+            for ln in SB._wrap(C.summary_of(c), max(8, iw - 2))[:3]]
+    out += ["  %s▸ %s%s" % (K["B2"], ln, K["R"]) for ln in SB._wrap(_hint(c), max(8, iw - 4))[:1]]
+    return [HL.clip(ln, iw) for ln in out]
+
+
+def _cuerpo(S, K, iw):
+    out = []
+    if S.get("filtering") or S.get("query"):
+        out += [HL.clip(" %s/ %s%s%s%s" % (K["C"] + K["BO"], K["WH"] + K["BO"], S["query"],
+                                           "▏" if S.get("filtering") else "", K["R"]), iw), ""]
+    lista = _lista(S, K, iw)
+    S["_cursor"] = len(out) + next((k for k, ln in enumerate(lista)
+                                    if SB._ANSI.sub("", ln).startswith("› ")), 0)
+    return out + lista + [""] + _detalle(S, K, iw)
+
+
+#: Ancho del cuadro lateral de `i` (mapa vertical + explicación).
+PANEL_W = 40
+
+
+def _parte(txt, ancho):
+    """Las etiquetas de los mapas traen «larga|corta»: la larga si cabe."""
+    largo, _, corto = str(txt).partition("|")
+    return largo if HL.vis(largo) <= ancho or not corto else corto
+
+
+def _mapa_vertical(K, spec, iw):
+    """El mapa del comando de arriba hacia abajo: cada paso en su cajita y,
+    entre uno y otro, la flecha con lo que lo lleva al siguiente."""
+    nodes, caps, _nota = spec
+    box = K["BOX"]
+    tl, tr, bl, br, v, hh = box[0], box[1], box[2], box[3], box[4], box[5]
+    tinta = {"wh": K["WH"], "c": K["C"], "ok": K["OK"]}
+    mid = iw // 2
+    out = []
+    for i, (lab, tono) in enumerate(nodes):
+        lab = _parte(lab, iw - 6)
+        a = HL.vis(lab) + 2
+        lp = " " * max(0, mid - (a + 2) // 2)
+        out += [lp + "%s%s%s%s%s" % (K["B2"], tl, hh * a, tr, K["R"]),
+                lp + "%s%s%s %s%s%s %s%s%s" % (K["B2"], v, K["R"], tinta.get(tono, K["WH"]) + K["BO"],
+                                               lab, K["R"], K["B2"], v, K["R"]),
+                lp + "%s%s%s%s%s" % (K["B2"], bl, hh * a, br, K["R"])]
+        if i < len(nodes) - 1:
+            cap = _parte(caps[i], iw - mid - 3) if i < len(caps) else ""
+            out.append(" " * mid + "%s│%s" % (K["DK"], K["R"])
+                       + ("  %s%s%s" % (K["DIM"], cap, K["R"]) if cap else ""))
+            out.append(" " * mid + "%s▼%s" % (K["C"] + K["BO"], K["R"]))
+    return [HL.clip(ln, iw) for ln in out]
+
+
+def _panel(S, K, iw):
+    """El cuadro de la derecha: el mapa del comando elegido (vertical), su
+    nota, cuándo te sirve y sus otros nombres. Cambia al moverte."""
+    c = current(S)
+    if c is None:
+        return []
+    out = []
+    spec = C.command_map(c["id"])
+    if spec:
+        out += _mapa_vertical(K, spec, iw) + [""]
+        if spec[2]:
+            out += ["%s%s%s" % (K["DIM"], ln, K["R"]) for ln in SB._wrap(spec[2], iw)[:3]]
+            out.append("")
+    out.append(SF.divisor(K, _t("comandos.when", "cuándo", "when"), iw, tono=4))
+    out += ["%s%s%s" % (K["GREY"], ln, K["R"]) for ln in SB._wrap(C.when_of(c), iw)[:4]]
+    al = C.shown_aliases(c)
+    if al and c["dispatch"]:
+        out.append("")
+        out += ["%s%s%s" % (K["DIM"], ln, K["R"]) for ln in SB._wrap(
+            _t("comandos.also", "también: {names}", "also: {names}", names=" · ".join(al)), iw)[:2]]
+    return [HL.clip(ln, iw) for ln in out]
+
+
+def info_blocks(S, K):
+    """El cuadro de `i`: el comando elegido a fondo (cómo se escribe, qué
+    hace, cuándo te sirve, otros nombres y su mapa) y cómo funciona la lista."""
+    c = current(S)
+    blocks = []
+    if c is not None:
+        blocks += [("h", _name(c)), ("code", C.usage_of(c)), ("p", C.summary_of(c))]
+        kv = [(_t("comandos.when", "cuándo", "when"), C.when_of(c))]
+        al = C.shown_aliases(c)
+        if al and c["dispatch"]:
+            kv.append((_t("comandos.also_k", "también", "also"), " · ".join(al)))
+        blocks += [("kv", kv)]
+        if C.command_map(c["id"]):
+            blocks += [("gap",), ("lines", lambda iw, c=c: _mini_map(K, c["id"], iw, 7) or [])]
+        blocks += [("gap",)]
+    blocks += [
+        ("h", _t("comandos.info.h_list", "cómo funciona esta lista", "how this list works")),
+        ("kv", [("↑↓", _t("comandos.k.pick", "elige", "pick")),
+                ("◄►", _t("comandos.info.group", "salta de grupo", "jumps between groups")),
+                ("/", _t("comandos.info.find", "busca por nombre, otro nombre o lo que hace",
+                         "searches by name, other name or what it does")),
+                ("Enter", _t("comandos.info.enter", "lo ejecuta: sale, corre «workspace <comando>» y vuelve al hub",
+                             "runs it: leaves, runs «workspace <command>» and comes back to the hub"))]),
+        ("p", _t("comandos.info.p1",
+                 "Los que necesitan algo más (un agente, un correo) solo te muestran cómo se escriben; "
+                 "los que cambian tu instalación (actualizar, desinstalar) piden confirmación.",
+                 "The ones that need something else (an agent, an email) only show you how to type them; "
+                 "the ones that change your installation (update, uninstall) ask for confirmation.")),
+        ("p", _t("comandos.info.p2",
+                 "Es la misma lista que «workspace ayuda»; tus agentes la leen con «workspace comandos --json».",
+                 "It's the same list as «workspace help»; your agents read it with «workspace commands --json».")),
+    ]
+    return blocks
 
 
 def render(S, w, h):
-    """Ancho (≥110): comandos en columnas arriba y el detalle (texto + mapa)
-    abajo — sin cajas medio vacías. Angosto: la lista + detalle de siempre."""
     rows = visible(S)
     S["i"] = max(0, min(S.get("i", 0), max(0, len(rows) - 1)))
-    cols = _columns(S)
-    w, h = max(1, int(w)), max(2, int(h))
-    need = max((len(it) for _g, _n, it in cols), default=0) + 4
-    if w >= 110 and len(cols) * 16 <= w - 6 and h >= need + 22:
-        K = SF.K()
-        L = HL.screen_header(K, w, h, _t("comandos.sub", "comandos — lo que puedes escribir en la terminal",
-                                         "commands — what you can type in the terminal"),
-                             word=HL.section_word("comandos"), compact_h=40)
-        for ln in _grid_box(S, K, w):
-            L.append(HL.clip(" " + ln, w - 1))
-        foot = HL.instruction_buttons(K, pares(S), w - 1)
-        room = (h - 1) - len(L) - 2 - len(foot)
-        for ln in _detail_box(S, K, w, room):
-            L.append(HL.clip(" " + ln, w - 1))
-        L += [""] * max(0, (h - 1) - len(L) - 2 - len(foot))
-        L.append("")
-        L.append(" %s%s%s" % (K["B2"], S.get("msg", ""), K["R"]) if S.get("msg") else "")
-        L.extend(foot)
-        return [HL.clip(x, w - 1) for x in L[:h - 1]]
     K = SF.K()
-    left = _left(S, K)
-    left(40, 999)
-    c = current(S)
-    title_r = _name(c).upper() if c else "—"
-    return SF.frame(K, w, h, _t("comandos.sub", "comandos — lo que puedes escribir en la terminal",
-                                "commands — what you can type in the terminal"),
-                    HL.section_word("comandos"), pares(S),
-                    _t("comandos.box", "COMANDOS", "COMMANDS"), left, title_r, _right(S, K),
-                    msg=S.get("msg", ""), cursor_line=S.get("_cursor", 0), header_hints=False)
+    S["_pair"] = bool(S.get("panel")) and SB.pair_fits(w, BOX_W, PANEL_W)
+    if S.get("panel") and not S["_pair"]:
+        # angosta: no cabe el cuadro al lado → la explicación ocupa la caja
+        return SB.info_frame(K, w, h, HL.section_word("comandos"),
+                             _t("comandos.info.title", "CÓMO FUNCIONAN LOS COMANDOS",
+                                "HOW COMMANDS WORK"),
+                             info_blocks(S, K), state=S.setdefault("info", {"scroll": 0}),
+                             box_w=66)
+    side = None
+    if S["_pair"]:
+        c = current(S)
+        side = (_t("comandos.panel", "CÓMO FUNCIONA", "HOW IT WORKS")
+                + (" · " + _name(c).upper() if c else ""), lambda iw: _panel(S, K, iw), PANEL_W)
+    S["_rows"] = max(LIST_ROWS, h - _RESTO)
+    alto = 2 + S["_rows"] + 1 + 7
+    if side:
+        # el cuadro más alto de todos: moverse por la lista no sacude la caja
+        i0 = S["i"]
+        for k in range(len(rows)):
+            S["i"] = k
+            alto = max(alto, len(_panel(S, K, PANEL_W)))
+        S["i"] = i0
+    # alto de referencia: búsqueda (2) + lista + aire + regla + detalle (hasta 6)
+    return SB.frame(K, w, h, HL.section_word("comandos"), _t("comandos.box", "COMANDOS", "COMMANDS"),
+                    lambda iw: _cuerpo(S, K, iw), pares(S), msg=S.get("msg", ""),
+                    cursor_line=lambda: S.get("_cursor", 0), box_w=BOX_W,
+                    stable_rows=alto, side=side)
 
 
 def _enter(S):
@@ -349,6 +406,22 @@ def act(S, key):
             S["query"] += key
             S["i"] = 0
         return True
+    if key in SB.INFO_KEYS:                  # i / ? abre o cierra el cuadro de la explicación
+        S["panel"] = not S.get("panel")
+        S.pop("info", None)
+        return True
+    if S.get("panel") and not S.get("_pair"):
+        # angosta: la explicación ocupa la caja → ↑↓ la desplazan, Esc/q la cierran
+        st = S.setdefault("info", {"scroll": 0})
+        if key in ("up", "down"):
+            st["scroll"] = max(0, st.get("scroll", 0) + (-1 if key == "up" else 1))
+        elif key in ("q", "Q", "\x1b"):
+            S["panel"] = False
+            S.pop("info", None)
+        return key != "\x03"
+    if S.get("panel") and key == "\x1b" and not S.get("query"):
+        S["panel"] = False                   # Esc oculta el cuadro; q vuelve al hub
+        return True
     if key in ("q", "Q", "\x1b", "\x03"):
         if S.get("query") and key == "\x1b":
             S.update(query="", i=0)
@@ -387,7 +460,10 @@ def execute(c, back_to_hub=True):
     print("\n→ workspace %s\n" % _name(c))
     sys.stdout.flush()
     try:
-        rc = subprocess.call(command_argv(c), cwd=HERE)
+        # WORKSPACE_DESDE_COMANDOS: el comando sabe que el hub sigue abierto
+        # detrás (p. ej. «bienvenida» no abre otro hub al terminar)
+        rc = subprocess.call(command_argv(c), cwd=HERE,
+                             env=dict(os.environ, WORKSPACE_DESDE_COMANDOS="1"))
     except Exception as e:
         print("✗ %s: %s" % (type(e).__name__, e))
         rc = 1

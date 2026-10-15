@@ -135,7 +135,7 @@ STRINGS = {
     "tono.hint.direct": "direct",
     "tono.hint.mode": "mode",
     "tono.hint.neutral": "neutral",
-    "tono.hint.back": "back to menu",
+    "tono.hint.back": "back",
 
     # statusline messages (every change saves right away)
     "tono.msg.saved": "{label} → {v}/5 · saved ✓ (applies to the next message)",
@@ -149,4 +149,19 @@ STRINGS = {
     "tono.cli.default": "default",
     "tono.cli.all_neutral": "(all neutral: nothing is injected)",
     "tono.msg.removed": "The selected agent is no longer registered. Choose a destination before editing.",
+    # ── rediseño 2026-10-14: cajita + cuadro de i ──
+    "tono.hint.info": "how it works",
+    "tono.box.title": "TONE",
+    "tono.info.title": "HOW TONE WORKS",
+    "tono.info.n1": "your dials",
+    "tono.info.c1": "on this machine",
+    "tono.info.n2": "invisible note",
+    "tono.info.c2": "travels with every message",
+    "tono.info.n3": "your agent",
+    "tono.info.c3": "answers in that style",
+    "tono.list.title": "for",
+    "tono.info.p2": "With every message you send, Workspace adds an instruction you don't see to your agent, built from these dials. It only changes the style, never who it is. 3 is neutral (sends nothing) and an agent's own settings (●) override GLOBAL.",
+    "tono.info.keys_line": "1-5 set level · p next mode · r all to neutral",
+    "tono.continuar": "✦ continue",
+    "tono.hint.continue": "continue",
 }

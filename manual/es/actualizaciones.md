@@ -15,8 +15,11 @@
   [diagnóstico](diagnostico.md), que repara lo que haga falta. Si algo no se puede actualizar
   (sin internet, cambios tuyos a medio guardar), te avisa y sigue con lo demás.
 
-- **Desde el hub:** sección **Actualizaciones** (`u`): revisar, reparar, actualizar y ver
-  qué llegó.
+- **Desde el hub:** sección **Actualizaciones**. Muestra tu versión, si hay una nueva y solo lo
+  que puedes hacer en ese momento: **actualizar a vX** (cuando hay versión nueva), **revisar y
+  reparar**, **solo revisar**, **volver a vX** (cuando hay una versión anterior a la que volver;
+  pide Enter otra vez) y el ajuste de **automáticas**. Al terminar ves qué llegó y lo pendiente.
+  La explicación completa está en la tecla `i`.
 
 ## La red de seguridad
 
@@ -49,7 +52,8 @@ configuración a su lugar nuevo). Esos ajustes:
 - si uno falla, Workspace **sigue funcionando**, no se aplica ningún ajuste posterior hasta
   resolverlo y `workspace doctor` te dice qué pasó;
 - los cambios grandes **nunca se aplican sin preguntarte**: aparecen como «cambio opcional
-  disponible» en el doctor y los aceptas con `workspace migrar --offer <id>`.
+  disponible» en el doctor; los aceptas con `workspace migrar --offer <id>` o dices «no gracias» con
+  `workspace migrar --decline <id>` (ya no se vuelven a ofrecer).
 
 Para verlos: `workspace migrar`.
 
@@ -71,6 +75,7 @@ Si una versión nueva arranca pero no te convence:
 workspace update --rollback
 ```
 
+En el hub es la opción **volver a vX** de Actualizaciones (aparece solo cuando hay a cuál).
 Te muestra a qué versión vuelves y te pide confirmación. **Solo cambia el código**: tus
 agentes, cerebros y ajustes quedan como están. La versión nueva queda en pausa hasta que
 publiquemos una más reciente. Los ajustes que la versión nueva ya aplicó están hechos para que
@@ -88,8 +93,8 @@ Las actualizaciones automáticas son **opcionales**. Hay tres modos:
 
 Para cambiarlo:
 
-- en el hub: sección **Actualizaciones** (`u`), tecla `a` (pasa de un modo al siguiente);
-- en **Configuración**, apartado **Actualizaciones**;
+- en el hub: sección **Actualizaciones**, fila **automáticas** (Enter pasa de un modo al siguiente: sí ·
+  solo avisar · no);
 - en la terminal: `workspace update --auto notify` (o `auto`, `off`); sin modo, te dice cuál tienes.
 
 En los tres modos, `workspace update` instala cuando lo pides y `workspace update --rollback`

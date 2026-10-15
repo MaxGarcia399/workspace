@@ -31,14 +31,14 @@ STRINGS = {
     "onboarding.action.agente": "Enter abre «{lbl}»",
     "onboarding.action.gcal": "Esc salta · Enter conecta",
     "onboarding.action.gcal_done": "Enter te lleva al resumen",
-    "onboarding.action.resumen": "Enter te deja en el recinto",
+    "onboarding.action.resumen": "Enter abre el hub",
 
     # paso 0: idioma
     "onboarding.idioma.divisor": "idioma",
     "onboarding.idioma.heading": "Elige el idioma de Workspace.",
-    "onboarding.idioma.body": "Puedes cambiarlo cuando quieras desde el menú "
-                              "del recinto («Idioma») o en Config. Las "
-                              "pantallas de desarrollo quedan en español.",
+    "onboarding.idioma.body": "Puedes cambiarlo cuando quieras desde el hub "
+                              "(«Idioma»). Las pantallas de desarrollo "
+                              "quedan en español.",
 
     # bienvenida
     "onboarding.welcome.title_l": "QUÉ ES WORKSPACE",
@@ -136,11 +136,11 @@ STRINGS = {
                                         "terminal y combina con cualquier "
                                         "tema.",
     "onboarding.apariencia.donde_p": "ui.theme y ui.background en "
-                                     "~/.claude/workspace/settings.json. Más "
-                                     "opciones (color propio #RRGGBB, "
-                                     "animaciones, estrellas) en Config → TEMA.",
+                                     "~/.claude/workspace/settings.json. "
+                                     "Brillo y luz roja: en «Personalización» "
+                                     "del hub.",
     # etiquetas de fondo (el id se queda; traducimos el texto visible)
-    "onboarding.fondo.tema": "el del tema activo",
+    "onboarding.fondo.tema": "el del tema",
     "onboarding.fondo.negro": "negro puro",
     "onboarding.fondo.grafito": "grafito",
     "onboarding.fondo.azul": "azul noche",
@@ -181,7 +181,7 @@ STRINGS = {
                                         "harness jamás conecta nada solo.",
     "onboarding.agente.ninguno.label": "terminar sin agente",
     "onboarding.agente.ninguno.desc": "También puedes agregarlo cuando quieras "
-                                      "desde el recinto («Agregar agente») — "
+                                      "desde el hub (Menú › «Agregar agente») — "
                                       "crear, cargar o descubrir siguen ahí, "
                                       "idénticos.",
 
@@ -244,24 +244,24 @@ STRINGS = {
                                           "repite con `workspace onboarding`",
     "onboarding.resumen.y_mas": "… y {n} más",
     "onboarding.resumen.sin_agentes": "sin agentes aún — «Agregar agente» en "
-                                      "el recinto cuando quieras",
+                                      "el hub cuando quieras",
     "onboarding.resumen.tono_ok": "tono ajustado para {agente} ✓",
     "onboarding.resumen.fila_config": "config (tema, fondo, motor)",
     "onboarding.resumen.fila_agentes": "agentes registrados",
     "onboarding.resumen.fila_onboarding": "este onboarding",
-    "onboarding.resumen.adelante_p1": "Enter te deja en el recinto: ahí lanzas "
-                                      "agentes, entras a Config, Tono y "
-                                      "«Agregar agente».",
+    "onboarding.resumen.adelante_p1": "Enter te deja en el hub: ahí lanzas "
+                                      "agentes y en el Menú tienes Tono, "
+                                      "Agentes y «Agregar agente».",
     "onboarding.resumen.adelante_p2": "Repetir este flujo: "
                                       "`workspace onboarding`.",
     "onboarding.resumen.div_teclas": "las teclas que importan",
-    "onboarding.resumen.tecla_abrir": "abre el recinto desde cualquier "
+    "onboarding.resumen.tecla_abrir": "abre el hub desde cualquier "
                                       "terminal",
-    "onboarding.resumen.tecla_atajos": "Atajos — todas las teclas, "
-                                       "re-mapeables",
-    "onboarding.resumen.tecla_comandos": "Comandos — qué hace cada comando",
-    "onboarding.resumen.tecla_salir": "sale del recinto a tu terminal",
-    "onboarding.resumen.sin_tecla": "sin tecla",
+    "onboarding.resumen.tecla_buscar": "escribe para buscar un agente o "
+                                       "una sección",
+    "onboarding.resumen.tecla_agentes": "apunta a tu agente; la misma tecla "
+                                        "otra vez lo abre",
+    "onboarding.resumen.tecla_salir": "sale del hub a tu terminal",
 
     # mensajes efímeros (pie, S["msg"])
     "onboarding.msg.default_saved": "motor default: {motor} · guardado ✓",
@@ -291,7 +291,7 @@ STRINGS = {
     "onboarding.hints.agente": "↑↓ camino · 1-4 directo · Enter abre · Esc "
                                "atrás · q salta",
     "onboarding.hints.gcal": "Enter conecta · Esc salta · q sale",
-    "onboarding.hints.resumen": "Enter — al recinto",
+    "onboarding.hints.resumen": "Enter — al hub",
 
     # valor mostrado de ui.background + avisos de CLI (auditoría i18n)
     'onboarding.fondo_val.tema': 'tema',
@@ -305,4 +305,26 @@ STRINGS = {
     'onboarding.cli.no_tty': 'el onboarding necesita una terminal interactiva.',
     'onboarding.cli.no_tty2': 'abre `workspace` en una terminal y corre: workspace onboarding',
     'onboarding.probe_fail': 'probe falló: {err}',
+
+    # ── rediseño 2026-10-14: el pie corto de cada paso ──
+    "onboarding.k.info": "cómo funciona",
+    "onboarding.k.pick": "elige",
+    "onboarding.k.choose": "elige",
+    "onboarding.k.skip": "salta",
+    "onboarding.k.start": "empieza",
+    "onboarding.k.to_hub": "al hub",
+    "onboarding.k.engine": "motor",
+    "onboarding.k.space": "espacio",
+    "onboarding.k.mark": "marca",
+    "onboarding.k.next": "continúa",
+    "onboarding.k.back": "atrás",
+    "onboarding.k.option": "opción",
+    "onboarding.k.apply": "aplica",
+    "onboarding.k.path": "camino",
+    "onboarding.k.open": "abre",
+    "onboarding.k.connect": "conecta",
+    "onboarding.continuar_sin_agente": "✦ continuar sin agente",
+    "onboarding.ir_al_hub": "✦ ir al hub",
+    "onboarding.action.sin_agente": "Enter continúa sin agente (lo agregas después)",
+    "onboarding.msg.as_chosen": "«{lbl}» elegido · ✦ continuar lo guarda",
 }

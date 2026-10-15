@@ -10,8 +10,10 @@ La primera vez que escribes `workspace` (y todavía no tienes agentes) se abre u
 3. **Apariencia** — tema de color y fondo.
 4. **Arranque** (opcional) — si quieres que el menú aparezca al abrir la terminal.
 5. **Agente** — creas tu primer agente (o cargas uno que ya tengas) y, si quieres, ajustas su tono.
-6. **Google Calendar** (opcional) — para ver tu agenda en el hub.
-7. **Resumen** — qué quedó listo y qué quedó pendiente.
+   Eliges dos cosas: si lee y escribe en su cerebro sin preguntarte (**sí** de entrada) y si
+   quieres revisión automática de skills al cerrar cada sesión (**no** de entrada). Qué significa cada una: [Permisos](motores.md#permisos). Las cambias cuando
+   quieras en **Agentes** (elige el agente y Enter).
+6. **Resumen** — qué quedó listo y qué quedó pendiente.
 
 Para repetir o terminar lo pendiente:
 

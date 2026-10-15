@@ -92,7 +92,7 @@ def renderer(fn, title):
         state['_size_blocked'] = not supported(w, h)
         if state['_size_blocked']:
             section = {'TONO': 'tono', 'CALENDARIO': 'calendario',
-                       'ACTUALIZACIONES': 'actualizaciones', 'ATAJOS': 'atajos',
+                       'ACTUALIZACIONES': 'actualizaciones',
                        'GITHUB': 'github', 'RAMAS': 'github', 'DEV': 'dev',
                        'ONBOARDING': 'onboarding', 'AGREGAR AGENTE': 'crear',
                        'ADD AGENT': 'crear'}.get(title)
@@ -128,31 +128,6 @@ def paint(tout, lines, first=False):
     tout.flush()
 
 
-def hub_frame(lines, w, h, focus=0, title='WORKSPACE', hint=None):
-    """Small themed box, preserving hub navigation and focused option."""
-    import tuitheme
-    if hint is None:
-        hint = HL._t('hub.frame.hint', '↑↓ sección · ◄► elige · Enter · q')
-    palette = tuitheme.palette()
-    accent = palette.B
-    reset = '\033[0m'
-    bold = '\033[1m'
-    width = max(1, w - 1)
-    height = max(1, h - 1)
-    if width < 8 or height < 5:
-        return [HL.clip(accent + bold + title + reset, width)] + [''] * (height - 1)
-    inner = width - 4
-    def row(text, selected=False):
-        color = accent + bold if selected else ''
-        return accent + '│' + reset + ' ' + HL.pad(color + HL.clip(text, inner) + reset, inner) + ' ' + accent + '│' + reset
-    label = HL.clip(' ' + title + ' ', width - 4)
-    top = accent + '╭─' + bold + label + reset + accent + '─' * max(0, width - 3 - HL.vis(label)) + '╮' + reset
-    cap = height - 4
-    start = max(0, min(focus - cap // 2, len(lines) - cap))
-    body = [row(plain(text), text.lstrip().startswith('>')) for text in lines[start:start + cap]]
-    body += [row('')] * (cap - len(body))
-    return [top, row(HL._t('hub.fullscreen_rec', 'Pantalla completa recomendada'))] + body + [row(hint), accent + '╰' + '─' * (width - 2) + '╯' + reset]
-
 def box(title, body, w, focused=False, title_align='left'):
     import tuitheme
     p = tuitheme.palette()
@@ -170,8 +145,10 @@ def box(title, body, w, focused=False, title_align='left'):
     else:
         top = color + '╭─' + bold + label + reset + color + '─' * fill + '╮' + reset
     rows = []
+    # fila activa: el cursor del TEMA (❯, el mismo del hub) o el '>' llano
+    ptr = ((getattr(p, 'GLYPHS', None) or {}).get('pointer') or '❯')
     for text in body:
-        active = plain(text).lstrip().startswith('>')
+        active = plain(text).lstrip().startswith(('>', ptr))
         value = (p.C + bold if active else p.WH) + text + reset
         rows.append(color + '│' + reset + ' ' + HL.pad(HL.clip(value, width - 4), width - 4) + ' ' + color + '│' + reset)
     return [top] + rows + [color + '╰' + '─' * (width - 2) + '╯' + reset]

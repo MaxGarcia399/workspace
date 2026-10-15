@@ -11,7 +11,8 @@ El atajo global lo enlaza el socio una vez (Atajos de macOS → "ejecutar script
 `workspace voice`); WORKSPACE NO captura un hotkey (evita entitlements/deps).
 
 TODO por SUBPROCESO — cero dependencias de Python (stdlib pura). Binarios externos
-(vía `brew`, los verifica `workspace doctor`):
+(vía `brew`; `workspace voice --check` dice qué falta y `workspace voice --setup`
+lo instala — la voz es OPCIONAL: el doctor no la revisa ni la instala):
   · captura:      ffmpeg (-f avfoundation) o sox
   · transcripción: whisper.cpp (whisper-cli / whisper-cpp / main)
   · pegado:       pbcopy/pbpaste + osascript (keystroke ⌘V)
@@ -19,7 +20,7 @@ TODO por SUBPROCESO — cero dependencias de Python (stdlib pura). Binarios exte
 Higiene: portapapeles NO destructivo (se guarda y restaura) · WAV temporal
 borrado tras transcribir · cota de duración (120s) para no dejar el mic abierto ·
 FALLA-SUAVE en cada punto (falta binario/modelo/permiso → mensaje accionable que
-apunta a `workspace doctor`, NUNCA un stacktrace).
+apunta a `workspace voice --setup`, NUNCA un stacktrace).
 """
 import json
 import os
@@ -31,7 +32,7 @@ import time
 MAX_SECONDS = 120                      # cota dura: nunca dejar el mic abierto más
 SAMPLE_RATE = "16000"                  # whisper.cpp espera 16 kHz mono
 WHISPER_NAMES = ("whisper-cli", "whisper-cpp", "main")   # nombres del CLI de whisper.cpp
-_HINT = "corre `workspace doctor` para instalar/verificar la voz"
+_HINT = "corre `workspace voice --setup` para instalar lo que falta (`workspace voice --check` para verlo)"
 
 
 # ── rutas / estado (lockfile) ───────────────────────────────────────────────
@@ -332,6 +333,9 @@ def check(out=print):
 # ── CLI ──────────────────────────────────────────────────────────────────────
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
+    if "--setup" in argv:              # instalar (red: brew + modelo) vive APARTE:
+        import voice_setup             # este módulo jamás toca la red
+        return voice_setup.setup()
     if "--check" in argv or "-c" in argv:
         return check()
     if "--stop" in argv:               # forzar stop (p.ej. atajo dedicado)

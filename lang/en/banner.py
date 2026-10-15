@@ -4,25 +4,6 @@ STATIC chrome is translated here; agent identity (display/tagline/emblem/palette
 comes from agent.json/BOOT and is never in this catalog."""
 
 STRINGS = {
-    # ── banner (agent-banner.py): section headers ────────────────────────────
-    "banner.sec.skills": "Skills",
-    "banner.sec.system": "System",
-    "banner.sec.domain": "Domain",
-    # row labels
-    "banner.lbl.categories": "categories",
-    "banner.lbl.base": "base",
-    "banner.lbl.memory": "memory",
-    "banner.lbl.loop": "loop",
-    "banner.lbl.scope": "scope",
-    # content (subtitles / values)
-    "banner.cats.default": "research · meta",
-    "banner.base.row1": "skill-creator · skill-improver · skill-curator · reload-brain",
-    "banner.base.row2": "deep-research · research-session",
-    "banner.sys.memory": "hot/warm/cold tiers · core blocks · Dreaming→DESTILADO",
-    "banner.sys.loop": "skill loop ALWAYS on · 🧠 block required",
-    # footer
-    "banner.foot": "born from the WORKSPACE template",
-
     # ── dashboard (agent-dashboard.py): session picker/greeter ───────────────
     "banner.dash.sessions_count": "{n} session(s) · pick one to continue or create a new one",
     "banner.dash.resume_q": "Where do we pick up?",

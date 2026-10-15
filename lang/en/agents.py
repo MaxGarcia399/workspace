@@ -104,13 +104,13 @@ STRINGS = {
     "agents.x.display": "The name you see in the hub, the banner and the tabs.",
     "agents.x.display.where": "display field of agent.json",
     "agents.x.display.edit": "Edit agent.json; the hub re-reads it when you return.",
-    "agents.x.tagline": "The line shown next to the agent in the hub's altar.",
+    "agents.x.tagline": "The line shown next to the agent in the hub.",
     "agents.x.tagline.where": "tagline field of agent.json",
     "agents.x.tagline.edit": "Edit agent.json.",
     "agents.x.engine": "The program that talks to the model using this brain (claude-code, codex, antigravity…). The brain does not change when the engine does: it is the same folder read by another program.",
     "agents.x.engine.where": "agent.json → engine, unless overridden per machine in settings agentes.<name>.engine (harnesses.binding).",
     "agents.x.engine.effect": "Decides which CLI dispatch launches and which hook adapter is used (Claude Code: workspace_hook.py; the others: neutral_hooks through interactive.py).",
-    "agents.x.engine.edit": "Key m in the hub on the agent (saved per machine); --engine <engine> for a single run.",
+    "agents.x.engine.edit": "← → in the hub on the agent (saved per machine); --engine <engine> for a single run.",
     "agents.x.model": "Model pinned for this agent. Empty = the engine chooses.",
     "agents.x.model.where": "settings agentes.<name>.model (per machine).",
     "agents.x.model.effect": "Claude Code gets --model <value> at launch (engines/claude_code.model_args); an explicit --model or ANTHROPIC_MODEL win.",
@@ -445,4 +445,15 @@ STRINGS.update({
     "agentes.mg.removed": "{n} removed from the registry · brain and sessions "
                           "untouched at {p}",
     "agentes.add_unavail": "add agent unavailable ({e})",
+    "agentes.mg.no_brain": "can't find its brain",
+    "agentes.mg.no_def": "couldn't write its .workspace/agent.json",
+    "agentes.mg.perm_fail": "saved the preference, but couldn't adjust Claude Code's "
+                            "permissions ({e}) — run `workspace doctor`",
+    "agentes.mg.bad_level": "unknown level: {v}",
+    "agentes.mg.auto_ask": "{n} will ask before writing in its brain · from its next "
+                           "session",
+    "agentes.mg.auto_brain": "{n} reads and writes its brain without asking · from its "
+                             "next session",
+    "agentes.mg.review_on": "skill review on for {n} · runs when each session ends",
+    "agentes.mg.review_off": "skill review off for {n}",
 })

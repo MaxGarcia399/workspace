@@ -17,6 +17,8 @@ Reglas (errores bloquean «listo»; avisos se muestran):
     agents.local.json / paths.local.json.
   · scripts: solo placeholders `{root}`/`{brain}` (portables entre OS).
   · aliases: lista de slugs.
+  · autonomy (brain|ask|full) y skill_review (bool): opcionales; un valor raro
+    solo AVISA (se usa el valor seguro).
 Stdlib puro. `validate(dict) → (errores, avisos)`; `validate_file(path)`.
 """
 import json
@@ -25,6 +27,11 @@ import posixpath
 import re
 
 SUPPORTED_VERSIONS = (1,)
+#: `autonomy` del agente: brain (default: libre dentro de su cerebro) | ask
+#: (pregunta también dentro de su cerebro). Un "full" de una versión anterior
+#: se tolera sin aviso (se lee "brain"; la migración lo convierte).
+#: `skill_review`: bool opcional.
+AUTONOMY_LEVELS = ("ask", "brain", "full")
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 _ID = re.compile(r"^[a-z0-9][a-z0-9_.:-]{0,63}$")
 _SECRET = re.compile(r"(sk-[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,})")
@@ -73,6 +80,14 @@ def validate(d):
                     errs.append("scripts.%s no es texto" % k)
                 elif _is_machine_path(v):
                     errs.append("scripts.%s usa ruta de máquina (%s) — usa {root}/{brain}" % (k, v))
+    # permisos y revisión de skills (contrato común de los motores): un valor
+    # raro no bloquea — se usa el seguro (brain / el ajuste global) y se avisa.
+    if "autonomy" in d and d["autonomy"] not in AUTONOMY_LEVELS:
+        warns.append("autonomy desconocida: %r (se usa 'brain'; válidas: %s)"
+                     % (d["autonomy"], ", ".join(AUTONOMY_LEVELS)))
+    if "skill_review" in d and not isinstance(d["skill_review"], bool):
+        warns.append("skill_review debe ser true o false (se usa el ajuste "
+                     "global hooks.skill_review)")
     for k in _MACHINE_KEYS:
         if k in d:
             errs.append("campo per-máquina en la definición sincronizada: %s" % k)

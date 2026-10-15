@@ -34,18 +34,35 @@ import _utf8; _utf8.harden()  # B2 · UTF-8 en stdout/err (cp1252 reventaría co
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
-# Agentes de SISTEMA: motores internos del harness que NO son dioses del altar
-# (pedido del socio 2026-10-02: «Workspace Doctor» no es un agente del equipo).
-# SSOT del filtro: vive aquí, en la capa de registro, para que TODA pantalla que
-# liste agentes para el socio (hub, Tonos, onboarding…) filtre por la MISMA
-# fuente. Es filtrado SOLO-display: dispatch/launch/update los siguen viendo
-# (lanzar `workspace doctor` y actualizar su cerebro funciona igual). Al agregar
-# una pantalla nueva que pinte agentes, consúmela vía `visible_agents()`.
+# Agentes de SISTEMA — FILTRO HEREDADO. El agente interno `doctor` (motor oculto
+# que nunca se usó) salió del producto en 0.2.1 (aparcado en feat/agente-doctor),
+# pero instalaciones anteriores pueden traer una entrada vieja suya en su
+# agents.local.json. Este filtro la ignora en TODA pantalla y en doctor/update/
+# repair (vía `visible_agents()` / `is_system_agent()`) hasta que la migración
+# 202610131200_purge_system_agents la quita. Al agregar una pantalla nueva que
+# pinte agentes, consúmela vía `visible_agents()`.
 SYSTEM_AGENTS = frozenset({"doctor"})
 
 # Empty compatibility fallback: roster always belongs to the effective profile.
 # Compatibility export only. An unreadable/empty profile must not invent users.
 FALLBACK_ROSTER = ()
+
+
+def is_system_agent(entry, cfg=None):
+    """True si la entrada es un agente INTERNO del harness, no del usuario: su
+    nombre está en SYSTEM_AGENTS, o se declara `hidden: true` (en la entrada
+    del registro o en su definición `cfg`, si se pasa). Lo usan las pantallas
+    (vía visible_agents) y el doctor/update, que no deben revisar ni tocar
+    motores internos que una instalación anterior dejó registrados."""
+    try:
+        name = str((entry or {}).get("name", "")).strip().lower()
+        if name in SYSTEM_AGENTS:
+            return True
+        if (entry or {}).get("hidden") is True:
+            return True
+        return isinstance(cfg, dict) and cfg.get("hidden") is True
+    except Exception:
+        return False
 
 
 def visible_agents(reg=None):
@@ -60,7 +77,7 @@ def visible_agents(reg=None):
         return [a for a in (reg.get("agents") or ())
                 if isinstance(a, dict) and isinstance(a.get("name"), str)
                 and a['name'].strip()
-                and a['name'].strip().lower() not in SYSTEM_AGENTS]
+                and not is_system_agent(a)]
     except Exception:
         return []
 
@@ -440,6 +457,18 @@ def _spawn_repair():
         return   # falla-suave absoluta: el render jamás bloquea ni rompe el arranque
 
 
+def _tinted(txt):
+    """Aviso del auto-update antes de lanzar un agente, con el ACENTO del tema
+    del hub (antes, el dorado fijo del recinto viejo). Termina en salto de
+    línea. Falla-suave: sin tuitheme, el texto tal cual."""
+    try:
+        import tuitheme
+        P = tuitheme.palette()
+        return "%s%s%s\n" % (P.C, txt, P.R)
+    except Exception:
+        return "%s\n" % txt
+
+
 def maybe_autoupdate():
     """Auto-update silencioso al arrancar (canal git del equipo y de clientes).
 
@@ -498,7 +527,7 @@ def maybe_autoupdate():
             return  # throttle
 
         def _notify(txt):
-            sys.stderr.write("\033[38;5;221m%s\033[0m\n" % txt)
+            sys.stderr.write(_tinted(txt))
             sys.stderr.flush()
 
         res = updater.update_harness(ROOT, mode="auto", fetch_timeout=20, notify=_notify,
@@ -519,34 +548,34 @@ def maybe_autoupdate():
         _seal()
         if st == updater.AVAILABLE:
             v = res.get("to_version")
-            sys.stderr.write("\033[38;5;221m%s\033[0m\n" % updater._t(
+            sys.stderr.write(_tinted(updater._t(
                 "updater.auto.available",
                 "Hay una versión nueva de Workspace{v}. Para instalarla: `workspace update` "
                 "(elegiste solo avisar; se cambia en Actualizaciones).",
-                v=(" (v%s)" % v) if v else ""))
+                v=(" (v%s)" % v) if v else "")))
         elif st == updater.UPDATED:
             v = res.get("to_version")
-            sys.stderr.write("\033[38;5;221m%s\033[0m\n" % updater._t(
-                "updater.auto.updated", "✓ Workspace actualizado a v{v}.", v=v or "?"))
+            sys.stderr.write(_tinted(updater._t(
+                "updater.auto.updated", "✓ Workspace actualizado a v{v}.", v=v or "?")))
             mig = res.get("migrations") or {}
             if mig.get("failed"):
                 import migrate
-                sys.stderr.write("\033[38;5;221m%s\033[0m\n" % migrate.summary_line(mig))
+                sys.stderr.write(_tinted(migrate.summary_line(mig)))
             # P0-3 · self-healing: el pull trajo código nuevo (quizá renombró un
             # hook o sumó un listener) → recablear settings.local.json de cada
             # cerebro. Fire-and-forget, jamás bloquea el arranque (ver _spawn_repair).
             _spawn_repair()
         elif st == updater.ROLLBACK_FAILED:
-            sys.stderr.write("\033[38;5;221m%s\033[0m\n" % updater._t(
+            sys.stderr.write(_tinted(updater._t(
                 "updater.auto.rollback_failed",
                 "⚠ La versión nueva de Workspace no arrancó y no pude volver limpio a la "
                 "anterior. Corre `workspace doctor` (y si sigue, `workspace doctor "
-                "--bundle` para pedir ayuda)."))
+                "--bundle` para pedir ayuda).")))
         elif st == updater.ROLLED_BACK:
-            sys.stderr.write("\033[38;5;221m%s\033[0m\n" % updater._t(
+            sys.stderr.write(_tinted(updater._t(
                 "updater.auto.rolled_back",
                 "⚠ Llegó una versión nueva de Workspace que no arranca en esta máquina; "
-                "sigues en la anterior. No tienes que hacer nada."))
+                "sigues en la anterior. No tienes que hacer nada.")))
     except Exception:
         return  # offline / timeout / lo que sea → seguir normal
 
@@ -718,15 +747,7 @@ def main():
         # agente no escala (arcoíris); la identidad queda en banner y nombre.
         try:
             import theme
-            try:
-                import tuitheme
-                _osc = getattr(tuitheme.palette(), "OSC", None)
-            except Exception:
-                _osc = None
-            if _osc:
-                theme.apply_colors(_osc)   # tema no-default: SU fondo/tinta
-            else:
-                theme.apply("workspace")     # olympo: el recinto dorado de siempre
+            theme.apply_current()          # SU fondo/tinta (tui.osc) o los de la terminal
         except Exception:
             pass
         # Y el tema DENTRO del motor (Claude Code: ~/.claude/themes/<n>.json)

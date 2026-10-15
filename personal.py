@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""WORKSPACE · personal — el dato PERSONAL del socio: FOCO del día + AGENDA.
+"""WORKSPACE · personal — tu dato PERSONAL: la AGENDA.
 
 Lo muestra la pantalla Calendario (calendario_tui). Nada de esto vive en un
-cerebro ni se sincroniza: es de ESTA máquina y de ESTE socio.
+cerebro ni se sincroniza: es de ESTA máquina.
 
     ~/.claude/workspace/personal.json     (per-máquina, gitignored, reconstruible)
 
@@ -16,7 +16,6 @@ Mismo trato que board.json / calendar.json del dashboard de dev:
 
 Modelo (schema 2 — aditivo, los eventos viejos se normalizan al leer):
     {"schema": 2,
-     "foco": {"text": str, "date": "YYYY-MM-DD", "updated": "<iso>"},
      "eventos": [{"id", "date", "time", "title", "cat", "notes",
                   "done", "prio", "archived", "created", "images"}]}
 
@@ -26,8 +25,6 @@ Modelo (schema 2 — aditivo, los eventos viejos se normalizan al leer):
                  (~/.claude/workspace/calendar-assets/<id>/), portable.
                  Eventos viejos (schema 1) → listas vacías al leer.
 
-  · foco.date  — el día para el que se fijó: si no es HOY, el hub lo pinta
-                 como «de ayer» en vez de mentir que es el foco de hoy.
   · date       — ISO YYYY-MM-DD obligatoria y validada.
   · time       — "HH:MM" opcional (evento de día entero si va vacío).
   · cat        — reunion / hito / recordatorio / cumple / otro (default otro).
@@ -38,9 +35,6 @@ Modelo (schema 2 — aditivo, los eventos viejos se normalizan al leer):
   · prio       — "alta" o "" — la alta lleva marca ! y se ordena primero.
 
 CLI (lo que tecleas tú):
-    workspace foco                      → muestra el foco de hoy
-    workspace foco "cerrar el NDA"      → lo fija
-    workspace foco --clear              → lo borra
     workspace agenda                    → lo que viene (próximos 30 días)
     workspace agenda add 2026-09-25 "Junta con Miguel" --time 18:00 --cat reunion
     workspace agenda done <id>          → la marca hecha / la desmarca (toggle)
@@ -291,7 +285,7 @@ def dispatch_task(event):
 
 # ── lectura / escritura ─────────────────────────────────────────────────────
 def _empty():
-    return {"schema": SCHEMA, "foco": None, "eventos": []}
+    return {"schema": SCHEMA, "eventos": []}
 
 
 def load():
@@ -302,11 +296,6 @@ def load():
         if not isinstance(data, dict):
             return _empty()
         out = _empty()
-        foco = data.get("foco")
-        if isinstance(foco, dict) and (foco.get("text") or "").strip():
-            out["foco"] = {"text": str(foco.get("text"))[:200].strip(),
-                           "date": str(foco.get("date") or "")[:10],
-                           "updated": str(foco.get("updated") or "")}
         evs = data.get("eventos")
         if isinstance(evs, list):
             for e in evs:
@@ -402,32 +391,6 @@ def _today():
 
 def _now_iso():
     return datetime.now().replace(microsecond=0).isoformat()
-
-
-# ── FOCO ────────────────────────────────────────────────────────────────────
-def foco():
-    """El foco guardado: {"text", "date", "updated", "hoy": bool} o None.
-    `hoy` False = se fijó otro día (el hub lo dice, no lo disfraza)."""
-    f = (load() or {}).get("foco")
-    if not f:
-        return None
-    f = dict(f)
-    f["hoy"] = (f.get("date") == _today())
-    return f
-
-
-@_mutation
-def set_foco(text):
-    """Fija el foco del día. Texto vacío = lo borra. True si guardó."""
-    data = load()
-    text = (text or "").strip()
-    data["foco"] = ({"text": text[:200], "date": _today(),
-                     "updated": _now_iso()} if text else None)
-    return save(data)
-
-
-def clear_foco():
-    return set_foco("")
 
 
 # ── AGENDA ──────────────────────────────────────────────────────────────────
@@ -782,28 +745,6 @@ def _fmt_delta(mins):
     return _t("personal.when.in", "en {x}", x="%dd" % int(round(h / 24.0)))
 
 
-def cmd_foco(argv):
-    if argv and argv[0] in ("--clear", "-c", "clear", "borrar"):
-        clear_foco()
-        print(_t("personal.foco.cleared", "foco borrado"))
-        return 0
-    if argv:
-        txt = " ".join(argv).strip()
-        if set_foco(txt):
-            print(_t("personal.foco.set", "foco de hoy: {txt}", txt=txt))
-            return 0
-        print(_t("personal.foco.fail", "no pude guardar el foco"), file=sys.stderr)
-        return 1
-    f = foco()
-    if not f:
-        print(_t("personal.foco.none",
-                 'sin foco — fíjalo con:  workspace foco "lo que importa hoy"'))
-        return 0
-    print("%s%s" % (f["text"], "" if f.get("hoy") else "   " + _t("personal.foco.from", "(de {date})",
-                                        date=f.get("date"))))
-    return 0
-
-
 def cmd_agenda(argv):
     if argv and argv[0] in ("tasks", "tareas"):
         return _task_cli(argv[1:])
@@ -915,12 +856,10 @@ def main(argv=None):
               .strip())
         return 0
     cmd, rest = argv[0], argv[1:]
-    if cmd in ("foco", "focus"):
-        return cmd_foco(rest)
     if cmd in ("agenda", "cal", "calendario"):
         return cmd_agenda(rest)
     print(_t("personal.unknown",
-             "personal: comando desconocido '{cmd}' (foco | agenda)", cmd=cmd),
+             "personal: comando desconocido '{cmd}' (agenda)", cmd=cmd),
           file=sys.stderr)
     return 2
 

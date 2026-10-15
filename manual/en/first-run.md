@@ -10,9 +10,11 @@ The steps are short; you can **skip** any of them and come back later.
 3. **Appearance** — color theme and background.
 4. **Startup** (optional) — whether the menu shows up when you open a terminal.
 5. **Agent** — create your first agent (or load one you already have) and, if you like,
-   tune its tone.
-6. **Google Calendar** (optional) — to see your agenda in the hub.
-7. **Summary** — what's ready and what's still pending.
+   tune its tone. You choose two things: whether it reads and writes its brain without asking
+   you (**yes** to start with) and whether you want automatic skill review when each session
+   closes (**no** to start with). What each one means: [Permissions](engines.md#permissions).
+   Change them anytime in **Agents** (pick the agent and Enter).
+6. **Summary** — what's ready and what's still pending.
 
 To repeat it or finish what's pending:
 

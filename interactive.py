@@ -434,9 +434,15 @@ def session_for_provider(provider_name, **kw):
 #: connectors.OFFICIAL_CLIS, que cubre el lado headless/ingest).
 INTERACTIVE_CLIS = {
     "antigravity": {
-        "binary": "agy", "argv": ["agy"], "verified": False,
+        "binary": "agy", "argv": ["agy"], "verified": True,
         "hooks": "wrapper",
-        "note": "Flags verified with installed agy --help; live session pending",
+        "note": ("VERIFICADO (agy 1.3.4, sesión real en pty): engines/"
+                 "antigravity.py lanza `agy --mode accept-edits` en el cerebro "
+                 "(+ `--project workspace-<agente>` con autonomía full). El "
+                 "wrapper emite session_start/end; agy trae hooks nativos "
+                 "(SessionStart/PreToolUse/PostToolUse/Stop, sin SessionEnd) "
+                 "que NO se activan (doble disparo). Contexto → GEMINI.md "
+                 "generado; sesión cruda → transcript_backup al cerrar"),
     },
     "claude-code": {
         "binary": "claude",
@@ -451,14 +457,16 @@ INTERACTIVE_CLIS = {
     "codex": {
         "binary": "codex",
         "argv": ["codex"],
-        "verified": False,
+        "verified": True,
         "hooks": "wrapper",
-        "note": ("A-VERIFICAR contra un Codex CLI real: `codex` a secas abre "
-                 "el TUI interactivo (docs públicas); sin hook-system ⇒ el "
-                 "wrapper emite session_start/end desde fuera y el contexto "
-                 "de arranque solo puede IMPRIMIRSE al socio (candidato "
-                 "A-VERIFICAR: inyectarlo como primer prompt / "
-                 "AGENTS.md). Sesión cruda → parse_codex al cerrar"),
+        "note": ("VERIFICADO (codex-cli 0.162): engines/codex.py lanza el TUI "
+                 "con -s workspace-write y aprobaciones según la autonomía "
+                 "del agente. El wrapper emite session_start/end desde fuera; "
+                 "codex trae hooks nativos (SessionStart/UserPromptSubmit/"
+                 "Stop/SessionEnd, con confianza por hash) que NO se cablean "
+                 "(doble disparo con el session_end del wrapper). Contexto de "
+                 "arranque → AGENTS.md generado (invisible). Sesión cruda → "
+                 "parse_codex al cerrar"),
     },
     "gemini": {
         "binary": "gemini",

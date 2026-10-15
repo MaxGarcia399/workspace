@@ -172,13 +172,11 @@ def menu_entries():
     """Registro CANÓNICO del MENÚ del hub: [(token, etiqueta, tagline)] en el
     orden del recinto, gates incluidos (Dev solo dueño/dev). ÚNICA fuente:
     `_menu_machinery` arma sus opts de aquí, `items()` toma de aquí su
-    porción del picker estático y keybinds deriva de aquí la sección «menú»
-    de la pantalla «Atajos» — una sección nueva del hub aparece SOLA en los
-    tres lugares (y gana tecla re-mapeable) sin tocar nada más."""
+    porción del picker estático — una sección nueva del hub aparece SOLA en
+    los dos lugares sin tocar nada más."""
     out = []
     # «GitHub» (token __ramas__, github_tui) quedó APARCADA fuera de la 0.2.0
     # (rama feat/github) mientras se rehace: sin entrada, sin tecla ni ruteo.
-    # El mapa local de ramas (git_tui) sigue vivo vía `workspace versiones`.
     # «Dev» (sección del hub, 2026-10-04): transparencia del proceso de
     # desarrollo — referencia de comandos + mapa del detrás (pipeline, repos,
     # qué sube, versión, estado). SOLO el dueño/dev: gate por-archivos (igual
@@ -198,8 +196,9 @@ def menu_entries():
             ("__tono__", _t("menu.tono.label", "Tono"),
              _t("menu.tono.tag",
                 "los diales de personalidad de tus agentes")),
-            ("__keybinds__", _t("menu.keybinds.label", "Atajos"),
-             _t("menu.keybinds.tag", "re-mapea las teclas rápidas del hub")),
+            # «Atajos» salió del hub (pedido del dueño 2026-10-14: «no sirve
+            # tanto»): las cifras 1-9 siguen el orden de tus agentes. La
+            # pantalla y su registro quedaron APARCADOS en la rama feat/atajos.
             ("__doctor__", _t("menu.updates.label", "Actualizaciones"),
              _t("menu.updates.tag", "revisar · reparar · actualizar")),
             # «Agentes» (2026-10-09): transparencia por agente — config,
@@ -207,9 +206,10 @@ def menu_entries():
             ("__motores__", _t("menu.engines.label", "Motores"),
              _t("menu.engines.tag", "estado, capacidades y conexiones")),
             ("__agentes__", _t("menu.agents.label", "Agentes"),
-             _t("menu.agents.tag", "configuración y cerebro de cada agente")),
-            ("__add_agent__", _t("menu.add_agent.label", "Agregar agente"),
-             _t("menu.add_agent.tag", "crear o cargar un agente")),
+             _t("menu.agents.tag", "cerebro, permisos y skills de cada agente")),
+            # «Agregar agente» vive DENTRO de Agentes (tecla a; sin agentes,
+            # Agentes abre directo el formulario) — decisión del dueño
+            # 2026-10-14. El token __add_agent__ sigue ruteando (loopback).
             # El control de IDIOMA ya NO vive en el MENÚ: es una entrada
             # propia del hub (Idioma › en el lanzador). Ver el grupo "idioma".
             ("__shell__", _t("menu.shell.label", "Terminal normal"),
@@ -229,10 +229,9 @@ def items():
                     False))
     # Chat: extraído a la rama feat/chat (se retoma a fondo después). El código
     # (chat_tui.py/chat.py/chat_daemon.py) ya no vive en main — fuera del hub.
-    # «Config» salió del MENÚ (pedido del socio 2026-10-02): la sección se va a
-    # rehacer; mientras tanto no se lista ni se navega. El subsistema sigue
-    # vivo (config_tui.py + ruteo __config__/loopback intactos) — re-exponerla
-    # = re-agregar la entrada aquí y en opts de _menu_machinery.
+    # La vieja pantalla «Config» (config_tui) se retiró en 0.3.0: los ajustes
+    # viven en Personalización (pins del hub), en cada pantalla y en
+    # `python3 settings.py set`.
     # Dashboard general: extraído a la rama feat/dashboard (se retoma después). El
     # código (dashboard.html, dash/<secciones>, cmd_dashboard, modo NORMAL de
     # dashboard.py) ya no vive en main — fuera del hub. En main solo queda el dev panel.
@@ -247,7 +246,7 @@ def items():
     # El MENÚ sale del registro canónico (menu_entries — gates incluidos);
     # el picker estático solo lista SU porción: cal/tono/atajos son pantallas
     # del recinto animado y no entran aquí (decisión previa, intacta).
-    _solo_hub = ("__cal__", "__tono__", "__keybinds__")
+    _solo_hub = ("__cal__", "__tono__")
     out += [(tok, lbl, tag, True) for tok, lbl, tag in menu_entries()
             if tok not in _solo_hub]
     return out
@@ -259,6 +258,96 @@ def _row(disp, tag, selected, selectable, w):
     if selected:
         return f"    {C}{GPTR} {WH}{disp.ljust(w)}{R}{DIM}{tag}{R}"
     return f"      {DIM}{disp.ljust(w)}{R}{GREY}{tag}{R}"
+
+
+def _static_cols():
+    """Ancho disponible para la vista ESTÁTICA (picker sin hub animado)."""
+    try:
+        import shutil
+        return max(20, shutil.get_terminal_size((100, 40)).columns)
+    except Exception:
+        return 100
+
+
+def _static_header():
+    """Cabecera de la vista ESTÁTICA (ui.anim apagado, sin tty animable o el
+    hub animado falló): el wordmark compacto del hub + la versión — el mismo
+    lenguaje del lanzador, nada del recinto viejo. Sin hublayout → el nombre
+    llano. Devuelve líneas."""
+    w = _static_cols()
+    try:
+        import hublayout as _HL
+        K = _HL.cols(TH) if TH else _HL.cols(types.SimpleNamespace(
+            B=B, B2=B2, C=C, WH=WH, DIM=DIM, DK=DK, GREY=GREY, R=R, BO=BO,
+            GLYPHS=GL))
+        out = [""] + _HL.big_title(K, w, 0, compact=True, center=True)
+        try:
+            ver = open(os.path.join(ROOT, "VERSION"), encoding="utf-8").read().strip()
+        except Exception:
+            ver = ""
+        if ver:
+            v = "v" + ver
+            out.append(" " * max(0, ((w - 1) - _HL.vis(v)) // 2)
+                       + "%s%s%s" % (K["DIM"], v, K["R"]))
+        return out + [""]
+    except Exception:
+        return ["", f"  {C}{BO}WORKSPACE{R}", ""]
+
+
+def _picker_hints():
+    return ((u"↑↓", _t("common.hint.move", "mueve")),
+            ("Enter", _t("common.hint.enter", "entra")),
+            ("1-9", _t("hub.static.hint.direct", "directo")),
+            ("q", _t("common.hint.quit", "sale")))
+
+
+def _picker_lines(it, idx, w=None):
+    """La lista ESTÁTICA con el lenguaje del lanzador: la MISMA caja
+    «WORKSPACE» (borde del tema), filas `❯ etiqueta ··· descripción`, un
+    separador entre agentes y menú, y los atajos como chips al pie. Altura
+    FIJA (no depende de la selección) → el redibujo sube len(líneas).
+    Falla-suave: sin hublayout → las filas llanas de siempre (_row)."""
+    w = w or _static_cols()
+    try:
+        import hublayout as _HL
+        K = _HL.cols(TH) if TH else _HL.cols(types.SimpleNamespace(
+            B=B, B2=B2, C=C, WH=WH, DIM=DIM, DK=DK, GREY=GREY, R=R, BO=BO,
+            GLYPHS=GL))
+        lw = max([_HL.vis(d) for _, d, _, _ in it] + [8])
+        tw = max([_HL.vis(t) for _, _, t, _ in it] + [0])
+        pw = max(24, min((w - 1) - 2, 2 + lw + 3 + tw + 4 + 2))
+        iw = pw - 4
+        body = []
+        prev_agent = None
+        for i, (nm, disp, tag, sel) in enumerate(it):
+            es_menu = str(nm).startswith("__")
+            if prev_agent is True and es_menu:
+                body.append("%s%s%s" % (K["DK"], K["SEP"] * iw, K["R"]))
+            prev_agent = not es_menu
+            on = (i == idx)
+            cur = ("%s%s%s " % (K["C"] + K["BO"], K["PTR"], K["R"])) if on else "  "
+            tinta = (K["C"] + K["BO"]) if on else (K["INACTIVE"] if sel else K["DK"])
+            lab = _HL.clip(disp, max(1, iw - 2))
+            ln = "%s%s%s%s" % (cur, tinta, lab, K["R"])
+            libre = iw - 2 - _HL.vis(lab) - 3
+            if tag and libre > 4:
+                t = _HL.clip(tag, libre)
+                ln += " " * max(3, iw - 2 - _HL.vis(lab) - _HL.vis(t)) \
+                    + "%s%s%s" % (K["B2"] if on else K["DIM"], t, K["R"])
+            body.append(ln)
+        box = _HL.full_box(_t("hub.lanzador.root", "WORKSPACE"), body, K, pw,
+                           len(body), True, border=K["C"],
+                           label=K["C"] + K["BO"])
+        lp = " " * max(0, ((w - 1) - pw) // 2)
+        out = [_HL.clip(lp + ln, w - 1) for ln in box]
+        hint = _HL.keyline(K, _picker_hints(), w - 2)
+        if hint:
+            out.append(" " * max(0, ((w - 1) - _HL.vis(hint)) // 2) + hint)
+        return out
+    except Exception:
+        wd = max(len(d) for _, d, _, _ in it) + 2
+        return [_row(disp, tag, i == idx, sel, wd)
+                for i, (nm, disp, tag, sel) in enumerate(it)]
 
 
 def _first_selectable(it):
@@ -278,66 +367,20 @@ def _step(idx, d, it):
     return idx
 
 
-# Defaults DUROS del mapa de salto (paridad si keybinds.py faltara): mismo
-# contenido que keybinds.defaults(). La fuente de verdad en runtime es el
-# REGISTRO per-máquina (keybinds.py — pantalla «Atajos» del MENÚ).
-_JUMP_FALLBACK = {"menu.__devmap__": "v", "menu.__motores__": "s",
-                  "menu.__cal__": "c", "menu.__tono__": "o",
-                  "menu.__keybinds__": "k", "menu.__doctor__": "u",
-                  "menu.__add_agent__": "g", "menu.__agentes__": "b",
-                  "accion.motor": "m", "accion.info": "i"}
-
-
-def _jump_map(agents, opts):
-    """Teclas rápidas del hub — DATA-DRIVEN: salen del registro per-máquina
-    (keybinds.effective(); overrides en ~/.claude/workspace/keybinds.json, la
-    pantalla «Atajos» los edita). La semántica es UNA por familia y SIEMPRE
-    se pinta la tecla junto a su opción (transparencia):
-      · AGENTES (default 1-9 por posición) → APUNTA al agente sin lanzarlo
-        (ahí aplican motor/info/Enter); la MISMA tecla otra vez — o Enter —
-        lo lanza. Del 10º agente en adelante, sin tecla (flechas).
-      · MENÚ (default r/c/o/k/u/g por token) → abre la opción directo.
-        `__shell__` no entra al mapa: su tecla visible es `q`, que ya hace
-        exactamente eso.
-      · ACCIONES (default m=motor · i=info) → operan sobre el agente
-        APUNTADO sin lanzarlo (quick()).
-      · PERSONALIZACIÓN → sin tecla (ciclar un setting persistente con una
-        tecla ciega es error fácil); flechas + Enter, y el CLICK sí llega.
-    Devuelve (mapa, display, acciones):
-      mapa     {'1': ('agent', 0), 'c': ('opt', 1), …}  → lo consume jump()
-      display  {'agents': {i: '1'…}, 'opts': {j: 'c'…, j_shell: 'q'},
-                'acciones': {'motor': 'm', 'info': 'i'}} → lo pintan los
-               layouts junto a cada ítem (y los hints del pie).
-      acciones {'m': 'motor', 'i': 'info'}              → lo consume quick()
-    PURA respecto a la sesión (agents/opts fijos); falla-suave ABSOLUTA:
-    sin keybinds.py o registro roto → los defaults de siempre."""
-    try:
-        import keybinds as _kb
-        eff = _kb.effective()
-    except Exception:
-        eff = {("agente.%d" % (i + 1)): str(i + 1) for i in range(9)}
-        eff.update(_JUMP_FALLBACK)
-    mapa, da, do = {}, {}, {}
-    for i in range(min(9, len(agents))):
-        k = eff.get("agente.%d" % (i + 1), "")
-        if k and k not in mapa:
-            mapa[k] = ("agent", i)
-            da[i] = k
-    for j, (tok, _lbl) in enumerate(opts):
-        if tok == "__shell__":
-            do[j] = "q"                     # q ya ES «Terminal normal»
-            continue
-        k = eff.get("menu." + tok, "")
-        if k and k not in mapa:
-            mapa[k] = ("opt", j)
-            do[j] = k
-    acc = {}
-    for aid, nombre in (("accion.motor", "motor"), ("accion.info", "info")):
-        k = eff.get(aid, "")
-        if k and k not in mapa and k not in acc:
-            acc[k] = nombre
-    return mapa, {"agents": da, "opts": do,
-                  "acciones": {v: k for k, v in acc.items()}}, acc
+def _jump_map(agents, opts=None):
+    """Teclas rápidas del hub: las CIFRAS de tus agentes, en su orden (en el
+    lanzador cada letra escribe en la búsqueda; `q` sale y es fija). La
+    cifra N APUNTA al agente N sin lanzarlo; la MISMA tecla otra vez — o
+    Enter — lo lanza. Del 10º agente en adelante, sin tecla (flechas o
+    búsqueda). `opts` se ignora (compatibilidad). Desde 2026-10-14 no se
+    re-mapean (la pantalla «Atajos» quedó aparcada en feat/atajos): un
+    keybinds.json viejo ya no cambia nada.
+    Devuelve (mapa, display):
+      mapa     {'1': ('agent', 0), …}         → lo consume jump()
+      display  {'agents': {0: '1', …}}         → para quien quiera pintarlas"""
+    n = min(9, len(agents))
+    mapa = {str(i + 1): ("agent", i) for i in range(n)}
+    return mapa, {"agents": {i: str(i + 1) for i in range(n)}}
 
 
 def _tty_key(tin):
@@ -408,14 +451,16 @@ def _run_picker_windows(it):
     import msvcrt
     out = sys.stderr
     n = len(it)
-    w = max(len(d) for _, d, _, _ in it) + 2
     idx = _first_selectable(it)
+    drawn = [0]
 
     def draw(first):
-        if not first:
-            out.write(f"\033[{n}A")
-        for i, (nm, disp, tag, sel) in enumerate(it):
-            out.write("\r\033[K" + _row(disp, tag, i == idx, sel, w) + "\r\n")
+        if not first and drawn[0]:
+            out.write(f"\033[{drawn[0]}A")
+        lines = _picker_lines(it, idx)
+        for ln in lines:
+            out.write("\r\033[K" + ln + "\r\n")
+        drawn[0] = len(lines)
         out.flush()
 
     draw(True)
@@ -461,14 +506,16 @@ def run_picker(it):
     except Exception:
         return _numbered(it)
     n = len(it)
-    w = max(len(d) for _, d, _, _ in it) + 2
     idx = _first_selectable(it)
+    drawn = [0]
 
     def draw(first):
-        if not first:
-            tout.write(f"\033[{n}A")
-        for i, (nm, disp, tag, sel) in enumerate(it):
-            tout.write("\r\033[K" + _row(disp, tag, i == idx, sel, w) + "\r\n")
+        if not first and drawn[0]:
+            tout.write(f"\033[{drawn[0]}A")
+        lines = _picker_lines(it, idx)
+        for ln in lines:
+            tout.write("\r\033[K" + ln + "\r\n")
+        drawn[0] = len(lines)
         tout.flush()
 
     draw(True)
@@ -784,7 +831,7 @@ def _update_repo(label, path, transport="git"):
     pad = f"  {label:<22}"
     if transport == "obsidian-sync":
         print(f"{pad}{C}✓{R} {DIM}"
-              + _t("cli.repo.obsidian", "gestionado por Obsidian Sync (sin git)")
+              + _t("cli.repo.obsidian", "carpeta local (no se actualiza por git)")
               + f"{R}")
         return "managed"
     if not os.path.isdir(os.path.join(path, ".git")):
@@ -973,6 +1020,8 @@ def cmd_update(args=None):
                 cfg = dispatch.load_agent_cfg(entry)
             except Exception:
                 cfg = {}
+            if dispatch.is_system_agent(entry, cfg):
+                continue                          # motor interno: no es del usuario
             res = brain_resolver.resolve(entry["name"], cfg, entry)
             brain = res.path
             if res.get("exists"):
@@ -1195,19 +1244,14 @@ def _apply_pending_migrations():
         pass
 
 
-def _menu_header():
-    return (f"  {C}{_t('hub.menu_header.title', '◆ ¿A dónde entras?')}{R}"
-            f"   {DIM}{_t('hub.menu_header.hint', '↑↓ · Enter · q = terminal normal')}{R}")
-
-
 AGENT_COLORS = {"zenith": "blue", "atlas": "red", "argus": "green",
                 "turing": "cyan"}
 
 
-# Medición de ancho COMPARTIDA (_width.py — la MISMA del hub/config): ANSI
+# Medición de ancho COMPARTIDA (_width.py — la MISMA del hub): ANSI
 # completo (CSI/OSC/ESC de 2 bytes, no solo SGR), combinantes/zero-width = 0,
 # CJK/Hangul = 2. Antes front tenía su propio regex solo-SGR y su propia tabla
-# → un glifo de tema medía distinto aquí que en config_tui y descuadraba.
+# → un glifo de tema medía distinto aquí que en otra pantalla y descuadraba.
 from _width import strip_ansi as _strip_ansi, sane as _wsane, eaw as _eaw  # noqa: E402
 def _vis(s):
     # Ancho VISUAL (no len) — ver _width.py. Crítico para el padding/centrado
@@ -1218,9 +1262,6 @@ def _vis(s):
 _BLOCK_W = 72
 
 
-def _ctr(s):
-    pad = max(0, (_BLOCK_W - _vis(s)) // 2)
-    return " " * pad + s
 def _ui_setting_on(name):
     """Setting bool ui.* del store unificado (settings.py, misma raíz).
     Falla-suave → True (el look de siempre). El env WORKSPACE_NO_* se chequea
@@ -1230,33 +1271,6 @@ def _ui_setting_on(name):
         return _settings.enabled("ui." + name, default=True)
     except Exception:
         return True
-
-
-def _heartbeat_line():
-    """Fila de info del heartbeat para el banner — hermana de `agentes`/`motor`:
-    etiqueta tenue `latido` + valores dorados con separadores `·`, mismo patrón que
-    build_info_rows. Solo glifos angostos ASCII + `·` (Windows-safe: NADA del rango
-    0x2600-0x27BF ni emojis — ver runbooks/windows-support.md).
-    Falla-suave ABSOLUTA: si heartbeat.py / usage.json / el backlog no existen
-    o cualquier cosa truena → "" (la línea se omite; el banner JAMÁS se rompe)."""
-    try:
-        import heartbeat
-        st = heartbeat.state()
-        mode = st.get("mode") or "?"
-        if mode == "off":
-            return (f"{DIM}{_t('hub.hb.label', 'latido')}  {GREY}off{DIM} · "
-                    f"{_t('hub.hb.queue_waiting', 'cola en espera')}{R}")
-        b = st.get("budget") or {}
-        pct = b.get("pct")
-        uso = "?" if pct is None else f"{round(pct)}%"
-        ln = (f"{DIM}{_t('hub.hb.label', 'latido')}  {C}{mode}{DIM} · "
-              f"{_t('hub.hb.queue_word', 'cola')} {C}{st.get('count', 0)}{DIM}"
-              f" · {_t('hub.instr.usage5h', 'uso 5h')} {C}{uso}{R}")
-        if b.get("ok") is not True:                  # tope alcanzado o dato desconocido
-            ln += f"{DIM} · {B}{_t('hub.hb.paused', 'presupuesto en pausa')}{R}"
-        return ln
-    except Exception:
-        return ""
 
 
 def _code_stamp():
@@ -1541,6 +1555,17 @@ def _hub_agents():
     return out, snap.revision
 
 
+def _unavailable_msg(a):
+    """Aviso de un agente que el hub NO puede lanzar: su estado real (y cómo
+    repararlo) si está registrado pero averiado; «todavía no disponible» solo
+    para un planeado. Lo usan Enter y la información (Tab)."""
+    if a.get("status") and a.get("status") != "planned":
+        return f"{a['display']}: {a.get('status_label') or a['status']}" + (
+            f" — {a['repair']}" if a.get("repair") else "")
+    return _t("hub.agent.not_yet", "{name} todavía no está disponible.",
+              name=a["display"])
+
+
 def _menu_machinery(tout):
     """Estado + closures de RENDER del recinto: altar, cielo, full_draw/redraw.
     Compartido por los dos drivers de input (_animated_loop_unix y
@@ -1558,19 +1583,16 @@ def _menu_machinery(tout):
         _harn = None
     agents, _agents_rev = _hub_agents()
     NA = len(agents)
-    # «Config» fuera del MENÚ (el socio 2026-10-02) — se rehace después; el
-    # subsistema (config_tui) sigue vivo, solo no se lista. Ver items().
     # «Dev» fuera del MENÚ (el socio 2026-10-02) — el panel vive en `workspace
     # dev` (ruteo de __dev__ intacto). «Proyectos» fuera del MENÚ (el socio
     # 2026-10-02) — la app vive en `workspace proyectos`. Las opciones salen
     # del registro CANÓNICO (menu_entries: GitHub siempre, «Dev» gated al
-    # dueño/dev, Calendario/Tono/Atajos/Actualizaciones/Agregar/Terminal) —
-    # misma fuente que items() y que la sección «menú» de keybinds.
+    # dueño/dev, Calendario/Tono/Actualizaciones/Agregar/Terminal) —
+    # misma fuente que items().
     opts = [(tok, lbl) for tok, lbl, _tag in menu_entries()]
-    # TECLAS RÁPIDAS (registro keybinds, re-mapeable en «Atajos»): mapa
-    # tecla→ítem + display por sección + acciones (motor/info). Lo consumen
-    # jump()/quick() (drivers) y lo PINTAN los layouts junto a cada opción.
-    JUMP, JKEYS, AKEYS = _jump_map(agents, opts)
+    # TECLAS RÁPIDAS (las cifras de tus agentes, en su orden): las
+    # cifras de los agentes → jump() (drivers).
+    JUMP, JKEYS = _jump_map(agents)
     _JUMP_SET = set(JUMP)          # VIVO: _reload_agents lo actualiza en sitio
     hb = _hb_snapshot()                               # snapshot del latido (para el status vivo del layout)
     # LANZADOR (hublayout): el hub oficial y único. Su PERSONALIZACIÓN sale
@@ -1732,7 +1754,7 @@ def _menu_machinery(tout):
         (i18n.set_lang, persiste ui.lang) y refresca las etiquetas del MENÚ
         para que el hub flipee EN VIVO (el ● del cuadro se mueve solo: lee
         i18n.lang() en cada render). Los tokens del menú NO cambian con el
-        idioma → jump/akeys/asel siguen válidos; solo se reconstruyen las
+        idioma → jump/asel siguen válidos; solo se reconstruyen las
         LABELS. Falla-suave ABSOLUTA: cualquier problema → no-op silencioso,
         el hub sigue vivo."""
         nonlocal opts
@@ -1749,24 +1771,6 @@ def _menu_machinery(tout):
                 _LDATA["opts"] = opts
         except Exception:
             pass
-
-    def toggle_redlight():
-        """Tecla rápida del hub (`l`): enciende/apaga el MODO LUZ ROJA
-        (ui.redlight) — pantalla en rojo nocturno. Persiste el bool y deja un
-        aviso visible; la paleta se re-resuelve EN VIVO al siguiente frame
-        (tuitheme memoiza por este flag → sync_theme detecta el cambio y
-        repinta). Falla-suave ABSOLUTA: cualquier problema deja un aviso y el
-        recinto sigue igual."""
-        try:
-            import settings as _st
-            newv = not bool(_st.enabled("ui.redlight", default=False))
-            _st.set("ui.redlight", newv)
-            S["msg"] = (_t("hub.redlight.on", "luz roja ON — modo noche")
-                        if newv else
-                        _t("hub.redlight.off", "luz roja OFF"))
-        except Exception:
-            S["msg"] = _t("hub.redlight.fail",
-                          "no pude cambiar la luz roja — queda igual")
 
     def _plain_lines():
         """Bloque de TEXTO llano (sin layout): agentes y menú numerados. Es
@@ -1822,55 +1826,69 @@ def _menu_machinery(tout):
     S["term_w"], S["term_h"] = gsize()
 
     def _narrow_draw(first):
-        """Functional compact hub: same keyboard and actions, no width gate."""
-        import responsive_ui as _responsive
+        """RED DE SEGURIDAD — solo si el LANZADOR no se puede dibujar
+        (hublayout ausente o su render truena). Texto llano con la semántica
+        de grupos (↑↓ sección · ◄► elige): mismas acciones, sin depender de
+        hublayout ni de su marco. Una ventana chica NO cae aquí: el lanzador
+        se adapta solo (cede wordmark y chips, recorta la caja)."""
         w, h = S['term_w'], S['term_h']
         S['narrow'] = False
         S['compact'] = True
         S['hit'] = ()                 # no stale mouse regions from rich layout
         group = gk()
         rows, selected = [], 0
+        mk = lambda on: (GPTR + ' ') if on else '  '   # noqa: E731
         if group == 'dioses':
             selected = S['gsel']
             for i, agent in enumerate(agents):
-                mark = '> ' if i == selected else '  '
-                rows.append(mark + agent['display'] + ' · ' + agent.get('engine_eff', '?'))
-            rows += ['', _t('hub.narrow.agents_hint',
-                            'm motor · Enter abre · i información'),
-                     S.get('msg', '')]
+                rows.append(mk(i == selected) + str(agent.get('display') or agent.get('name'))
+                            + ' · ' + str(agent.get('engine_eff') or agent.get('engine') or '?'))
+            rows += ['', S.get('msg', '')]
         elif group == 'tools':
             selected = S['asel']
             for i, (_, label) in enumerate(opts):
-                rows.append(('> ' if i == selected else '  ') + label)
+                rows.append(mk(i == selected) + label)
         elif group == 'latido':
             selected = S['cfg_focus']
             for i, pin in enumerate(_pins_now()):
-                rows.append(('> ' if i == selected else '  ') + str(pin.get('label') or pin.get('key', ''))
+                rows.append(mk(i == selected) + str(pin.get('label') or pin.get('key', ''))
                             + ' · ' + str(pin.get('value', '')))
-            rows += ['', _t('hub.narrow.cfg_hint',
-                            'Enter cambia · configuración disponible en el menú'),
-                     S.get('hb_msg', '')]
+            rows += ['', S.get('hb_msg', '')]
         elif group == 'idioma':
             selected = S['lang_focus']
             for i, (_code, name, act) in enumerate(_lang_opts()):
-                rows.append(('> ' if i == selected else '  ')
-                            + ('● ' if act else '· ') + name)
-            rows += ['', _t('hub.narrow.lang_hint',
-                            'Enter cambia el idioma · Enter switches language')]
+                rows.append(mk(i == selected) + ('● ' if act else '· ') + name)
         title = 'WORKSPACE · ' + {
             'dioses': _t('hub.section.agents', 'AGENTES'),
             'tools': _t('hub.section.menu', 'MENÚ'),
-            'latido': _t('hub.section.configs', 'CONFIGS'),
+            'latido': _t('hub.section.personalization', 'PERSONALIZACIÓN'),
             'idioma': _t('hub.section.lang', 'IDIOMA · LANGUAGE')}.get(group, group)
         _nav = "↑↓ %s · ◄► %s · Enter %s · q %s" % (
             _t('common.hint.section', 'sección'),
             _t('common.hint.pick', 'elige'),
             _t('common.hint.enter', 'entra'),
-            _t('common.hint.terminal', 'terminal'))
-        rows += ['', _nav]
-        lines = _responsive.hub_frame(rows, w, h, focus=selected, title=title,
-                                      hint=_nav)
-        _responsive.paint(tout, lines, first)
+            _t('common.hint.quit', 'sale'))
+        lines = ['', ' %s%s%s%s' % (C, BO, title, R), '']
+        lines += ['   ' + (WH if r.startswith(GPTR) else DIM) + r + R for r in rows]
+        lines += ['', ' %s%s%s' % (DIM, _nav, R)]
+
+        def _fit(ln):
+            out, used = [], 0
+            for tok in __import__('re').split(r'(\x1b\[[0-9;]*m)', ln):
+                if tok.startswith('\x1b['):
+                    out.append(tok)
+                    continue
+                for ch in tok:
+                    cw = _eaw(ch)
+                    if used + cw > max(1, w - 1):
+                        return ''.join(out) + R
+                    out.append(ch)
+                    used += cw
+            return ''.join(out)
+        lines = [_fit(x) for x in lines[:max(1, h - 1)]]
+        tout.write(('\033[2J\033[3J\033[H' if first else '\033[H')
+                   + '\r\n'.join('\r\033[K' + x for x in lines) + '\033[J')
+        tout.flush()
         S['BH'] = len(lines)
         S['row0'] = 0
         return S['BH']
@@ -1914,15 +1932,17 @@ def _menu_machinery(tout):
         if p.OSC:
             theme.apply_colors(p.OSC)
         else:
-            theme.apply("workspace")
+            theme.reset()                    # sin OSC: colores de la terminal
         return True
 
     def full_draw(first=False):
         sync_theme()
-        # hub completo solo si la ventana alcanza la caja FIJA del lanzador
-        mw, mh = _min_size()
-        if (not _laybox["lay"] or S["term_w"] < max(mw, S["min_w"])
-                or S["term_h"] < mh):                # chica / sin layout → vista angosta
+        # SIEMPRE el lanzador: en una ventana más chica que su caja él mismo
+        # cede (wordmark → compacto → nada · chips → una línea · caja
+        # recortada al ancho). La vista de texto llano es solo la red si el
+        # renderer no está o truena (antes una ventana chica mostraba el hub
+        # VIEJO: marco propio, grupos ↑↓/◄► y «Pantalla completa recomendada»).
+        if not _laybox["lay"]:
             return _narrow_draw(first)
         S["narrow"] = False
         S["compact"] = False
@@ -1955,7 +1975,7 @@ def _menu_machinery(tout):
         """Reconstruye la lista de agentes si el estado compartido cambió
         (otra ventana/terminal cargó, quitó, reparó o re-enlazó un agente).
         Conserva la selección por NOMBRE (no por índice) y muta en sitio las
-        estructuras que los drivers ya tienen (agents, JUMP, JKEYS, AKEYS).
+        estructuras que los drivers ya tienen (agents, JUMP, JKEYS).
         Devuelve True si cambió algo."""
         nonlocal NA, _agents_rev
         try:
@@ -1976,10 +1996,9 @@ def _menu_machinery(tout):
         NA = len(agents)
         names = [a["name"] for a in agents]
         S["gsel"] = names.index(cur) if cur in names else 0
-        j, jk, ak = _jump_map(agents, opts)
+        j, jk = _jump_map(agents)
         JUMP.clear(); JUMP.update(j)
         JKEYS.clear(); JKEYS.update(jk)
-        AKEYS.clear(); AKEYS.update(ak)
         _JUMP_SET.clear(); _JUMP_SET.update(JUMP)
         if _LDATA is not None:
             _LDATA["motor"] = _motor_summary(agents)
@@ -2194,8 +2213,8 @@ def _menu_machinery(tout):
             return None
         if gk() == "dioses":
             if NA == 0:                                  # harness sin agentes
-                S["msg"] = _t("hub.agent.none_go_add", "sin agentes — ve a "
-                              "HERRAMIENTAS › Agregar agente")
+                S["msg"] = _t("hub.agent.none_go_add", "sin agentes — Menú "
+                              "› Agregar agente")
                 return None
             a = agents[S["gsel"]]
             if a["active"]:
@@ -2214,12 +2233,7 @@ def _menu_machinery(tout):
                               "lanza (revisa Agentes)", name=a["display"], why=why)
                 _reload_agents(force=True)
                 return None
-            if a.get("status") and a.get("status") != "planned":
-                S["msg"] = f"{a['display']}: {a.get('status_label') or a['status']}" + (
-                    f" — {a['repair']}" if a.get("repair") else "")
-                return None
-            S["msg"] = _t("hub.agent.not_yet", "{name} aún no se invoca — llega "
-                          "pronto.", name=a["display"])
+            S["msg"] = _unavailable_msg(a)
             return None
         if gk() == "latido":
             cycle_pin()
@@ -2251,8 +2265,8 @@ def _menu_machinery(tout):
             return
         a = agents[S["gsel"]]
         if not a.get("active"):
-            S["msg"] = _t("hub.agent.not_yet_engine", "{name} aún no se invoca "
-                          "— sin motor que elegir.", name=a["display"])
+            S["msg"] = _t("hub.agent.not_yet_engine", "{name} todavía no está "
+                          "disponible — sin motor que elegir.", name=a["display"])
             return
         if _harn is None:
             S["msg"] = _t("hub.engine.no_selector", "selector de motor no "
@@ -2278,14 +2292,11 @@ def _menu_machinery(tout):
             _LDATA["motor"] = _motor_summary(agents)
 
     def jump(ch):
-        """TECLA rápida de salto. Dos familias, dos verbos (keybinds):
-          · agente → APUNTA sin lanzar (el poder real: ya apuntado aplican
-            motor/info/Enter); la MISMA tecla otra vez = lanzarlo (confirmar
-            repitiendo — sigue siendo instantáneo: «11» abre el agente 1).
-          · opción del MENÚ → abre directo (pantallas reversibles, q/Esc
-            regresan — no necesitan confirmación).
-        Devuelve nombre/token a lanzar, o None (apuntado/sin ítem). Los
-        drivers lo llaman SOLO fuera del alta del calendario."""
+        """CIFRA rápida de un agente (su posición): APUNTA sin lanzar (ya
+        apuntado aplican ←→ motor, Tab información y Enter); la MISMA cifra
+        otra vez = lanzarlo (confirmar repitiendo — sigue siendo
+        instantáneo: «11» abre el agente 1). Devuelve el nombre a lanzar, o
+        None (apuntado/sin ítem)."""
         t = JUMP.get(ch)
         if t is None or S.get("narrow"):
             return None
@@ -2307,12 +2318,10 @@ def _menu_machinery(tout):
             if not ya:
                 return None                 # 1er toque: APUNTA (no lanza)
             return activate()               # mismo agente otra vez: ENTRA
-        S["group"] = groups.index("tools")
-        S["asel"] = idx
-        return activate()
+        return None
 
     def agent_info():
-        """Acción `info` (default i): DETALLE del agente APUNTADO en la fila
+        """Acción `info` (Tab): DETALLE del agente APUNTADO en la fila
         de aviso — el status en vivo sin lanzarlo ni cambiar de ventana:
         motor efectivo (y su origen), dónde vive el cerebro, tarea viva."""
         if S.get("narrow") or not NA:
@@ -2320,8 +2329,7 @@ def _menu_machinery(tout):
         S["group"] = groups.index("dioses")     # el aviso vive en AGENTES
         a = agents[S["gsel"]]
         if not a.get("active"):
-            S["msg"] = _t("hub.agent.not_yet", "{name} aún no se invoca — llega "
-                          "pronto.", name=a["display"])
+            S["msg"] = _unavailable_msg(a)       # su estado real, no «pronto»
             return
         eng = a.get("engine_eff") or a.get("engine") or "?"
         orig = _t("hub.engine.local_override", "override local") \
@@ -2336,19 +2344,6 @@ def _menu_machinery(tout):
         S["msg"] = _t("hub.agent.info", "{name} ▸ motor {eng} ({orig}) · "
                       "cerebro {brain} · {live}", name=a["display"], eng=eng,
                       orig=orig, brain=brain, live=vivo)
-
-    def quick(ch):
-        """Acción rápida re-mapeable (keybinds) sobre el agente APUNTADO —
-        sin lanzarlo: motor (cicla el harness, ya persistía per-máquina) ·
-        info (detalle en una línea). Desde cualquier sección: primero
-        enfoca AGENTES (la acción siempre refiere al apuntado del altar)."""
-        act = AKEYS.get(ch)
-        if act == "motor":
-            if gk() != "dioses":
-                S["group"] = groups.index("dioses")
-            cycle_engine()
-        elif act == "info":
-            agent_info()
 
     def click(x, y):
         """Click IZQUIERDO (SGR, 1-based). Hit-test contra las regiones que
@@ -2409,12 +2404,9 @@ def _menu_machinery(tout):
                                  gsize=gsize, full_draw=full_draw, redraw=redraw,
                                  tick=tick, nav=nav, activate=activate, space=space,
                                  tab=tab, back=back, lz_key=lz_key,
-                                 toggle_redlight=toggle_redlight,
                                  cycle_engine=cycle_engine, jump=jump,
-                                 click=click, quick=quick, jkeys=JKEYS,
-                                 jump_set=_JUMP_SET,
-                                 akeys=dict(AKEYS),
-                                 akeys_set=frozenset(AKEYS))
+                                 click=click, jkeys=JKEYS,
+                                 jump_set=_JUMP_SET)
 
 
 def _animated_loop_unix(tin, M):
@@ -2450,18 +2442,10 @@ def _animated_loop_unix(tin, M):
                     act = True
                 elif ch == " ":
                     M.space()                                          # espacio → cicla pin en CONFIGS (no-op fuera)
-                elif ch and ch.lower() in M.akeys_set \
-                       :
-                    result = M.quick(ch.lower())
-                    if result is not None:
-                        return result
-                    # Acción rápida del agente seleccionado (keybinds).
                 elif ch in M.jump_set:
-                    res = M.jump(ch)                                   # salto directo (tecla visible junto al ítem)
+                    res = M.jump(ch)                                   # cifra de un agente: apunta · otra vez entra
                     if res is not None:
                         return res
-                elif ch in ("l", "L"):
-                    M.toggle_redlight()                               # `l` → luz roja (modo noche) on/off EN VIVO
                 elif ch in ("q", "Q", "\x03"):
                     return "__shell__"                                 # q → Terminal normal
                 if act:
@@ -2503,18 +2487,10 @@ def _animated_loop_windows(M, max_frames=None):
                 act = True
             elif ch == " ":
                 M.space()                                          # espacio → cicla pin en CONFIGS (no-op fuera)
-            elif ch and ch.lower() in M.akeys_set \
-                   :
-                result = M.quick(ch.lower())
-                if result is not None:
-                    return result
-                # Acción rápida del agente seleccionado (keybinds).
             elif ch in M.jump_set:
-                res = M.jump(ch)                                   # salto directo (tecla visible junto al ítem)
+                res = M.jump(ch)                                   # cifra de un agente: apunta · otra vez entra
                 if res is not None:
                     return res
-            elif ch in ("l", "L"):
-                M.toggle_redlight()                               # `l` → luz roja (modo noche) on/off EN VIVO
             elif ch in ("q", "Q", "\x03"):
                 return "__shell__"                                 # q → Terminal normal
             if act:
@@ -2712,9 +2688,8 @@ def _doctor_submenu():
     Desde 2026-10-02 la pantalla `actualizaciones_tui` corre el flujo ENTERO
     en vivo (pasos ✓/●/⚠/✗, progreso, resumen y pendientes — estilo
     WORKSPACE) y devuelve None al terminar. Devuelve un token SOLO cuando no
-    puede correrlo ahí (p. ej. reparar necesitaría preguntar «¿quién eres?»):
-    entonces AQUÍ se rutea al camino clásico de terminal (cmd_doctor/
-    cmd_update — el engine interno sigue llamándose doctor), que sí promptea.
+    puede correrlo ahí (p. ej. el motor del doctor no carga): entonces AQUÍ
+    se rutea al camino clásico de terminal (cmd_doctor/cmd_update).
     Falla-suave doble: sin TTY (CI/pipe) cae al diagnóstico de solo-lectura;
     sin la pantalla (módulo roto) cae al submenú de texto de antes."""
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
@@ -2831,7 +2806,6 @@ def cmd_repair(args=None):
             continue
         try:
             install.render_hooks_only(a["cfg"], brain)        # RMW de hooks (fuente única P0-3)
-            install.ensure_gitignore(brain, install.GITIGNORE_LINES)
             done.append(name)
         except Exception as e:
             failed.append(f"{name} ({type(e).__name__})")
@@ -2914,8 +2888,41 @@ def _release_gate(ref, dist=None):
     return ver, probs
 
 
+RELEASE_CHECKLIST = "runbooks/publicar-release.md"
+
+
+def _release_checklist_ok(args, stdin=None):
+    """Lo que se publica le llega solo a cada cliente: nadie publica sin haber hecho
+    el checklist de `runbooks/publicar-release.md` (suite, transición, cliente real,
+    motores). `--checklist-ok` lo confirma (scripts/agentes que ya lo hicieron); en
+    una terminal se pregunta; sin terminal y sin el flag, se niega."""
+    if "--checklist-ok" in args:
+        return True
+    stdin = stdin or sys.stdin
+    print(f"  {B}Antes de publicar:{R} sigue {RELEASE_CHECKLIST} —")
+    print(f"  {DIM}suite completa · transición desde las versiones que tienen los clientes · "
+          f"cliente real (su install + su `workspace update`) · borrar e instalar de cero · "
+          f"motores si tocaste permisos/hooks/barras.{R}")
+    try:
+        interactive = stdin.isatty()
+    except Exception:
+        interactive = False
+    if not interactive:
+        print("  ✗ No publico sin confirmar el checklist: vuelve a correr con --checklist-ok "
+              "cuando lo hayas hecho.")
+        return False
+    try:
+        ans = input("  ¿Hiciste todo el checklist? [s/N]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        ans = ""
+    if ans in ("s", "si", "sí", "y", "yes"):
+        return True
+    print(f"  {DIM}Cancelado: no se publicó nada.{R}")
+    return False
+
+
 def cmd_release(args):
-    """`workspace release [mensaje] [--ref REF] [--dist RUTA] [--dry-run]` — corta y
+    """`workspace release [mensaje] [--ref REF] [--dist RUTA] [--dry-run] [--checklist-ok]` — corta y
     PUBLICA la distribución EXTERNA en UN comando: make-dist DESDE `stable` (committeado,
     determinista) → al repo de distribución (workspace-harness) → commit + push. El push
     lo dispara el socio al correr esto (es su acción, no automática). Solo del repo de
@@ -3016,6 +3023,8 @@ def cmd_release(args):
         print(f"  {B}✗ El release no está listo:{R}")
         for pr in problems:
             print(f"    · {pr}")
+        return 1
+    if not dry and not _release_checklist_ok(args):
         return 1
     print(f"  {B}Construyendo distro v{ver} desde `{ref}` ({sha})…{R}")
     env = dict(os.environ, DIR=dist)
@@ -4852,8 +4861,8 @@ def cmd_tono(args):
 
 
 def cmd_personal(kind, args):
-    """`workspace foco [texto|--clear]` y `workspace agenda [add|rm|list]` — el
-    dato PERSONAL del socio (foco del día + agenda) que muestra el Calendario.
+    """`workspace agenda [add|rm|list]` — tu agenda local, la que muestra el
+    Calendario.
     Store local per-máquina: ~/.claude/workspace/personal.json
     (no se sincroniza, no lo ve nadie más). La lógica vive en personal.py."""
     try:
@@ -4868,7 +4877,8 @@ def cmd_personal(kind, args):
 def cmd_voice(args):
     """`workspace voice` — dictado por voz GLOBAL, local (whisper.cpp). TOGGLE:
     1er toque graba el micro; 2º transcribe y PEGA en el cursor. `--check`
-    reporta qué falta. Se enlaza a un atajo de teclado (Atajos de macOS)."""
+    reporta qué falta; `--setup` lo instala. Se enlaza a un atajo de teclado
+    (Atajos de macOS)."""
     try:
         import voice
     except Exception as e:
@@ -5633,11 +5643,27 @@ def _run_onboarding(_args):
     # Onboarding de primer uso, re-ejecutable a mano (onboarding_tui.py).
     try:
         import onboarding_tui
-        return onboarding_tui.run(force=True)
+        rc = onboarding_tui.run(force=True)
     except Exception as e:
         print(_t("cli.unavailable", "{what} no disponible ({err})",
                  what="onboarding", err=f"{type(e).__name__}: {e}"))
         return 0
+    # «✦ ir al hub» abre el hub DE VERDAD (pedido del dueño 2026-10-14: antes
+    # te dejaba en la terminal y había que abrir otra ventana). En un proceso
+    # nuevo: así arranca con el tema y los agentes recién elegidos. Si lo
+    # lanzó el hub (Comandos), no: ese hub sigue abierto y retoma solo.
+    if onboarding_tui.ULTIMA_SALIDA == "fin" and not os.environ.get("WORKSPACE_DESDE_COMANDOS"):
+        _abre_hub()
+    return rc
+
+
+def _abre_hub():
+    """El hub en un proceso nuevo, sin subcomando (exec en Mac/Linux; en
+    Windows exec no reemplaza el proceso y rompe la consola → subprocess)."""
+    argv = [sys.executable, os.path.abspath(__file__)]
+    if os.name == "nt":
+        sys.exit(subprocess.run(argv).returncode)
+    os.execv(sys.executable, argv)
 
 
 def _run_dev(args):
@@ -5682,9 +5708,8 @@ def _dispatch_table():
         # Niveles de personalidad de los agentes (tono.*) — ver personalidad.py.
         "tono": lambda a: cmd_tono(a),
         "onboarding": _run_onboarding,
-        # Dato PERSONAL del socio: el FOCO del día y la AGENDA (los muestra
-        # el Calendario). Local a esta máquina (personal.py).
-        "foco": lambda a: cmd_personal("foco", a),
+        # Tu AGENDA (la muestra el Calendario). Local a esta máquina
+        # (personal.py).
         "agenda": lambda a: cmd_personal("agenda", a),
         "calendario": lambda a: cmd_calendario(a),
         # App «Proyectos» (pantalla completa, puerto propio) — la abre el hub o esto.
@@ -5698,7 +5723,6 @@ def _dispatch_table():
         "split": lambda a: cmd_split(a),
         "eval": lambda a: cmd_eval(a),
         # ── ocultos (rutean, no se anuncian) ──
-        "versiones": _run_module("git_tui", "run", pass_args=False),
         # Backend del Centro de Control (dash/centro/).
         "centro": lambda a: cmd_centro(a),
         # Dictado por voz global (local, whisper.cpp).
@@ -5936,11 +5960,7 @@ def main():
     # sin que el usuario lo pidiera). El descubrimiento sigue disponible como acción
     # MANUAL (menú Agregar agente → Descubrir, o `agentsreg.py discover`).
     import theme
-    _osc = getattr(TH, "OSC", None) if TH else None
-    if _osc:
-        theme.apply_colors(_osc)                  # tema no-default: SU fondo/tinta (tui.osc)
-    else:
-        theme.apply("workspace")                    # olympo: el recinto dorado de siempre
+    theme.apply_current()                         # fondo/tinta del tema (tui.osc) o los de la terminal
     _set_term_title("WORKSPACE")                  # la pestaña dice WORKSPACE, no el proceso
     it = items()
     if "--banner" in sys.argv:
@@ -5950,30 +5970,25 @@ def main():
         try:
             print("\n".join(_menu_machinery(sys.stdout).block_lines()))
         except Exception:
-            w = max(len(d) for _, d, _, _ in it) + 2
-            for i, (nm, disp, tag, sel) in enumerate(it):
-                print(_row(disp, tag, i == _first_selectable(it), sel, w))
+            print("\n".join(_static_header()
+                            + _picker_lines(it, _first_selectable(it))))
         print()
         return
     while True:
         name = animated_menu(it)                  # el lanzador (devuelve nombre/token)
         if name is None:                          # fallback: sin tty / WORKSPACE_NO_ANIM
             t = _tty_out()                        # /dev/tty ABRIBLE o stderr (headless no truena)
-            hb = _heartbeat_line()
-            t.write("\n" + _ctr(f"{C}{BO}WORKSPACE{R}")
-                    + ("\n\n" + _ctr(hb) if hb else "")
-                    + "\n\n" + _menu_header() + "\n\n"); t.flush()
+            # vista ESTÁTICA con el lenguaje del lanzador (wordmark compacto +
+            # versión; la lista en su caja la pinta run_picker)
+            t.write("\n".join(_static_header()) + "\n"); t.flush()
             name = it[run_picker(it)][0]
         sys.stdout.write("\033[2J\033[3J\033[H"); sys.stdout.flush()   # limpia menú + scrollback al salir
         # Acciones que REGRESAN al recinto tras ejecutarse (pantalla TUI propia).
         # Falla-suave: si el módulo no está o truena, un aviso y el menú sigue
         # vivo (jamás crashea el boot). El recinto se reconstruye al re-entrar
         # al loop → relee el registry (un agente recién agregado ya aparece).
-        loopback = {"__config__": ("config", "config_tui"),
-                    "__devmap__": (_t("menu.comandos.label", "Comandos").lower(),
+        loopback = {"__devmap__": (_t("menu.comandos.label", "Comandos").lower(),
                                    "comandos_tui"),
-                    "__keybinds__": (_t("menu.keybinds.label", "Atajos").lower(),
-                                     "keybinds_tui"),
                     "__add_agent__": (_t("menu.add_agent.label",
                                          "Agregar agente").lower(),
                                       "add_agent_tui"),

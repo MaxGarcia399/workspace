@@ -1,34 +1,21 @@
 #!/usr/bin/env python3
 """WORKSPACE · tono_tui — pantalla propia del TONO de los agentes.
 
-REDISEÑO (pedido del socio 2026-10-01, PDF WORKSPACE): la pantalla anterior
-tenía paleta propia (no era el tema del hub), el preview era críptico y no
-decía QUÉ hace cada dial. Tres direcciones, en orden de importancia:
-
-  1. **Fácil y simple**: una columna de diales con su perilla, un panel que
-     siempre muestra EL DIAL seleccionado con sus 5 niveles escritos — subes
-     o bajas viendo exactamente a qué te mueves. Cada cambio se guarda ya.
-  2. **Embonar con WORKSPACE**: mismo esqueleto que `calendario_tui` — el
-     wordmark del hub, la paleta del TEMA activo (tuitheme), las cajas
-     `full_box` y los sliders `━━●──` con el gradiente del wordmark
-     (los diales de personalidad). Entrar aquí es cambiar de
-     vista, no de app.
-  3. **Transparencia**: el panel derecho dice qué ajusta el dial (los 5
-     niveles, con el actual marcado), qué se le inyecta al agente (el texto
-     EXACTO que viaja con cada mensaje) y CÓMO FUNCIONA (neutro = no se
-     envía nada; agente pisa GLOBAL; solo estilo, jamás identidad/reglas).
+REDISEÑO 2026-10-14 (concepto Omarchy, pedido del dueño): lo esencial en UNA
+caja centrada y vertical (section_box) —para quién, los diales y qué hace el
+nivel del dial elegido— y lo didáctico detrás de `i`: el mapa de cómo viaja
+el mensaje invisible, el texto EXACTO que se le envía hoy, la escalera de 5
+niveles del dial elegido, las reglas (neutro = no se envía nada; el agente
+pisa lo GLOBAL; solo estilo, jamás identidad/reglas) y las teclas de más.
 
 Se abre con `workspace tono` o desde el MENÚ del hub («Tono»).
 
-Teclas:  ↑↓ dial · ◄► nivel · 1-5 directo · Tab/⇧Tab agente
-         p modo (preset) · r neutro · q volver   (cada cambio se GUARDA ya)
+Teclas:  ↑↓ dial · ←→ nivel · Tab/⇧Tab agente · i cómo funciona · q volver
+         (en `i`: 1-5 directo · p modo · r neutro)   cada cambio se GUARDA ya
 
 El modelo (diales, textos, almacén) vive en `personalidad.py`; esto es solo
-la superficie. Mismo patrón de pantalla que calendario_tui/front (2J3JH al
-entrar, H + \\033[K por línea después — nunca 2J a media sesión) y los dos
-drivers de teclado: termios+select en Unix, msvcrt en Windows.
-
-Cero dependencias (stdlib, Python 3.9+). Mac y Windows.
+la superficie. Los dos drivers de teclado: termios+select en Unix, msvcrt en
+Windows. Cero dependencias (stdlib, Python 3.9+). Mac y Windows.
 """
 import os
 import sys
@@ -41,6 +28,7 @@ if ROOT not in sys.path:
 
 import personalidad as P                                       # noqa: E402
 import hublayout as HL                                         # noqa: E402
+import section_box as SB                                       # noqa: E402
 # i18n (lado cliente): la pantalla TONO se ve en el idioma activo. Falla-suave
 # — sin el módulo, `_t()` devuelve el español inline (ES byte-idéntico).
 try:
@@ -65,9 +53,8 @@ def _t(key, es, **kw):
             return s
     return s
 
-# Los diales agrupados por lo que gobiernan — MISMOS grupos que el panel
-# TONO (antes compartido con el layout `dia`, ya retirado): la pantalla y el panel
-# deben contar la misma historia. Si cambian allá, cambiar aquí.
+# Los diales agrupados por lo que gobiernan: fija el ORDEN visual de la lista
+# (trato → forma → trabajo). Los encabezados de grupo ya no se pintan.
 GRUPOS = (("trato", ("amabilidad", "franqueza", "sarcasmo", "humor")),
           ("forma", ("longitud", "formalidad", "tecnicismo", "emojis")),
           ("trabajo", ("didactica", "iniciativa")))
@@ -92,18 +79,6 @@ def _orden():
 def _pname(key):
     """Nombre VISIBLE del modo (preset); la clave interna no cambia."""
     return _t("tono.preset.%s" % key, key)
-
-
-def _pares():
-    """UNA fuente de verdad de los atajos, en el idioma activo: la cabecera
-    enseña los 3 clave + salir (HL recorta) y el pie la lista COMPLETA."""
-    return ((u"↑↓", _t("tono.hint.dial", "dial")),
-            (u"◄►", _t("tono.hint.level", "nivel")),
-            ("Tab", _t("tono.hint.agent", "agente")),
-            ("1-5", _t("tono.hint.direct", "directo")),
-            ("p", _t("tono.hint.mode", "modo")),
-            ("r", _t("tono.hint.neutral", "neutro")),
-            ("q", _t("tono.hint.back", "vuelve al menú")))
 
 
 def _K():
@@ -185,62 +160,6 @@ def _nombre(dest):
     return "GLOBAL" if dest is None else dest.capitalize()
 
 
-# ── cuerpos de las dos cajas ────────────────────────────────────────────────
-def _cuerpo_diales(S, K, dest, iw, grupos=True):
-    """Caja izquierda: los 10 diales con su slider + polo, agrupados, y los
-    MODOS (presets) con nombre visible — nada de ciclar a ciegas."""
-    niv = P.niveles(dest)
-    orden = _orden()
-    by = {d["key"]: d for d in orden}
-    out, i = [], 0
-
-    def fila(d, i):
-        sel = (i == S["si"])
-        v = niv[d["key"]]
-        mov = v != P.NEUTRO
-        cur = "%s%s%s" % (K["C"] + K["BO"], K["PTR"], K["R"]) if sel else " "
-        lab = "%s%s%s" % ((K["WH"] + K["BO"]) if sel
-                          else (K["GREY"] if mov else K["DK"]),
-                          HL.pad(d["label"], 11), K["R"])
-        num = "%s%d%s" % ((K["WH"] + K["BO"]) if mov else K["DK"], v, K["R"])
-        polo = (d["eje"][0] if v < P.NEUTRO else
-                d["eje"][1] if v > P.NEUTRO else "—")
-        pcol = K["WH"] if mov else K["DK"]
-        return HL.clip(" %s %s %s %s  %s%s%s" % (cur, lab, _slider(K, v, i),
-                                                 num, pcol, polo, K["R"]), iw)
-
-    if grupos:
-        for n, (titulo, claves) in enumerate(GRUPOS):
-            if n:
-                out.append("")
-            out.append(_divisor(K, _t(_GRUPO_I18N[titulo], titulo), iw))
-            for k in claves:
-                out.append(fila(by[k], i))
-                i += 1
-    else:
-        for d in orden:
-            out.append(fila(d, i))
-            i += 1
-    # ── modos (presets): visibles por nombre, p aplica el siguiente ──
-    out.append("")
-    out.append(_divisor(K, _t("tono.group.modes", "modos"), iw))
-    nombres = sorted(P.PRESETS)
-    trozos = []
-    for n in nombres:
-        on = (n == S.get("preset"))
-        trozos.append("%s%s%s" % ((K["C"] + K["BO"]) if on else K["GREY"],
-                                  _pname(n), K["R"]))
-    out.append(HL.clip(" %sp%s  %s" % (K["C"] + K["BO"], K["R"],
-                                       ("%s·%s" % (K["DK"], K["R"]))
-                                       .join(trozos)), iw))
-    out.append(HL.clip(" %s%s%s"
-                       % (K["DIM"],
-                          _t("tono.modes.hint",
-                             "un modo mueve varios diales de golpe"),
-                          K["R"]), iw))
-    return out
-
-
 def _cuerpo_dial(S, K, dest, iw, full=2):
     """Caja derecha — la TRANSPARENCIA: qué ajusta el dial seleccionado
     (sus 5 niveles escritos, el actual marcado), el texto EXACTO que se le
@@ -248,7 +167,7 @@ def _cuerpo_dial(S, K, dest, iw, full=2):
 
     `full` es cuánto cabe: 2 = todo · 1 = sin la letra chica (cómo
     funciona) · 0 = solo el eje y la escalera de niveles."""
-    d = _orden()[S["si"]]
+    d = _orden()[min(S["si"], len(_orden()) - 1)]
     niv = P.niveles(dest)
     v = niv[d["key"]]
     out = []
@@ -324,33 +243,172 @@ def _cuerpo_dial(S, K, dest, iw, full=2):
     return out
 
 
-def _fila_destinos(S, K, w):
-    """`❮ GLOBAL ❯  Zenith●  Atlas …` — a quién le estás moviendo el tono.
-    El punto marca quién tiene ajustes PROPIOS (no heredados del global)."""
-    dests = S["dests"]
+# ── REDISEÑO 2026-10-14 (concepto Omarchy): la cajita ─────────────────────
+# Lo esencial a la vista —para quién, los diales y qué hace el nivel del dial
+# elegido— en UNA caja centrada (section_box). Lo didáctico (cómo viaja el
+# mensaje invisible, qué se le envía hoy, la escalera del dial, las reglas y
+# las teclas de más) vive detrás de `i`. Los paneles lado a lado de antes se
+# fueron; sus textos están en el cuadro de `i`, no se perdió ninguno.
+#: Ancho de la columna de diales: lo que mide una fila (cursor, nombre, slider,
+#: número y polo) más aire; la descripción del nivel se envuelve a este ancho.
+DIALS_W = 36
+#: Líneas máximas del texto del nivel: fija el alto de referencia de la caja
+#: (así crece/encoge solo hacia abajo, sin moverse).
+DESC_MAX = 4
+#: Con menos ancho útil que esto (la columna «para» mínima + regla + diales),
+#: los agentes van en una línea arriba de los diales en vez de en su columna.
+SPLIT_MIN = 16 + SB.SPLIT_GAP + DIALS_W
+
+
+def _chips(S=None):
+    if S and S.get("continuar"):
+        # desde el primer arranque: el botón «✦ continuar» (Enter) sigue el flujo
+        return ((u"↑↓", _t("tono.hint.dial", "dial")),
+                (u"←→", _t("tono.hint.level", "nivel")),
+                ("Enter", _t("tono.hint.continue", "continúa")),
+                ("i", _t("tono.hint.info", "cómo funciona")))
+    return ((u"↑↓", _t("tono.hint.dial", "dial")),
+            (u"←→", _t("tono.hint.level", "nivel")),
+            ("Tab", _t("tono.hint.agent", "agente")),
+            ("i", _t("tono.hint.info", "cómo funciona")),
+            ("q", _t("tono.hint.back", "vuelve")))
+
+
+def _fila(S, K, d, i, v, iw):
+    sel = (i == S["si"])
+    mov = v != P.NEUTRO
+    cur = ("%s%s%s " % (K["C"] + K["BO"], K["PTR"], K["R"])) if sel else "  "
+    lab = "%s%s%s" % ((K["WH"] + K["BO"]) if sel else (K["GREY"] if mov else K["DK"]),
+                      HL.pad(d["label"], 12), K["R"])
+    num = "%s%d%s" % ((K["WH"] + K["BO"]) if mov else K["DK"], v, K["R"])
+    polo = (d["eje"][0] if v < P.NEUTRO else d["eje"][1] if v > P.NEUTRO else "—")
+    pcol = K["GREY"] if mov else K["DK"]
+    return HL.clip("%s%s %s  %s  %s%s%s" % (cur, lab, _slider(K, v, i), num, pcol,
+                                            polo, K["R"]), iw)
+
+
+def _diales(S, K, dest, iw):
+    """Los 10 diales y, debajo, qué hace el nivel del dial elegido."""
+    niv = P.niveles(dest)
+    out = [_fila(S, K, d, i, niv[d["key"]], iw) for i, d in enumerate(_orden())]
+    S["_cur"] = min(S["si"], len(out) - 1)
+    en_boton = bool(S.get("continuar")) and S["si"] >= len(_orden())
+    if not en_boton:
+        d = _orden()[min(S["si"], len(_orden()) - 1)]
+        v = niv[d["key"]]
+        txt = d["niveles"].get(v) or _t("tono.neutral", NEUTRO_TXT)
+        out.append("")
+        # qué hace el nivel actual del dial elegido: título y, debajo, el texto
+        # a ancho completo (sin sangría: la columna queda angosta)
+        out.append(HL.clip("%s%s · %d%s" % (K["C"] + K["BO"], d["label"], v, K["R"]), iw))
+        for ln in _wrap(txt, max(8, iw))[:DESC_MAX]:
+            out.append(HL.clip("%s%s%s" % (K["WH"], ln, K["R"]), iw))
+    if S.get("continuar"):
+        # desde el primer arranque: un BOTÓN para seguir, al final (pedido del
+        # dueño 2026-10-14); Enter en cualquier dial también sigue
+        cur = ("%s%s%s " % (K["C"] + K["BO"], K["PTR"], K["R"])) if en_boton else "  "
+        out += ["", HL.clip("%s%s%s%s" % (cur, (K["C"] + K["BO"]) if en_boton else (K["B2"] + K["BO"]),
+                                          _t("tono.continuar", "✦ continuar"), K["R"]), iw)]
+        if en_boton:
+            S["_cur"] = len(out) - 1
+    return out
+
+
+def _propios():
+    """Destinos con ajustes PROPIOS (no heredados de GLOBAL)."""
     store = P.load()
-    tabs = []
-    for i, dn in enumerate(dests):
-        on = (i == S["di"] % len(dests))
-        propio = bool(store["global"] if dn is None
-                      else (store["agentes"].get(dn) or {}))
-        dot = "%s●%s" % (K["B2"], K["R"]) if propio else ""
-        if on:
-            tabs.append("%s%s %s %s%s%s" % (K["C"] + K["BO"], K["BL"],
-                                            _nombre(dn), K["BR"], K["R"],
-                                            dot))
-        else:
-            tabs.append("%s%s%s%s" % (K["GREY"], _nombre(dn), K["R"], dot))
-    fila = " " + "   ".join(tabs)
-    leg = "%s%s · %s●%s %s%s" % (K["DK"],
-                                 _t("tono.dest.tab_changes", "Tab cambia"),
-                                 K["B2"], K["DK"],
-                                 _t("tono.dest.own_settings",
-                                    "con ajustes propios"), K["R"])
-    hueco = (w - 1) - HL.vis(fila) - HL.vis(leg) - 1
-    if hueco > 1:
-        fila += " " * hueco + leg
-    return HL.clip(fila, w - 1)
+    out = set()
+    if store.get("global"):
+        out.add(None)
+    for a, v in (store.get("agentes") or {}).items():
+        if v:
+            out.add(a)
+    return out
+
+
+def _lista_agentes(S, K, iw, alto):
+    """GLOBAL + todos los agentes, en una lista que aguanta cualquier
+    cantidad (scroll con el elegido a la vista). ● = tiene ajustes propios."""
+    propios = _propios()
+    items = [(_nombre(dn) if dn else _t("tono.box.dials_global", "GLOBAL (todos)"),
+              "●" if dn in propios else "") for dn in S["dests"]]
+    return SB.pick_list(K, items, S["di"] % len(S["dests"]), iw, alto,
+                        title=_t("tono.list.title", "para"))
+
+
+def _tira_agentes(S, K, iw):
+    """Angosto: una sola línea `para ‹ Zenith › 2/7` arriba de los diales."""
+    dests = S["dests"]
+    i = S["di"] % len(dests)
+    nom = _nombre(dests[i]) if dests[i] else _t("tono.box.dials_global", "GLOBAL (todos)")
+    pos = "%d/%d" % (i + 1, len(dests))
+    return HL.clip("%s%s%s  %s‹ %s ›%s  %s%s%s" % (
+        K["DIM"], _t("tono.list.title", "para"), K["R"], K["C"] + K["BO"], nom, K["R"],
+        K["DK"], pos, K["R"]), iw)
+
+
+def _ancho_lista(S):
+    """La columna «para» mide lo que su nombre más largo (+ cursor y ●),
+    entre 16 y 24 columnas: ni sobra caja ni se cortan nombres comunes."""
+    noms = [(_nombre(d) if d else _t("tono.box.dials_global", "GLOBAL (todos)"))
+            for d in S["dests"]]
+    return max(16, min(24, max(HL.vis(n) for n in noms) + 4))
+
+
+def box_w(S):
+    """Ancho de contenido de la caja: lista + regla + diales (se ajusta al
+    contenido, no a la ventana)."""
+    return _ancho_lista(S) + SB.SPLIT_GAP + DIALS_W
+
+
+def _usa_columnas(S, w):
+    """¿Cabe la columna «para» al lado de los diales en esta ventana?"""
+    return SB.widths(w, box_w(S))[1] >= SPLIT_MIN
+
+
+def _cuerpo(S, K, dest, iw):
+    if iw >= SPLIT_MIN:
+        lw = min(_ancho_lista(S), max(16, iw - SB.SPLIT_GAP - DIALS_W))
+        der = _diales(S, K, dest, iw - lw - SB.SPLIT_GAP)
+        izq = _lista_agentes(S, K, lw, len(der))
+        return SB.split(K, izq, der, iw, lw)
+    return [_tira_agentes(S, K, iw), ""] + _diales(S, K, dest, iw)
+
+
+def _info_blocks(S, K, dest):
+    """El cuadro de `i`, corto: el mapa, una explicación, lo que se le envía
+    HOY a este destino, la escalera del dial elegido y las teclas de más."""
+    nombre = _nombre(dest)
+    d = _orden()[min(S["si"], len(_orden()) - 1)]
+    if P.activos(dest):
+        prefijo = _t("tono.inject.prefix", "[tono activo] ")
+        envio = ("code", P.linea(dest).replace(prefijo, ""))
+    else:
+        envio = ("dim", _t("tono.inject.none",
+                           "nada — todo en neutro: %s responde como siempre"
+                           % nombre.lower(), name=nombre.lower()))
+    return [
+        ("flow", [(_t("tono.info.n1", "tus diales"),
+                   _t("tono.info.c1", "en esta máquina")),
+                  (_t("tono.info.n2", "nota invisible"),
+                   _t("tono.info.c2", "viaja con cada mensaje")),
+                  (_t("tono.info.n3", "tu agente"),
+                   _t("tono.info.c3", "responde con ese estilo"))]),
+        ("gap",),
+        ("p", _t("tono.info.p2",
+                 "Con cada mensaje tuyo, Workspace le agrega a tu agente una "
+                 "instrucción que no ves, armada con estos diales. Solo cambia el "
+                 "estilo, nunca quién es. El 3 es neutro (no envía nada) y lo de un "
+                 "agente (●) pisa lo de GLOBAL.")),
+        ("h", _t("tono.inject.divisor", "se le inyecta a %s" % nombre.lower(),
+                 name=nombre.lower())),
+        envio,
+        ("h", d["label"]),
+        ("lines", lambda iw: _cuerpo_dial(S, K, dest, iw, full=0)[2:]),
+        ("gap",),
+        ("dim", _t("tono.info.keys_line",
+                   "1-5 nivel directo · p siguiente modo · r todo a neutro")),
+    ]
 
 
 def render(S, w, h):
@@ -358,70 +416,32 @@ def render(S, w, h):
     K = _K()
     dests = S["dests"]
     dest = dests[S["di"] % len(dests)]
-    pares = _pares()
-    # cabecera COMPARTIDA (wordmark + subtítulo + atajos clave + regla)
-    L = HL.screen_header(K, w, h,
-                         _t("tono.header.subtitle",
-                            "tono — cómo te hablan tus agentes"),
-                         hints=pares, word=HL.section_word('tono'))
-    L.append(_fila_destinos(S, K, w))
-    L.append("")
-    top = len(L)
-    apilado = w < 100
-    # dos cajas, mismas proporciones que el hub: DIALES a la izquierda,
-    # EL DIAL (la transparencia) a la derecha. Si el alto no da, se ceden
-    # los adornos en orden: grupos del listado → la letra chica del panel.
-    lw = (w - 1) if apilado else max(34, min(42, (w - 6) * 44 // 100))
-    rw = (w - 1) if apilado else (w - 1) - lw - 3
-    avail = max(8, (h - 1) - top - 5)
-    bi = bd = None
-    # degradación: primero cede la letra chica (cómo funciona), luego los
-    # encabezados de grupo, al final la sección de inyección — la escalera
-    # de niveles y los diales navegables no se ceden jamás
-    for grupos, full in ((True, 2), (True, 1), (False, 1), (False, 0)):
-        bi = _cuerpo_diales(S, K, dest, lw - 4, grupos=grupos)
-        bd = _cuerpo_dial(S, K, dest, rw - 4, full=full)
-        need = (len(bi) + len(bd) + 4) if apilado \
-            else (max(len(bi), len(bd)) + 2)
-        if need <= avail:
-            break
-    d = _orden()[S["si"]]
-    t_izq = "%s · %s" % (_t("tono.box.dials", "DIALES"),
-                         _nombre(dest) if dest
-                         else _t("tono.box.dials_global", "GLOBAL (todos)"))
-    t_der = "%s · %s" % (_t("tono.box.dial", "EL DIAL"), d["label"])
-    if apilado:                                  # ── angosto: APILADO ──
-        # presupuesto honesto: DIALES entero; EL DIAL recibe lo que quede
-        # (mínimo la escalera a 3 filas) — desbordar rompe el pie
-        ih_d = max(3, min(len(bd), avail - (len(bi) + 2) - 2))
-        for ln in HL.full_box(t_izq, bi, K, lw - 1, len(bi), True,
-                              border=K["C"]):
-            L.append(HL.clip(" " + ln, w - 1))
-        for ln in HL.full_box(t_der, bd, K, rw - 1, ih_d, False,
-                              border=K["B2"], label=K["B"] + K["BO"]):
-            L.append(HL.clip(" " + ln, w - 1))
-    else:                                        # ── lado a lado ──
-        ch = min(avail, max(len(bi), len(bd)) + 2)
-        izq = HL.full_box(t_izq, bi, K, lw, ch - 2, True, border=K["C"])
-        der = HL.full_box(t_der, bd, K, rw, ch - 2, False, border=K["B2"],
-                          label=K["B"] + K["BO"])
-        for i in range(ch):
-            L.append(HL.clip(" " + HL.pad(izq[i] if i < len(izq) else "", lw)
-                             + "  " + (der[i] if i < len(der) else ""),
-                             w - 1))
-    L.append("")
-    if S.get("msg"):
-        L.append(" %s%s%s" % (K["B2"], S["msg"], K["R"]))
-    else:
-        L.append("")
-    L.extend(HL.instruction_buttons(K, pares, w-1))
-    return [HL.clip(x, w - 1) for x in L[:h - 1]]
+    palabra = HL.section_word("tono")
+    if S.get("info"):
+        return SB.info_frame(K, w, h, palabra,
+                             _t("tono.info.title", "CÓMO FUNCIONA EL TONO"),
+                             _info_blocks(S, K, dest), state=S["info"], box_w=70)
+    titulo = "%s · %s" % (_t("tono.box.title", "TONO"),
+                          _nombre(dest).upper() if dest
+                          else _t("tono.box.dials_global", "GLOBAL (todos)"))
+    # (el cuadro de i, un poco más ancho: menos alto)
+    columnas = _usa_columnas(S, w)
+    return SB.frame(K, w, h, palabra, titulo,
+                    lambda iw: _cuerpo(S, K, dest, iw), _chips(S),
+                    msg=S.get("msg", ""),
+                    cursor_line=lambda: S.get("_cur", S["si"]) + (0 if columnas else 2),
+                    box_w=box_w(S),
+                    stable_rows=len(_orden()) + 2 + DESC_MAX + (2 if not columnas else 0)
+                    + (2 if S.get("continuar") else 0))
 
 
 # ── acciones ───────────────────────────────────────────────────────────────
 def _accion(S, key):
-    """Devuelve False para salir. Cada cambio se guarda al instante."""
+    """Devuelve False para salir. Cada cambio se guarda al instante. Con el
+    cuadro de `i` abierto, las teclas son suyas (q/Esc lo cierran)."""
     _sync_destinos(S)
+    if SB.info_key(S, key):
+        return True
     if key in ('q', '\x1b', '\x03'):
         return False
     if S.pop('destination_invalidated', False):
@@ -431,15 +451,22 @@ def _accion(S, key):
     dests = S["dests"]
     dest = dests[S["di"] % len(dests)]
     orden = _orden()
-    d = orden[S["si"]]
+    filas = len(orden) + (1 if S.get("continuar") else 0)   # + el botón «continuar»
     S["msg"] = ""
     if key in ("q", "\x1b", "\x03"):
         return False
+    if S.get("continuar") and key in ("\r", "\n"):
+        return False                         # el botón (o Enter): sigue el primer arranque
     if key == "up":
-        S["si"] = (S["si"] - 1) % len(orden)
-    elif key == "down":
-        S["si"] = (S["si"] + 1) % len(orden)
-    elif key in ("tab", "right_tab"):
+        S["si"] = (S["si"] - 1) % filas
+        return True
+    if key == "down":
+        S["si"] = (S["si"] + 1) % filas
+        return True
+    if S["si"] >= len(orden):                # en el botón, las demás teclas no hacen nada
+        return True
+    d = orden[min(S["si"], len(orden) - 1)]
+    if key in ("tab", "right_tab"):
         S["di"] = (S["di"] + (1 if key == "tab" else -1)) % len(dests)
         S["preset"] = ""
     elif key in ("left", "right"):

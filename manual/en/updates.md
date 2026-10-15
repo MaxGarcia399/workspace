@@ -16,7 +16,11 @@
   [doctor](troubleshooting.md), which repairs whatever needs it. If something can't be updated
   (no internet, half-saved changes of yours), it tells you and carries on with the rest.
 
-- **From the hub:** the **Updates** section (`u`): check, repair, update and see what arrived.
+- **From the hub:** the **Updates** section. It shows your version, whether a new one is out and
+  only what you can do right then: **update to vX** (when a new version is out), **check and
+  repair**, **check only**, **go back to vX** (when there is a previous version to go back to;
+  asks for Enter again) and the **automatic** setting. When it finishes you see what arrived and
+  what is pending. The full explanation is behind the `i` key.
 
 ## The safety net
 
@@ -49,7 +53,8 @@ file to its new place). Those adjustments:
 - if one fails, Workspace **keeps working**, no later adjustment runs until it's resolved, and
   `workspace doctor` tells you what happened;
 - big changes are **never applied without asking**: they show up as "optional change
-  available" in the doctor and you accept them with `workspace migrate --offer <id>`.
+  available" in the doctor; accept them with `workspace migrate --offer <id>` or say "no thanks" with
+  `workspace migrate --decline <id>` (they won't be offered again).
 
 To see them: `workspace migrate`.
 
@@ -71,6 +76,7 @@ If a new version starts but you don't like it:
 workspace update --rollback
 ```
 
+In the hub it is the **go back to vX** option in Updates (it only shows up when there is one).
 It shows which version you go back to and asks for confirmation. **Only the code changes**:
 your agents, brains and settings stay as they are. The new version stays paused until we
 publish a newer one. Adjustments the new version already applied are designed so the previous
@@ -88,8 +94,8 @@ Automatic updates are **optional**. There are three modes:
 
 To change it:
 
-- in the hub: **Updates** section (`u`), key `a` (moves to the next mode);
-- in **Settings**, **Updates** group;
+- in the hub: **Updates** section, **automatic** row (Enter moves to the next mode: yes · notify
+  only · off);
 - in the terminal: `workspace update --auto notify` (or `auto`, `off`); with no mode it tells
   you which one you have.
 

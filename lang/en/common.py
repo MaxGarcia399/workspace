@@ -10,7 +10,7 @@ STRINGS = {
     "common.hint.quit": "quit",
     "common.hint.engine": "engine",
     "common.hint.info": "info",
-    "common.hint.menu": "menu",
+    "common.hint.back": "back",
 
     # ── agent status (badge + word) ─────────────────────────────────────────
     "common.status.working": "working",

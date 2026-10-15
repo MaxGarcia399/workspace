@@ -244,6 +244,15 @@ def is_stamped(mid, home=None):
     return os.path.isfile(_stamp_path(mid, home))
 
 
+def _stamp_status(mid, home=None):
+    """Estado del sello ("done", "first-install", "declined"…) o "" si no hay."""
+    try:
+        with open(_stamp_path(mid, home), encoding="utf-8") as fh:
+            return (json.load(fh) or {}).get("status", "")
+    except (OSError, ValueError, AttributeError):
+        return ""
+
+
 def _file_sha(path):
     try:
         with open(path, "rb") as fh:
@@ -290,16 +299,16 @@ def status(home=None, mdir=None):
     """Foto completa: {applied:[...], pending:[...], offers:[...], failed}.
     `pending` = auto sin sello; `offers` = ofertas sin sello (sin evaluar
     `needed`, que puede ser caro: eso lo hace `offers_available`)."""
-    applied, pending, offers = [], [], []
+    applied, pending, offers, declined = [], [], [], []
     for m in discover(mdir):
         if is_stamped(m.id, home):
-            applied.append(m.id)
+            (declined if _stamp_status(m.id, home) == "declined" else applied).append(m.id)
         elif m.kind == "offer":
             offers.append(m.id)
         else:
             pending.append(m.id)
     return {"applied": applied, "pending": pending, "offers": offers,
-            "failed": failure(home)}
+            "declined": declined, "failed": failure(home)}
 
 
 def _queue(home=None, mdir=None):
@@ -424,7 +433,7 @@ def apply_offer(mid, home=None, mdir=None, log=None):
             return False, m.load_error
         if m.kind != "offer":
             return False, _t("migrate.err.not_offer", "{id} no es una oferta", id=mid)
-        if is_stamped(mid, home):
+        if is_stamped(mid, home) and _stamp_status(mid, home) != "declined":
             return True, _t("migrate.offer.already", "ya estaba aplicada")
         ctx = Context(home=home, log=log)
         try:
@@ -437,6 +446,33 @@ def apply_offer(mid, home=None, mdir=None, log=None):
         except Exception as e:
             return False, "%s: %s" % (type(e).__name__, e)
     return False, _t("migrate.err.unknown", "no existe la migración {id}", id=mid)
+
+
+def decline_offer(mid, home=None, mdir=None):
+    """El usuario dijo «no gracias» a UNA oferta: se sella como `declined` y deja de
+    ofrecerse (el doctor no la vuelve a mostrar). Se puede aceptar después con
+    `workspace migrate --offer <id>`. (ok, mensaje)."""
+    for m in discover(mdir):
+        if m.id != mid:
+            continue
+        if m.load().load_error:
+            return False, m.load_error
+        if m.kind != "offer":
+            return False, _t("migrate.err.not_offer", "{id} no es una oferta", id=mid)
+        if is_stamped(mid, home):
+            return True, _t("migrate.offer.decided", "ya habías elegido sobre este cambio")
+        stamp(mid, "declined", home)
+        return True, _t("migrate.offer.declined",
+                        "Listo: no se aplicará y no se volverá a ofrecer. Si cambias de opinión: "
+                        "workspace migrate --offer {id}", id=mid)
+    return False, _t("migrate.err.unknown", "no existe la migración {id}", id=mid)
+
+
+def offer_actions(mid):
+    """Las dos salidas de una oferta, para el doctor y `workspace migrate`."""
+    return _t("migrate.cli.offer_actions",
+              "aceptar: workspace migrate --offer {id} · no gracias: workspace migrate --decline {id}",
+              id=mid)
 
 
 def mark_all(reason="first-install", home=None, mdir=None):
@@ -470,7 +506,7 @@ def summary_line(result):
 
 
 def main(argv=None):
-    """`workspace migrate [--status | --run | --pending | --offer <id> | --dry-run]`"""
+    """`workspace migrate [--status | --run | --pending | --offer <id> | --decline <id> | --dry-run]`"""
     args = list(argv if argv is not None else sys.argv[1:])
     if "--first-install" in args:
         n = mark_all("first-install")
@@ -483,6 +519,12 @@ def main(argv=None):
         i = args.index("--offer")
         mid = args[i + 1] if i + 1 < len(args) else ""
         ok, msg = apply_offer(mid, log=print)
+        print(("✓ " if ok else "✗ ") + msg)
+        return 0 if ok else 1
+    if "--decline" in args:
+        i = args.index("--decline")
+        mid = args[i + 1] if i + 1 < len(args) else ""
+        ok, msg = decline_offer(mid)
         print(("✓ " if ok else "✗ ") + msg)
         return 0 if ok else 1
     if "--run" in args and "--json" in args:
@@ -517,7 +559,7 @@ def main(argv=None):
     if offers:
         print("  " + _t("migrate.cli.offers", "ofrecidos (requieren tu OK):"))
         for mid, title in offers:
-            print("    · %s — workspace migrate --offer %s" % (title, mid))
+            print("    · %s — %s" % (title, offer_actions(mid)))
     if st["failed"]:
         f = st["failed"]
         print("  ✗ " + _t("migrate.cli.failed", "falló: {id} — {err}", id=f["id"], err=f.get("error", "")))

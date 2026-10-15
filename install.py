@@ -7,7 +7,8 @@
 #    · un comando por agente (`zenith`, …) → abre ese agente directo
 #    · hooks por cerebro: contexto al entrar (SessionStart) + captura al cerrar
 #      (SessionEnd, red de seguridad de WORKSPACE) + marcador de inicio
-#    · permisos sin fricción, status line, tema azul
+#    · permisos según la autonomía del agente (libre dentro de su cerebro),
+#      status line, tema
 #  Los scripts viven en los vaults sincronizados (WORKSPACE + cerebros); aquí solo
 #  se escribe lo específico de la máquina. Mac y Windows. Cero dependencias.
 # ════════════════════════════════════════════════════════════════════════════
@@ -58,10 +59,136 @@ if IS_WIN:
     PY = win_python()   # Windows: hornear el path ESTABLE (Mac/Linux: PY queda igual)
 DRY = "--dry-run" in sys.argv
 C, R, B, DIM = "\033[38;5;51m", "\033[0m", "\033[1m", "\033[38;5;67m"
+try:    # acento/tenue del TEMA del hub (el mismo de cada pantalla); sin tema, los de arriba
+    import tuitheme as _tuitheme
+    _TP = _tuitheme.palette()
+    C, R, B, DIM = _TP.C, _TP.R, _TP.BO, _TP.DIM
+except Exception:
+    pass
 
-ALLOW = ["Bash", "BashOutput", "KillShell", "Read", "Write", "Edit", "NotebookEdit",
-         "Glob", "Grep", "WebFetch", "WebSearch", "Task", "TodoWrite", "Skill",
-         "SlashCommand", "mcp__claude_ai_Shopify"]
+# ── permisos de Claude Code según la AUTONOMÍA del agente ────────────────────
+# agent.json → "autonomy" (contrato común de los motores):
+#   brain (default) — lee, crea y edita DENTRO de su cerebro sin preguntar; la
+#     terminal, los archivos de fuera y la red piden permiso. En Claude Code:
+#     reglas Read/Edit con la ruta ABSOLUTA del cerebro (`//<ruta>/**`) y SIN
+#     defaultMode. (Edit cubre crear archivos; Claude Code ignora las reglas
+#     con ruta de Write/Glob/Grep, por eso solo Read y Edit.)
+#   ask — el usuario apagó el acceso automático (Agentes → Enter): sin reglas de
+#     WORKSPACE; Claude Code pregunta antes de crear o editar, también en el
+#     cerebro (leer dentro de la carpeta de trabajo nunca pide permiso).
+# «Comandos sin preguntar» (antes "full": la lista amplia + dontAsk) YA NO
+# EXISTE (decisión del dueño 2026-10-14): un "full" se lee como "brain" y la
+# migración 202610141400_brain_permissions lo convierte al actualizar. La
+# versión con full quedó en la rama feat/autonomia-completa.
+AUTONOMY_LEVELS = ("ask", "brain")
+DEFAULT_AUTONOMY = "brain"
+ALLOW_FULL = ["Bash", "BashOutput", "KillShell", "Read", "Write", "Edit", "NotebookEdit",
+              "Glob", "Grep", "WebFetch", "WebSearch", "Task", "TodoWrite", "Skill",
+              "SlashCommand"]
+# Lo que el instalador escribía hasta 0.2.x en TODO cerebro (incluía un MCP que
+# no era del usuario). Solo sirve para reconocerlo (la migración lo quita) y
+# para no arrastrarlo como «regla del usuario» al cambiar de autonomía.
+LEGACY_ALLOW = ALLOW_FULL + ["mcp__claude_ai_Shopify"]
+#: marcador (clave que Claude Code ignora) con lo que WORKSPACE escribió en
+#: `permissions`: así un cambio de autonomía quita lo nuestro y conserva lo tuyo.
+_PERM_MARKER = "__workspacePermissions"
+
+
+def autonomy_of(cfg):
+    """La autonomía declarada por el agente; cualquier otra cosa → 'brain'
+    (el valor seguro)."""
+    v = str((cfg or {}).get("autonomy") or "").strip().lower()
+    return v if v in AUTONOMY_LEVELS else DEFAULT_AUTONOMY
+
+
+def _rule_root(path, windows=None):
+    """Ruta ABSOLUTA en la sintaxis de reglas de Claude Code: `//` + ruta POSIX
+    (funciona con espacios). Windows: D:\\Cerebros\\Mi → //d/Cerebros/Mi (Claude Code
+    normaliza las rutas de Windows a esa forma antes de comparar)."""
+    windows = IS_WIN if windows is None else windows
+    if windows:
+        import ntpath
+        p = ntpath.normpath(path)
+        drive, rest = ntpath.splitdrive(p)
+        rest = rest.replace("\\", "/").rstrip("/")
+        if len(drive) == 2 and drive[1] == ":":
+            return "//" + drive[0].lower() + rest
+        return "//" + rest.lstrip("/")
+    import posixpath
+    p = posixpath.normpath(path if posixpath.isabs(path) else os.path.abspath(path))
+    return "/" + p.rstrip("/")
+
+
+def brain_rules(brain, windows=None):
+    """Reglas Read/Edit que dejan al agente trabajar en SU cerebro. Si la ruta
+    pasa por un enlace (p. ej. /tmp → /private/tmp), también la real."""
+    roots = []
+    cands = [brain] if windows else [os.path.abspath(brain), os.path.realpath(brain)]
+    for p in cands:
+        r = _rule_root(p, windows)
+        if r not in roots:
+            roots.append(r)
+    out = []
+    for r in roots:
+        out += ["Read(%s/**)" % r, "Edit(%s/**)" % r]
+    return out
+
+
+def claude_permissions(autonomy, brain):
+    """El bloque `permissions` que WORKSPACE quiere para esa autonomía."""
+    if autonomy == "ask":
+        return {"allow": []}
+    return {"allow": brain_rules(brain)}
+
+
+def render_permissions(settings, cfg, brain):
+    """Escribe en `settings` (dict de settings.local.json) los permisos de la
+    autonomía del agente. Conserva lo que el usuario agregó: reglas propias en
+    allow, deny/ask/additionalDirectories y un defaultMode que no sea el
+    nuestro. Lo que WORKSPACE escribió antes (marcador, o la lista amplia de
+    0.2.x si no hay marcador) se reemplaza. Devuelve `settings`."""
+    autonomy = autonomy_of(cfg)
+    want = claude_permissions(autonomy, brain)
+    cur = settings.get("permissions")
+    cur = cur if isinstance(cur, dict) else {}
+    prev = settings.get(_PERM_MARKER)
+    ours = set(prev.get("allow") or []) if isinstance(prev, dict) else set(LEGACY_ALLOW)
+    extra = [r for r in (cur.get("allow") or [])
+             if isinstance(r, str) and r not in ours and r not in want["allow"]]
+    new = {k: v for k, v in cur.items() if k not in ("allow", "defaultMode")}
+    mode = cur.get("defaultMode")
+    if "defaultMode" in want:
+        new["defaultMode"] = want["defaultMode"]
+    elif mode and mode != "dontAsk":        # un modo elegido por ti se respeta
+        new["defaultMode"] = mode
+    new["allow"] = list(want["allow"]) + extra
+    settings["permissions"] = new
+    settings[_PERM_MARKER] = {"autonomy": autonomy, "allow": list(want["allow"])}
+    return settings
+
+
+def apply_permissions(brain, cfg):
+    """Reescribe SOLO el bloque `permissions` del settings.local.json del
+    cerebro según `cfg["autonomy"]` (lo usa Agentes → Enter al cambiar los
+    permisos). Lectura-modificación-escritura atómica: hooks, tema y lo que
+    agregó el usuario quedan intactos. Un settings corrupto NO se toca.
+    Devuelve (ok, motivo)."""
+    spath = os.path.join(brain, ".claude", "settings.local.json")
+    if json_corrupt(spath):
+        return False, "settings.local.json corrupto"
+    settings = read_json(spath) if os.path.exists(spath) else {}
+    if not isinstance(settings, dict):
+        return False, "settings.local.json no es un objeto"
+    render_permissions(settings, cfg, brain)
+    try:
+        os.makedirs(os.path.dirname(spath), exist_ok=True)
+        tmp = "%s.tmp-%d" % (spath, os.getpid())
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(settings, fh, ensure_ascii=False, indent=2)
+        os.replace(tmp, spath)
+    except OSError as e:
+        return False, str(e)
+    return True, ""
 
 
 def say(m): print(f"  {m}")
@@ -180,16 +307,17 @@ def expand(scripts, brain):
     return out
 
 
-# Socio/dueño: el equipo son defaults conocidos, pero un agente puede tener un
-# dueño EXTERNO (cualquier persona) — la validación acepta cualquier slug válido, no
-# solo el trío. (D3 del protocolo de creación de agentes: dueños externos.)
-TEAM = ("max", "fer", "mau")
+# Socio/dueño (.claude/socio.local): Workspace es de UNA persona por máquina —
+# el instalador ya no pregunta "¿quién eres?". Solo se escribe si se pasa
+# EXPLÍCITO `--socio <slug>` (cualquier slug válido; útil para quien firma sus
+# journals de sesión con un nombre). Sin el flag: nada que preguntar ni escribir.
 SOCIO_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 
 
 def ask_socio():
+    """El slug de `--socio <slug>` / `--socio=<slug>`, o "" si no se pasó (o no
+    es válido). JAMÁS pregunta ni adivina (ni por posición ni por $USER)."""
     args = sys.argv[1:]
-    # dueño externo no-interactivo: flag EXPLÍCITO --socio <slug> / --socio=<slug>
     for i, a in enumerate(args):
         if a.startswith("--socio="):
             v = a.split("=", 1)[1].lower()
@@ -197,21 +325,7 @@ def ask_socio():
                 return v
         if a == "--socio" and i + 1 < len(args) and SOCIO_RE.match(args[i + 1].lower()):
             return args[i + 1].lower()
-    # match POSICIONAL solo del trío del equipo — NO capturar subcomandos (doctor/
-    # eval/update…) como socio: todos pasan SOCIO_RE pero NO son dueños (bug D3).
-    for a in args:
-        if a.lower() in TEAM:
-            return a.lower()
-    guess = (os.environ.get("USER") or os.environ.get("USERNAME") or "").strip().lower()
-    if not SOCIO_RE.match(guess):                     # usuario del SO como guess genérico (no horneado)
-        guess = ""
-    try:
-        r = input(f"  ¿Quién eres? (tu nombre)"
-                  f"{f' [{guess}]' if guess else ''}: ").strip().lower()
-    except EOFError:
-        r = ""
-    r = r or guess
-    return r if SOCIO_RE.match(r) else "owner"
+    return ""
 
 
 def machine_socio_path():
@@ -572,7 +686,11 @@ def render_mcps_only(cfg, brain, *, settings=None):
 
 
 # ── configurar el cerebro de un agente ──
-def configure_brain(name, cfg, brain, socio):
+def configure_brain(name, cfg, brain, socio, apply_autonomy=False):
+    """Deja listo el settings.local.json del cerebro. `apply_autonomy=True`
+    (el usuario ACABA de elegir la autonomía al crear/cargar) reescribe los
+    permisos según `cfg["autonomy"]`; sin eso, los permisos solo se escriben
+    si faltan (un re-install no pisa lo que ajustaste)."""
     # guard anti-envenenamiento: los hooks hornean rutas a ESTE checkout — desde
     # un worktree quedarían apuntando a un árbol temporal (ver global_writes_blocked)
     if global_writes_blocked(f"hooks/config del cerebro '{name}'"):
@@ -610,9 +728,11 @@ def configure_brain(name, cfg, brain, socio):
     render_hooks_only(cfg, brain, settings=settings)           # gestionado · fuente única (P0-3)
     settings.setdefault("spinnerTipsEnabled", False)
     settings.setdefault("companyAnnouncements", [])
-    # permisos: solo en el PRIMER install (si faltan). En re-install NO se pisan
-    # — el socio pudo ajustarlos (espejo de la regla dura del doctor).
-    settings.setdefault("permissions", {"defaultMode": "dontAsk", "allow": ALLOW})
+    # permisos según la autonomía del agente: en el PRIMER install (si faltan)
+    # o cuando el usuario la acaba de elegir (crear/cargar). En re-install NO
+    # se pisan — el socio pudo ajustarlos (espejo de la regla dura del doctor).
+    if apply_autonomy or not isinstance(settings.get("permissions"), dict):
+        render_permissions(settings, cfg, brain)
     # Tema in-app POR-AGENTE (DEPLOY-1): cada agente usa SU tema, no uno
     # horneado para todos. Si no hay tema instalable, no forzamos ninguno →
     # Claude usa su default (sin fuga de marca de ningún agente).
@@ -626,16 +746,16 @@ def configure_brain(name, cfg, brain, socio):
                                   "padding": 0, "refreshInterval": 60}
 
     write_json(spath, settings)
-    write_text(os.path.join(brain, ".claude", "socio.local"), socio)
     ensure_gitignore(brain, GITIGNORE_LINES)
-
-    # carpetas de sesión + migración
-    for d in (os.path.join(brain, "STATE", "sessions", socio),
-              os.path.join(brain, "STATE", "sessions", "_migracion", socio, "_procesados")):
-        if DRY:
-            dry(f"crearía {d}")
-        else:
-            os.makedirs(d, exist_ok=True)
+    if socio:       # solo con --socio explícito (ver ask_socio)
+        write_text(os.path.join(brain, ".claude", "socio.local"), socio)
+        # carpetas de sesión + migración
+        for d in (os.path.join(brain, "STATE", "sessions", socio),
+                  os.path.join(brain, "STATE", "sessions", "_migracion", socio, "_procesados")):
+            if DRY:
+                dry(f"crearía {d}")
+            else:
+                os.makedirs(d, exist_ok=True)
 
     # pestañas iniciales (si no existen). El archivo es per-agente: cada dashboard
     # lee .claude/<agente>-workspaces.json. Solo Zenith trae pestañas de fábrica;
@@ -701,16 +821,19 @@ def install_theme(brain, name):
     return name
 
 
-# ── retención de transcripts (runbook windows-support §4.5 — aplica a TODA máquina) ──
-CLEANUP_DAYS = 3650
+# ── retención de transcripts (aplica a TODA máquina) ──
+# Claude Code borra los transcripts a los 30 días si no hay valor; son la
+# materia prima de la memoria y del menú de sesiones. 365 días para todos: un
+# año de sesiones sin crecer sin tope (es el ajuste GLOBAL de Claude Code del
+# usuario). Antes se ponía 3650; la migración retention_365 lo baja.
+CLEANUP_DAYS = 365
+LEGACY_CLEANUP_DAYS = 3650      # lo que dejaba el instalador hasta 0.2.0
 
 
 def ensure_cleanup_days():
-    """~/.claude/settings.json → cleanupPeriodDays ≥ 3650. Claude Code borra los
-    transcripts crudos a los 30 días por default y son la materia prima de la
-    memoria. Merge sin pisar otras keys; nunca BAJA un valor ya mayor.
-    Cross-platform a propósito (el runbook lo manda por máquina, Mac incluido).
-    Devuelve True si escribió algo."""
+    """~/.claude/settings.json → cleanupPeriodDays = 365 SOLO si no hay valor.
+    Un valor existente (sea cual sea) es elección del usuario y no se toca.
+    Merge sin pisar otras keys. Devuelve True si escribió algo."""
     sp = os.path.join(HOME, ".claude", "settings.json")
     # R3-F1 (read-guard): si el settings GLOBAL está corrupto, NO lo pisamos
     # con `{cleanupPeriodDays: …}` a secas — eso descartaría model/env/hooks
@@ -721,19 +844,18 @@ def ensure_cleanup_days():
         return False
     s = read_json(sp) if os.path.exists(sp) else {}
     # SEC-05: registrar (una vez) el valor PREVIO para que `workspace uninstall` lo
-    # revierta — no dejamos retención de 10 años a perpetuidad tras desinstalar.
+    # revierta — no dejamos nuestra retención a perpetuidad tras desinstalar.
     pre_path = os.path.join(_paths.state_dir(HOME), "pre-install.json")
     if not DRY and not os.path.exists(pre_path):
         os.makedirs(os.path.dirname(pre_path), exist_ok=True)
         json.dump({"cleanupPeriodDays": s.get("cleanupPeriodDays")},
                   open(pre_path, "w", encoding="utf-8"))
-    cur = s.get("cleanupPeriodDays")
-    if isinstance(cur, (int, float)) and not isinstance(cur, bool) and cur >= CLEANUP_DAYS:
-        return False
+    if s.get("cleanupPeriodDays") is not None:
+        return False                     # valor propio del usuario: se respeta
     s["cleanupPeriodDays"] = CLEANUP_DAYS
     write_json(sp, s)
     ok(f"cleanupPeriodDays={CLEANUP_DAYS} en ~/.claude/settings.json "
-       "(los transcripts crudos ya no se borran a los 30 días)")
+       "(tus sesiones se conservan un año, no 30 días)")
     return True
 
 
@@ -894,7 +1016,6 @@ def launchers_windows(agents):
     # `workspace` es el comando; `workspace` queda como ALIAS permanente (memoria
     # muscular del equipo + todo lo que ya lo invoca: greeter viejo, docs, hooks).
     lines.append(f'function workspace {{ & "{PY}" "{front}" @args }}')
-    lines.append(f'function workspace {{ & "{PY}" "{front}" @args }}')
     for name in agents:
         lines.append(f'function {name} {{ & "{PY}" "{disp}" {name} @args }}')
     p = os.path.join(HOME, ".claude", "workspace-cmds.ps1")
@@ -938,7 +1059,6 @@ def install_launchers(agent_names):
         launchers_windows(agent_names)
         return
     launcher_unix("workspace", os.path.join(WORKSPACE, "front.py"))
-    launcher_unix("workspace", os.path.join(WORKSPACE, "front.py"))       # alias
     for name in agent_names:
         launcher_unix(name, os.path.join(WORKSPACE, "dispatch.py"), lead=f"{name} ")
     bindir = os.path.join(HOME, ".local", "bin")
@@ -1170,6 +1290,10 @@ def install_desktop_app():
         say(f"{DIM}app de escritorio: {e}{R}")
 
 
+# CLIs de los motores soportados (claude-code, codex, antigravity, gemini).
+ENGINE_CLIS = ("claude", "codex", "agy", "gemini")
+
+
 def check_prereqs():
     """DEPLOY-7: avisa (no aborta) si faltan prerequisitos antes de configurar nada.
     Mejor un mensaje claro que un fallo más adelante. Python ya corre (este script)."""
@@ -1177,8 +1301,10 @@ def check_prereqs():
     miss = []
     if not shutil.which("git"):
         miss.append("git (clónalo/instálalo: en Mac, las Command Line Tools)")
-    if not shutil.which("claude"):
-        miss.append("Claude Code CLI con sesión iniciada (claude.ai/code)")
+    # Motor: cualquiera de los que Workspace soporta (no siempre Claude Code).
+    if not any(shutil.which(b) for b in ENGINE_CLIS):
+        miss.append("el CLI del motor que vayas a usar (Claude Code, Codex o "
+                    "Antigravity), con sesión iniciada")
     for m in miss:
         say(f"{C}!{R} falta: {m}")
     if miss:
@@ -1395,9 +1521,10 @@ def main():
         print("  Harness vacío — instalo la base (comando `workspace`, greeter)."
               + (" %d agente(s) cargado(s) ya operativo(s)." % len(loaded) if loaded
                  else " Después: abre `workspace` → Agregar agente."))
-    socio = ask_socio()
-    ok(f"socio: {socio}")
-    write_machine_socio(socio)   # identidad per-máquina (chat desde el menú)
+    socio = ask_socio()          # "" salvo `--socio <slug>` explícito
+    if socio:
+        ok(f"socio: {socio}")
+        write_machine_socio(socio)   # identidad per-máquina (chat desde el menú)
 
     # P0-4 · guard de OneDrive/known-folders (SOLO detección, jamás auto-move).
     # El harness bajo una ruta sincronizada a la nube = locks/latencia/estado
@@ -1507,7 +1634,8 @@ def main():
     print(f"\n  {C}Listo.{R} Abre una terminal nueva y escribe {B}workspace{R}{_direct}.")
     if not _names:
         print(f"  {DIM}El menú sale vacío → 'Agregar agente' (crear o cargar un cerebro).{R}")
-    print(f"  {DIM}Requiere: Claude Code instalado y con sesión iniciada, y Python 3.{R}")
+    print(f"  {DIM}Requiere: Python 3 y el CLI del motor que vayas a usar (Claude Code, "
+          f"Codex o Antigravity) con sesión iniciada.{R}")
     if zenith_brain:
         print(f"\n  {DIM}¿Vienes de Cowork? Corre {R}{B}{zenith_brain[0]} migrar{R}{DIM} y luego di "
               f'"listo, procesa mi migración". Guía: assets/brand/MIGRACION.md en tu cerebro{R}')

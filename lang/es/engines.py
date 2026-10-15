@@ -239,12 +239,6 @@ STRINGS = {'engines.agent': 'Agente: {name} · a cambia · u asigna motor',
  'engines.yes': 'Registrada',
  'menu.engines.label': 'Motores',
  'menu.engines.tag': 'estado, capacidades y conexiones',
- 'engines.hint.m_toggle': 'Habilitar en M',
- 'engines.m_on': 'en el atajo M',
- 'engines.m_off': 'fuera del atajo M',
- 'engines.m_all': 'M ofrece todos los instalados',
- 'engines.m_saved': 'Atajo M actualizado',
- 'engines.m_failed': 'No se pudo guardar el atajo M',
  'engines.path_added': 'PATH actualizado (+{n} carpetas de una terminal nueva)'}
 
 # ── engine_install: notas de receta y diagnósticos (pantalla Motores) ───────

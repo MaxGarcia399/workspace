@@ -1,17 +1,13 @@
 """WORKSPACE · engines_tui — sección MOTORES: qué motores tienes y cómo dejarlos listos.
 
-Rediseño 2026-10 (transparencia · simpleza · utilidad real). Un motor es un
-programa oficial (Claude Code, Codex, Antigravity) que corre a tus agentes.
-La pantalla dice, por motor, lo único que importa y la acción siguiente:
-
-  instalado   el programa está en esta máquina (o no) — Enter lo instala
-              con el instalador oficial (muestra comando y fuente, confirma)
-  sesión      sin verificar / verificada / requiere login — v verifica,
-              Enter abre el login del propio programa (Workspace no ve tu cuenta)
-  atajo M     si la tecla M del hub lo ofrece — m lo pone o lo quita
-  lo usan     qué agentes corren hoy con él (el motor de cada agente se
-              cambia en Agentes)
-  r recarga (si instalaste desde otra terminal) · q vuelve
+REDISEÑO 2026-10-14 (concepto Omarchy): una caja centrada (section_box). A
+la izquierda los motores con su estado (listo · sin sesión · no instalado);
+a la derecha las opciones del elegido (en ventana angosta, debajo):
+  instalar · ya lo instalé: recargar        (si no está instalado)
+  sesión (Enter verifica) · iniciar sesión · aparece al cambiar de motor
+→ entra a sus opciones, ↑↓ elige, Enter aplica, ← regresa. Instalar muestra
+el comando y la fuente oficial y pide Enter otra vez. Qué agentes lo usan y
+qué hace cada opción: en `i`. Workspace nunca ve tu cuenta.
 """
 import os
 import sys
@@ -20,6 +16,7 @@ import time
 
 import harnesses
 import hublayout as HL
+import section_box as SB
 import section_frame as SF
 from theme import screen as _theme_screen  # fondo/tinta del tema
 
@@ -50,9 +47,60 @@ def users_of(eid):
         return []
 
 
-def initial():
-    return {'engines': _rows(), 'engine': 0, 'msg': '', 'checks': {}, 'busy': False,
-            'confirm': None, 'request': None}
+def initial(probe=True):
+    """Al abrir, verifica la sesión de cada motor instalado EN SEGUNDO PLANO
+    (no se quedan en «sin verificar»: eso hacía ver mal al producto)."""
+    S = {'engines': _rows(), 'engine': 0, 'msg': '', 'checks': {}, 'busy': False,
+         'confirm': None, 'request': None}
+    if probe:
+        verify_all(S)
+    return S
+
+
+#: Resultado reciente por motor: (momento, True/False/None). Volver a entrar a
+#: Motores dentro de este plazo no vuelve a preguntar.
+_SESSION_CACHE = {}
+_SESSION_TTL = 60.0
+
+
+def _probe(eid):
+    """True/False/None (no se pudo saber) con el comando OFICIAL de cada motor."""
+    hit = _SESSION_CACHE.get(eid)
+    if hit and time.time() - hit[0] < _SESSION_TTL:
+        return hit[1]
+    try:
+        import dispatch
+        mod = dispatch.load_engine(eid)
+        fn = getattr(mod, 'session_active', None)
+        val = fn() if fn else None
+        val = val if isinstance(val, bool) else None
+    except Exception:
+        val = None
+    _SESSION_CACHE[eid] = (time.time(), val)
+    return val
+
+
+def verify_all(S, force=False):
+    """Lanza la verificación de cada motor instalado (un hilo por motor).
+    WORKSPACE_NO_SESSION_PROBE=1 la apaga (la suite de tests: jamás corre los
+    programas reales)."""
+    if os.environ.get('WORKSPACE_NO_SESSION_PROBE'):
+        return
+    for d in S.get('engines', []):
+        if d.get('binaries_ok'):
+            verify(S, d['id'], force=force)
+
+
+def verify(S, eid, force=False):
+    if force:
+        _SESSION_CACHE.pop(eid, None)
+    S['checks'][eid] = {'state': 'checking', 'at': time.time()}
+
+    def worker():
+        val = _probe(eid)
+        S['checks'][eid] = {'state': {True: 'verified', False: 'needs_login'}.get(val, 'unknown'),
+                            'at': time.time()}
+    threading.Thread(target=worker, daemon=True).start()
 
 
 def selected(S):
@@ -82,6 +130,7 @@ def refresh(S, announce=True):
     S['engine'] = next((n for n, d in enumerate(S['engines']) if d['id'] == eid), 0)
     S['checks'] = {}
     S['confirm'] = None
+    verify_all(S, force=True)             # recién instalado o con sesión nueva
     if announce:
         S['msg'] = _t('motores.m.reloaded', 'motores recargados', 'engines reloaded') + (
             ' · ' + _t('motores.m.path', 'PATH +{n} carpetas de una terminal nueva',
@@ -103,166 +152,232 @@ def toggle_m(S):
     new = [i for i in ids if i in new]
     res = harnesses.set_enabled([] if set(new) == set(ids) else new)
     if res.get('ok'):
-        S['msg'] = '✓ ' + (_t('motores.m.m_on', '{n} aparece en la tecla M del hub', '{n} shows up on the hub M key', n=_NAMES[eid])
+        S['msg'] = '✓ ' + (_t('motores.m.m_on', '{n} aparece al cambiar de motor en el hub (←→)', '{n} shows up when switching engines in the hub (←→)', n=_NAMES[eid])
                            if eid in new else
-                           _t('motores.m.m_off', '{n} ya no aparece en la tecla M', '{n} no longer shows on the M key', n=_NAMES[eid]))
+                           _t('motores.m.m_off', '{n} ya no aparece al cambiar de motor en el hub (←→)', '{n} no longer shows up when switching engines in the hub (←→)', n=_NAMES[eid]))
     else:
         S['msg'] = '✗ ' + str(res.get('error') or _t('motores.m.save_fail', 'no se pudo guardar',
                                                      "couldn't save"))
 
 
 def check_login(S):
-    """Verificación EXPLÍCITA en segundo plano (puede correr el CLI)."""
-    if S.get('busy'):
-        return
-    d = dict(selected(S))
-    S['busy'] = True
-    S['msg'] = _t('motores.m.checking', 'verificando sesión…', 'checking sign-in…')
-
-    def worker():
-        try:
-            import dispatch
-            mod = dispatch.load_engine(d['id'])
-            st = mod.status() if hasattr(mod, 'status') else {}
-            if not d.get('binaries_ok'):
-                lab, ok = 'missing', False
-            elif 'session_active' in st:
-                ok = bool(st['session_active'])
-                lab = 'verified' if ok else 'needs_login'
-            else:
-                lab, ok = 'unknown', False
-            S['checks'][d['id']] = {'state': lab, 'at': time.time()}
-            S['msg'] = session_label(lab)
-        except Exception:
-            S['msg'] = _t('motores.m.probe_failed', 'no pude verificar la sesión', 'could not check sign-in')
-        finally:
-            S['busy'] = False
-    threading.Thread(target=worker, daemon=True).start()
+    """Enter sobre «sesión»: vuelve a preguntarle al programa (sin caché)."""
+    d = selected(S)
+    if d.get('binaries_ok'):
+        verify(S, d['id'], force=True)
+        S['msg'] = _t('motores.m.checking', 'verificando sesión…', 'checking sign-in…')
 
 
 def session_label(state):
-    return {'verified': _t('motores.s.verified', 'verificada', 'verified'),
-            'needs_login': _t('motores.s.needs', 'requiere iniciar sesión', 'sign-in required'),
-            'unknown': _t('motores.s.unknown', 'el programa no informa', 'not reported by the program'),
+    return {'verified': _t('motores.s.active', 'activa', 'active'),
+            'needs_login': _t('motores.s.none', 'no iniciada', 'not signed in'),
+            'unknown': _t('motores.s.cant', 'no se pudo verificar', "couldn't check"),
             'missing': _t('motores.s.missing', 'instala primero', 'install first'),
-            }.get(state, _t('motores.s.unchecked', 'sin verificar', 'not checked'))
+            }.get(state, _t('motores.s.checking', 'verificando…', 'checking…'))
 
 
 def status_of(S, d):
-    """(texto corto, color-key) del estado del motor para la lista."""
+    """(texto corto, color-key) del estado del motor para la lista: si está
+    listo para usarse se dice; si no, por qué."""
     if not d.get('binaries_ok'):
         return _t('motores.l.missing', 'no instalado', 'not installed'), 'ERR'
     st = (S['checks'].get(d['id']) or {}).get('state')
     if st == 'verified':
         return _t('motores.l.ready', 'listo', 'ready'), 'OK'
     if st == 'needs_login':
-        return _t('motores.l.login', 'falta sesión', 'needs sign-in'), 'ERR'
+        return _t('motores.l.login2', 'sin sesión', 'not signed in'), 'ERR'
+    if st == 'checking' or st is None:
+        return _t('motores.l.checking', 'verificando…', 'checking…'), 'DIM'
     return _t('motores.l.installed', 'instalado', 'installed'), 'DIM'
 
 
-# ── render ───────────────────────────────────────────────────────────────────
-def pares(S=None):
+# ── REDISEÑO 2026-10-14 (concepto Omarchy): la cajita ─────────────────────
+# A la izquierda la lista de motores │ a la derecha las opciones del elegido
+# (instalar / ya lo instalé · sesión · iniciar sesión · ofrecer en el hub).
+# La flecha va al final de la fila elegida, no en la división. → entra a sus
+# opciones, ↑↓ elige, Enter actúa, ← regresa. En una ventana angosta las
+# columnas no caben: la lista va arriba y las opciones abajo. Qué es un
+# motor, quién lo usa y qué hace cada opción: en `i`.
+LIST_W = 30
+DETAIL_W = 42
+
+
+def options(S, d):
+    """[(clave, etiqueta, valor)] del motor: valor True/False = interruptor;
+    texto = estado; "" = acción (›)."""
+    eid = d.get('id')
+    if not d.get('binaries_ok'):
+        return [('install', _t('motores.o.install', 'instalar', 'install'), ''),
+                ('reload', _t('motores.o.reload', 'ya lo instalé: recargar', 'I installed it: reload'), '')]
+    chk = (S['checks'].get(eid) or {}).get('state')
+    out = [('session', _t('motores.f.session', 'sesión', 'sign-in'), session_label(chk))]
+    if chk != 'verified':
+        out.append(('login', _t('motores.o.login', 'iniciar sesión', 'sign in'), ''))
+    out.append(('hub', _t('motores.o.hub3', 'ofrecer en el hub', 'offer in the hub'),
+                m_enabled(eid)))
+    return out
+
+
+_ACCIONES = ('install', 'reload', 'login')
+
+
+def _chips(S):
+    if S.get('confirm'):
+        return (('Enter', _t('motores.k.install', 'instala', 'install')),
+                ('Esc', _t('motores.k.cancel', 'cancela', 'cancel')))
+    if S.get('focus') == 'detail':
+        return (('↑↓', _t('motores.k.option', 'opción', 'option')),
+                ('Enter', _t('motores.k.do', 'aplica', 'apply')),
+                ('←', _t('motores.k.to_list', 'a la lista', 'to the list')),
+                ('i', _t('motores.k.info', 'cómo funciona', 'how it works')))
     return (('↑↓', _t('motores.k.pick', 'elige', 'pick')),
-            ('Enter', _t('motores.k.next', 'instala / sesión', 'install / sign in')),
-            ('v', _t('motores.k.verify', 'verifica', 'verify')),
-            ('m', _t('motores.k.m', 'tecla M', 'M key')),
-            ('r', _t('motores.k.reload', 'recarga', 'reload')),
+            ('→', _t('motores.k.to_opts', 'sus opciones', 'its options')),
+            ('i', _t('motores.k.info', 'cómo funciona', 'how it works')),
             ('q', _t('motores.k.back', 'vuelve', 'back')))
 
 
-def _left(S, K):
-    def build(iw, ih):
-        out = []
-        for i, d in enumerate(S['engines']):
-            txt, ck = status_of(S, d)
-            mark = '%s%s%s' % (K['OK'] if d.get('binaries_ok') else K['ERR'],
-                               '◆' if d.get('binaries_ok') else '◇', K['R'])
-            out.append(SF.row(K, engine_name(d), txt, iw, sel=(i == S['engine']),
-                              mark=mark, value_col=K[ck] if ck != 'DIM' else None))
-        return out
-    return build
+def _mark(S, d):
+    """La palabra de estado de la lista (listo · sin sesión · no instalado ·
+    verificando…), en su color."""
+    return status_of(S, d)
 
 
-def _right(S, K):
-    def build(iw, ih):
-        d = selected(S)
-        eid = d.get('id')
-        out = []
+def _detalle(S, K, d, iw):
+    """Solo las opciones del motor (o la confirmación de instalar)."""
+    eid = d.get('id')
+    if S.get('confirm') == eid:
         try:
             import engine_install
             rec = engine_install.recipe(eid)
-            miss = engine_install.missing_prereqs(rec)
         except Exception:
-            rec, miss = None, []
-        if S.get('confirm') == eid and rec:
-            out += SF.text(K, _t('motores.c.title', '¿Instalar {n}?', 'Install {n}?', n=engine_name(d)),
-                           iw, K['C'] + K['BO'])
-            out.append('')
-            out += SF.text(K, ' '.join(rec['cmd']), iw, K['WH'], max_lines=3)
-            out += SF.text(K, _t('motores.c.src', 'fuente oficial: {u}', 'official source: {u}', u=rec['source']),
-                           iw, K['DIM'], max_lines=2)
-            if rec.get('note'):
-                out += SF.text(K, rec['note'], iw, K['DIM'], max_lines=2)
-            out.append('')
-            out += SF.text(K, _t('motores.c.keys', 'Enter instala en esta terminal · Esc cancela',
-                                 'Enter installs in this terminal · Esc cancels'), iw, K['C'])
-            return out
-        installed = bool(d.get('binaries_ok'))
-        chk = (S['checks'].get(eid) or {}).get('state')
-        if not installed:
-            head = _t('motores.h.missing', 'No está instalado en esta máquina.', 'Not installed on this machine.')
-            col = K['ERR']
-        elif chk == 'verified':
-            head = _t('motores.h.ready', 'Listo para usar.', 'Ready to use.')
-            col = K['OK']
+            rec = None
+        out = [HL.clip('%s%s%s' % (K['C'] + K['BO'], _t('motores.c.title', '¿Instalar {n}?',
+                                                         'Install {n}?', n=engine_name(d)), K['R']), iw), '']
+        if rec:
+            out += ['%s%s%s' % (K['WH'], ln, K['R']) for ln in SB._wrap(' '.join(rec['cmd']), iw)[:3]]
+            out += ['%s%s%s' % (K['DIM'], ln, K['R']) for ln in SB._wrap(
+                _t('motores.c.src', 'fuente oficial: {u}', 'official source: {u}', u=rec['source']), iw)[:2]]
+        return out, 0
+    activo = S.get('focus') == 'detail'
+    ops = options(S, d)
+    S['opt'] = max(0, min(S.get('opt', 0), len(ops) - 1))
+    lab_w = max(HL.vis(o[1]) for o in ops if o[0] not in _ACCIONES) + 2 if any(
+        o[0] not in _ACCIONES for o in ops) else 0
+    out, fila = [], 0
+    for n, (key, lab, val) in enumerate(ops):
+        on = activo and n == S['opt']
+        if on:
+            fila = len(out)
+        cur = ('%s%s %s' % (K['C'] + K['BO'], K['PTR'], K['R'])) if on else '  '
+        tinta = (K['WH'] + K['BO']) if on else K['GREY']
+        if key in _ACCIONES:
+            flecha = '%s›%s' % ((K['C'] + K['BO']) if on else K['DK'], K['R'])
+            out.append(HL.clip('%s%s%s%s%s%s' % (cur, tinta, lab, K['R'],
+                                                 ' ' * max(1, iw - 3 - HL.vis(lab)), flecha), iw))
+            continue
+        if isinstance(val, bool):
+            valor = '%s %s%s%s' % (SB.switch(K, val), K['OK'] if val else K['DIM'],
+                                    _t('motores.v.yes', 'sí', 'yes') if val else _t('motores.v.no', 'no', 'no'),
+                                    K['R'])
         else:
-            head = _t('motores.h.installed', 'Instalado. La sesión no se ha verificado.',
-                      'Installed. Sign-in not checked yet.')
-            col = K['WH']
-        out += SF.text(K, head, iw, col + K['BO'])
-        out.append('')
-        out.append(SF.kv(K, _t('motores.f.installed', 'instalado', 'installed'),
-                         _t('motores.v.yes', 'sí', 'yes') if installed else _t('motores.v.no', 'no', 'no'), iw,
-                         hint='' if installed else _t('motores.h.enter_install', 'Enter instala', 'Enter installs'),
-                         value_col=K['OK'] if installed else K['ERR']))
-        if installed:
-            out.append(SF.kv(K, _t('motores.f.session', 'sesión', 'sign-in'), session_label(chk), iw,
-                             hint=_t('motores.h.v', 'v verifica · Enter login', 'v checks · Enter sign-in')))
-        out.append(SF.kv(K, _t('motores.f.m', 'tecla M', 'M key'),
-                         _t('motores.v.yes', 'sí', 'yes') if m_enabled(eid) else _t('motores.v.no', 'no', 'no'),
-                         iw, hint=_t('motores.h.m', 'm cambia', 'm toggles')))
-        users = users_of(eid)
-        out.append(SF.kv(K, _t('motores.f.users', 'lo usan', 'used by'),
-                         ', '.join(users) if users else '—', iw))
-        if not installed and miss:
-            out.append('')
-            out += SF.text(K, _t('motores.miss', 'Para instalarlo falta: {m}', 'To install it you need: {m}',
-                                 m=', '.join(miss)), iw, K['ERR'], max_lines=2)
-        out.append('')
-        out += SF.bullets(K, [
-            _t('motores.b1', 'Workspace usa el programa oficial; tu cuenta la gestiona él, no Workspace',
-               'Workspace runs the official program; it manages your account, not Workspace'),
-            _t('motores.b2', 'r recarga si lo instalaste desde otra terminal',
-               'r reloads if you installed it from another terminal'),
-            _t('motores.b3', 'el motor de cada agente se elige en Agentes (m)',
-               "each agent's engine is chosen in Agents (m)"),
-        ], iw)
-        return out
-    return build
+            st = (S['checks'].get(eid) or {}).get('state')
+            vcol = K['OK'] if st == 'verified' else (K['ERR'] if st == 'needs_login' else K['DIM'])
+            valor = '%s%s%s' % (vcol, val, K['R'])
+        out.append(HL.clip('%s%s%s%s%s' % (cur, tinta, HL.pad(lab, lab_w), K['R'], valor), iw))
+    return out, fila
+
+
+
+def _cuerpo(S, K, iw):
+    """Lista de motores │ opciones del elegido (pedido del dueño: en Motores
+    la división de izquierda a derecha). La flecha al final de la fila
+    elegida dice hacia dónde lleva ←/→: ▸ abre sus opciones, ◂ regresa."""
+    d = selected(S)
+    der = S.get('focus') == 'detail' or bool(S.get('confirm'))
+    items = [(engine_name(x),) + _mark(S, x) for x in S['engines']]
+    sel = S['engine'] % len(S['engines'])
+    tail = '◂' if der else '▸'
+    if iw < LIST_W + SB.SPLIT_GAP + 26:
+        # angosta: no caben dos columnas → la lista arriba, las opciones abajo
+        arriba = SB.pick_list(K, items, sel, iw, min(len(items), 8), sel_tail=tail)
+        opciones, fila = _detalle(S, K, d, iw)
+        S['_cur'] = len(arriba) + 2 + fila if der else min(sel, len(arriba) - 1)
+        etiqueta = '%s · %s' % (engine_name(d), _t('motores.opts', 'opciones', 'options'))
+        return SB.stack(K, arriba, opciones, iw, label=etiqueta, active=der)
+    opciones, fila = _detalle(S, K, d, iw - LIST_W - SB.SPLIT_GAP)
+    izq = SB.pick_list(K, items, sel, LIST_W, max(len(opciones), min(len(items), 8)),
+                       sel_tail=tail)
+    S['_cur'] = fila if der else min(sel, len(izq) - 1)
+    return SB.split(K, izq, opciones, iw, LIST_W)
+
+
+def info_blocks(S, K):
+    d = selected(S)
+    eid = d.get('id')
+    users = users_of(eid)
+    try:
+        import engine_install
+        miss = engine_install.missing_prereqs(engine_install.recipe(eid))
+    except Exception:
+        miss = []
+    estado = status_of(S, d)[0]
+    blocks = [('h', engine_name(d)),
+              ('kv', [(_t('motores.f.status', 'estado', 'status'), estado),
+                      (_t('motores.f.users', 'lo usan', 'used by'), ', '.join(users) if users else '—')])]
+    if not d.get('binaries_ok') and miss:
+        blocks.append(('dim', _t('motores.miss', 'Para instalarlo falta: {m}', 'To install it you need: {m}',
+                                 m=', '.join(miss))))
+    blocks += [
+        ('gap',),
+        ('flow', [(_t('motores.info.n1', 'tu agente', 'your agent'),
+                   _t('motores.info.c1', 'su cerebro', 'its brain')),
+                  (_t('motores.info.n2', 'el motor', 'the engine'),
+                   _t('motores.info.c2', 'programa oficial', 'official program')),
+                  (_t('motores.info.n3', 'tu cuenta', 'your account'),
+                   _t('motores.info.c3', 'el proveedor', 'the vendor'))]),
+        ('gap',),
+        ('p', _t('motores.info.p1',
+                 'Un motor es el programa oficial (Claude Code, Codex o Antigravity) que corre a tus '
+                 'agentes con tu propia cuenta. Workspace nunca ve ni guarda tus credenciales.',
+                 'An engine is the official program (Claude Code, Codex or Antigravity) that runs your '
+                 'agents with your own account. Workspace never sees or stores your credentials.')),
+        ('h', _t('motores.info.h_opts', 'sus opciones', 'its options')),
+        ('kv', [(_t('motores.o.install', 'instalar', 'install'),
+                 _t('motores.info.o_install', 'corre el instalador oficial (te muestra el comando antes)',
+                    'runs the official installer (shows you the command first)')),
+                (_t('motores.f.session', 'sesión', 'sign-in'),
+                 _t('motores.info.o_session2', 'se revisa sola al abrir; Enter vuelve a preguntar',
+                    'checked on its own when you open this; Enter asks again')),
+                (_t('motores.o.login', 'iniciar sesión', 'sign in'),
+                 _t('motores.info.o_login', 'abre el login del propio programa',
+                    "opens the program's own sign-in")),
+                (_t('motores.o.hub3', 'ofrecer en el hub', 'offer in the hub'),
+                 _t('motores.info.o_hub', 'si ←→ en el hub lo ofrece al cambiar el motor de un agente',
+                    "whether ←→ in the hub offers it when changing an agent's engine"))]),
+        ('gap',),
+        ('dim', _t('motores.info.marks2',
+                   'listo = instalado y con tu sesión activa (se verifica al abrir con el comando '
+                   'oficial de cada programa) · el de cada agente se elige en Agentes',
+                   "ready = installed and signed in (checked on open with each program's official "
+                   "command) · each agent's is chosen in Agents")),
+    ]
+    return blocks
 
 
 def render(S, w, h):
     K = SF.K()
-    sub = _t('motores.sub', 'motores — los programas que corren a tus agentes',
-             'engines — the programs that run your agents')
+    titulo = _t('motores.box', 'MOTORES', 'ENGINES')
+    if S.get('info') and S.get('engines'):
+        return SB.info_frame(K, w, h, word(), _t('motores.info.title', 'CÓMO FUNCIONAN LOS MOTORES',
+                                                  'HOW ENGINES WORK'),
+                             info_blocks(S, K), state=S['info'], box_w=64)
     if not S.get('engines'):
-        return SF.frame(K, w, h, sub, word(), pares(S), 'MOTORES', SF.text(K, '—', 40), '—', [],
-                        msg=S.get('msg', ''))
+        return SB.frame(K, w, h, word(), titulo, ['—'], _chips(S), msg=S.get('msg', ''), box_w=40)
     S['engine'] %= len(S['engines'])
-    return SF.frame(K, w, h, sub, word(), pares(S),
-                    _t('motores.box', 'MOTORES', 'ENGINES'), _left(S, K),
-                    engine_name(selected(S)).upper(), _right(S, K), msg=S.get('msg', ''),
-                    cursor_line=S['engine'], focus_left=not S.get('confirm'))
+    return SB.frame(K, w, h, word(), titulo, lambda iw: _cuerpo(S, K, iw), _chips(S),
+                    msg=S.get('msg', ''), cursor_line=lambda: S.get('_cur', 0),
+                    box_w=LIST_W + SB.SPLIT_GAP + DETAIL_W,
+                    stable_rows=max(min(len(S['engines']), 8), 6))
 
 
 # ── acciones ─────────────────────────────────────────────────────────────────
@@ -299,6 +414,20 @@ def _enter(S):
     return True
 
 
+def _aplica(S):
+    """Enter sobre la opción elegida."""
+    key = options(S, selected(S))[S.get('opt', 0)][0]
+    if key in ('install', 'login'):
+        return _enter(S)
+    if key == 'reload':
+        refresh(S)
+    elif key == 'session':
+        check_login(S)
+    elif key == 'hub':
+        toggle_m(S)
+    return True
+
+
 def act(S, key):
     """True = sigue · False = sale del loop (volver o correr un comando)."""
     if S.get('confirm'):
@@ -307,22 +436,33 @@ def act(S, key):
         S['confirm'] = None
         S['msg'] = _t('motores.m.cancel', 'cancelado · nada se instaló', 'cancelled · nothing installed')
         return True
-    if key in ('q', 'Q', '\x1b', '\x03'):
+    if SB.info_key(S, key):
+        return True
+    if key == '\x03':
         return False
     if not S.get('engines'):
         if key == 'r':
             refresh(S)
-        return True
+        return key not in ('q', 'Q', '\x1b')
     S['msg'] = '' if not S.get('busy') else S['msg']
     n = len(S['engines'])
+    if S.get('focus') == 'detail':
+        ops = options(S, selected(S))
+        if key in ('\x1b', 'left', 'q', 'Q'):
+            S['focus'] = 'list'
+        elif key in ('up', 'down'):
+            S['opt'] = (S.get('opt', 0) + (-1 if key == 'up' else 1)) % len(ops)
+        elif key in ('\r', '\n', ' '):
+            return _aplica(S)
+        return True
+    if key in ('q', 'Q', '\x1b'):
+        return False
     if key in ('up', 'down', 'tab'):
         S['engine'] = (S['engine'] + (-1 if key == 'up' else 1)) % n
-    elif key in ('\r', '\n'):
-        return _enter(S)
-    elif key == 'v':
-        check_login(S)
-    elif key == 'm':
-        toggle_m(S)
+        S['opt'] = 0
+    elif key in ('\r', '\n', 'right', ' '):
+        S['focus'] = 'detail'
+        S['opt'] = 0
     elif key == 'r':
         refresh(S)
     return True
@@ -414,9 +554,14 @@ def _loop(S):
         old = termios.tcgetattr(fd)
         try:
             tty.setraw(fd)
+            crudo = termios.tcgetattr(fd)
             out.write('\033[?1049h\033[?25l')
             first, last = True, None
             while True:
+                # red de seguridad: si un programa externo regresó la terminal
+                # a modo normal, las teclas dejarían de llegar → recuperarlo
+                if termios.tcgetattr(fd) != crudo:
+                    tty.setraw(fd)
                 w, h = _size(out)
                 frame = render(S, w, h)
                 if frame != last:

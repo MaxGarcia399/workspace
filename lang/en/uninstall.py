@@ -67,6 +67,7 @@ STRINGS = {
     "uninstall.x.main.6": "\n  {c}Done.{r} WORKSPACE uninstalled from this machine.",
     "uninstall.x.main.7": "  {dim}The BRAINS (agent folders) and transcripts were NOT touched.{r}",
     "uninstall.x.main.8": "  {dim}Open a NEW terminal to drop the old PATH/greeter.{r}",
+    "uninstall.x.main.9": "  {dim}If you reinstall Workspace, load each agent again (Add agent → load its folder) so it points to the new install; if you restored your backup, `workspace doctor` is enough.{r}",
     "uninstall.x.rm_path.3": "{label} deleted: {p}",
     "uninstall.x.no_value": "no value",
     "uninstall.x.ps_cmds": "PowerShell commands",

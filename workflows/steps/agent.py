@@ -28,7 +28,10 @@ import os
 # Campos de config que `agent_admin.create` entiende — lo demás se ignora
 # (falla-suave: un intake que deja campos extra no rompe el paso).
 _CONFIG_FIELDS = ("name", "display", "tagline", "owner", "color",
-                  "scope", "soul", "skills", "brain_dest", "emblem")
+                  "scope", "soul", "skills", "brain_dest",
+                  # permisos y revisión de skills (contrato común; defaults
+                  # seguros: libre solo en su cerebro · sin revisión)
+                  "autonomy", "skill_review")
 
 _SIN_NAME = ("falta `name` en la config del agente "
              "(artefacto `agent_config` o --param name=<slug>)")
@@ -102,6 +105,8 @@ def create(ctx, step):
             skills=str(cfg.get("skills") or ""),
             color=str(cfg.get("color") or "gris"),
             brain_dest=cfg.get("brain_dest"),
+            autonomy=agent_admin.norm_autonomy(cfg.get("autonomy")),
+            skill_review=agent_admin.norm_bool(cfg.get("skill_review")),
             out=lambda *_a, **_k: None)      # sin ruido al stdout del runner
     except Exception as e:
         return {"ok": False,
@@ -223,11 +228,12 @@ def verify_brain(ctx, step):
     except Exception as e:
         gaps.append("no se pudo leer agent.json: %s" % type(e).__name__)
 
-    # BANNER de calidad de EQUIPO (no el plano viejo): fuente shadow 3D + sufijo
-    # AGENT + sistema de emblema. Un banner pobre/sin emblema = un agente que nace
-    # a medias — se verifica sobre el banner renderizado del cerebro.
-    # (calidad SI hay banner renderizado; su PRESENCIA la garantiza el paso
-    # `brand`, que corre ANTES de verify en el flujo — no la re-exige acá.)
+    # BANNER con el título del hub (no el plano viejo): fuente shadow 3D. Un
+    # banner pobre = un agente que nace a medias — se verifica sobre el banner
+    # renderizado del cerebro. (calidad SI hay banner renderizado; su PRESENCIA
+    # la garantiza el paso `brand`, que corre ANTES de verify en el flujo — no
+    # la re-exige acá.) El sufijo «AGENT» y el emblema de galería ya no son
+    # parte del banner (2026-10-13): no se exigen.
     try:
         nm = str((defn or {}).get("name") or "").strip().lower()
         bp = os.path.join(brain, "brand", "%s-banner.py" % nm) if nm else ""
@@ -235,10 +241,6 @@ def verify_brain(ctx, step):
             btxt = open(bp, encoding="utf-8").read()
             if "╗" not in btxt:                         # glifos de la fuente shadow
                 gaps.append("banner sin fuente shadow (formato pobre)")
-            if "AGENT" not in btxt:
-                gaps.append("banner sin sufijo AGENT")
-            if "emblem_lines" not in btxt:
-                gaps.append("banner sin sistema de emblema")
     except Exception:
         pass
 
@@ -377,27 +379,6 @@ def brand(ctx, step):
         out_artifacts[art_key] = dest
         rendered.append(asset)
 
-    # ── emblema: copiar el elegido de la galería a {brain}/brand/emblem.txt ──
-    # El banner lo lee y lo tiñe con el color del agente. Sin elegido → el banner
-    # cae al monograma de la inicial (nunca vacío). Falla-suave: emblema ausente
-    # de la galería se anota, no rompe.
-    emblem = str(cfg.get("emblem") or "").strip().lower()
-    emblem_note = None
-    if emblem:
-        src = os.path.join(root, "templates", "agent", "emblems", "%s.txt" % emblem)
-        if os.path.isfile(src):
-            try:
-                os.makedirs(dest_dir, exist_ok=True)
-                with open(src, encoding="utf-8") as fh:
-                    art = fh.read()
-                with open(os.path.join(dest_dir, "emblem.txt"), "w", encoding="utf-8") as fh:
-                    fh.write(art)
-                emblem_note = "emblema «%s»" % emblem
-            except OSError:
-                emblem_note = "no pude copiar el emblema «%s»" % emblem
-        else:
-            emblem_note = "emblema «%s» no está en la galería → monograma default" % emblem
-
     # el banner es el asset ESPINA (produces lo declara); si su template falta,
     # es entorno roto — permanente. statusline/dashboard ausentes solo se anotan.
     if "banner" in missing:
@@ -412,8 +393,6 @@ def brand(ctx, step):
         parts.append("ya existía: " + " · ".join(existed))
     if missing:
         parts.append("sin template: " + " · ".join(missing))
-    if emblem_note:
-        parts.append(emblem_note)
     return {"ok": True,
             "detail": "kit de marca de `%s` — %s" % (name, "; ".join(parts)),
             "artifacts": out_artifacts}

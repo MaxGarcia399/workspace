@@ -1,4 +1,4 @@
-"""Foco/agenda CLI (personal.py) — FUENTE (español)."""
+"""Agenda CLI (personal.py) — FUENTE (español)."""
 
 STRINGS = {
     "personal.when.past": "pasó",
@@ -6,11 +6,6 @@ STRINGS = {
     "personal.when.in": "en {x}",
     "personal.when.today": "hoy",
     "personal.when.tomorrow": "mañana",
-    "personal.foco.cleared": "foco borrado",
-    "personal.foco.set": "foco de hoy: {txt}",
-    "personal.foco.fail": "no pude guardar el foco",
-    "personal.foco.none": "sin foco — fíjalo con:  workspace foco \"lo que importa hoy\"",
-    "personal.foco.from": "(de {date})",
     "personal.agenda.usage_add": "uso: workspace agenda add YYYY-MM-DD \"título\" [--time HH:MM] [--cat reunion|hito|recordatorio|cumple|otro]",
     "personal.agenda.add_fail": "fecha inválida o título vacío — no se agregó",
     "personal.agenda.added": "agregado",
@@ -24,5 +19,5 @@ STRINGS = {
     "personal.agenda.empty": "agenda vacía — agrega con:  workspace agenda add 2026-09-25 \"Junta\" --time 18:00",
     "personal.agenda.tag_done": "(hecha)",
     "personal.agenda.tag_archived": "(archivado)",
-    "personal.unknown": "personal: comando desconocido '{cmd}' (foco | agenda)",
+    "personal.unknown": "personal: comando desconocido '{cmd}' (agenda)",
 }

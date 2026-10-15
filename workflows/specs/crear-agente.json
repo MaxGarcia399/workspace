@@ -110,7 +110,7 @@
         "banner_path"
       ],
       "on_fail": "stop",
-      "note": "el agente nace con su PROPIO banner (no el genérico compartido): renderiza agent-banner.py a <brain>/brand/<name>-banner.py con sus datos (auto-contenido) y repunta agent.json. Idempotente. Queda listo para meterle un emblema diseñado — parte del 'crear personaje'"
+      "note": "el agente nace con su PROPIO banner (no el genérico compartido): renderiza agent-banner.py a <brain>/brand/<name>-banner.py con sus datos (auto-contenido) y repunta agent.json. Idempotente — parte del 'crear personaje'"
     },
     {
       "id": "identidad",

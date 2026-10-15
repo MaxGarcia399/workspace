@@ -151,8 +151,8 @@ def _agent_choices():
     """Agentes que ve el socio (registry EFECTIVO menos los de SISTEMA).
     SSOT: dispatch.visible_agents() — import perezoso
     para no ciclar (dispatch importa settings). Antes esto leía registry.json
-    crudo y caía a ['zenith','atlas'] (2), que había drifteado del fallback de
-    config_tui (['zenith','atlas','argus'], 3) y además no filtraba 'doctor'."""
+    crudo y caía a una lista fija de agentes del equipo y además no filtraba
+    'doctor'."""
     try:
         import dispatch
         names = [a.get("name", "") for a in dispatch.visible_agents()
@@ -307,9 +307,12 @@ SETTINGS_SCHEMA = (
 
     # ── hooks (kill-switches — el env WORKSPACE_NO_* SIEMPRE gana) ──
     {"key": "hooks.skill_review", "group": "hooks",
-     "label": "Skill review (SessionEnd)", "type": "bool", "default": True,
-     "help": "Revisión ligera de skills al cerrar sesión (claude headless con throttle).",
-     "applies": "hooks/skill_review.py; env WORKSPACE_NO_SKILL_REVIEW=1 gana."},
+     "label": "Skill review (SessionEnd)", "type": "bool", "default": False,
+     "help": "Revisión de skills al cerrar sesión, con el motor del agente en "
+             "segundo plano (usa un poco de tu suscripción). Es el valor para "
+             "los agentes que no lo eligen en su agent.json (`skill_review`).",
+     "applies": "hooks/skill_review.py: `skill_review` del agent.json > este "
+                "ajuste; env WORKSPACE_NO_SKILL_REVIEW=1 gana siempre."},
     {"key": "hooks.transcript_backup", "group": "hooks",
      "label": "Backup de transcripts (Y2b)", "type": "bool", "default": True,
      "help": "Respaldo del .jsonl crudo a ~/.claude/workspace/transcripts-backup/.",
@@ -372,9 +375,9 @@ SETTINGS_SCHEMA = (
      "applies": "futuro: scheduler C6 (ver job consolidador-nocturno)."},
     {"key": "cerebro.cleanup_period_days", "group": "cerebro",
      "label": "Retención de transcripts (días)", "type": "int",
-     "default": 3650, "range": (30, 36500), "delegated": True,
-     "help": "cleanupPeriodDays de Claude Code — los crudos son materia prima de la memoria.",
-     "applies": "~/.claude/settings.json (get lee de ahí; set escribe ahí — el doctor lo re-sube si baja de 3650)."},
+     "default": 365, "range": (30, 36500), "delegated": True,
+     "help": "cleanupPeriodDays de Claude Code — cuántos días se conservan tus sesiones (materia prima de la memoria).",
+     "applies": "~/.claude/settings.json (get lee de ahí; set escribe ahí). El instalador/doctor solo lo fija en 365 si NO hay valor; uno propio jamás se toca."},
 
     # ── agentes ──
     {"key": "agentes.default_agent", "group": "agentes",
@@ -384,14 +387,14 @@ SETTINGS_SCHEMA = (
      "applies": "futuro: front.py preseleccionará esta urna."},
     {"key": "agentes.auto_mode", "group": "agentes",
      "label": "Auto-mode en sesiones interactivas", "type": "bool",
-     "default": True,
-     "help": "POLÍTICA DEL EQUIPO: las sesiones interactivas lanzadas desde "
-             "el menú/launchers (`workspace`, `zenith`, …) arrancan en "
-             "auto-aceptar — `claude --permission-mode acceptEdits`, el "
-             "mecanismo OFICIAL de Claude Code (el mismo 'accept edits on' "
-             "del shift+tab; NUNCA bypassPermissions/--dangerously-skip-"
-             "permissions). off = arrancan en el modo normal de Claude Code. "
-             "Reversible en vivo: aplica al siguiente lanzamiento.",
+     "default": False,
+     "help": "on = las sesiones interactivas de Claude Code lanzadas desde "
+             "el menú/launchers arrancan en auto-aceptar ediciones — "
+             "`claude --permission-mode acceptEdits`, el mecanismo OFICIAL "
+             "de Claude Code (el 'accept edits on' del shift+tab; NUNCA "
+             "bypassPermissions/--dangerously-skip-permissions). off (de "
+             "fábrica) = mandan los permisos del cerebro (autonomía del "
+             "agente). Reversible en vivo: aplica al siguiente lanzamiento.",
      "applies": "engines/claude_code.launch() agrega el flag al comando; un "
                 "--permission-mode explícito del socio siempre gana."},
     {"key": "agentes.hidden", "group": "agentes",
@@ -403,9 +406,9 @@ SETTINGS_SCHEMA = (
      "applies": "agent_state (estado compartido): status hidden → fuera del hub, "
                 "visible en Agentes."},
     {"key": "modelos.enabled_engines", "group": "modelos",
-     "label": "Motores habilitados en el atajo M", "type": "list", "default": [],
+     "label": "Motores al cambiar con ←→ en el hub", "type": "list", "default": [],
      "member_ok": lambda s: bool(re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,31}", s)),
-     "help": "Motores que ofrece la tecla M del hub al ciclar (vacío = todos "
+     "help": "Motores que ofrece ←→ en el hub al ciclar (vacío = todos "
              "los instalados con binario en PATH). Independiente de instalar, "
              "desinstalar o iniciar sesión.",
      "applies": "harnesses.cycle / Motores (U09)."},
@@ -479,17 +482,17 @@ SETTINGS_SCHEMA = (
      # Pin bool (default off → paleta intocada para toda instalación). Cuando
      # está ON, tuitheme remapea TODA la paleta a un rojo/ámbar cálido nocturno
      # DESPUÉS de tema+brillo — confort visual para madrugadas. Ciclable ◄►/
-     # Enter como pin y con tecla rápida desde el hub (toggle EN VIVO).
+     # Enter como pin del hub (toggle EN VIVO).
      "type": "bool", "default": False,
      "help": "Modo noche en ROJO para madrugadas (confort visual). ON = toda la "
              "paleta del TUI se remapea a un rojo/ámbar cálido (se reduce fuerte "
              "el azul/verde y baja la luminosidad general), conservando la "
              "legibilidad y la jerarquía — el acento sigue distinguible. OFF "
              "(default) = la paleta del tema tal cual, sin cambios. En mono no "
-             "hace nada. Se aplica EN VIVO (pin del hub + tecla rápida).",
+             "hace nada. Se aplica EN VIVO (pin del hub).",
      "applies": "tuitheme.palette() aplica el remapeo rojo como ÚLTIMA "
-                "transformación (tras tema+brillo); el pin del hub y la tecla "
-                "rápida lo cambian EN VIVO (la paleta se memoiza por este flag, "
+                "transformación (tras tema+brillo); el pin del hub lo cambia "
+                "EN VIVO (la paleta se memoiza por este flag, "
                 "así el hub re-resuelve al siguiente frame)."},
     {"key": "ui.theme", "group": "ui", "label": "Tema del hub",
      "type": "enum", "default": "bruma",   # 2026-10 (socio): la familia rosé es la insignia; bruma (hermana neblinosa de rose) = default de instalación nueva, CON color
@@ -498,12 +501,12 @@ SETTINGS_SCHEMA = (
      # para el DEV PANEL (ui.web_theme). choices = snapshot al import;
      # choices_fn valida en vivo.
      "choices": tuple(_tui_theme_choices()), "choices_fn": _tui_theme_choices_live,
-     "help": "Tema visual del HUB/TUI del recinto (front.py/banner/config_tui). "
+     "help": "Tema visual del HUB/TUI (front.py/banner/pantallas de sección). "
              "Acotado a los temas TUI-ready (mono, cyberpunk, rose, durazno, "
              "lavanda, salvia, bruma). El dev panel web tiene su propio tema "
              "(ui.web_theme, todos disponibles). env WORKSPACE_THEME gana siempre.",
-     "applies": "tuitheme.palette() → front.py/banner/config_tui pintan el "
-                "recinto. El pin de configs rápidas del hub lo cicla."},
+     "applies": "tuitheme.palette() → front.py/banner/pantallas pintan el "
+                "hub. El pin de Personalización del hub lo cicla."},
     {"key": "ui.web_theme", "group": "ui", "label": "Tema del dev panel (web)",
      "type": "enum", "default": "olympo",
      # SWITCHER curado a WEB_THEMES (hubtheme.web_picker), validación PERMISIVA

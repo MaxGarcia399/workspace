@@ -17,12 +17,10 @@ STRINGS = {
     "menu.cal.tag": "tu agenda del día, editable a pantalla completa",
     "menu.tono.label": "Tono",
     "menu.tono.tag": "los diales de personalidad de tus agentes",
-    "menu.keybinds.label": "Atajos",
-    "menu.keybinds.tag": "re-mapea las teclas rápidas del hub",
     "menu.updates.label": "Actualizaciones",
     "menu.updates.tag": "revisar · reparar · actualizar",
     "menu.agents.label": "Agentes",
-    "menu.agents.tag": "configuración y cerebro de cada agente",
+    "menu.agents.tag": "cerebro, permisos y skills de cada agente",
     "menu.add_agent.label": "Agregar agente",
     "menu.add_agent.tag": "crear o cargar un agente",
     "menu.shell.label": "Terminal normal",
@@ -54,13 +52,8 @@ STRINGS = {
     "hub.pin.heartbeat": "latido",
     "hub.pin.split": "split",
     "hub.pin.anim": "animación",
-    # aviso del toggle de luz roja (tecla `l` del recinto)
-    "hub.redlight.on": "luz roja ON — modo noche",
-    "hub.redlight.off": "luz roja OFF",
-    "hub.redlight.fail": "no pude cambiar la luz roja — queda igual",
 
     # ── barra de instrumentos / monitor (centro) ────────────────────────────
-    "hub.instr.usage5h": "uso 5h",
     "hub.act.bus_n": "bus {n}",
     "hub.act.git_n": "git {n}",
 
@@ -99,24 +92,15 @@ STRINGS = {
 
     # ── ventana alta/doble (responsive_ui.vertical_hub) ─────────────────────
     "hub.fullscreen_notice": "Pantalla completa: experiencia completa",
-    "hub.fullscreen_rec": "Pantalla completa recomendada",
-    "hub.menu_header.title": "◆ ¿A dónde entras?",
-    "hub.menu_header.hint": "↑↓ · Enter · q = terminal normal",
 
-    # ── pantalla segura / angosta (front._narrow_draw) ──────────────────────
-    "hub.narrow.agents_hint": "m motor · Enter abre · i información",
-    "hub.narrow.cfg_hint": "Enter cambia · configuración disponible en el menú",
-    "hub.narrow.lang_hint": "Enter cambia el idioma · Enter switches language",
-    "hub.narrow.window_title": "WORKSPACE",
-
-    # ── avisos del recinto + latido (front/_menu_machinery, hublayout) ──
+    # ── avisos del hub + latido (front/_menu_machinery, hublayout) ──
     'hub.agent.gone': '{name} ya no está registrado (cambió desde otra ventana)',
     'hub.agent.info': '{name} ▸ motor {eng} ({orig}) · cerebro {brain} · {live}',
     'hub.agent.no_live_task': 'sin tarea viva',
-    'hub.agent.none_go_add': 'sin agentes — ve a HERRAMIENTAS › Agregar agente',
+    'hub.agent.none_go_add': 'sin agentes — Menú › Agentes',
     'hub.agent.not_launched': '{name}: {why} — no se lanza (revisa Agentes)',
-    'hub.agent.not_yet': '{name} aún no se invoca — llega pronto.',
-    'hub.agent.not_yet_engine': '{name} aún no se invoca — sin motor que elegir.',
+    'hub.agent.not_yet': '{name} todavía no está disponible.',
+    'hub.agent.not_yet_engine': '{name} todavía no está disponible — sin motor que elegir.',
     'hub.agent.now_task': 'ahora: {task}',
     'hub.agent.soon_tag': 'próximamente',
     'hub.engine.agent_default': 'default del agente',
@@ -125,9 +109,6 @@ STRINGS = {
     'hub.engine.local_override': 'override local',
     'hub.engine.no_selector': 'selector de motor no disponible (falta harnesses.py)',
     'hub.engine.saved_local': 'guardado per-máquina',
-    'hub.hb.label': 'latido',
-    'hub.hb.queue_waiting': 'cola en espera',
-    'hub.hb.queue_word': 'cola',
     'hub.hb.tag.auto': 'el cron lanza solo',
     'hub.hb.tag.manual': 'el cron solo avisa, tú lanzas',
     'hub.hb.tag.off': 'latido apagado',
@@ -141,7 +122,6 @@ STRINGS = {
     # ventana chica / viewport (responsive_ui)
     'hub.viewport.back': 'q vuelve',
     'hub.viewport.scroll': 'Ctrl+B/F desplaza',
-    'hub.frame.hint': '↑↓ sección · ◄► elige · Enter · q',
     'hub.size.title': 'AJUSTA EL TAMAÑO DE LA VENTANA',
     'hub.size.horizontal': 'Horizontal: 100 columnas × 36 filas',
     'hub.size.vertical': 'Vertical:    72 columnas × 50 filas',
@@ -157,7 +137,7 @@ STRINGS = {
     'hub.lanzador.root': 'WORKSPACE',
     'hub.lanzador.search_ph': 'buscar…',
     'hub.lanzador.no_results': 'sin resultados',
-    'hub.lanzador.empty': 'sin agentes — Menú › Agregar agente',
+    'hub.lanzador.empty': 'sin agentes — Menú › Agentes',
     'hub.lanzador.hint.type_key': 'abc',
     'hub.lanzador.hint.search': 'busca',
     'hub.lanzador.hint.erase': 'borra',
@@ -166,5 +146,7 @@ STRINGS = {
     'hub.lanzador.tab.menu': 'Menú',
     'hub.lanzador.tab.personalization': 'Personalización',
     'hub.lanzador.tab.lang': 'Idioma',
+    # vista estática (ui.anim apagado): la lista en la caja del lanzador
+    'hub.static.hint.direct': 'directo',
     'hub.layout.lanzador': 'Lanzador — agentes al centro, mínimo',
 }

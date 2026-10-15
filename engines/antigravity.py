@@ -1,7 +1,35 @@
-"""Antigravity CLI adapter. Flags verified against installed agy --help (1.2.16).
+"""Antigravity CLI adapter. Flags verified against installed agy --help (1.3.4).
 
 Login and sessions belong to agy; WORKSPACE never reads credentials.
-Native MCP is supported; WORKSPACE tool hooks are not wired yet.
+Native MCP is supported. agy 1.3 has native hooks (SessionStart, PreToolUse,
+PostToolUse, Pre/PostInvocation, Stop — no SessionEnd); WORKSPACE does NOT
+enable them: its wrapper already fires the neutral session start/end, and
+native ones would double-fire.
+
+PERMISOS por la AUTONOMÍA del agente (agent.json "autonomy", contrato común)
+— VERIFICADO con agy 1.3.4 en un cerebro de prueba (HOME temporal):
+  · brain (default): `--mode accept-edits` → lee/crea/edita dentro del cerebro
+    sin preguntar; escribir fuera y la terminal piden permiso (sin ventana:
+    se niegan). Regla global `write_file(<cerebro>)` (antes `read_file`).
+  · full: lo mismo + `--project workspace-<agente>`, un proyecto de agy cuyo
+    `permissionGrants` permite `command(*)` → la terminal corre sin preguntar
+    y escribir fuera SIGUE pidiendo permiso. Va por proyecto y no por el
+    `toolPermission` global porque ese ajuste es de TODO agy (llegaría a los
+    demás agentes y al uso propio del socio); `always-proceed` además deja
+    escribir fuera del cerebro. Al reanudar, agy usa el proyecto de la
+    conversación: una conversación nacida en `brain` sigue preguntando.
+  · ask (el usuario apagó el acceso automático en Agentes): SIN `--mode` →
+    agy pregunta antes de crear o editar, también dentro del cerebro. Se quita
+    la regla `write_file(<cerebro>)` y queda `read_file(<cerebro>)`.
+  · Nunca `--add-dir` (ensancharía la escritura libre) ni
+    `--dangerously-skip-permissions`. El `--mode`/`--project` del socio gana.
+
+BARRA: la statusLine NATIVA de agy (settings.json) apunta a un shim estable
+(`~/.local/bin/workspace-agy-statusline`, ver antigravity_usage); se apila
+debajo de la de agy. TEMA: agy no tiene temas in-app propios (colorScheme
+fijos); con "terminal" (su default) su UI usa colores ANSI básicos, que
+Workspace recolorea por corrida (OSC 4) desde la paleta del hub y restaura al
+salir (OSC 104). Si el socio eligió otro colorScheme, no se toca nada.
 
 Pestañas NEUTRALES (sessions_registry · el socio 2026-10-03): el MISMO picker de
 Claude Code corre antes del exec (subproceso agnóstico); el resume usa
@@ -24,6 +52,7 @@ Falla-suave absoluta: nada de esto impide el launch.
 import json
 import os
 import shutil
+import subprocess
 import sys
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -35,13 +64,24 @@ import legacy  # noqa: E402  (literales de la instalación anterior)
 META = {"name": "antigravity", "needs": ["agy"], "auth": "subscription"}
 CAPABILITIES = {
     "launch": "wrapper", "inject_context": "project-doc", "mcp": True,
-    "hooks": False,
+    # Avisos de sesión: solo inicio y cierre, emitidos por el wrapper neutral
+    # (los hooks nativos de agy existen pero no se activan — doble disparo).
+    "hooks": "wrapper",
     "sessions": "workspace",   # pestañas del registro neutral (sessions_registry)
                              # + resume con `agy --conversation <id>` (binding
                              # post-hoc vía cache/last_conversations.json)
     "status_live": False,
+    "statusline": "native-config",   # statusLine de agy → shim de Workspace
     "headless": False,
 }
+
+#: Modo de ejecución de agy para TODA sesión de un agente (brain y full).
+AGY_MODE = "accept-edits"
+#: Regla de agy que deja correr cualquier comando sin preguntar — solo en el
+#: proyecto del agente, solo con autonomía full.
+FULL_GRANT = "command(*)"
+#: Prefijo de los proyectos de agy que crea Workspace (marca de propiedad).
+PROJECT_PREFIX = "workspace-"
 
 #: Primera línea EXACTA del GEMINI.md generado — detector de "es nuestro".
 _GEMINI_MARK = "<!-- WORKSPACE:GENERATED antigravity-context v1 -->"
@@ -66,26 +106,81 @@ def status():
             "auth": "managed by agy; login not probed"}
 
 
-def _interactive_argv(cfg, passthrough, resume_cid="", first_prompt=""):
-    """argv para `agy`. Sin kwargs = comportamiento histórico. Con pestaña:
-      · `resume_cid` → `--conversation <id>` (VERIFICADO en agy --help
-        1.2.16) y SIN prompt inicial (el hilo ya tiene el contexto);
+# La verificación de sesión corre el programa oficial DESPEGADO de la
+# terminal: sin stdin y, en Mac/Linux, en su propia sesión (sin terminal de
+# control). Si hereda la terminal, al salir la deja en modo normal y la
+# pantalla que lo llamó (Motores, el hub) se queda sin teclado.
+_DETACHED = {"stdin": subprocess.DEVNULL}
+if os.name != "nt":
+    _DETACHED["start_new_session"] = True
+
+
+def session_active(runner=None):
+    """¿Hay sesión de Antigravity? agy no tiene comando de estado de sesión;
+    `agy models` sí la exige (sin sesión responde «Please sign in…» y rc 1 —
+    VERIFICADO 2026-10-14 con un HOME vacío). Tarda unos segundos (consulta al
+    proveedor): úsalo en segundo plano. Jamás lee credenciales. True/False;
+    None si no se pudo saber."""
+    exe = shutil.which("agy")
+    if not exe:
+        return None
+    run = runner or subprocess.run
+    try:
+        r = run([exe, "models"], capture_output=True, text=True, timeout=40,
+                encoding="utf-8", errors="replace", **_DETACHED)
+        out = ((getattr(r, "stdout", "") or "") + (getattr(r, "stderr", "") or "")).lower()
+        if "sign in" in out or "log in" in out or "authentication" in out:
+            return False
+        return True if getattr(r, "returncode", 1) == 0 else None
+    except Exception:
+        return None
+
+
+def _has_flag(args, *names):
+    for a in args or ():
+        a = str(a)
+        if any(a == n or a.startswith(n + "=") for n in names):
+            return True
+    return False
+
+
+def _policy_argv(cfg, args, project_id=""):
+    """Flags de permisos según la autonomía (ver docstring del módulo):
+    `--mode accept-edits` salvo en "ask"; `--project <id>` solo si hay
+    proyecto del agente (full). Lo que el socio pase (--mode / --project) gana."""
+    out = []
+    if _autonomy(cfg) != "ask" and not _has_flag(args, "--mode"):
+        out += ["--mode", AGY_MODE]
+    if project_id and not _has_flag(args, "--project", "--new-project"):
+        out += ["--project", project_id]
+    return out
+
+
+def _interactive_argv(cfg, passthrough, resume_cid="", first_prompt="",
+                      project_id=""):
+    """argv para `agy`: permisos (`--mode accept-edits` [+ `--project`]) y
+    luego el arranque. Con pestaña:
+      · `resume_cid` → `--conversation <id>` (VERIFICADO en agy --help) y SIN
+        prompt inicial (el hilo ya tiene el contexto) — el `--mode` va
+        también al reanudar;
       · `first_prompt` → SOLO el fallback visible (GEMINI.md propio del
         socio); el camino normal inyecta la memoria en el doc de proyecto.
-    Prompts/resume explícitos del socio en el passthrough SIEMPRE ganan."""
+    Prompts/resume explícitos del socio en el passthrough SIEMPRE ganan.
+    Jamás `--add-dir`."""
     args = list(passthrough or [])
+    pre = _policy_argv(cfg, args, project_id)
     # Bootstrap only a new interactive session; preserve explicit prompts/resume.
     owns_prompt = any(str(a).split("=", 1)[0] in (
         "-p", "--print", "--prompt", "-i", "--prompt-interactive",
         "-c", "--continue", "--conversation") for a in args)
     if args or owns_prompt:
-        return args
+        return pre + args
     resume_cid = str(resume_cid or "").strip()
     if resume_cid:
-        return ["--conversation", resume_cid]
-    return ["--prompt-interactive",
-            first_prompt or ("Lee CLAUDE.md e inicia el cerebro. Al terminar, confirma en "
-                             "una línea breve.")]
+        return pre + ["--conversation", resume_cid]
+    return pre + ["--prompt-interactive",
+                  first_prompt or ("Lee CLAUDE.md e inicia el cerebro. Al terminar, confirma en "
+                                   "una línea breve.")]
 
 
 # ── store local de agy (solo lectura — jamás credenciales) ──────────────────
@@ -130,8 +225,14 @@ def _vendor_conversation_for(brain, cache_path=None):
     return ""
 
 
-def ensure_brain_access(brain, settings_path=None):
-    """Trust this explicit brain and allow recursive reads; preserve other rules."""
+def ensure_brain_access(brain, settings_path=None, write=True):
+    """Confía este cerebro (trustedWorkspaces) y deja escribir en él sin
+    preguntar: regla `write_file(<cerebro>)` — en agy permitir escribir
+    implica leer, así que REEMPLAZA a la `read_file(<cerebro>)` de antes (se
+    quita esa, la de este cerebro nada más). `write=False` (autonomía "ask")
+    hace lo inverso: deja solo `read_file(<cerebro>)` y agy pregunta antes de
+    escribir. Las demás reglas del socio (allow/deny/ask) quedan intactas;
+    deny > ask > allow sigue mandando."""
     import json
     from pathlib import Path
     from antigravity_usage import _atomic
@@ -157,7 +258,12 @@ def ensure_brain_access(brain, settings_path=None):
             return False
         if root not in trusted:
             trusted.append(root)
-        rule = 'read_file(%s)' % root
+        rule = 'write_file(%s)' % root
+        legacy_rule = 'read_file(%s)' % root
+        if not write:
+            rule, legacy_rule = legacy_rule, rule
+        if legacy_rule in allowed:
+            allowed[:] = [r for r in allowed if r != legacy_rule]
         if rule not in allowed:
             allowed.append(rule)
         if original != json.dumps(data,sort_keys=True):
@@ -168,6 +274,137 @@ def ensure_brain_access(brain, settings_path=None):
             _atomic(path,data)
         return True
     except (OSError,ValueError,TypeError):
+        return False
+
+
+# ── autonomía full: proyecto de agy POR AGENTE ──────────────────────────────
+# El permiso de agy para correr comandos sin preguntar (`toolPermission` o una
+# regla `command(*)` en settings.json) es GLOBAL. Por agente, lo único que
+# agy respeta sin --dangerously-* es el PROYECTO: ~/.gemini/config/projects/
+# <id>.json con `permissionGrants.permissionGrants.allow` — VERIFICADO (agy
+# 1.3.4, HOME temporal): con `--project <id>` y `command(*)` ahí, la terminal
+# corre sin preguntar y escribir fuera del cerebro sigue negado; sin el
+# proyecto, pregunta. Al reanudar manda el proyecto de la CONVERSACIÓN.
+# Workspace solo toca archivos `workspace-<agente>.json` cuyo `id` coincide
+# (los suyos); y solo su propia regla: el resto del archivo se conserva.
+
+def _projects_dir():
+    return os.path.join(os.path.expanduser("~"), ".gemini", "config", "projects")
+
+
+def project_id(agent):
+    """`workspace-<agente>` saneado ([a-z0-9-]); '' si no queda nombre."""
+    import re
+    k = re.sub(r"[^a-z0-9-]+", "-", str(agent or "").strip().lower()).strip("-")
+    return (PROJECT_PREFIX + k)[:64] if k else ""
+
+
+def ensure_agent_project(agent, autonomy, display="", projects_dir=None):
+    """Alinea el proyecto de agy del agente con su autonomía. full → crea o
+    actualiza `<dir>/workspace-<agente>.json` con la regla `command(*)` y
+    devuelve su id (para `--project`). brain → si el proyecto existe y es
+    nuestro, le QUITA esa regla (sus conversaciones vuelven a preguntar) y
+    devuelve ''. Un archivo con el mismo nombre que no sea nuestro (otro
+    `id`, ilegible) no se toca. Falla-suave: ante cualquier error → ''."""
+    from antigravity_usage import _atomic
+    pid = project_id(agent)
+    if not pid:
+        return ""
+    path = os.path.join(projects_dir or _projects_dir(), pid + ".json")
+    try:
+        cur = None
+        if os.path.exists(path):
+            if os.path.islink(path) or os.path.getsize(path) > 1024 * 1024:
+                return ""
+            with open(path, encoding="utf-8") as fh:
+                cur = json.load(fh)
+            if not isinstance(cur, dict) or cur.get("id") != pid:
+                return ""
+        if autonomy != "full":
+            if cur is None:
+                return ""
+            grants = (cur.get("permissionGrants") or {}).get("permissionGrants") or {}
+            allow = grants.get("allow") if isinstance(grants, dict) else None
+            if isinstance(allow, list) and FULL_GRANT in allow:
+                grants["allow"] = [r for r in allow if r != FULL_GRANT]
+                _atomic(path, cur)
+            return ""
+        data = dict(cur or {"id": pid, "projectResources": {}})
+        data["id"] = pid
+        data.setdefault("name", "%s · Workspace" % (display or agent))
+        data.setdefault("projectResources", {})
+        pg = data.get("permissionGrants")
+        if not isinstance(pg, dict):
+            pg = {}
+        inner = pg.get("permissionGrants")
+        if not isinstance(inner, dict):
+            inner = {}
+        allow = inner.get("allow") if isinstance(inner.get("allow"), list) else []
+        if FULL_GRANT not in allow:
+            allow = allow + [FULL_GRANT]
+        inner["allow"] = allow
+        pg["permissionGrants"] = inner
+        pg.setdefault("v2Migrated", True)
+        data["permissionGrants"] = pg
+        if data != cur:
+            _atomic(path, data)
+        return pid
+    except (OSError, ValueError, TypeError, AttributeError):
+        return ""
+
+
+# ── tema: recolor de los colores ANSI que usa agy (OSC 4 / OSC 104) ─────────
+PALETTE_RESET = "\033]104;2;4;8;12\007"
+
+
+def _color_scheme(settings_path=None):
+    """`colorScheme` de agy ("terminal" si no está fijado). Solo lectura."""
+    try:
+        with open(settings_path or os.path.join(_agy_home(), "settings.json"),
+                  encoding="utf-8") as fh:
+            data = json.load(fh)
+        v = data.get("colorScheme") if isinstance(data, dict) else None
+        return str(v).strip().lower() if v else "terminal"
+    except (OSError, ValueError):
+        return "terminal"
+
+
+def palette_osc(settings_path=None):
+    """OSC 4 para los slots ANSI que pinta agy (2, 4, 8, 12) desde la paleta
+    del hub, o '' si no aplica: el socio eligió otro colorScheme (se respeta;
+    nunca se escribe el suyo), terminal sin color, o paleta no resoluble."""
+    if _color_scheme(settings_path) != "terminal":
+        return ""
+    try:
+        import tuitheme
+        if tuitheme.color_mode() == "mono":
+            return ""
+        import theme_render
+        pal = theme_render.hub_engine_palette()
+        if not pal:
+            return ""
+        out = ""
+        for n, hx in theme_render.ansi_slots(pal):
+            out += "\033]4;%d;rgb:%s/%s/%s\007" % (n, hx[1:3], hx[3:5], hx[5:7])
+        return out
+    except Exception:
+        return ""
+
+
+def _tty_write(seq):
+    """Escribe una secuencia OSC a la terminal REAL (no a un stdout
+    redirigido). Solo con tty. Falla-suave."""
+    if not seq:
+        return False
+    try:
+        if not sys.stdout.isatty():
+            return False
+        import theme
+        w = theme._tty()
+        w.write(seq)
+        w.flush()
+        return True
+    except Exception:
         return False
 
 
@@ -294,25 +531,38 @@ def _append_session_block(brain, block):
 def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
     brain = cfg.get("_brain", "")
     agent = str(cfg.get("name") or "")
+    auto = _autonomy(cfg)
     if plan:
+        pid = ""
         print("  motor: antigravity · CLI agy")
         print("  cerebro: " + brain)
         print("  binario: " + (shutil.which("agy") or "FALTA agy en PATH"))
-        print("  argumentos: " + repr(_interactive_argv(cfg, passthrough)))
+        print("  %s: %s" % (_t("motorbar.plan.autonomy_short", "autonomía", "autonomy"),
+                            _autonomy_text(auto)))
+        print("  argumentos: " + repr(_interactive_argv(cfg, passthrough,
+                                                        project_id=pid)))
         print("  pestañas: picker compartido + registro neutral — resume: "
               "--conversation <id> (validado); memoria de la pestaña va "
               "INVISIBLE en el GEMINI.md generado; id atado post-hoc "
               "(cache/last_conversations.json, snapshot antes/después)")
-        print("  login/sesiones: credenciales las gestiona agy; hooks de "
-              "tools pendientes")
+        print("  login/sesiones: credenciales las gestiona agy; hooks "
+              "nativos sin activar (Workspace emite inicio/cierre)")
         return
     if not brain or not os.path.isdir(brain):
         raise SystemExit("WORKSPACE: cerebro inexistente para Antigravity")
     if not shutil.which("agy"):
         raise SystemExit("WORKSPACE: falta Antigravity CLI (agy) en PATH")
 
-    if not ensure_brain_access(brain):
-        print('WORKSPACE: no pude registrar la lectura automática del cerebro en Antigravity.')
+    if not ensure_brain_access(brain, write=auto != "ask"):
+        print("WORKSPACE: " + _t(
+            "motorbar.agy.access_failed",
+            "no pude registrar el acceso del cerebro en Antigravity (pedirá permiso para editarlo).",
+            "couldn't register the brain's access in Antigravity (it will ask before editing it)."))
+    # «Comandos sin preguntar» ya no existe: si el agente tenía el proyecto de
+    # agy con la regla command(*) (versión anterior), se le QUITA aquí. Nunca
+    # bloquea el arranque; jamás se pasa --project.
+    ensure_agent_project(agent, "brain", cfg.get("display") or agent)
+    pid = ""
 
     # Motor+modelo REAL en el banner (dinámico — regla del socio). El modelo
     # sale del --model del socio si lo pasó; si no, lo elige agy.
@@ -387,7 +637,7 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
             first_prompt = ""
 
     args = _interactive_argv(cfg, passthrough, resume_cid=resume_cid,
-                             first_prompt=first_prompt)
+                             first_prompt=first_prompt, project_id=pid)
 
     import interactive
     import antigravity_usage
@@ -419,21 +669,34 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
                 pass
 
     before_cid = _vendor_conversation_for(brain)
-    # U10: barra mínima (agy no tiene statusline propia) — solo datos reales.
+    # U10: línea previa + título de la terminal (agy no fija título propio);
+    # los números viven en su statusLine nativa (shim de Workspace).
     try:
         from engines import _ui as _bar
         _mode = next((args[i + 1] for i, x in enumerate(args[:-1]) if x == "--mode"), "")
-        _perms = ", ".join(p for p in (_mode, "sandbox" if "--sandbox" in args else "")
-                           if p) or "los del CLI (agy)"
+        _perms = ", ".join(p for p in (
+            _mode,
+            _t("motorbar.agy.commands_free", "comandos sin preguntar", "commands without asking")
+            if (pid and "--project" in args) else "",
+            "sandbox" if "--sandbox" in args else "") if p) or "los del CLI (agy)"
         _bar_fields = _bar.status_fields(
             cfg, tab, engine_label=os.environ.get("WORKSPACE_ENGINE_LABEL") or "Antigravity",
             perms=_perms,
-            saving=("pestaña %s → STATE/sessions" % tab[1]) if tab else "sin pestaña (no se guarda memoria)")
+            saving=("pestaña %s → STATE/sessions" % tab[1]) if tab else "sin pestaña (no se guarda memoria)",
+            tokens=_t("motorbar.agy.tokens_in_bar", "en la barra de Antigravity",
+                      "in Antigravity's bar"))
         _bar.show_status_bar(_bar_fields)
     except Exception:
         _bar = None
-    rc = interactive.run_official_cli_interactive(
-        "antigravity", brain=brain, argv=args, context_sink=save_context)
+    # Tema: recolorea los colores ANSI que usa agy (solo colorScheme
+    # "terminal") y los restaura al salir, pase lo que pase.
+    _osc = _tty_write(palette_osc())
+    try:
+        rc = interactive.run_official_cli_interactive(
+            "antigravity", brain=brain, argv=args, context_sink=save_context)
+    finally:
+        if _osc:
+            _tty_write(PALETTE_RESET)
     if _bar is not None:
         _bar.clear_title()
 
@@ -461,7 +724,39 @@ def pick(cfg):
     """El picker de pestañas ahora es COMPARTIDO (registro neutral): misma
     elección cruda que claude_code.pick — para el hub tmux. Falla-suave."""
     try:
-        from engines import claude_code as _cc
-        return _cc.pick(cfg)
+        from engines import _ui
+        cfg.setdefault("_engine", "antigravity")
+        return _ui.pick_keep_label(cfg, "Antigravity · modelo de agy")
     except Exception:
         return ""
+
+
+def _autonomy(cfg):
+    try:
+        from engines import _ui
+        return _ui.autonomy(cfg)
+    except Exception:
+        return "brain"
+
+
+def _t(key, es, en=None, **kw):
+    try:
+        import workspace_status
+        return workspace_status.t(key, es, en, **kw)
+    except Exception:
+        return es
+
+
+def _autonomy_text(auto):
+    """Qué significa la autonomía del agente EN ANTIGRAVITY, en una línea."""
+    if auto == "ask":
+        return _t("motorbar.agy.ask",
+                  "ask — pregunta antes de crear o editar, también en el "
+                  "cerebro; terminal y archivos fuera piden permiso",
+                  "ask — asks before creating or editing, also in the brain; "
+                  "terminal and outside files ask first")
+    return _t("motorbar.agy.brain",
+              "brain — edita en el cerebro sin preguntar; terminal y archivos "
+              "fuera piden permiso",
+              "brain — edits in the brain without asking; terminal and outside "
+              "files ask first")

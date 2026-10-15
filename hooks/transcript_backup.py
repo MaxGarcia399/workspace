@@ -7,7 +7,7 @@ Al cerrar una sesión, copia el .jsonl crudo de Claude Code
     ~/.claude/workspace/transcripts-backup/<enc>/<wid>.jsonl
 
 Por qué existe: los transcripts crudos son la materia prima del backfill de
-memoria v2 (N1 · Dreaming). `cleanupPeriodDays=3650` (Y2a) mitiga el borrado
+memoria v2 (N1 · Dreaming). `cleanupPeriodDays=365` (Y2a) mitiga el borrado
 por edad, pero un reinstall / limpieza de ~/.claude/projects los pierde todos.
 Este hook es el respaldo activo: "no perder". La curación/destilación es N1.
 
@@ -137,7 +137,10 @@ def main():
         return                                   # canal nuevo (settings.py)
     data = _stdin()
     brain = data.get("cwd", "") or os.getcwd()
-    backup = backup_transcript(data.get("transcript_path", ""), brain)
+    tpath = data.get("transcript_path", "")
+    if tpath and data.get("transcript_backup") == tpath:
+        return      # Antigravity: el wrapper ya lo respaldó y anotó (session_continuity)
+    backup = backup_transcript(tpath, brain)
     if backup:
         try:
             import session_continuity

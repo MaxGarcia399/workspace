@@ -297,8 +297,14 @@ def close_payload(brain, engine, started, payload, run_id):
             result.update(capture_state="failed", distillation_state="unsupported-format",
                           capture_error=type(exc).__name__)
             print("WORKSPACE: respaldo Antigravity falló (%s); consulta workspace memoria status" % type(exc).__name__, file=__import__("sys").stderr)
+        # Los listeners de session_end (revisión de skills) leen el contrato
+        # de siempre: `transcript_path` + `cwd`. En Antigravity el transcript
+        # legible es la copia del log de diálogo (no el .db propietario).
+        if result.get("transcript_backup"):
+            result["transcript_path"] = result["transcript_backup"]
     else:
         result["capture_state"] = "unsupported"
+    result.setdefault("cwd", brain)
     record(brain, run_id, engine=engine, tab=tab,
            session_id=result.get("session_id", ""),
            capture_state=result["capture_state"], distilled_at=None,

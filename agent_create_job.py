@@ -172,7 +172,8 @@ def active():
 def start(params):
     """Arranca la creación en un hilo daemon. `params` = kwargs de
     agent_admin.create (name, display, tagline, owner, scope, soul, skills,
-    engine). Devuelve el job dict (la UI lo lee; solo el worker escribe).
+    engine, autonomy, skill_review). Devuelve el job dict (la UI lo lee; solo
+    el worker escribe).
     Si ya hay un job corriendo, devuelve ESE (un solo job a la vez)."""
     global _JOB
     with _LOCK:
@@ -258,6 +259,8 @@ def _worker(job):
             soul=p.get("soul", ""), skills=p.get("skills", ""),
             intake=p.get("intake"),
             brain_dest=p.get("brain_dest"), engine=job["engine"],
+            autonomy=p.get("autonomy") or "brain",
+            skill_review=bool(p.get("skill_review")),
             out=lambda *a, **k: None, progress=_on_step,
             should_cancel=lambda: job["cancel"])
     except Exception as e:

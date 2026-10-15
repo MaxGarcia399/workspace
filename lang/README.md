@@ -23,8 +23,8 @@ lang/
   es/                 ← FUENTE (español)        en/                 ← traducción
     common.py              hub.py                 common.py  hub.py
     tono.py  calendario.py                        tono.py    …
-    addagent.py  actualizaciones.py  atajos.py
-    personalizacion.py  onboarding.py  greeter.py  banner.py
+    addagent.py  actualizaciones.py
+    onboarding.py  greeter.py  banner.py
 ```
 
 Cada módulo exporta `STRINGS = {...}` con claves namespaceadas por esa pantalla.
@@ -170,7 +170,6 @@ Módulos (pantallas) del reparto, con su archivo de código principal:
 | `calendario` | editor de agenda (`calendario_tui.py`) |
 | `addagent` | crear/cargar agente, modelo/motor, banner (`add_agent_tui.py` y afines) |
 | `actualizaciones` | revisar/reparar/actualizar (`actualizaciones_tui.py`) |
-| `atajos` | re-mapear teclas (`keybinds_tui.py`) |
 | `personalizacion` | labels de pins tema/fondo + fondo independiente |
 | `common` | cadenas compartidas entre pantallas |
 | `banner` | template de banner de agente |
@@ -263,7 +262,7 @@ no los strippea. No muevas estos archivos a una carpeta que sí se strippee
   es un elemento compartido por las vistas `motores/apariencia/agente`, aún sin
   traducir; se traduce junto con ellas para no quedar a medias.
 - Pantallas del cliente aún hardcodeadas: `motores`, `apariencia`, `agente`,
-  `resumen` del onboarding; `calendario_tui`, `tono_tui`, `keybinds_tui`,
+  `resumen` del onboarding; `calendario_tui`, `tono_tui`,
   `actualizaciones_tui`, `add_agent_tui`. El «chrome» compartido
   del hub (`front.py` recinto/banner/hero/narrow, `hublayout` layouts
   `dia`/`centro`, `responsive_ui.vertical_hub`) quedó HECHO en la Ola 1.

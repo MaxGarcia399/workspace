@@ -367,6 +367,105 @@ def seed_definition(folder, name=None, owner=None, display=None, tagline="",
     return True, name
 
 
+# ── permisos + revisión de skills: las DOS preguntas al crear/cargar ─────────
+#: Contrato común de los motores (agent.json): `autonomy` brain|ask (default
+#: brain = lee y escribe su cerebro sin preguntar; ask = pregunta también
+#: dentro de su cerebro) y `skill_review` (revisión de skills al cerrar cada
+#: sesión). Se cambian en Agentes → Enter. "full" (comandos sin preguntar) ya NO
+#: se ofrece (decisión del dueño 2026-10-14: no es tan seguro); los motores lo
+#: siguen entendiendo si un agent.json lo trae escrito a mano.
+AUTONOMY_CHOICES = ("ask", "brain")
+_YES = ("s", "si", "sí", "y", "yes")
+
+
+def norm_autonomy(v, default="brain"):
+    """'ask' / 'brain' (lo que se puede elegir). Lo demás, incluido "full",
+    → `default`."""
+    s = str(v or "").strip().lower()
+    return s if s in AUTONOMY_CHOICES else default
+
+
+def norm_bool(v, default=False):
+    """True/False desde un bool o un texto (`--param skill_review=si`)."""
+    if isinstance(v, bool):
+        return v
+    s = str(v if v is not None else "").strip().lower()
+    if s in ("1", "true", "on") + _YES:
+        return True
+    if s in ("0", "false", "off", "no", "n"):
+        return False
+    return default
+
+
+def _is_tty():
+    try:
+        return sys.stdin.isatty() and sys.stdout.isatty()
+    except Exception:
+        return False
+
+
+def ask_preferences(autonomy=None, skill_review=None, interactive=None,
+                    input_fn=None, out=print, name=""):
+    """La pregunta al crear o cargar un agente (CLI): la revisión de skills.
+    Los permisos no se preguntan: leer y escribir su cerebro viene encendido
+    (es su trabajo principal) y se cambia en Agentes → Enter; `autonomy` solo
+    pasa si llegó explícito (flag). Sin terminal interactiva no pregunta nada:
+    devuelve lo recibido (None = «no lo elegiste»; el caller usa el default
+    o lo que el cerebro ya declara). Respuesta vacía = no. Devuelve
+    (autonomy|None, skill_review|None)."""
+    if interactive is None:
+        interactive = _is_tty()
+    if autonomy is not None:
+        autonomy = norm_autonomy(autonomy)
+    if skill_review is not None:
+        skill_review = norm_bool(skill_review)
+    if not interactive or skill_review is not None:
+        return autonomy, skill_review
+    ask = input_fn or input
+
+    def _si(q):
+        try:
+            return str(ask(q) or "").strip().lower() in _YES
+        except (EOFError, KeyboardInterrupt):
+            return False
+
+    try:
+        out(_t("addagent.prefs.intro",
+               "Permisos de «{n}»: lee, crea y edita dentro de su cerebro sin "
+               "preguntarte; lo demás (terminal, archivos de fuera, red) te lo "
+               "pregunta. Todo esto se cambia después en Agentes (Enter sobre el agente).",
+               n=name or "tu agente"))
+    except Exception:
+        pass
+    if skill_review is None:
+        skill_review = _si(_t(
+            "addagent.prefs.q_review",
+            "¿Revisión automática de skills al cerrar cada sesión? Mejora sus "
+            "skills con lo que corriges; usa un poco de tu suscripción. "
+            "[s/N]: "))
+    return autonomy, skill_review
+
+
+def _set_preferences(folder, autonomy=None, skill_review=None):
+    """Anota en `<cerebro>/.workspace/agent.json` lo que el usuario eligió
+    (solo si cambia algo: el archivo viaja con el cerebro). Falla-suave →
+    False."""
+    if autonomy is None and skill_review is None:
+        return True
+    path = agentsreg.agent_json_path(folder)
+    d = _read_json(path)
+    if not isinstance(d, dict) or not d:
+        return False
+    new = dict(d)
+    if autonomy is not None:
+        new["autonomy"] = norm_autonomy(autonomy)
+    if skill_review is not None:
+        new["skill_review"] = bool(skill_review)
+    if new == d:
+        return True
+    return _atomic_write_json(path, new)
+
+
 # ── O5 · crear ───────────────────────────────────────────────────────────────
 #: Los PASOS REALES de create(), en orden — contrato para cualquier UI que
 #: quiera pintar el proceso (add_agent_tui los pinta EN VIVO). `create()` los
@@ -462,7 +561,8 @@ def _write_owner_profile(dest, display, owner, intake):
 def create(name, tagline="", display=None, owner="", scope="", soul="",
            skills="", color="gris", brain_dest=None, dry_run=False, out=print,
            configure=True, engine="claude-code", progress=None,
-           should_cancel=None, intake=None):
+           should_cancel=None, intake=None, autonomy="brain",
+           skill_review=False):
     """Crea un agente NUEVO autocontenido: scaffold del cerebro desde el template
     (placeholders renderizados) + `.workspace/agent.json` RICO + socio.local + registro
     per-máquina. Con `configure=True` (default) lo deja USABLE y CON COLOR: tema
@@ -479,6 +579,8 @@ def create(name, tagline="", display=None, owner="", scope="", soul="",
     «Agregar agente» (texto libre, multilínea): se guarda en el agent.json
     del cerebro («intake») y siembra `STATE/users/<owner>.md` con lo que
     dijo del dueño — así el agente nace A LA MEDIDA, no genérico.
+    `autonomy` (brain|full) y `skill_review` quedan en su agent.json: los
+    motores leen la autonomía (permisos) y hooks/skill_review.py la revisión.
     Devuelve (ok, name|error). No sobrescribe carpetas existentes."""
     name = (name or "").strip().lower()
 
@@ -546,6 +648,11 @@ def create(name, tagline="", display=None, owner="", scope="", soul="",
         "{{SOUL_HINT}}": soul or "(sin semilla — diseñar desde cero)",
         "{{SKILL_CATS}}": skills, "{{COLOR}}": color, "{{SCOPE}}": scope,
         "{{DATE}}": datetime.date.today().isoformat(),
+        # La distribución (make-dist) cambia BOOT/02-TEAM.md por una plantilla
+        # de dueño con {{TEAM_OR_OWNER}}: sin esto, todo agente creado por un
+        # cliente nacía con «1 placeholder(s) sin llenar».
+        "{{TEAM_OR_OWNER}}": (("- **%s** — dueño de este agente." % owner)
+                              if owner else "- *(sin describir todavía)*"),
     }
     # scaffold + def + socio: TODO en un try con ROLLBACK (dest es nuevo — lo
     # creamos nosotros, así que borrarlo en fallo es seguro y evita medios-cerebros).
@@ -559,6 +666,8 @@ def create(name, tagline="", display=None, owner="", scope="", soul="",
         "engine": engine, "brain": ".", "color": color, "theme": name,
         "session_env": upper + "_WS", "session_id_env": upper + "_WID",
         "setup": {"session_journal": True, "autonomous": False},
+        "autonomy": norm_autonomy(autonomy),
+        "skill_review": bool(norm_bool(skill_review)),
         "memory": {"tiering": "v1", "dreaming": True, "fts_index": False,
                    "index_contract": "STATE/INDEX.md"},
         "scripts": {"banner": _GENERIC_BRAND % "banner",
@@ -636,7 +745,8 @@ def create(name, tagline="", display=None, owner="", scope="", soul="",
         try:
             import install
             _prog(progress, "cableado", "run")
-            install.configure_brain(name, defn, dest, owner or "owner")
+            install.configure_brain(name, defn, dest, owner or "owner",
+                                    apply_autonomy=True)
             _prog(progress, "cableado", "ok")
             _prog(progress, "launcher", "run")
             install.install_launchers([name])
@@ -770,11 +880,15 @@ def inspect_brain(folder):
     return info
 
 
-def load(folder, name=None, out=print, progress=None):
+def load(folder, name=None, out=print, progress=None, autonomy=None,
+         skill_review=None):
     """Carga un agente apuntando a una carpeta de cerebro. Si no es
     autodescriptiva, la siembra. Registra en agents.local.json (per-máquina).
     `progress(key, st, note)` reporta CADA paso de LOAD_STEPS en vivo (la
-    pantalla «Agregar agente» lo pinta). Devuelve (ok, name|error)."""
+    pantalla «Agregar agente» lo pinta). `autonomy`/`skill_review` = lo que
+    el usuario ACABA de elegir: se anotan en su agent.json y los permisos se
+    reescriben según la autonomía. None = no se eligió: se respeta lo que el
+    cerebro ya declara (y sus permisos actuales). Devuelve (ok, name|error)."""
     folder = os.path.abspath(os.path.expanduser(folder or ""))
     _prog(progress, "validar", "run")
     if not os.path.isdir(folder):
@@ -817,6 +931,10 @@ def load(folder, name=None, out=print, progress=None):
         _prog(progress, "identidad", "ok", "def mínima sembrada (no había)")
     else:
         _prog(progress, "identidad", "ok", "def existente — se respeta")
+    chosen = autonomy is not None or skill_review is not None
+    if chosen and not _set_preferences(folder, autonomy, skill_review):
+        out("AGENT: WARN: no pude anotar autonomía/revisión en el agent.json "
+            "de %s" % intended)
     _prog(progress, "registro", "run")
     ok, err = agentsreg.add(intended, folder)
     if not ok:
@@ -832,12 +950,15 @@ def load(folder, name=None, out=print, progress=None):
     try:
         import install
         cfg = agentsreg.load_definition(folder) or {"name": intended}
+        if autonomy is not None:
+            cfg = dict(cfg, autonomy=norm_autonomy(autonomy))
         try:
             socio = open(install.machine_socio_path(), encoding="utf-8").read().strip()
         except Exception:
             socio = ""
         _prog(progress, "cableado", "run")
-        install.configure_brain(intended, cfg, folder, socio or "owner")
+        install.configure_brain(intended, cfg, folder, socio or "owner",
+                                apply_autonomy=autonomy is not None)
         _prog(progress, "cableado", "ok")
         _prog(progress, "launcher", "run")
         install.install_launchers([intended])
@@ -875,12 +996,34 @@ def main(argv=None):
         if dry:
             print("\n(dry-run — usa: agent_admin.py separate --apply)")
         return 0 if not res["errors"] else 1
+    if cmd in ("load", "create") and len(args) >= 2:
+        import argparse
+
+        def _prefs_flags(ap):
+            # las dos preguntas, para scripts: con flag no se pregunta; sin
+            # terminal interactiva tampoco (defaults: brain, sin revisión)
+            ap.add_argument("--autonomy", choices=AUTONOMY_CHOICES, default=None,
+                            help="brain (default): lee y escribe su cerebro sin "
+                                 "preguntar · ask: pregunta también en su cerebro")
+            g = ap.add_mutually_exclusive_group()
+            g.add_argument("--skill-review", dest="skill_review",
+                           action="store_true", default=None)
+            g.add_argument("--no-skill-review", dest="skill_review",
+                           action="store_false")
     if cmd == "load" and len(args) >= 2:
-        ok, res = load(args[1])
+        ap = argparse.ArgumentParser(prog="agent_admin.py load")
+        ap.add_argument("folder")
+        _prefs_flags(ap)
+        a = ap.parse_args(args[1:])
+        info = inspect_brain(a.folder)
+        autonomy, review = a.autonomy, a.skill_review
+        if info.get("exists"):              # no preguntar por una carpeta que no existe
+            autonomy, review = ask_preferences(autonomy, review,
+                                               name=info.get("name", ""))
+        ok, res = load(a.folder, autonomy=autonomy, skill_review=review)
         print(("cargado: " + res) if ok else ("error: " + res))
         return 0 if ok else 1
     if cmd == "create" and len(args) >= 2:
-        import argparse
         ap = argparse.ArgumentParser(prog="agent_admin.py create")
         ap.add_argument("name")
         ap.add_argument("--tagline", default="")
@@ -892,15 +1035,54 @@ def main(argv=None):
         ap.add_argument("--brain-dest", default=None)
         ap.add_argument("--engine", default="claude-code")
         ap.add_argument("--dry-run", action="store_true")
+        _prefs_flags(ap)
         a = ap.parse_args(args[1:])
+        autonomy, review = a.autonomy, a.skill_review
+        if not a.dry_run and agentsreg.is_valid_name(a.name.strip().lower()):
+            autonomy, review = ask_preferences(autonomy, review, name=a.name)
         ok, res = create(a.name, tagline=a.tagline, display=a.display,
                          owner=a.owner, color=a.color, scope=a.scope,
                          soul=a.soul, brain_dest=a.brain_dest,
-                         engine=a.engine, dry_run=a.dry_run)
+                         engine=a.engine, dry_run=a.dry_run,
+                         autonomy=autonomy or "brain",
+                         skill_review=bool(review))
         print(("creado: " + res) if ok else ("error: " + res))
         return 0 if ok else 1
-    print("uso: agent_admin.py separate [--apply] | load <carpeta> | "
-          "create <name> [--tagline ... --owner ... --color ...]")
+    if cmd == "prefs" and len(args) >= 2:
+        # lo mismo que Agentes → Enter, sin abrir el hub (sirve a cualquier motor)
+        import argparse
+        import agent_manage
+        ap = argparse.ArgumentParser(prog="agent_admin.py prefs")
+        ap.add_argument("agent")
+        ap.add_argument("--autonomy", choices=AUTONOMY_CHOICES, default=None)
+        g = ap.add_mutually_exclusive_group()
+        g.add_argument("--skill-review", dest="skill_review",
+                       action="store_true", default=None)
+        g.add_argument("--no-skill-review", dest="skill_review",
+                       action="store_false")
+        a = ap.parse_args(args[1:])
+        rc = 0
+        for fn, val in (("set_autonomy", a.autonomy),
+                        ("set_skill_review", a.skill_review)):
+            if val is None:
+                continue
+            r = getattr(agent_manage, fn)(a.agent, val)
+            print(("✓ " + r["msg"]) if r.get("ok") else ("✗ " + str(r.get("error"))))
+            rc = rc or (0 if r.get("ok") else 1)
+        p = agent_manage.preferences(a.agent)
+        if not p.get("ok"):
+            print("✗ " + str(p.get("error")))
+            return 1
+        print("autonomy=%s skill_review=%s%s" % (
+            p["autonomy"], "on" if p["skill_review"] else "off",
+            " (ajuste general)" if p["review_global"] else ""))
+        return rc
+    print("uso: agent_admin.py separate [--apply] | load <carpeta> "
+          "[--autonomy brain|ask] [--skill-review|--no-skill-review] | "
+          "create <name> [--tagline ... --owner ... --color ... "
+          "--autonomy brain|ask --skill-review|--no-skill-review] | "
+          "prefs <agente> [--autonomy brain|ask] "
+          "[--skill-review|--no-skill-review]")
     return 2
 
 

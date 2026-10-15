@@ -77,10 +77,11 @@ def picker_frame(items, selected, width, height, box_w=None, left=None):
         # ni encoger por debajo del contenido compacto mínimo)
         pw = max(pw, min(int(box_w), width - 5))
     inner = pw - 4                               # ancho útil entre bordes
+    ptr = H.cols(tuitheme.palette())['PTR']      # el cursor del hub (❯)
     body=[]
     for i,(label,sub,_) in enumerate(items):
         if start <= i < start+cap:
-            row = ('> ' if i == selected else '  ') \
+            row = ((ptr + ' ') if i == selected else '  ') \
                 + H.clip(label, max(1, inner - 10))
             sub_c = H.clip(sub, max(0, inner - H.vis(row) - 2))
             gap = max(2, inner - H.vis(row) - H.vis(sub_c))
@@ -169,15 +170,15 @@ def session_screen(items, selected, width, height, context, banner=''):
 
 def _apply_theme_osc(palette):
     """Fondo/tinta del TEMA activo — paridad EXACTA con el hub (front.py):
-    un tema no-default trae su propio fondo (tui.osc en themes/<id>/
-    theme.json); sin OSC (olympo/mono) se RESTAURA el fondo legacy
-    'workspace'. Sin el else, al volver de un tema oscuro el fondo viejo se
-    quedaba pegado en el picker (gap del cambio de tema en vivo)."""
+    un tema trae su propio fondo (tui.osc en themes/<id>/theme.json); sin
+    OSC (terminal sin color) se RESTAURAN los colores de la terminal. Sin el
+    else, al volver de un tema oscuro el fondo viejo se quedaba pegado en el
+    picker (gap del cambio de tema en vivo)."""
     import theme
     if getattr(palette, 'OSC', None):
         theme.apply_colors(palette.OSC)
     else:
-        theme.apply('workspace')
+        theme.reset()
 
 
 def live_picker(items, script):

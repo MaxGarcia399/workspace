@@ -27,6 +27,12 @@ IS_WIN = platform.system() == "Windows"
 DRY = "--dry-run" in sys.argv
 KEEP_FOLDER = "--keep-folder" in sys.argv
 C, R, B, DIM = "\033[38;5;51m", "\033[0m", "\033[1m", "\033[38;5;67m"
+try:    # acento/tenue del TEMA del hub (el mismo de cada pantalla); sin tema, los de arriba
+    import tuitheme as _tuitheme
+    _TP = _tuitheme.palette()
+    C, R, B, DIM = _TP.C, _TP.R, _TP.BO, _TP.DIM
+except Exception:
+    pass
 if IS_WIN:
     os.system("")  # habilita ANSI en Windows 10+
 
@@ -543,6 +549,7 @@ def main():
 
     print(_t("uninstall.x.main.6", "\n  {c}Listo.{r} WORKSPACE desinstalado de esta máquina.", c=C, r=R))
     print(_t("uninstall.x.main.7", "  {dim}Los CEREBROS (carpetas de agentes) y los transcripts NO se tocaron.{r}", dim=DIM, r=R))
+    print(_t("uninstall.x.main.9", "  {dim}Si vuelves a instalar Workspace, carga de nuevo cada agente (Agregar agente → cargar su carpeta) para que apunte a la instalación nueva; si restauraste tu respaldo, basta con `workspace doctor`.{r}", dim=DIM, r=R))
     if backup and not DRY:
         print(f"  {DIM}" + _t("uninstall.backup_where", "Tu respaldo: {p}").replace(
             "{p}", backup) + R)

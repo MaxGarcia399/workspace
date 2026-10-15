@@ -95,6 +95,18 @@ WINDOW_BACK = 370                         # expansión de RRULE: hoy ± ~1 año
 WINDOW_FWD = 370
 _MEMO_TTL = 30.0                          # memo en proceso (render barato)
 
+#: EN PAUSA (2026-10-14, pedido del dueño: «quita la opción de google por
+#: ahora, tenemos que trabajar más en esa»). El código se queda; el
+#: calendario y el primer arranque no lo ofrecen ni muestran sus eventos.
+#: Para seguir trabajándolo: WORKSPACE_GCAL=1.
+ENABLE_ENV = "WORKSPACE_GCAL"
+
+
+def enabled():
+    """¿Se ofrece Google Calendar en el hub? Apagado por ahora."""
+    return os.environ.get(ENABLE_ENV) == "1"
+
+
 _memo = {"ts": 0.0, "sig": None, "events": []}
 _fetch_lock = threading.Lock()            # single-flight del refresh por cuenta
 _cache_lock = threading.RLock()

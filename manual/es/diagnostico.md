@@ -6,12 +6,20 @@
 workspace doctor
 ```
 
-Revisa Workspace **por fases** (requisitos, motores, cerebros, comandos, permisos,
-capacidades de tu sistema…) y **repara** lo que puede. Si una fase ya está bien, la salta.
-Correrlo dos veces no rompe ni duplica nada.
+Revisa **solo lo esencial** para que Workspace funcione y **repara** lo que puede:
 
-Solo mirar, sin cambiar nada y sin buscar actualizaciones (lo único que puede salir a la red
-es la consulta de tu sesión de GitHub, si tienes `gh` instalado):
+- git, Python y el programa del motor que usan **tus** agentes;
+- las actualizaciones (versión, ajustes pendientes o fallidos);
+- **tus agentes**: que su carpeta exista, que sus *hooks* apunten a esta instalación y que
+  su comando esté instalado;
+- restos de una instalación anterior.
+
+Es lo mismo que corre al final de `workspace update`. Si una fase ya está bien, la salta;
+correrlo dos veces no rompe ni duplica nada. No revisa funciones opcionales (voz, terminal
+partida: [Compatibilidad](compatibilidad.md)) ni cómo organizas tus cerebros, y **no tener
+agentes todavía es normal**: no es un aviso.
+
+Solo mirar, sin cambiar nada y sin salir a internet:
 
 ```bash
 workspace doctor --check
@@ -27,7 +35,8 @@ que sugiere.
 | `workspace` no existe tras instalar | abre una **terminal nueva**; si sigue, corre de nuevo el instalador |
 | El menú se ve descuadrado | agranda la ventana; en Windows usa Windows Terminal |
 | Un agente no encuentra su cerebro | `workspace doctor` te dice dónde lo buscó y cómo indicarle la ruta |
-| Un motor sale como "falta dependencia" | instala su programa oficial y entra con tu cuenta ([Motores](motores.md)) |
+| El doctor dice que falta el CLI de un motor | instala su programa oficial y entra con tu cuenta ([Motores](motores.md)) |
+| Moviste o reinstalaste Workspace y un agente falla al abrir | `workspace doctor` vuelve a apuntar sus *hooks* a esta instalación |
 | Instalaste dentro de OneDrive | mueve Workspace fuera (p. ej. `%LOCALAPPDATA%\Workspace`); el doctor lo detecta |
 
 ## Pedir ayuda

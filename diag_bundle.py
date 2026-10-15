@@ -333,8 +333,8 @@ def agentes():
 
 def doctor_check():
     """`doctor --check` en un proceso aparte: aislado, solo lectura, sin TTY
-    (no ofrece la sesión de Zenith) y con tope de tiempo."""
-    env = dict(os.environ, WORKSPACE_DOCTOR_NO_ZENITH="1", PYTHONIOENCODING="utf-8",
+    y con tope de tiempo."""
+    env = dict(os.environ, PYTHONIOENCODING="utf-8",
                NO_COLOR="1")
     r = subprocess.run([sys.executable, os.path.join(ROOT, "doctor.py"), "--check"],
                        capture_output=True, text=True, encoding="utf-8",

@@ -40,7 +40,7 @@ STRINGS = {
     'panel.cfg.heartbeat': 'heartbeat',
     'panel.cfg.theme': 'theme',
     'panel.cfg.ro': 'read-only',
-    'panel.cfg.edit': '┈ edit it in workspace config / agent.json',
+    'panel.cfg.edit': '┈ change it with: python3 settings.py set <key> <value>',
     'panel.del.title': 'delegate',
     'panel.del.badge': 'send a task',
     'panel.del.who': 'to whom?',

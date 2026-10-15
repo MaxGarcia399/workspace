@@ -16,7 +16,7 @@ STRINGS = {
     "common.hint.quit": "sale",
     "common.hint.engine": "motor",
     "common.hint.info": "información",
-    "common.hint.menu": "menú",
+    "common.hint.back": "vuelve",
 
     # ── estado de un agente (semáforo + palabra) ────────────────────────────
     "common.status.working": "trabajando",

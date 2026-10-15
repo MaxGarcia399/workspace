@@ -19,6 +19,39 @@ import sys
 from engines import claude_code as _cc
 
 
+#: Autonomía del agente (contrato común con el núcleo: `"autonomy"` en el
+#: `.workspace/agent.json` del cerebro). "brain" (default) = lee/crea/edita
+#: DENTRO de su cerebro sin preguntar; terminal, archivos fuera y red piden
+#: permiso. ("full", comandos sin preguntar, ya no existe: se lee "brain".) "ask" =
+#: pregunta también antes de crear o editar en su cerebro (el usuario apagó el
+#: acceso automático en Agentes). Cada motor lo traduce a SUS flags
+#: (engines/codex.py, engines/antigravity.py); ninguno usa jamás un
+#: --dangerously-*/bypass.
+AUTONOMY_LEVELS = ("ask", "brain")     # "full" ya no existe: se lee "brain"
+AUTONOMY_DEFAULT = "brain"
+
+
+def autonomy(cfg):
+    """Autonomía EFECTIVA del agente: "ask" | "brain". Falta / valor raro /
+    un "full" de antes → "brain" (el default: jamás se sube por un typo)."""
+    try:
+        v = str((cfg or {}).get("autonomy") or "").strip().lower()
+    except Exception:
+        v = ""
+    return v if v in AUTONOMY_LEVELS else AUTONOMY_DEFAULT
+
+
+def has_flag(args, *names):
+    """¿El socio ya trae alguno de `names` en su passthrough? Reconoce la
+    forma `--flag valor` y `--flag=valor` (su elección gana siempre)."""
+    for a in args or ():
+        a = str(a)
+        for n in names:
+            if a == n or a.startswith(n + "="):
+                return True
+    return False
+
+
 def theme_cols(accent, dim):
     """(acento, tenue) del TEMA del hub para los banners mínimos de respaldo
     de los motores; los colores fijos dados quedan si tuitheme no está."""
@@ -76,7 +109,7 @@ def pick_tab(cfg, preselect=None):
     if preselect and preselect.get("wid"):
         return preselect["wid"], preselect.get("name", "")
     try:
-        choice = _cc.pick(cfg)
+        choice = pick_keep_label(cfg)
     except Exception as e:
         choice = ""
         _cc.LAST_PICK_ERROR = "selector de pestañas falló (%s: %s)" % (
@@ -86,6 +119,43 @@ def pick_tab(cfg, preselect=None):
     if len(parts) >= 3 and parts[0] == "WS":
         return parts[1], parts[2]
     return None
+
+
+def pick_keep_label(cfg, label=None):
+    """`claude_code.pick` con la etiqueta de motor CORRECTA. Ese picker es el
+    de Claude Code y exporta WORKSPACE_ENGINE_LABEL="Claude Code · …" antes
+    de abrir el menú: para un agente de codex/agy el menú y la línea previa
+    al arranque decían «Claude Code». Aquí (lado del llamador, sin tocar
+    claude_code.py) la etiqueta del motor real se mantiene durante el picker
+    y queda puesta al volver. Sin etiqueta propia (o motor claude-code) es
+    exactamente claude_code.pick."""
+    if label:
+        os.environ["WORKSPACE_ENGINE_LABEL"] = str(label)
+    keep = os.environ.get("WORKSPACE_ENGINE_LABEL") or ""
+    eng = str((cfg or {}).get("_engine") or (cfg or {}).get("engine") or "")
+    if not keep or eng in ("", "claude-code"):
+        return _cc.pick(cfg)
+    orig = _cc._engine_label
+    _cc._engine_label = lambda *_a, **_k: keep
+    try:
+        return _cc.pick(cfg)
+    finally:
+        _cc._engine_label = orig
+        os.environ["WORKSPACE_ENGINE_LABEL"] = keep
+
+
+def set_title(text, out=None):
+    """Título de la ventana de terminal (OSC 0) — solo con tty. Falla-suave."""
+    out = out or sys.stdout
+    try:
+        if text and getattr(out, "isatty", lambda: False)():
+            out.write("\033]0;%s\007" % str(text).replace("\007", "")
+                      .replace("\033", ""))
+            out.flush()
+            return True
+    except Exception:
+        pass
+    return False
 
 
 def export_tab_env(cfg, wid, name):
@@ -101,25 +171,24 @@ def export_tab_env(cfg, wid, name):
         pass
 
 
-# ── barra MÍNIMA de Workspace para motores sin statusline propia (U10/Z10) ──
-# agy (Antigravity CLI) no expone hook de statusline (verificado con
-# `agy --help`, 2026-10-10: sin opción de barra/status). En vez de inventar
-# hooks o secuestrar la pantalla del TUI, Workspace muestra lo que SÍ sabe:
-#   · una línea al arrancar con agente · pestaña · motor · permisos ·
-#     guardado de memoria;
-#   · el TÍTULO de la ventana de terminal (OSC 0) con lo mismo en corto —
-#     persiste mientras el TUI full-screen está arriba y no lo tapa.
-# Tokens/costo NO se muestran como números: el CLI no los publica
-# (desconocido ≠ 0).
+# ── línea previa al arranque + título de la terminal (U10/Z10) ──────────────
+# Antes de entregar la pantalla al TUI del motor, Workspace dice lo que SÍ
+# sabe: una línea con agente · pestaña · motor · permisos · guardado de
+# memoria, y el TÍTULO de la ventana (OSC 0) con lo mismo en corto — persiste
+# mientras el TUI full-screen está arriba (agy no fija título propio). Los
+# números de uso NO salen de aquí: viven en la barra NATIVA del motor (la
+# statusLine de agy que Workspace configura; la de Codex por -c), que los
+# recibe del propio CLI. Desconocido ≠ 0: nunca se inventa un número.
 
-def status_fields(cfg, tab=None, engine_label="", perms="", saving=""):
+def status_fields(cfg, tab=None, engine_label="", perms="", saving="",
+                  tokens=""):
     """Campos REALES de la barra; los desconocidos se dicen como tales."""
     return [("agente", str(cfg.get("display") or cfg.get("name") or "?")),
             ("pestaña", (tab[1] if tab else "") or "sin pestaña"),
             ("motor", engine_label or str(cfg.get("_engine") or "?")),
             ("permisos", perms or "los del CLI"),
             ("memoria", saving or "desconocido"),
-            ("tokens", "no publicados por el CLI")]
+            ("tokens", tokens or "no publicados por el CLI")]
 
 
 def status_line(fields):

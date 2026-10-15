@@ -17,7 +17,9 @@ Política (conservadora, revisable por el dueño del producto — ADOPTION-SPEC 
     explícita, fuera de esta pantalla).
   · Un agente del registry COMMITTEADO (equipo/back-compat) no puede quitarse
     per-máquina sin tocar el repo: se OCULTA (mismo efecto visible) y se dice.
-  · Nunca se toca el agent.json del cerebro (identidad = N3).
+  · Nunca se toca la IDENTIDAD del agent.json (N3). Las dos preferencias que
+    el usuario elige al crear el agente (`autonomy`, `skill_review`) sí se
+    cambian aquí (Agentes → Enter), por el mismo camino que al crearlo.
 
 Stdlib puro, falla-suave.
 """
@@ -244,3 +246,112 @@ def unregister(agent_id, expected_brain=None):
     return _ok(_t("agentes.mg.removed",
                   "{n} quitado del registro · cerebro y sesiones intactos "
                   "en {p}", n=name, p=a.get("brain") or "?"))
+
+
+# ── permisos y aprendizaje (Agentes → Enter) ─────────────────────────────────────
+#: Los niveles que existen: ask|brain. «Comandos sin preguntar» ("full") ya no
+#: existe; un "full" de antes se lee como "brain" (la migración lo convierte).
+AUTONOMY_ORDER = ("ask", "brain")
+AUTONOMY_SETTABLE = ("ask", "brain")
+
+
+def _definition(brain):
+    try:
+        import agentsreg
+        return agentsreg.load_definition(brain) or {}
+    except Exception:
+        return {}
+
+
+def _norm_autonomy(v):
+    s = str(v or "").strip().lower()
+    return s if s in AUTONOMY_ORDER else "brain"
+
+
+def _global_review():
+    try:
+        import settings as _settings
+        return bool(_settings.enabled("hooks.skill_review", default=False))
+    except Exception:
+        return False
+
+
+def preferences(agent_id, expected_brain=None):
+    """Lo que Agentes → Enter muestra del agente: {"ok", "autonomy" (ask|brain|
+    full), "skill_review" (efectivo), "review_global" (True = no lo eligió y
+    manda el ajuste general)}."""
+    a, e = _current(agent_id, expected_brain)
+    if a is None:
+        return _err(e)
+    brain = a.get("brain") or ""
+    d = _definition(brain) if brain else {}
+    auto = _norm_autonomy(d.get("autonomy"))
+    rv = d.get("skill_review")
+    explicit = isinstance(rv, bool)
+    return {"ok": True, "autonomy": auto,
+            "skill_review": rv if explicit else _global_review(),
+            "review_global": not explicit}
+
+
+def _write_pref(a, autonomy=None, skill_review=None):
+    """agent.json (+ permisos de Claude Code si cambió la autonomía). Codex y
+    Antigravity leen la autonomía al lanzar: aplica desde la próxima sesión."""
+    brain = a.get("brain") or ""
+    if not brain or not os.path.isdir(brain):
+        return _t("agentes.mg.no_brain", "no encuentro su cerebro")
+    try:
+        import agent_admin
+        if not agent_admin._set_preferences(brain, autonomy, skill_review):
+            return _t("agentes.mg.no_def",
+                      "no pude escribir su .workspace/agent.json")
+    except Exception as ex:
+        return _t("agentes.mg.save_fail_ex", "no se pudo guardar: {e}", e=ex)
+    if autonomy is not None:
+        try:
+            import install
+            cfg = dict(_definition(brain), autonomy=autonomy)
+            ok, why = install.apply_permissions(brain, cfg)
+        except Exception as ex:
+            ok, why = False, str(ex)
+        if not ok:
+            return _t("agentes.mg.perm_fail",
+                      "guardé la preferencia, pero no pude ajustar los "
+                      "permisos de Claude Code ({e}) — corre `workspace "
+                      "doctor`", e=why)
+    _invalidate()
+    return ""
+
+
+def set_autonomy(agent_id, level, expected_brain=None):
+    """ask · brain. Reescribe su agent.json y los permisos de Claude Code
+    (conserva lo que el usuario agregó a mano)."""
+    a, e = _current(agent_id, expected_brain)
+    if a is None:
+        return _err(e)
+    level = str(level or "").strip().lower()
+    if level not in AUTONOMY_SETTABLE:
+        return _err(_t("agentes.mg.bad_level", "nivel desconocido: {v}",
+                       v=level))
+    bad = _write_pref(a, autonomy=level)
+    if bad:
+        return _err(bad)
+    return _ok({"ask": _t("agentes.mg.auto_ask",
+                          "{n} preguntará antes de escribir en su cerebro "
+                          "· desde su próxima sesión", n=a["name"]),
+                "brain": _t("agentes.mg.auto_brain",
+                            "{n} lee y escribe en su cerebro sin preguntar "
+                            "· desde su próxima sesión", n=a["name"])}[level])
+
+
+def set_skill_review(agent_id, on, expected_brain=None):
+    a, e = _current(agent_id, expected_brain)
+    if a is None:
+        return _err(e)
+    bad = _write_pref(a, skill_review=bool(on))
+    if bad:
+        return _err(bad)
+    return _ok(_t("agentes.mg.review_on",
+                  "revisión de skills prendida para {n} · corre al cerrar "
+                  "cada sesión", n=a["name"]) if on else
+               _t("agentes.mg.review_off",
+                  "revisión de skills apagada para {n}", n=a["name"]))

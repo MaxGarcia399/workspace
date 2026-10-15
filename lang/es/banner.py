@@ -5,25 +5,6 @@ identidad del agente (display/tagline/emblema/paleta) NO vive aquí — sale de
 agent.json/BOOT. Traducción en `lang/en/banner.py`. Ver `lang/README.md`."""
 
 STRINGS = {
-    # ── banner (agent-banner.py): encabezados de sección ─────────────────────
-    "banner.sec.skills": "Skills",
-    "banner.sec.system": "Sistema",
-    "banner.sec.domain": "Dominio",
-    # etiquetas de fila
-    "banner.lbl.categories": "categorías",
-    "banner.lbl.base": "base",
-    "banner.lbl.memory": "memoria",
-    "banner.lbl.loop": "loop",
-    "banner.lbl.scope": "alcance",
-    # contenido (subtítulos / valores)
-    "banner.cats.default": "investigación · meta",
-    "banner.base.row1": "skill-creator · skill-improver · skill-curator · reload-brain",
-    "banner.base.row2": "deep-research · research-session",
-    "banner.sys.memory": "tiers caliente/tibia/fría · core blocks · Dreaming→DESTILADO",
-    "banner.sys.loop": "skill loop SIEMPRE activo · bloque 🧠 obligatorio",
-    # pie
-    "banner.foot": "nacido del template de WORKSPACE",
-
     # ── dashboard (agent-dashboard.py): picker/greeter de sesiones ───────────
     "banner.dash.sessions_count": "{n} sesión(es) · elige una para continuar o crea una nueva",
     "banner.dash.resume_q": "¿En qué seguimos?",

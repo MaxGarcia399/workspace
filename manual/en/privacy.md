@@ -22,23 +22,23 @@ and npm. If you add a connection, add it here and in ../es/privacidad.md. -->
 
 | Connection | Where to | When | How to turn it off |
 |---|---|---|---|
-| Automatic update (`git fetch` / `git pull`) | Workspace's repository on GitHub | when you open an agent, at most once every 6 h (in "notify", once a day and without installing) | `workspace update --auto off` (or key `a` in Updates) |
+| Automatic update (`git fetch` / `git pull`) | Workspace's repository on GitHub | when you open an agent, at most once every 6 h (in "notify", once a day and without installing) | `workspace update --auto off` (or the «automatic» row in Updates) |
 | Your engine's program | that engine's vendor (Anthropic, OpenAI, Google) | while you use the agent; also when Workspace asks it whether you're logged in | it's the official program with your account; governed by that vendor's terms |
 
 **When you ask for it or turn it on:**
 
 | Connection | Where to | When |
 |---|---|---|
-| `workspace update` and the **Updates** section (`u`) | GitHub, and the git remote of each brain that has one | when you ask; it also pulls the brains you keep in git |
-| `workspace doctor` (without `--check`) | GitHub (`git fetch`) | checks for a new version and whether your brains are up to date |
-| `gh` session | GitHub | `workspace doctor` (even with `--check`) asks `gh` whether you're logged in, only if `gh` is installed |
+| `workspace update` and the **Updates** section | GitHub, and the git remote of each brain that has one | when you ask; it also pulls the brains you keep in git |
+| `workspace doctor` (without `--check`) | GitHub (`git fetch`) | checks for a new version of Workspace (and of the brains you declared as git) |
 | Finding *skills* in **Add agent** | `api.github.com` and `raw.githubusercontent.com` (public repositories from Anthropic and OpenAI, plus any you add); `skills.sh` only if you type a community search | when you reach the new agent's plan (on by default; you can turn it off on that same screen). GitHub sees which repositories and files are fetched; your agent's profile is matched on your machine |
 | Installing an engine | the official installer: `claude.ai`, `chatgpt.com`, `antigravity.google` or npm | only when you ask to install it |
+| Skill review when a session closes | the vendor of the agent's engine, through its own program (like any session) | only for agents where you turned it on (it ships off); it sends a copy of the session that just closed |
 | Google Calendar | `calendar.google.com` (iCal link) or Google's APIs (`accounts.google.com`, `oauth2.googleapis.com`, `www.googleapis.com`), read-only | if you connect your calendar; then it refreshes on its own, in the background |
 | Mail (`workspace mail`) | the SMTP server you configure | each time you send |
-| Voice dictation setup (macOS) | Hugging Face (whisper model) and Homebrew | only with `WORKSPACE_VOICE_SETUP=1 workspace doctor`; dictating is 100% local |
+| Voice dictation setup (macOS) | Hugging Face (whisper model) and Homebrew | only with `workspace voice --setup`; dictating is 100% local |
 | API providers (advanced) | the endpoint you configure (e.g. OpenAI, OpenRouter, Anthropic, Google, or a local one such as Ollama or LM Studio) | only if you set up a provider with your API key |
-| Opening a link | your browser | when you choose to open something (such as Google's authorization) |
+| Opening a link | your browser | when you choose to open something (such as an engine's official source) |
 
 **Only inside your machine:** `workspace proyectos` opens, by default, a local web panel on `127.0.0.1`;
 it can't be opened from another computer.

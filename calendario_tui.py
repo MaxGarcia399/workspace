@@ -55,6 +55,7 @@ if ROOT not in sys.path:
 
 import personal as P                                           # noqa: E402
 import hublayout as HL                                         # noqa: E402
+import section_box as SB                                       # noqa: E402
 try:
     import clip_image                                          # noqa: E402
 except Exception:                                              # falla-suave
@@ -116,17 +117,72 @@ def _dow(i):
 # (HL.top_hints los recorta) y el pie la lista COMPLETA (HL.foot_hints). Se
 # construye por render (función) para que el idioma flipee en vivo.
 def _pares():
+    google = (("g", _t("cal.hint.google", "Google")),) if _google() else ()
     return (("◄►↑↓", _t("cal.hint.day", "día")),
             ("Enter", _t("cal.hint.detail", "detalle")),
             ("a", _t("cal.hint.add", "agrega")),
             ("l", _t("cal.hint.list", "lista")),
-            ("v", _t("cal.hint.queue", "cola")),
-            ("g", _t("cal.hint.google", "Google")),
+            ("v", _t("cal.hint.queue", "cola"))) + google + (
             ("n/p", _t("cal.hint.month", "mes")),
             ("t", _t("cal.hint.today", "hoy")),
             ("m", _t("common.hint.move", "mueve")),
             ("b", _t("cal.hint.trash", "papelera")),
-            ("q", _t("common.hint.menu", "menú")))
+            ("i", _t("cal.hint.info", "cómo funciona")),
+            ("q", _t("common.hint.back", "vuelve")))
+
+
+def _botones(K, pares, w):
+    """El pie de botones de siempre, pero si no caben todos cede los del
+    medio y JAMÁS «i» (la puerta a la explicación), el primero ni el último."""
+    return HL.instruction_buttons(K, SB._caben(pares, w, SB._ancho_botones), w)
+
+
+# ── REDISEÑO 2026-10-14: el calendario se queda igual (pedido del dueño) y
+# gana su `i`: de dónde salen los eventos, cómo viaja una tarea a tu agente,
+# qué significan los números y todas las teclas.
+def _info_blocks(S, K):
+    fuentes = [(_t("cal.info.k_local", "tu agenda"),
+                _t("cal.info.v_local", "vive en esta máquina; la creas y la editas aquí (a agrega en el día elegido)"))]
+    if _google():
+        fuentes.append((_t("cal.info.k_google", "Google"),
+                        _t("cal.info.v_google", "tus calendarios de Google, solo lectura: se ven junto a tu agenda con su etiqueta; g conecta o quita cuentas")))
+    teclas_google = [("g", _t("cal.info.key.google", "tus cuentas de Google"))] if _google() else []
+    return [
+        ("h", _t("cal.info.h_sources", "de dónde salen tus eventos") if _google()
+         else _t("cal.info.h_events", "tus eventos")),
+        ("kv", fuentes),
+        ("gap",),
+        ("h", _t("cal.info.h_flow", "cómo llega una tarea a tu agente")),
+        ("flow", [(_t("cal.info.n1", "anotas la idea"), _t("cal.info.c1", "a · nace en borrador")),
+                  (_t("cal.info.n2", "la marcas lista"), _t("cal.info.c2", "l · con su prompt")),
+                  (_t("cal.info.n3", "tu agente la toma"), _t("cal.info.c3", "v · la cola de listas"))]),
+        ("gap",),
+        ("p", _t("cal.info.p_task", "Cada tarea tiene IDEA (qué quieres) y PROMPT PARA EL AGENTE (cómo hacerlo), de hasta 30 000 caracteres cada uno, y puede llevar imágenes. La prioridad alta (f) es aparte de si está lista.")),
+        ("h", _t("cal.info.h_numbers", "qué significan los números")),
+        ("p", _t("cal.info.p_numbers", "Cada día muestra cuántas tareas faltan; en rojo si el día ya pasó (atrasadas). Un día con todo hecho lleva ✓.")),
+        ("h", _t("cal.info.h_keys", "las teclas")),
+        ("kv", [("◄►↑↓", _t("cal.info.key.move", "moverse por los días")),
+                ("n / p", _t("cal.info.key.month", "mes siguiente / anterior")),
+                ("t", _t("cal.info.key.today", "volver a hoy")),
+                ("Enter", _t("cal.info.key.detail", "detalle de la tarea marcada (en un día vacío, agrega)")),
+                ("Tab", _t("cal.info.key.tab", "otra tarea del mismo día")),
+                ("a", _t("cal.info.key.add", "agregar en ese día")),
+                ("e", _t("cal.info.key.edit", "editar idea y prompt")),
+                ("x", _t("cal.info.key.done", "hecha ↔ pendiente (también espacio)")),
+                ("l", _t("cal.info.key.ready", "borrador ↔ lista para agentes")),
+                ("f", _t("cal.info.key.prio", "prioridad alta ↔ normal")),
+                ("m", _t("cal.info.key.moveday", "mover a otro día: flechas y Enter; Esc cancela")),
+                ("d", _t("cal.info.key.delete", "a la papelera (se guarda 15 días)")),
+                ("b", _t("cal.info.key.trash", "abre la papelera; r restaura")),
+                ("v", _t("cal.info.key.queue", "la cola de tareas listas"))] + teclas_google + [
+                ("q", _t("cal.info.key.back", "volver al menú"))]),
+        ("h", _t("cal.info.h_write", "al escribir")),
+        ("kv", [("18:00 …", _t("cal.info.w.hour", "una hora al principio se guarda como hora")),
+                ("Tab", _t("cal.info.w.tab", "título · idea · prompt")),
+                ("Ctrl+S", _t("cal.info.w.save", "guarda desde cualquier campo")),
+                ("Ctrl+G", _t("cal.info.w.toggle", "calendario ↔ escritura")),
+                ("Ctrl+V", _t("cal.info.w.img", "adjunta una imagen; Ctrl+X la quita"))]),
+    ]
 
 
 def _status_labels():
@@ -161,9 +217,20 @@ def _toggle_ready(S, event):
         S["msg"] = _t("cal.msg.ready_fail", "no se cambió: tarea en curso o error al guardar")
 
 
+def _google():
+    """¿Se ofrece Google Calendar? En pausa por ahora (gcal.enabled)."""
+    try:
+        import gcal
+        return gcal.enabled()
+    except Exception:
+        return False
+
+
 def _g_events():
     """Eventos de GOOGLE (gcal.py, fase 1 solo-lectura). Falla-suave → []:
-    sin URL, sin red o sin módulo el calendario local queda idéntico."""
+    sin URL, sin red, sin módulo o en pausa el calendario local queda idéntico."""
+    if not _google():
+        return []
     try:
         import gcal
         return gcal.events()
@@ -173,6 +240,8 @@ def _g_events():
 
 def _g_on(date_s):
     """Los de Google de UN día. Falla-suave → []."""
+    if not _google():
+        return []
     try:
         import gcal
         return gcal.events_on(date_s)
@@ -523,6 +592,10 @@ def render(S, w, h):
         return _trash_render(S, K, w, h)
     if S["modo"] == "gcal":
         return _gcal_render(S, K, w, h)
+    if S.get("info"):
+        return SB.info_frame(K, w, h, HL.section_word('calendario'),
+                             _t("cal.info.title", "CÓMO FUNCIONA TU CALENDARIO"),
+                             _info_blocks(S, K), state=S["info"], box_w=74)
     pares = _pares()
     # cabecera COMPARTIDA (wordmark + subtítulo + atajos clave + regla)
     L = HL.screen_header(K, w, h, _t("cal.subtitle", "calendario"), hints=pares, word=HL.section_word('calendario'))
@@ -538,7 +611,8 @@ def render(S, w, h):
         dia = _dia_body(S, K, pw - 4, alto=available - 2)
         L += [' ' + x for x in first]
         L += [' ' + x for x in HL.full_box(_t("cal.box.day", "DÍA"), dia, K, pw, available - 2, False)]
-        L += ['', HL.clip(HL.foot_hints(K, pares, w), w - 1)]
+        cabe = SB._caben(pares, w - 4, lambda ps: HL.vis(HL.keyline(K, ps, 10 ** 4)))
+        L += ['', HL.clip(HL.foot_hints(K, cabe, w), w - 1)]
         return [HL.clip(x, w - 1) for x in L[:h - 1]] + [''] * max(0, h - 1 - len(L))
     lw = max(32, min(48, (w - 6) * 55 // 100))
     # la fila es " " + izq(lw) + "  " + der  ->  3 columnas fijas de marco
@@ -564,7 +638,7 @@ def render(S, w, h):
         L.append(" %s%s%s" % (K["B2"], S["msg"], K["R"]))
     else:
         L.append("")
-    L.extend(HL.instruction_buttons(K, pares, w-1))
+    L.extend(_botones(K, pares, w - 1))
     # contrato de altura: SIEMPRE h-1 líneas exactas (pad con ""). Las
     # vistas (mes/día/detalle/editor/alta) cambian de alto entre sí y el
     # redraw es H + \033[K por línea: sin el pad, el pie de una vista alta
@@ -1139,7 +1213,7 @@ def _gcal_pares(S):
             ("a", _t("cal.g.hint.add", "iCal")),
             ("e", _t("cal.g.hint.rename", "renombra")),
             ("x", _t("cal.g.hint.remove", "quita")),
-            ("q", _t("common.hint.menu", "menú")))
+            ("q", _t("common.hint.back", "vuelve")))
 
 
 def _g_state_label(st):
@@ -1586,6 +1660,8 @@ def _accion(S, key):
         return True
     if S["modo"] in ("add", "edit"):
         return _edit_key(S, key)
+    if SB.info_key(S, key):                # i / ? abre, desplaza y cierra la explicación
+        return True
     if key in ("q", "Q", "\x1b", "\x03"):   # Esc también regresa al hub
         return False
     if key in ("l", "L"):
@@ -1596,7 +1672,7 @@ def _accion(S, key):
             S["msg"] = _t("cal.msg.no_task_mark", "no hay tarea que marcar")
     elif key in ("v", "V"):
         S["modo"], S["queue_idx"] = "queue", 0
-    elif key in ("g", "G"):
+    elif key in ("g", "G") and _google():
         S["modo"], S["g_view"], S["g_sel"], S["g_msg"] = "gcal", "list", 0, ""
     elif key in ("b", "B"):
         S["modo"], S["trash_idx"] = "trash", 0

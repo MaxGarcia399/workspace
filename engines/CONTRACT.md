@@ -90,10 +90,10 @@ REGISTRO sobre los engines:
 | `launch` | `native` / `wrapper` / `repl` | path propio · TUI oficial envuelto en el ciclo neutral · loop propio |
 | `inject_context` | `hooks` / `project-doc` / `print` / `none` | inyección vía hook-system · doc de proyecto PUNTERO (p.ej. AGENTS.md→CLAUDE.md) · imprimir al socio · nada |
 | `mcp` | `native` / `True` / `False` | ¿soporta MCP servers? |
-| `hooks` | `native` / `False` | ¿hook-system? |
+| `hooks` | `native` / `wrapper` / `False` | avisos de sesión: hook-system del motor cableado · solo inicio/cierre emitidos por el wrapper neutral (codex, antigravity: sus hooks nativos existen pero no se activan — doble disparo) · nada |
 | `sessions` | `workspace` / `vendor` / `none` | quién gestiona sesiones |
 | `status_live` | bool | ¿publica tarea-en-vivo (now.json/statusline de WORKSPACE)? |
-| `statusline` | `workspace` / `native-config` / `False` | info de abajo: scripts de brand de WORKSPACE · barra NATIVA del CLI configurada por el adapter (codex: `-c tui.status_line=[…]` por corrida — contexto %, límite 5h, semanal, modelo, permisos; datos reales del vendor, jamás fabricados) · nada |
+| `statusline` | `workspace` / `native-config` / `False` | info de abajo: scripts de brand de WORKSPACE · barra NATIVA del CLI configurada por el adapter (codex: `-c tui.status_line=[…]` por corrida — modelo, contexto %, límite 5h, semanal, proyecto; antigravity: su `statusLine` apunta al shim `workspace-agy-statusline`; datos reales del vendor, jamás fabricados) · nada |
 | `headless` | bool | ¿tiene `run_turn` one-shot? |
 
 Todas estas claves son **obligatorias** (`capabilities.ENGINE_KEYS`; lo exige

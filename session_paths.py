@@ -14,6 +14,7 @@ Esta fórmula vivía duplicada en engines/claude_code.py, dashboard.py y los
 dashboards de zenith/atlas. NO la dupliques de nuevo — si Claude Code cambia el
 encoding, se corrige en UN solo lugar. Stdlib puro (Python 3.9+), Mac y Windows.
 """
+import json
 import os
 import re
 
@@ -45,11 +46,48 @@ def _has_sessions(d):
         return False
 
 
+def _recorded_cwd_is(d, brain, max_files=5, max_lines=20):
+    """True si alguna sesión de `d` registró como cwd la MISMA carpeta que
+    `brain` (Claude Code escribe "cwd" en las líneas del .jsonl). Es la prueba
+    de que una carpeta con otra codificación es de este cerebro y no de otra
+    carpeta que solo se llama igual."""
+    try:
+        target = os.path.realpath(os.path.expanduser(brain))
+        files = sorted(x for x in os.listdir(d) if x.endswith(".jsonl"))[:max_files]
+    except Exception:
+        return False
+    for fn in files:
+        try:
+            with open(os.path.join(d, fn), encoding="utf-8", errors="replace") as fh:
+                for i, line in enumerate(fh):
+                    if i >= max_lines:
+                        break
+                    m = re.search(r'"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"', line)
+                    if not m:
+                        continue
+                    try:
+                        cwd = json.loads('"%s"' % m.group(1))
+                    except Exception:
+                        continue
+                    if os.path.exists(cwd) and os.path.realpath(cwd) == target:
+                        return True
+        except Exception:
+            continue
+    return False
+
+
 def mismatch_candidates(brain):
     """Para el doctor: carpetas en ~/.claude/projects/ con sesiones reales que
-    parecen corresponder a ESTE cerebro pero con OTRA codificación (p. ej.
-    abspath sin resolver symlinks, o una ruta vieja). Si esto devuelve algo y la
-    carpeta calculada no existe, el resume está roto en esta máquina.
+    corresponden a ESTE cerebro pero con OTRA codificación (p. ej. abspath sin
+    resolver symlinks). Si esto devuelve algo y la carpeta calculada no existe,
+    el resume está roto en esta máquina.
+
+    Dos vías: (1) las codificaciones alternativas conocidas de la PROPIA ruta
+    del cerebro (abspath / tal cual); (2) una carpeta cuyo nombre termina en el
+    nombre del cerebro SOLO si sus sesiones registraron como cwd esta misma
+    carpeta. Antes (2) bastaba con el sufijo: cualquier otra carpeta con el
+    mismo nombre (otra instalación, otro proyecto) daba un falso "resume no
+    funcionará".
 
     Devuelve [] si la carpeta calculada ya existe (todo bien) o si no hay
     candidatos (cerebro sin sesiones aún)."""
@@ -58,7 +96,6 @@ def mismatch_candidates(brain):
         return []
     projects = os.path.dirname(expected)
     expected_name = os.path.basename(expected)
-    # codificaciones alternativas conocidas + sufijo por nombre de carpeta
     alt = {encode_path(os.path.abspath(os.path.expanduser(brain))),
            encode_path(brain)}
     base = encode_path(os.path.basename(os.path.normpath(brain)))
@@ -68,7 +105,10 @@ def mismatch_candidates(brain):
             full = os.path.join(projects, d)
             if d == expected_name or not os.path.isdir(full):
                 continue
-            if (d in alt or (base and d.endswith("-" + base))) and _has_sessions(full):
+            if not _has_sessions(full):
+                continue
+            if d in alt or (base and d.endswith("-" + base)
+                            and _recorded_cwd_is(full, brain)):
                 found.append(full)
     except Exception:
         pass

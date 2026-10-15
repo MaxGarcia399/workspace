@@ -57,24 +57,28 @@ def _utf8_env():
     return {**os.environ, "PYTHONUTF8": "1"}
 
 
-def auto_mode_args(passthrough):
-    """POLÍTICA DEL EQUIPO: las sesiones interactivas arrancan en AUTO-MODE —
-    `--permission-mode acceptEdits`, el mecanismo OFICIAL de Claude Code (el
-    mismo "accept edits on" del shift+tab que el socio prendía a mano).
+def auto_mode_args(passthrough, cfg=None):
+    """AUTO-MODE opcional: con settings `agentes.auto_mode` ON, las sesiones
+    interactivas arrancan con `--permission-mode acceptEdits`, el mecanismo
+    OFICIAL de Claude Code (el mismo "accept edits on" del shift+tab).
     JAMÁS bypassPermissions ni --dangerously-skip-permissions desde aquí.
 
-    Configurable y reversible: settings `agentes.auto_mode` off lo apaga
-    (aplica al siguiente lanzamiento, sin reinstalar). Un --permission-mode
-    (o un --dangerously-skip-permissions) EXPLÍCITO del socio en el comando
-    siempre gana → no se agrega nada encima. Falla-suave: sin settings.py
-    o store ilegible → ON (el default del equipo)."""
+    De fábrica está OFF: mandan los permisos del cerebro (la autonomía del
+    agente, ver install.render_permissions). Reversible: aplica al siguiente
+    lanzamiento, sin reinstalar. Un --permission-mode (o un
+    --dangerously-skip-permissions) EXPLÍCITO del socio en el comando siempre
+    gana → no se agrega nada encima. Un agente con autonomía "ask" (el usuario
+    apagó su acceso automático en Agentes → Enter) nunca recibe acceptEdits.
+    Falla-suave: sin settings.py o store ilegible → OFF."""
+    if str((cfg or {}).get("autonomy") or "").strip().lower() == "ask":
+        return []
     for a in passthrough or []:
         if str(a).startswith(("--permission-mode", "--dangerously-skip-permissions")):
             return []
-    on = True
+    on = False
     try:
         import settings as _settings
-        v = _settings.get("agentes.auto_mode", True)
+        v = _settings.get("agentes.auto_mode", False)
         if isinstance(v, bool):
             on = v
     except Exception:
@@ -345,10 +349,16 @@ def launch(cfg, passthrough, plan=False, preselect=None, show_banner=True):
         print(f"  WORKSPACE · plan de arranque — agente: {cfg.get('display', cfg.get('name'))}")
         print(line)
         print(f"  motor       : claude-code  (Anthropic vía suscripción, sin API key)")
-        auto = auto_mode_args(passthrough)
-        print(f"  permisos    : " + ("auto-mode (--permission-mode acceptEdits) — política del "
-                                     "equipo (off: settings agentes.auto_mode)" if auto
-                                     else "sin flag (agentes.auto_mode off o flag explícito del socio)"))
+        auto = auto_mode_args(passthrough, cfg)
+        try:
+            import install as _inst
+            _aut = _inst.autonomy_of(cfg)
+        except Exception:
+            _aut = "brain"
+        print(f"  permisos    : " + ("auto-mode (--permission-mode acceptEdits) — "
+                                     "settings agentes.auto_mode on" if auto
+                                     else "los del cerebro — autonomía '%s' (.claude/"
+                                          "settings.local.json)" % _aut))
         ma = model_args(cfg, passthrough)
         print(f"  modelo      : " + (f"override --model {ma[1]} (settings "
                                      f"agentes.{cfg.get('name','?')}.model)" if ma
@@ -423,12 +433,12 @@ def launch(cfg, passthrough, plan=False, preselect=None, show_banner=True):
     # which() resuelve la ruta completa del binario: imprescindible en Windows, donde
     # el shim de npm es `claude.cmd` y CreateProcess no lo encuentra por nombre pelado.
     # En Mac/Linux devuelve el mismo binario que el PATH lookup (no cambia nada).
-    # auto_mode_args: política del equipo — sesión interactiva arranca en
-    # acceptEdits (configurable: settings agentes.auto_mode; reversible).
+    # auto_mode_args: opcional (settings agentes.auto_mode, OFF de fábrica)
+    # — con ON la sesión interactiva arranca en acceptEdits.
     # model_args: override de modelo por agente (settings agentes.<n>.model;
     # un --model explícito del socio o ANTHROPIC_MODEL ganan — ver docstring).
     cmd = ([shutil.which("claude") or "claude"]
-           + auto_mode_args(passthrough) + model_args(cfg, passthrough)
+           + auto_mode_args(passthrough, cfg) + model_args(cfg, passthrough)
            + list(passthrough))
     parts = choice.split("\t")
     if len(parts) >= 3 and parts[0] == "WS":
@@ -456,6 +466,35 @@ def launch(cfg, passthrough, plan=False, preselect=None, show_banner=True):
 
     os.chdir(brain)
     _exec(cmd, env)
+
+
+# La verificación de sesión corre el programa oficial DESPEGADO de la
+# terminal: sin stdin y, en Mac/Linux, en su propia sesión (sin terminal de
+# control). Si hereda la terminal, al salir la deja en modo normal y la
+# pantalla que lo llamó (Motores, el hub) se queda sin teclado.
+_DETACHED = {"stdin": subprocess.DEVNULL}
+if os.name != "nt":
+    _DETACHED["start_new_session"] = True
+
+
+def session_active(runner=None):
+    """¿Hay sesión de Claude Code? Vía el comando OFICIAL `claude auth status
+    --json` y SOLO su campo `loggedIn` (jamás se lee ni se guarda el correo ni
+    nada más de la respuesta, ni las credenciales). True/False; None si no se
+    pudo saber (sin el programa, versión sin ese comando, error)."""
+    exe = shutil.which("claude")
+    if not exe:
+        return None
+    run = runner or subprocess.run
+    try:
+        r = run([exe, "auth", "status", "--json"], capture_output=True, text=True,
+                timeout=15, encoding="utf-8", errors="replace", **_DETACHED)
+        import json as _json
+        data = _json.loads(getattr(r, "stdout", "") or "{}")
+        v = data.get("loggedIn") if isinstance(data, dict) else None
+        return v if isinstance(v, bool) else None
+    except Exception:
+        return None
 
 
 def _exec(cmd, env):

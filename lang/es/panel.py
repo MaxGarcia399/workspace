@@ -44,7 +44,7 @@ STRINGS = {
     'panel.cfg.heartbeat': 'latido',
     'panel.cfg.theme': 'tema',
     'panel.cfg.ro': 'solo lectura',
-    'panel.cfg.edit': '┈ se edita en workspace config / agent.json',
+    'panel.cfg.edit': '┈ se cambia con: python3 settings.py set <clave> <valor>',
     'panel.del.title': 'delegar',
     'panel.del.badge': 'manda una tarea',
     'panel.del.who': '¿a quién?',

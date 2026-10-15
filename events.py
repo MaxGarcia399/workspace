@@ -196,6 +196,28 @@ ENGINE_MAP = {
         "wf_step": INTERNAL,         # lo emite el harness, no el motor
         "wf_run": INTERNAL,          # ídem — pasada del runner (v1.5)
     },
+    # codex y antigravity (wrapper, 2026-10-13): WORKSPACE envuelve el TUI
+    # oficial y emite ÉL MISMO inicio/cierre (interactive.run_official_cli_
+    # interactive → neutral_hooks) → INTERNAL. Ambos CLIs traen hooks nativos
+    # (codex 0.162: SessionStart/UserPromptSubmit/Stop/SessionEnd con
+    # confianza por hash; agy 1.3: SessionStart/PreToolUse/PostToolUse/
+    # Pre-PostInvocation/Stop, sin SessionEnd) pero NO se cablean todavía:
+    # session_end dispararía doble con el del wrapper. Lo demás = None
+    # (honestidad: hoy no se observa desde dentro). wired_events → [].
+    "codex": {
+        "session_start": INTERNAL, "session_end": INTERNAL,
+        "pre_compact": None, "post_tool_write": None, "pre_prompt": None,
+        "user_prompt": None, "headless_ingest": INTERNAL,
+        "model_fallback": None, "pre_tool": None, "post_tool": None,
+        "wf_step": INTERNAL, "wf_run": INTERNAL,
+    },
+    "antigravity": {
+        "session_start": INTERNAL, "session_end": INTERNAL,
+        "pre_compact": None, "post_tool_write": None, "pre_prompt": None,
+        "user_prompt": None, "headless_ingest": None,
+        "model_fallback": None, "pre_tool": None, "post_tool": None,
+        "wf_step": INTERNAL, "wf_run": INTERNAL,
+    },
 }
 
 # ── listeners: qué scripts de hooks/ escuchan qué evento ──────────────────

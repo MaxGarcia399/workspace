@@ -87,7 +87,7 @@ emiten como `--th-<clave>` a secas (p. ej. `accent-2`).
 
 ### Bloque `tui` — paleta ANSI del recinto (motor: `tuitheme.py`)
 
-El MISMO tema pinta el TUI (`front.py` + `banner/render.py` + `config_tui.py`).
+El MISMO tema pinta el TUI (`front.py` + `banner/render.py` + las pantallas de sección).
 Colores: `"#rrggbb"` (truecolor → cuantizado a 256 → 16 según la terminal) o
 un **entero 0-255** = índice xterm-256 EXACTO (jamás se re-cuantiza — así
 olympo garantiza paridad). `NO_COLOR`/`TERM=dumb` → sin ANSI; override de
@@ -128,7 +128,7 @@ el cielo sigue ESTÁTICO y la fórmula de pantalla de `front.py` no se toca
 1. `WORKSPACE_THEME=<id>` (env — gana siempre; ideal para probar).
 2. El store unificado — DOS ajustes independientes:
    - `ui.theme` = el **hub/TUI** (`python3 settings.py set ui.theme <id>`, el
-     menú **Config › Tema del hub**, el pin del hub, el onboarding);
+     pin **Personalización › tema** del hub, el onboarding);
    - `ui.web_theme` = el **dev panel web** (su switcher, `POST /api/theme`).
 3. Default — **uno por superficie, y uno solo en código**:
    - hub/TUI: **`bruma`** = `tuitheme.DEFAULT_ID` = default de `ui.theme` en

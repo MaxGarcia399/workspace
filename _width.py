@@ -2,7 +2,7 @@
 """WORKSPACE · _width — medición de ancho VISUAL de terminal, COMPARTIDA.
 
 Única fuente de la aritmética de columnas que mantiene rectos los marcos de
-los TUIs (hublayout = hub/layouts · config_tui = pantalla de CONFIG). Nació
+los TUIs (hublayout = hub/layouts y las pantallas de sección). Nació
 del fix de medición de hublayout (9b0a5f1): medir solo `\\x1b[…m` y contar
 tab/ESC/zero-width como ancho 1 descuadraba los bordes fila a fila. Antes el
 fix vivía solo en hublayout; aquí queda destilado para que NINGÚN TUI vuelva
@@ -16,9 +16,6 @@ Qué cubre:
              zero-width/selectores de variación (emoji-presentation
              descuadra el borde), controles (tab/newline) → espacio. Los
              ESC de color pasan intactos. Idempotente.
-  · sane_plain() — para TEXTO PLANO de celdas (valores/labels que jamás
-             traen color propio legítimo): quita TODO escape ANSI, sanea,
-             y un ESC suelto que sobreviva → espacio.
   · eaw()  — ancho de UN carácter como lo pinta la terminal: combinantes e
              invisibles (Mn/Me/Cf) = 0 · CJK/Hangul (W/F) = 2 — Hangul-safe,
              para agentes con display en coreano/CJK · resto = 1.
@@ -48,12 +45,6 @@ def sane(s):
 def strip_ansi(s):
     """Quita TODO escape ANSI (CSI/OSC/ESC de 2 bytes)."""
     return ANSI.sub("", str(s))
-
-
-def sane_plain(s):
-    """Sane para texto PLANO de celdas: sin escapes ANSI, saneado, y un ESC
-    huérfano (secuencia rota/cortada) → espacio. Idempotente."""
-    return sane(strip_ansi(s)).replace("\x1b", " ")
 
 
 def eaw(c):

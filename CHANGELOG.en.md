@@ -8,6 +8,147 @@ How to read this: every version has a number (`MAJOR.MINOR.PATCH`). A PATCH
 change fixes things; a MINOR one brings new features without breaking
 anything; a MAJOR one warns you well in advance if something changes shape.
 
+## 0.3.1 — 2026-10-14
+
+**A simpler hub: every section in one small box**
+- Each section shows only what you need to use it, in a centered box. The
+  explanation (how it works, with its maps) is behind the `i` key.
+- **Agents:** your agents on top and, below, the options of the one you pick
+  (Enter or →; ← or Esc go back). Adding an agent lives right here: the
+  «+ add agent» row at the end of the list (or the `a` key); with no agents
+  yet, the form opens directly.
+- **Creating an agent:** the fields look empty (they used to carry an
+  «e.g. …» inside that looked already filled in). The example and the
+  explanation of the field you're on go below the form, and if you write a
+  lot, you see your whole text there. In **your preferences** every row says
+  what it is: yes/no switches, what you picked with «›» to change it, and one
+  line below about the selected row; its `i` sums up what you're about to
+  create, your usage and how it's born.
+- **Engines:** the list on the left and the options on the right. When it
+  opens it really checks whether you're signed in to each one: ready · not
+  signed in · not installed.
+- **Updates:** your version, whether a new one is out and only what you can do
+  right then: update (when there's a new version), check and repair, check
+  only, go back to the previous version (when there's one) and whether it
+  updates itself (yes · notify only · off).
+- **Commands:** the list by group and, below, how to type the one you pick
+  and what it does. `i` opens its map on the right and when it's useful, and
+  it changes as you move.
+- **The first run** uses the same box: each step in one box with the
+  progress on top (engines → appearance → agent), only what you need to
+  decide and the main action below; what explains each step is behind `i`.
+  Picking an option no longer moves you forward: in every step (Tone too)
+  you move on with the «✦ continue» button, and at the end «✦ go to the hub»
+  opens the hub (it used to leave you in the terminal).
+- **Calendar** stays the same and gains its explanation behind `i`. **Tone**
+  is the box with your agents and their dials.
+
+**Out with what wasn't used**
+- **Shortcuts** left the menu: keys `1` to `9` always follow the order of
+  your agents in the hub.
+- **Google Calendar** is paused while we improve it: it doesn't show in the
+  calendar or in the first run.
+
+**Fixes**
+- Engines no longer loses the keyboard while it checks the sign-ins.
+- Section titles no longer have a shadow under them, just like the hub's.
+
+## 0.3.0 — 2026-10-13
+
+**You decide how much each agent can do without asking you**
+- When you create or load an agent you choose two things: whether it reads
+  and writes its brain without asking you (**yes** to start with: it's its
+  main job) and whether you want automatic skill review when each session
+  closes (**no** to start with). Without an interactive terminal (a script)
+  those values are used; `agent_admin.py` takes `--autonomy brain|ask` and
+  `--skill-review`.
+- You change both later in **Agents** (pick the agent and Enter),
+  agent by agent. If you turn off access to its brain, it asks you before
+  creating or editing any file, also inside it. Without opening the hub:
+  `agent_admin.py prefs <agent> --autonomy brain|ask
+  --skill-review|--no-skill-review`.
+- Your answer is saved with the agent (in its `agent.json`, it travels with
+  the brain) and each engine applies it its own way.
+- With Claude Code, a new agent reads, creates and edits files **inside its
+  brain** without asking you; for the terminal, files outside it and the
+  network it asks you first. The engine's protections are never switched
+  off.
+- Before, the installer let every Claude Code agent run any command without
+  asking (and included a store integration that wasn't yours). When you
+  update, your agents switch on their own to the new setup: free only inside
+  their brain (their previous settings are backed up). Running commands
+  without asking is no longer an option.
+- "Auto-accept edits" on every Claude Code session (`agentes.auto_mode`) is
+  now **off** by default: the brain's permissions rule. To get it back:
+  `python3 settings.py set agentes.auto_mode on` in Workspace's folder.
+
+**Skill review is optional and works with all three engines**
+- It ships **off**. If you turn it on for an agent, when each session closes
+  its own engine (Claude Code, Codex or Antigravity) reviews in the
+  background what you corrected and improves its skills; new skills stay as
+  proposals until you approve them.
+- It reads a neutral copy of the session (not the vendor's internal file),
+  uses neither the terminal nor the network, never makes closing wait, and
+  uses a little of your subscription.
+- It reviews the right brain even when the session ends inside a subfolder
+  (before, it reviewed that subfolder and ignored what you chose for the
+  agent); with Claude Code it no longer stays saved as one more conversation
+  of the agent, and its report reaches the review log even when Claude Code
+  won't let it write there. Turn it on or off in **Agents** (pick the agent and Enter);
+  agents that didn't choose follow the global `hooks.skill_review` setting (`python3 settings.py set
+  hooks.skill_review on` in the Workspace folder).
+
+**The doctor now checks and repairs only the essentials**
+- `workspace doctor` (and what you see at the end of `workspace update`) now
+  checks only the essentials: your agents, their hooks and commands,
+  git/Python/the engine you use, and updates. If one of those isn't working,
+  it tells you and fixes it.
+- No more warnings that had nothing to do with you: internal brain
+  conventions (BOOT, INDEX, manifests, banner), GitHub CLI, a team channel,
+  autonomous mode, and optional features you don't use (voice, split
+  terminal).
+- Having no agents yet is normal: it's no longer a warning.
+- It now detects and fixes an agent's hooks that point to a Workspace folder
+  that no longer exists (for example, after moving or reinstalling).
+- Voice is set up whenever you want with `workspace voice --setup`; the
+  doctor no longer checks it.
+
+**Out with what you weren't using**
+- Letter keys that no longer opened anything (c, o, k, u, g, s, b, v, m, i, l)
+  are gone from Shortcuts, the first-run summary and the manual: in the hub
+  letters search; the quick keys are `1`–`9` (your agents) and `q`. Shortcuts
+  now only changes each agent's digit.
+- `workspace versiones` (and `ramas`/`branches`) is gone: it was a git
+  branch map for people developing Workspace, not for you.
+- The old configuration screen is gone; the hub could no longer open it.
+  Your settings stay: theme and background in Personalization, permissions
+  and skill review in Agents (Enter on the agent), and any setting with
+  `python3 settings.py set <setting> <value>`.
+- New agents no longer get a gallery of emblems that nothing showed.
+- `workspace foco` (`focus`) is gone: it saved a focus of the day that no
+  screen showed. Your agenda and the calendar stay as they were.
+
+**Fixes**
+- Creating an agent no longer ends with "⚠ final check 1 placeholder(s)
+  left unfilled": the new agent's owner page (BOOT/02-TEAM.md) is now filled
+  in.
+- If you came from the previous install, an internal agent that was never
+  yours had slipped into your list; the doctor checked it and it blocked
+  retiring that install's leftovers. An automatic adjustment removes it (with
+  a backup) and those leftovers can now be retired with
+  `workspace migrar-legado`.
+- "Resume session" no longer gives a false warning when another folder has
+  the same name as your brain, and it's only checked for Claude Code agents.
+
+**Install and privacy**
+- The installer no longer asks "Who are you?".
+- It asks for the CLI of the engine you'll use (Claude Code, Codex or
+  Antigravity), not always Claude Code.
+- Your sessions are kept for **one year** (it was ten). If you had the value
+  our installer used to set, it goes down to 365 days; if you chose another
+  one, it's left alone.
+- New brains no longer come with session folders named after other people.
+
 ## 0.2.0 — 2026-10-13
 
 **A new hub: the Launcher**

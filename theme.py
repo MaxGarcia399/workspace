@@ -157,8 +157,11 @@ def reset():
 
 def apply_current():
     """Fondo/tinta/cursor del tema ELEGIDO (ui.theme + ui.background), igual
-    que el hub: el bloque tui.osc del tema, o la paleta clásica si no trae.
-    Falla-suave: jamás levanta."""
+    que el hub: el bloque tui.osc del tema; sin OSC (terminal sin color /
+    NO_COLOR, o un tema propio sin `tui.osc`) se RESTAURAN los colores de la
+    terminal — ya no el negro/crema del recinto viejo («workspace» de
+    themes.json). Única fuente: hub, secciones, onboarding y el arranque de
+    un agente llaman AQUÍ. Falla-suave: jamás levanta."""
     try:
         import tuitheme
         osc = getattr(tuitheme.palette(), "OSC", None)
@@ -167,7 +170,7 @@ def apply_current():
     if osc:
         apply_colors(osc)
     else:
-        apply("workspace")
+        reset()
 
 
 # True mientras el hub corre una sección DENTRO de su proceso (front.py,

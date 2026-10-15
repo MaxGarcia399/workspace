@@ -242,12 +242,6 @@ STRINGS = {'engines.agent': 'Agent: {name} · a changes · u assigns engine',
  'engines.yes': 'Recorded',
  'menu.engines.label': 'Engines',
  'menu.engines.tag': 'status, capabilities and connections',
- 'engines.hint.m_toggle': 'Enable in M',
- 'engines.m_on': 'in the M shortcut',
- 'engines.m_off': 'not in the M shortcut',
- 'engines.m_all': 'M offers every installed engine',
- 'engines.m_saved': 'M shortcut updated',
- 'engines.m_failed': 'Could not save the M shortcut',
  'engines.path_added': 'PATH updated (+{n} folders from a new terminal)'}
 
 # ── engine_install: recipe notes and diagnostics (Engines screen) ───────────
