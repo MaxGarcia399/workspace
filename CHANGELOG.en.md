@@ -8,6 +8,13 @@ How to read this: every version has a number (`MAJOR.MINOR.PATCH`). A PATCH
 change fixes things; a MINOR one brings new features without breaking
 anything; a MAJOR one warns you well in advance if something changes shape.
 
+## 0.3.3 — 2026-10-14
+
+**Fixes**
+- The hub no longer shows the "setup unfinished" notice. It was based on how
+  you left the first run and never refreshed, so it could stay even after you
+  had finished it. To go through the first run again: `workspace onboarding`.
+
 ## 0.3.2 — 2026-10-14
 
 **Fixes**

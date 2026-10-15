@@ -7,7 +7,6 @@ STRINGS = {
     "onboarding.etapa.motores": "engines",
     "onboarding.etapa.apariencia": "appearance",
     "onboarding.etapa.agente": "agent",
-    'onboarding.pendiente_hub': 'setup unfinished ({p}) — continue with: workspace onboarding',
     'onboarding.reanudado': 'picking up where you left off',
 
     # divisors shared across steps

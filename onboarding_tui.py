@@ -35,8 +35,8 @@ REANUDABLE (U07/Z07): el flag guarda el estado por ETAPA (completa/omitida/
 pendiente) y la vista donde quedó; `workspace onboarding` CONTINÚA desde ahí
 (no reinicia). «Listo» (completo=True) exige lo VERIFICABLE: un motor con
 binario y un agente lanzable (agent_state). Omitir es válido (modo explorar):
-queda `pendientes` en el flag y el hub lo muestra — sin bucle forzado (la
-obligatoriedad sigue en debate; esto no la impone).
+queda `pendientes` en el flag — sin bucle forzado ni aviso en el hub (era
+una foto de la salida que no se re-verificaba y mentía; quitado 2026-10-14).
 Una máquina que YA tiene agentes registrados se marca "adopcion" en silencio:
 el onboarding es para el primer uso, no para quien ya opera. Re-correrlo a
 mano: `workspace onboarding`.
@@ -157,31 +157,6 @@ def pendientes_verificables(motores=None):
     except Exception:
         out.append("agente")
     return out
-
-
-def resumen_pendiente():
-    """Línea para el hub si el onboarding quedó a medias (modo explorar o
-    salida temprana): qué falta y cómo continuar. '' si nada pendiente.
-    Barato: lee el flag; NO re-verifica (eso pasa al continuar)."""
-    d = leer_flag()
-    if not d or d.get("modo") != "onboarding" or d.get("completo"):
-        return ""
-    # «pendientes» es lo VERIFICADO al salir (motor/agente). Si existe, manda
-    # aunque esté vacío: quien ya tenía motores y agentes y solo se asomó al
-    # onboarding no debe cargar el aviso para siempre (cliente 2026-10-14).
-    # Sin esa clave (salida abrupta a medias) se cae a las etapas.
-    if "pendientes" in d:
-        pend = d.get("pendientes") or []
-    else:
-        pend = [e for e in _ETAPAS
-                if (d.get("etapas") or {}).get(e) != "completa"]
-    if not pend:
-        return ""
-    nombres = ", ".join(_t("onboarding.etapa.%s" % (p if p != "motor" else "motores"),
-                           p) for p in pend)
-    return _t("onboarding.pendiente_hub",
-              "configuración a medias ({p}) — continúa con: workspace onboarding"
-              ).replace("{p}", nombres)
 
 
 def ya_corrio():

@@ -8,6 +8,14 @@ Cómo leer esto: cada versión tiene su número (`MAYOR.MENOR.PARCHE`). Un
 cambio de PARCHE arregla cosas; uno de MENOR trae funciones nuevas sin romper
 nada; uno de MAYOR avisa con tiempo si algo cambia de forma.
 
+## 0.3.3 — 2026-10-14
+
+**Arreglos**
+- El hub ya no muestra el aviso de «configuración a medias». Se basaba en cómo
+  saliste del primer arranque y no se actualizaba, así que podía seguir ahí
+  aunque ya lo hubieras terminado. Para repasar el primer arranque:
+  `workspace onboarding`.
+
 ## 0.3.2 — 2026-10-14
 
 **Arreglos**

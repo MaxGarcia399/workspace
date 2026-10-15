@@ -13,7 +13,6 @@ STRINGS = {
     "onboarding.etapa.motores": "motores",
     "onboarding.etapa.apariencia": "apariencia",
     "onboarding.etapa.agente": "agente",
-    'onboarding.pendiente_hub': 'configuración a medias ({p}) — continúa con: workspace onboarding',
     'onboarding.reanudado': 'continuando donde lo dejaste',
 
     # divisores compartidos entre pasos

@@ -1511,16 +1511,6 @@ def _motor_summary(agents):
     return "claude-code"
 
 
-def _onboarding_hint():
-    """Aviso del hub si el onboarding quedó a medias (U07: pendientes
-    visibles al explorar, sin forzar). Falla-suave → ''."""
-    try:
-        import onboarding_tui
-        return onboarding_tui.resumen_pendiente()
-    except Exception:
-        return ""
-
-
 def _hub_agents():
     """(agents, revision) para el hub desde el estado compartido (agent_state).
     Cada entrada conserva el shape histórico (name/display/color/brain/
@@ -1645,7 +1635,7 @@ def _menu_machinery(tout):
         _lf0 = _langs0.index(_i18n0.lang()) if _i18n0.lang() in _langs0 else 0
     except Exception:
         _lf0 = 0
-    S = {"group": _g0, "gsel": 0, "asel": 0, "ph": 0, "msg": _onboarding_hint(), "hb_msg": "",
+    S = {"group": _g0, "gsel": 0, "asel": 0, "ph": 0, "msg": "", "hb_msg": "",
          "hb_mode": _hb0, "cfg_focus": 0, "lang_focus": _lf0,
          "hb_focus": HB_MODES.index(_hb0) if _hb0 in HB_MODES else 0,
          "frame": 0, "ign_start": 0, "BH": 0, "row0": 0,
