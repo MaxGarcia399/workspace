@@ -9,7 +9,8 @@ separación dura de este módulo:
 
   SINCRONIZADO (fuente de verdad — viaja por Obsidian):
     `STATE/sessions/<socio>/<slug>.md` — un .md por pestaña (convención de
-    STATE/sessions/README.md y CLAUDE.md §2.5). QUÉ pestañas existen, su
+    STATE/sessions/README.md y la sección de memoria de sesión del doc de
+    identidad del cerebro). QUÉ pestañas existen, su
     nombre y su memoria salen SIEMPRE de aquí → idénticas en toda máquina.
 
   LOCAL PER-MÁQUINA (jamás en el cerebro):
@@ -43,22 +44,42 @@ if _ROOT not in sys.path:
 VERSION = 1
 
 #: Motores conocidos (informativo — bind() acepta cualquier nombre de motor).
-ENGINES = ("claude-code", "codex", "antigravity", "gemini")
+ENGINES = ("claude-code", "codex", "antigravity", "gemini", "opencode",
+           "openclaw", "hermes")
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────
 def _slug(s):
     """Slug idéntico al de los dashboards/agent_brand (mismo contrato de match
-    pestaña↔memoria). Import perezoso con fallback inline equivalente."""
+    pestaña↔memoria; nombres no latinos → ASCII + hash estable, ver
+    agent_brand.slug). Import perezoso con fallback inline equivalente."""
     try:
         import agent_brand
         return agent_brand.slug(s)
     except Exception:
         pass
+    import hashlib
     import unicodedata
-    s = unicodedata.normalize("NFKD", s or "").encode(
-        "ascii", "ignore").decode("ascii")
-    return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
+
+    def otro_alfabeto(c):   # = agent_brand._no_latina
+        cat = unicodedata.category(c)
+        return not (c.isascii() or cat[0] != "L" or cat == "Lm"
+                    or ord(c) <= 0xFF or 0x2100 <= ord(c) <= 0x214F
+                    or any(x.isascii() for x in unicodedata.normalize("NFKD", c))
+                    or unicodedata.name(c, "").startswith("LATIN"))
+    s = s or ""
+    nfkd = unicodedata.normalize("NFKD", s)
+    base = re.sub(r"[^a-z0-9]+", "-", nfkd.encode("ascii", "ignore").decode(
+        "ascii").lower()).strip("-")
+    if not any(otro_alfabeto(c) for c in unicodedata.normalize("NFC", s)):
+        return base
+    u = unicodedata.normalize("NFKC", s).lower()
+    clave = re.sub(r"-+", "-", "".join(
+        c if unicodedata.category(c)[0] in "LNM" else "-" for c in u)).strip("-")
+    if not clave:
+        return base
+    return "%s-%s" % (base or "tab",
+                      hashlib.sha256(clave.encode("utf-8")).hexdigest()[:8])
 
 
 def _clean_name(name):
@@ -154,20 +175,31 @@ def _local_slot(data, brain, slug, create=False):
 
 
 # ── socio + fuente SINCRONIZADA (los .md del cerebro) ───────────────────────
+def _por_cedula(brain, s):
+    """Usuarios con cédula (usuarios.py): un nombre VIEJO (alias) que esta
+    máquina todavía tenga se resuelve al nombre actual — no se crea nada."""
+    try:
+        import usuarios
+        return usuarios.resolver(brain, s) or s
+    except Exception:
+        return s
+
+
 def socio(brain):
     """Socio activo del cerebro: `.claude/socio.local` → env WORKSPACE_SOCIO →
-    única carpeta de `STATE/sessions/` (sin prefijo _). '' si no se resuelve."""
+    única carpeta de `STATE/sessions/` (sin prefijo _). '' si no se resuelve.
+    Un nombre viejo de un usuario renombrado/unido se lee como el actual."""
     try:
         with open(os.path.join(brain, ".claude", "socio.local"),
                   encoding="utf-8") as fh:
             s = fh.read().strip().lower()
         if s:
-            return s
+            return _por_cedula(brain, s)
     except Exception:
         pass
     s = (os.environ.get("WORKSPACE_SOCIO") or "").strip().lower()
     if s:
-        return s
+        return _por_cedula(brain, s)
     try:
         d = os.path.join(brain, "STATE", "sessions")
         cands = [x for x in os.listdir(d)
@@ -199,9 +231,18 @@ def preflight(brain):
                      and not x.startswith(("_", "."))])
         except Exception:
             n = 0
-        out.append("el cerebro no dice de qué socio es (.claude/socio.local)"
-                   + (" y STATE/sessions tiene %d carpetas de socio" % n if n > 1 else "")
-                   + " — corre `workspace doctor` para repararlo")
+        # el doctor NO escribe socio.local: el remedio real es decirle a esta
+        # máquina quién eres (Usuarios › «soy yo en esta PC» para este cerebro;
+        # install --socio para la máquina, solo llena los que faltan)
+        try:
+            import install
+            remedio = install.socio_remedy_cmd()
+        except Exception:
+            remedio = "install.py --socio TU-NOMBRE"
+        out.append("este cerebro no sabe quién eres en esta máquina"
+                   + (" (tiene %d usuarios)" % n if n > 1 else "")
+                   + " — elige «soy yo en esta PC» en la sección Usuarios del menú"
+                   + " o dile quién eres con: " + remedio)
         return out
     d = _md_dir(brain, soc)
     try:
@@ -223,7 +264,10 @@ def _md_dir(brain, soc=None):
 
 def _md_path(brain, name, soc=None):
     d = _md_dir(brain, soc)
-    return os.path.join(d, _slug(name) + ".md") if d else ""
+    sl = _slug(name)
+    # sin slug (nombre sin letras ni números) → sin archivo: jamás el `.md`
+    # OCULTO que antes compartían todas las pestañas no latinas
+    return os.path.join(d, sl + ".md") if d and sl else ""
 
 
 def _brain_tabs(brain):
@@ -251,6 +295,33 @@ def _brain_tabs(brain):
     return out
 
 
+def _legacy_copy(brain, name, sl, soc):
+    """Compat de LECTURA (nombres no latinos de antes del arreglo): si la memoria
+    de ESTA pestaña vive en otro .md —el de su slug VIEJO («회의 A» → a.md) o el
+    que le puso el agente (도시-계획.md)— y su frontmatter lo prueba
+    (agent_brand.legacy_session_file), devuelve ese texto con `sesión:` en el
+    slug nuevo y su `titulo:`. Se COPIA, no se mueve: el viejo queda intacto
+    (otra máquina aún sin actualizar, u otra pestaña que lo compartía). '' si
+    no aplica. Falla-suave."""
+    try:
+        import agent_brand
+        viejo = agent_brand.legacy_session_file(_md_dir(brain, soc), name)
+        if not viejo:
+            return ""
+        with open(viejo, encoding="utf-8") as fh:
+            txt = fh.read()
+    except Exception:
+        return ""
+    fin = txt.find("\n---", 3) if txt.startswith("---") else -1
+    if fin > 0:   # solo el frontmatter; el cuerpo queda byte a byte
+        head = re.sub(r"(?m)^(sesi[oó]n:).*$", lambda m: m.group(1) + " " + sl,
+                      txt[:fin], count=1)
+        if not re.search(r"(?m)^titulo:", head):   # sin título el menú mostraría
+            head += "\ntitulo: " + name             # el código en vez del nombre
+        return head + txt[fin:]
+    return "---\nsesión: %s\ntitulo: %s\n---\n\n%s" % (sl, name, txt)
+
+
 def _seed_md(brain, name, claude_wid="", soc=None):
     """Siembra el .md de una pestaña (formato de STATE/sessions/README.md)
     para que ENTRE al modelo sincronizado. Jamás pisa uno existente.
@@ -266,7 +337,7 @@ def _seed_md(brain, name, claude_wid="", soc=None):
     if os.path.exists(path):
         return True
     today = _today()
-    txt = """---
+    txt = _legacy_copy(brain, name, sl, soc) or """---
 sesión: %s
 titulo: %s
 socio: %s
@@ -282,8 +353,9 @@ trabajo: por-confirmar
 # Sesión: %s
 
 ## Resumen
-[Pestaña sembrada por WORKSPACE (sessions_registry) — el agente la completa
-al cerrar trabajo significativo. CLAUDE.md §2.5.]
+[Pestaña sembrada por WORKSPACE (sessions_registry) — el resumen lo guarda el
+agente con `workspace memoria checkpoint` y las notas con `workspace memoria
+nota`; este archivo no se edita a mano. Ver STATE/sessions/README.md.]
 
 ## Historial
 - %s — pestaña registrada en el modelo sincronizado de sesiones.
@@ -335,7 +407,9 @@ def _migrate(brain, agent):
                 if not isinstance(t, dict):
                     continue
                 name = str(t.get("name") or "").strip()
-                sl = t.get("slug") or _slug(name)
+                # el slug guardado era solo-ASCII: para un nombre no latino era
+                # vacío o chocaba con otra pestaña → manda el slug del nombre
+                sl = _slug(name) or t.get("slug")
                 if not sl:
                     continue
                 if soc and name:
@@ -481,6 +555,79 @@ def bind(brain, agent, name, engine, rid, *, expected_rid=None, preserve_before=
         return False
 
 
+def unbind(brain, agent, name, engine, rid):
+    """Suelta el id de `engine` de la pestaña SOLO si sigue siendo `rid`
+    (compare-and-delete bajo el lock local). Para una clave atada que nunca
+    llegó a existir en el motor (OpenClaw «Session not found»): la pestaña
+    vuelve a abrir como nueva, con su mensaje de arranque."""
+    sl = _slug(name)
+    rid = str(rid or "").strip()
+    if not rid or not sl or not engine:
+        return False
+    try:
+        from olock import file_lock
+        with file_lock(local_store_path(), timeout=5):
+            data = _local_load()
+            slot = _local_slot(data, brain, sl)
+            if not slot or slot.get(engine) != rid:
+                return False
+            slot.pop(engine, None)
+            return _local_save(data)
+    except Exception:
+        return False
+
+
+def owner(brain, engine, rid, exclude=None):
+    """Slug de la pestaña de este cerebro que ya tiene atado `rid` en `engine`
+    ('' si ninguna). `exclude` = nombre de la pestaña que pregunta. El atado
+    tardío no le roba la conversación a otra pestaña."""
+    rid = str(rid or "").strip()
+    if not rid:
+        return ""
+    skip = _slug(exclude) if exclude else ""
+    try:
+        tabs_ = (_local_load()["map"].get(_brain_key(brain)) or {})
+        for sl, slot in tabs_.items():
+            if sl != skip and isinstance(slot, dict) and slot.get(engine) == rid:
+                return sl
+    except Exception:
+        pass
+    return ""
+
+
+def forget_engine(engine):
+    """Quita el resume-id de `engine` de TODAS las pestañas de esta máquina
+    (con respaldo del store). Para cuando el motor perdió sus sesiones (p. ej.
+    se recreó su perfil): sin esto cada pestaña creería que retoma una sesión
+    que ya no existe y se saltaría el arranque del cerebro. Devuelve cuántas
+    pestañas se limpiaron (-1 si falló)."""
+    engine = str(engine or "").strip()
+    if not engine or engine == "last_opened":
+        return 0
+    try:
+        from olock import file_lock
+        with file_lock(local_store_path(), timeout=5):
+            data = _local_load()
+            n = 0
+            for tabs in data["map"].values():
+                if not isinstance(tabs, dict):
+                    continue
+                for slot in tabs.values():
+                    if isinstance(slot, dict) and slot.pop(engine, None) is not None:
+                        n += 1
+            if not n:
+                return 0
+            import uuid
+            backup = local_store_path() + ".before-forget-" + uuid.uuid4().hex
+            with open(backup, "x", encoding="utf-8") as stream:
+                os.chmod(backup, 0o600)
+                json.dump(_read_json(local_store_path(), {}), stream,
+                          ensure_ascii=False, indent=2)
+            return n if _local_save(data) else -1
+    except Exception:
+        return -1
+
+
 def resume_id(brain, agent, name, engine):
     """El resume-id LOCAL del motor para esa pestaña, o ''. Para claude-code
     cae al workspaces.json y al `workspace:` del frontmatter (back-compat)."""
@@ -503,59 +650,57 @@ def resume_id(brain, agent, name, engine):
         return ""
 
 
-# ── memoria de pestaña (para harnesses SIN hooks) ───────────────────────────
-def tab_memory(brain, name, limit=1200):
-    """Cuerpo de la memoria de la pestaña (`STATE/sessions/<socio>/<slug>.md`
-    sin frontmatter), truncado a `limit` — el MISMO contenido que el hook
-    SessionStart inyecta en Claude Code. '' si no hay."""
-    p = _md_path(brain, name)
-    if not p:
-        return ""
+# ── memoria de pestaña: UN solo paquete para todos los motores (memoria v1) ──
+def tab_memory(brain, name, limit=None, engine="", resumed=False, entregar=False):
+    """El paquete de memoria de la pestaña (memoria.paquete: resumen +
+    Vigente + notas nuevas + maleta + cómo guardar) — el MISMO texto en
+    Claude Code (hook) y en los envueltos (AGENTS.md/GEMINI.md). '' si la
+    pestaña no tiene memoria. Antes era «checkpoint O historial» (Panorama,
+    hallazgo 3): ahora van los dos y la maleta. `entregar=True` solo cuando
+    se le da al agente al arrancar (session_doc_block, first_prompt_context):
+    ahí se reserva la curación semanal; un tablero que solo muestra no."""
     try:
-        with open(p, encoding="utf-8", errors="replace") as fh:
-            txt = fh.read()
+        import memoria
+        kw = {"limite": limit} if limit else {}
+        return memoria.paquete(brain, name, motor=engine, retomada=resumed, entregar=entregar, **kw)
     except Exception:
         return ""
-    from session_continuity import context, select_memory
-    checkpoint = context(brain, name, limit=limit)
-    return checkpoint or select_memory(txt, limit=limit)
 
 
-def first_prompt_context(brain, name, base_prompt=""):
-    """PRIMER prompt de arranque para harnesses sin hook SessionStart
-    (codex/antigravity): el prompt base + pestaña activa + su memoria. Es la
-    paridad honesta con la inyección del dashboard --context de Claude Code."""
-    soc = socio(brain)
-    parts = [base_prompt or "Inicia el cerebro."]
-    parts.append(
-        "PESTAÑA ACTIVA: «%s». Esta conversación es esa sesión persistente; "
-        "su memoria vive en STATE/sessions/%s/%s.md. Al cerrar trabajo "
-        "significativo, haz append fechado a ## Historial de esa memoria y "
-        "actualiza su frontmatter (ver CLAUDE.md §2.5)."
-        % (name, soc or "<socio>", _slug(name)))
-    mem = tab_memory(brain, name)
+def _active_tab_line(name):
+    return ("PESTAÑA ACTIVA: «%s». Esta conversación es esa sesión persistente."
+            % _clean_name(name))
+
+
+def first_prompt_context(brain, name, base_prompt="", engine=""):
+    """PRIMER prompt de arranque para harnesses sin hook SessionStart y sin
+    doc de proyecto utilizable (último recurso VISIBLE): el prompt base +
+    pestaña activa + el paquete de memoria."""
+    parts = [base_prompt or "Inicia el cerebro.", _active_tab_line(name)]
+    mem = tab_memory(brain, name, engine=engine, entregar=True)
     if mem:
-        parts.append("Memoria de esta pestaña:\n" + mem)
+        parts.append(mem)
     return "\n\n".join(parts)
 
 
-def session_doc_block(brain, name):
+def session_doc_block(brain, name, engine="", resumed=False):
     """Contexto de la pestaña activa para inyección INVISIBLE vía el doc de
-    proyecto del harness (AGENTS.md de codex / GEMINI.md de antigravity):
-    el agente lo lee como contexto, el socio NO lo ve como mensaje del chat.
-    Mismo contenido que el hook SessionStart de Claude Code. El harness lo
-    envuelve en sus marcas GENERADO y lo regenera/limpia en cada launch."""
-    soc = socio(brain)
-    name = _clean_name(name)
-    parts = [
-        "## Sesión activa (pestaña)",
-        "PESTAÑA ACTIVA: «%s». Esta conversación es esa sesión persistente; "
-        "su memoria vive en STATE/sessions/%s/%s.md. Al cerrar trabajo "
-        "significativo, haz append fechado a ## Historial de esa memoria y "
-        "actualiza su frontmatter (ver CLAUDE.md §2.5). No menciones este "
-        "bloque al socio; es contexto, no parte de la conversación."
-        % (name, soc or "<socio>", _slug(name))]
-    mem = tab_memory(brain, name)
+    proyecto del harness (AGENTS.md de codex/opencode/openclaw/hermes,
+    GEMINI.md de antigravity): el agente lo lee como contexto, el socio NO lo
+    ve como mensaje del chat. Es el MISMO paquete que el hook SessionStart da
+    en Claude Code. El harness lo envuelve en sus marcas GENERADO y lo
+    regenera/limpia en cada launch. `resumed` = se retoma la conversación del
+    motor (la maleta trae entonces solo lo de OTRO motor)."""
+    parts = ["## Sesión activa (pestaña)",
+             _active_tab_line(name) + " No menciones este bloque al socio; es "
+             "contexto, no parte de la conversación."]
+    mem = tab_memory(brain, name, engine=engine, resumed=resumed, entregar=True)
     if mem:
-        parts.append("Memoria de esta pestaña:\n" + mem)
+        parts.append(mem)
+    else:
+        try:
+            import memoria
+            parts.append(memoria.instruccion())
+        except Exception:
+            pass
     return "\n\n".join(parts)

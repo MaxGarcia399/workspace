@@ -13,7 +13,6 @@ STRINGS = {
     'settings_ui.label.hooks.security_guidance': 'Security guidance (PostToolUse, N15)',
     'settings_ui.label.hooks.telemetry': 'Telemetría en vivo (Pre/PostToolUse, N-telem)',
     'settings_ui.label.modelos.default_engine': 'Motor por default',
-    'settings_ui.label.cerebro.dreaming_auto': 'Dreaming automático',
     'settings_ui.label.agentes.default_agent': 'Agente por default',
     'settings_ui.label.agentes.auto_mode': 'Auto-mode en sesiones interactivas',
     'settings_ui.label.ui.anim': 'Animaciones',

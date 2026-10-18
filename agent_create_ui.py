@@ -52,7 +52,7 @@ def _pref_rows(S):
     escribir su cerebro sin preguntar (ON de entrada) y revisión de skills."""
     kf, kr = _pref_keys(S)
     return [('autonomy', _t('addagent.plan.row.brain_free', 'Su cerebro sin preguntar: ') + _onoff(S.get(kf, True))),
-            ('review', _t('addagent.plan.row.review', 'Revisión de skills al cerrar: ') + _onoff(S.get(kr)))]
+            ('review', _t('addagent.plan.row.review', 'Revisión de skills: ') + _onoff(S.get(kr)))]
 
 
 def _pref_details():
@@ -61,7 +61,7 @@ def _pref_details():
                      _t('addagent.detail.brain_free.2', 'OFF: te pregunta antes de crear o editar cada archivo, también en su cerebro.'),
                      _t('addagent.detail.autonomy.3', 'Enter cambia esta preferencia. Después la cambias cuando quieras en Agentes (Enter sobre el agente).')],
         'review': [_t('addagent.detail.review.1', 'OFF: al cerrar una sesión no corre nada.'),
-                   _t('addagent.detail.review.2', 'ON: al cerrar cada sesión su motor revisa, en segundo plano, lo que corregiste y mejora sus skills; las skills nuevas quedan como propuesta para que tú las apruebes.'),
+                   _t('addagent.detail.review.2', 'ON: al abrir la siguiente sesión, tu agente revisa a la vista lo que corregiste en la anterior y mejora sus skills; las skills nuevas se crean directo.'),
                    _t('addagent.detail.review.3', 'Usa un poco de tu suscripción. Enter cambia esta preferencia; después, en Agentes (Enter sobre el agente).')],
     }
 
@@ -104,7 +104,7 @@ def rows(S, api):
                 ('brain', _t('addagent.plan.row.brain', 'Vistas del mapa · sólo información')),
                 ('create', _t('addagent.plan.row.create', 'CREAR AGENTE')), ('back', _t('addagent.plan.row.back', 'Volver al formulario'))]
     if v == 'brain':
-        return [('route:'+key, label) for key,label in [('setup', _t('addagent.brain.route.setup', 'Composición · carpetas y MD')),('boot', _t('addagent.brain.route.boot', 'Arranque · qué carga')),('save', _t('addagent.brain.route.save', 'Guardar · dónde y cuándo')),('retrieve', _t('addagent.brain.route.retrieve', 'Recuperar · ruta del contexto')),('organize', _t('addagent.brain.route.organize', 'Organizar · consolidación'))]] + [('back', _t('addagent.nav.back_plan', 'Volver al plan'))]
+        return [('route:'+key, label) for key,label in [('setup', _t('addagent.brain.route.setup', 'Composición · carpetas y MD')),('boot', _t('addagent.brain.route.boot', 'Arranque · qué carga')),('save', _t('addagent.brain.route.save', 'Guardar · dónde y cuándo')),('retrieve', _t('addagent.brain.route.retrieve', 'Recuperar · ruta del contexto')),('organize', _t('addagent.brain.route.organize', 'Organizar · al cerrar, sin IA'))]] + [('back', _t('addagent.nav.back_plan', 'Volver al plan'))]
     if v == 'motor':
         return [(d['id'], ('● ' if d['id'] == S.get('engine_id') else '○ ') + d['id'] +
                  (_t('addagent.motor.available', ' · disponible') if d.get('ready') else ' · ' + (d.get('detail') or _t('addagent.motor.unavailable', 'no disponible'))))
@@ -144,7 +144,7 @@ def details(S, action, api):
         return [_t('addagent.perms.back.1', 'Vuelve sin conectar nada.')]
     if v == 'brain':
         route = S.get('brain_route', 'setup')
-        return list(brain_view.routes()[route][:3]) + ['', _t('addagent.brain.note.disk', 'DISCO: 0 tokens de modelo · leer contexto y redactar: variables.'), _t('addagent.brain.note.fts5', 'FTS5: índice local derivado; no es una base vectorial.'), _t('addagent.brain.note.capture', 'Al cerrar trabajo significativo: captura del agente, no un temporizador.'), _t('addagent.brain.note.hooks', 'Hooks de respaldo: según motor/configuración; cierre abrupto puede omitirlos.')] + overview_detail(S, api)
+        return list(brain_view.routes()[route][:3]) + ['', _t('addagent.brain.note.disk', 'DISCO: 0 tokens de modelo · leer contexto y redactar: variables.'), _t('addagent.brain.note.fts5', 'FTS5: índice local derivado; no es una base vectorial.'), _t('addagent.brain.note.capture', 'El agente anota en el momento, con etiqueta; al cerrar, Workspace ordena.'), _t('addagent.brain.note.hooks', 'Si cerraste con la X, el cierre se completa al siguiente arranque.')] + overview_detail(S, api)
     if v == 'cost':
         return cost(S, api)
     if v == 'sources':
@@ -176,7 +176,7 @@ def details(S, action, api):
     return {
         'motor': [_t('addagent.detail.motor.1', 'Elige el motor que ejecutará tu agente.'), _t('addagent.detail.motor.2', 'Enter abre la lista de motores y su disponibilidad.')],
         'personalize': [_t('addagent.detail.personalize.1', 'OFF: plantilla local, 0 tokens.'), _t('addagent.detail.personalize.2', 'ON: el modelo redacta identidad, alcance y perfil con tus respuestas.'), _t('addagent.detail.personalize.3', 'Enter cambia esta preferencia.')] + cost(S, api)[:3],
-        'toggle': [_t('addagent.detail.toggle.1', 'Obtiene procedimientos reutilizables para las tareas que describiste.'), _t('addagent.detail.toggle.2', '0 tokens de modelo. Solo se activan paquetes que pasan la revisión.'), _t('addagent.detail.toggle.3', 'Enter activa o desactiva.')],
+        'toggle': [_t('addagent.detail.toggle.1', 'Encendido, consulta repos de skills en GitHub y skills.sh (si lo permites).'), _t('addagent.detail.toggle.2', '0 tokens de modelo. Solo se activan paquetes que pasan la revisión.'), _t('addagent.detail.toggle.3', 'Enter activa o desactiva.')],
         'skills': [_t('addagent.detail.skills.1', 'Revisa nombre, procedencia, descripción y versión antes de crear.'), _t('addagent.detail.skills.2', 'Enter abre la selección; cada skill se marca con Enter.')],
         'sources': [_t('addagent.detail.sources.1', 'Tú decides qué repositorios se pueden consultar.'), _t('addagent.detail.sources.2', 'Incluye fuentes conocidas, comunidad opcional y tus propios repositorios.')],
         'process': [_t('addagent.detail.process.1', 'Mira cada paso de la descarga y revisión automática.'), _t('addagent.detail.process.2', 'Los archivos con alertas quedan pendientes y no se activan.')],
@@ -396,9 +396,9 @@ def _plan_guide():
                     _t('addagent.guide.personalize.body', 'Con ON, el modelo usa tus respuestas para redactar identidad, alcance y perfil del dueño: define su voz, sus tareas y los límites con los que empezará. Con OFF, esos datos se incorporan a la plantilla local sin una llamada al modelo. La estimación de esta redacción aparece bajo el mapa.'), _t('addagent.guide.personalize.enter', 'Cambiar ON / OFF')),
     'autonomy': (_t('addagent.guide.brain_free.head', 'SU CEREBRO, SIN PEDIR PERMISO'), _t('addagent.guide.brain_free.lead', 'Leer y escribir su cerebro es su trabajo principal.'),
                  _t('addagent.guide.brain_free.body', 'Con ON (recomendado), el agente lee, crea y edita archivos dentro de su cerebro sin pedirte permiso; para usar la terminal, tocar archivos fuera de su cerebro o salir a la red te pregunta. Con OFF, te pregunta antes de crear o editar cualquier archivo, también en su cerebro. En ningún caso se desactivan las protecciones del motor.'), _t('addagent.guide.autonomy.enter', 'Cambiar ON / OFF')),
-    'review': (_t('addagent.guide.review.head', 'APRENDE DE TUS CORRECCIONES'), _t('addagent.guide.review.lead', 'Opcional: mejora sus skills al cerrar cada sesión.'),
-               _t('addagent.guide.review.body', 'Con ON, al cerrar cada sesión su motor lee en segundo plano lo que pasó y mejora las skills que usó con lo que corregiste; las skills nuevas quedan como propuesta hasta que tú las apruebes. No bloquea el cierre y usa un poco de tu suscripción. Con OFF no corre nada.'), _t('addagent.guide.review.enter', 'Cambiar ON / OFF')),
-    'toggle': (_t('addagent.guide.toggle.head', 'PROCEDIMIENTOS PARA SUS TAREAS'), _t('addagent.guide.toggle.lead', 'Decide si quieres incorporar skills al crear.'),
+    'review': (_t('addagent.guide.review.head', 'APRENDE DE TUS CORRECCIONES'), _t('addagent.guide.review.lead', 'Opcional: tu agente mejora sus skills al abrir la siguiente sesión.'),
+               _t('addagent.guide.review.body', 'Con ON, al cerrar cada sesión Workspace guarda una vista de lo que pasó; al abrir la siguiente, tu agente la revisa a la vista y mejora las skills que usó con lo que corregiste. Las skills nuevas se crean directo. Nada corre sin ventana y usa un poco de tu suscripción en esa sesión. Con OFF no pasa nada.'), _t('addagent.guide.review.enter', 'Cambiar ON / OFF')),
+    'toggle': (_t('addagent.guide.toggle.head', 'PROCEDIMIENTOS PARA SUS TAREAS'), _t('addagent.guide.toggle.lead', 'Apagado por defecto. Encendido, consulta repos de skills en GitHub y skills.sh.'),
                _t('addagent.guide.toggle.body', 'Al activar esta opción se obtienen las propuestas seleccionadas desde las fuentes permitidas y se revisan antes de incorporarlas. Buscar y revisar no usa un modelo ni ejecuta código remoto. Los paquetes con alertas quedan pendientes y se muestran por separado; desactivarla conserva las skills base del cerebro.'), _t('addagent.guide.toggle.enter', 'Cambiar ON / OFF')),
     'skills': (_t('addagent.guide.skills.head', 'TÚ ELIGES QUÉ SABRÁ HACER'), _t('addagent.guide.skills.lead', 'Revisa las propuestas antes de incorporarlas.'),
                _t('addagent.guide.skills.body', 'Una skill contiene instrucciones y recursos para una tarea concreta. Aquí revisas su propósito, repositorio y versión y decides cuáles proponer para tu agente. La selección todavía no la instala: al crear se revisa el paquete y sólo se incorporan los que pasan los controles, con un recibo de lo instalado y lo pendiente.'), _t('addagent.guide.skills.enter', 'Abrir selección')),
@@ -434,17 +434,8 @@ def _plan_explanations():
                 'El resultado se guarda como archivos editables del cerebro. Podrás ajustar su voz o sus '
                 'límites después de crearlo. La personalización consume tokens de una llamada al modelo; la '
                 'cifra es una estimación y no incluye todas las conversaciones futuras del agente.'),
- 'autonomy': _t('addagent.impact.brain_free', 'Queda en su agent.json y viaja con el cerebro; cada motor lo traduce a sus propios permisos. '
-             'Lo que pide permiso depende del motor: Claude Code te pregunta, Codex y Antigravity te preguntan o lo '
-             'bloquean cuando no pueden preguntar.\n'
-             '\n'
-             'Lo cambias cuando quieras en Agentes (Enter sobre el agente).'),
- 'review': _t('addagent.impact.review', 'La revisión corre con el motor del agente (o con Claude Code si su motor no está) y '
-           'solo escribe dentro de skills/ de su cerebro, más una nota en su bandeja cuando propone una skill nueva. '
-           'Las sesiones muy cortas no se revisan y, como mucho, corre una vez cada dos horas por cerebro.\n'
-           '\n'
-           'Queda anotado en su agent.json ("skill_review"). Si un agente no dice nada, manda el ajuste '
-           'global hooks.skill_review, que viene apagado.'),
+ 'autonomy': _t('addagent.impact.brain_free', 'Queda en su agent.json y viaja con el cerebro; cada motor lo traduce a sus propios permisos. Lo que pide permiso depende del motor: Claude Code te pregunta; Codex, Antigravity y los demás te preguntan o lo bloquean cuando no pueden preguntar. Guardar memoria (`workspace memoria`) nunca pide permiso.\n\nLo cambias cuando quieras en Agentes (Enter sobre el agente).'),
+ 'review': _t('addagent.impact.review', 'La revisión la hace el propio agente al abrir su siguiente sesión, a la vista, con lo que pasó en la anterior; solo toca skills/ de su cerebro y las skills nuevas se crean directo. Las sesiones muy cortas no se revisan y, como mucho, se pide una vez cada dos horas por cerebro.\n\nQueda anotado en su agent.json ("skill_review"). Si un agente no dice nada, manda el ajuste global hooks.skill_review, que viene apagado.'),
  'toggle': _t('addagent.impact.toggle', 'Las skills amplían los procedimientos que el agente puede consultar para resolver tareas. '
            'Obtenerlas no equivale a ejecutarlas durante la creación ni a cargar todo su contenido en cada '
            'conversación: el catálogo permite localizar las relevantes cuando hacen falta.\n'
@@ -493,7 +484,7 @@ def _plan_explanations():
           'skills siguen sujetas a revisión.\n'
           '\n'
           'Explorar estos recorridos ayuda a distinguir lo que se carga al iniciar de lo que se consulta '
-          'después, dónde se capturan sesiones y cómo se consolida la memoria. La carpeta es el contenido '
+          'después, cómo guarda el agente y cómo ordena Workspace la memoria al cerrar. La carpeta es el contenido '
           'persistente; el motor es quien lo lee y trabaja con él. Los costos de contexto y redacción '
           'dependen de cuánto contenido se use en cada acción.'),
  'create': _t('addagent.impact.create', 'Se valida el nombre y destino, se prepara la carpeta desde la plantilla y se registra la '
@@ -523,22 +514,24 @@ def _route_explanations():
           'El mapa representa el punto de partida, no una carpeta ya creada. Los fragmentos de tus '
           'respuestas permiten ver qué parte del cerebro estás definiendo. Las skills propuestas sólo se '
           'incorporan si pasa su revisión; las que queden pendientes se identifican en el resultado.'),
- 'boot': _t('addagent.route.boot.impact', 'El agente comienza en CLAUDE.md y sigue su orden de lectura: identidad y reglas en BOOT, después '
-         'memoria curada, índice y perfil del socio. Esta capa le permite saber quién es, con quién trabaja '
-         'y dónde buscar el resto de la información.\n'
+ 'boot': _t('addagent.route.boot.impact', 'El agente comienza en BRAIN.md (su archivo de identidad; CLAUDE.md, AGENTS.md y GEMINI.md solo apuntan a él para cada motor) y sigue su orden de lectura: identidad y reglas en BOOT, después '
+         'memoria curada, índice y perfil del socio. Al abrir una pestaña, Workspace le entrega además su '
+         'memoria: el resumen, lo vigente, las notas nuevas y la maleta del motor anterior, igual en '
+         'cualquier motor.\n'
          '\n'
          'La wiki y las instrucciones completas de las skills se consultan cuando la tarea las necesita, '
          'evitando leer todo el cerebro de entrada. Cargar estos documentos sí ocupa contexto del modelo; el '
          'costo depende de su longitud y del runtime. El contenido en disco permanece aunque cambies de '
          'sesión.'),
- 'save': _t('addagent.route.save.impact', 'Al terminar trabajo significativo, el agente captura lo ocurrido en la memoria de la pestaña y '
-         'añade al inbox lo que debe consolidarse. La sesión conserva el hilo de ese trabajo; el inbox '
-         'separa las capturas de la memoria curada para que no todo se convierta en una regla permanente.\n'
+ 'save': _t('addagent.route.save.impact', 'Mientras trabaja, el agente guarda cada cosa en el momento con `workspace memoria nota` y una '
+         'etiqueta: decisión, pendiente, hecho, nota, dato o preferencia. Cada pendiente recibe un id (P-3) '
+         'para cerrarlo después, y el resumen de la pestaña se guarda con `workspace memoria checkpoint`. El '
+         'agente nunca edita la ficha a mano.\n'
          '\n'
-         'No hay un temporizador universal de guardado. En Claude, los hooks configurados pueden respaldar '
-         'el transcript al compactar y dejar un rastro al cerrar si faltó captura; depende del motor y un '
-         'cierre abrupto puede omitirlos. Escribir o copiar archivos localmente no usa tokens de modelo; '
-         'redactar un resumen sí puede consumirlos.'),
+         'Al cerrar, en cualquier motor, Workspace arma sin IA la maleta: lo último que pediste, la última '
+         'respuesta y los archivos que tocó, para que el siguiente motor siga donde quedó. Si cerraste con la '
+         'X, el cierre se completa al siguiente arranque. Escribir y ordenar archivos no usa tokens de modelo; '
+         'las notas del agente ocupan un poco de su respuesta.'),
  'retrieve': _t('addagent.route.retrieve.impact', 'Para recuperar contexto se empieza por el índice de STATE y se abre el archivo señalado. Si '
              'falta una ruta útil, la búsqueda local FTS5 puede localizar coincidencias y, como alternativa, '
              'se busca texto con grep. En la wiki se parte de index.md y se siguen los enlaces hacia las '
@@ -548,14 +541,7 @@ def _route_explanations():
              'búsqueda local no usa tokens de modelo; los resultados que se incorporan al contexto y la '
              'respuesta sí. Este recorrido usa índices, archivos y enlaces: FTS5 es búsqueda textual local, '
              'no una base de embeddings.'),
- 'organize': _t('addagent.route.organize.impact', 'Las capturas de sesiones e inbox se revisan y consolidan para mantener MEMORY útil y '
-             'actualizar INDEX con las rutas correspondientes. Esto separa el registro de lo que pasó de la '
-             'información que conviene recordar y recuperar en el futuro.\n'
-             '\n'
-             'Dream puede proponer candidatos en DESTILADO; su promoción a MEMORY requiere revisión humana. '
-             'No se promete un intervalo automático universal. Mover o indexar archivos localmente no usa '
-             'tokens de modelo; interpretar, resumir y redactar una consolidación puede consumirlos según el '
-             'contenido.')}
+ 'organize': _t('addagent.route.organize.impact', 'Al cerrar cada sesión, Workspace ordena la memoria con código, sin IA: rehace la lista de lo vigente (pendientes abiertos y decisiones), sube los datos y preferencias a STATE/MEMORY.md para todas las pestañas y, cuando la ficha crece, deja lo vigente y las notas recientes y mueve las viejas, completas, a archivo/. MEMORY.md pasa sus entradas más viejas a memoria-archivo/ al superar 200 líneas.\n\nNada se borra, nada espera tu revisión y ninguna IA corre sin ventana. Mover o indexar archivos localmente no usa tokens de modelo.')}
 
 
 _BASE_SKILLS = None
@@ -596,7 +582,7 @@ def overview_sections(S, api):
         (_t('addagent.ov.sec.setup', 'SETUP · ESTRUCTURA DEL CEREBRO'), [(_t('addagent.ov.f.engine', 'Motor'), S.get('engine_id') or 'claude-code'),
              (_t('addagent.ov.f.identity', 'Identidad'), _t('addagent.ov.identity_ai', 'redacción con IA') if S.get('personalize') else _t('addagent.ov.identity_tpl', 'plantilla local')),
              (_t('addagent.ov.f.perms', 'Permisos'), _t('addagent.ov.perms_brain', 'libre en su cerebro; lo demás te lo pregunta') if S.get('brain_free', True) else _t('addagent.ov.perms_ask', 'te pregunta antes de escribir, también en su cerebro')),
-             (_t('addagent.ov.f.skillreview', 'Revisión de skills al cerrar'), _onoff(S.get('skill_review'))),
+             (_t('addagent.ov.f.skillreview', 'Revisión de skills'), _onoff(S.get('skill_review'))),
              (_t('addagent.ov.f.dest', 'Destino'), api._ruta_corta(api.agent_admin.default_brain_dest(values.get('nombre') or 'agente')))]
              + [(_t('addagent.ov.f.structure', 'Estructura'), line) for line in structure]
              + [(_t('addagent.ov.f.atcreate', 'Al crear'), _t('addagent.ov.atcreate_val', 'identidad portable + registro + tema + hooks/statusline + launcher')),

@@ -40,6 +40,8 @@ PREVENTION_MODULES = (
     "test_headless_contract",       # stdin cerrado / NUL / stdout redirigido
     "test_migrate_legacy",          # migración idempotente con backup/rollback
     "test_bootstrap_contract",      # paquete instalable por OS, una regla de ubicación
+    "test_engine_versions",         # motores: versiones verificadas + aviso de deriva
+    "test_portabilidad_procesos",   # señales sin os.kill · CLIs por su ruta (.cmd)
 )
 
 #: Secciones que TODO plan de feature debe declarar (templates/feature/PLAN.md).

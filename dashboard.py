@@ -201,7 +201,7 @@ class Handler(BaseHTTPRequestHandler):
                 404,
                 json.dumps({"__err": "ruta desconocida: %s — este dashboard no "
                                      "tiene ese endpoint (¿server viejo? "
-                                     "reinicia con `workspace dev`)" % p},
+                                     "reinícialo con `workspace dev restart`)" % p},
                            ensure_ascii=False).encode("utf-8"),
                 "application/json; charset=utf-8")
         return self._send(404, b"not found", "text/plain; charset=utf-8")

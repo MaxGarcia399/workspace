@@ -35,8 +35,11 @@ abajo a la derecha del hub. Si quieres reintentar igual: `workspace update --for
 
 ## Qué no se toca
 
-Una actualización **solo cambia el código de Workspace**. Tus agentes, sus cerebros, tus
-ajustes, atajos y temas viven fuera de esa carpeta y se conservan.
+Tus agentes, sus cerebros, tus ajustes, atajos y temas viven fuera de la carpeta de
+Workspace y se conservan. Cuando una versión necesita ajustar algo **dentro de tus cerebros**
+(por ejemplo, la 0.4.0 pasa la identidad de tus agentes a `BRAIN.md` y archiva la bandeja vieja
+de propuestas de memoria), lo hace sola, **antes copia todo a un respaldo** y no borra nada; lo
+que escribiste tú se deja como está. Cada versión lo cuenta en sus novedades.
 
 Workspace actualiza con "avance rápido": si modificaste archivos dentro de la carpeta de
 Workspace, **no los pisa**; la actualización se detiene y te lo dice.
@@ -76,8 +79,8 @@ workspace update --rollback
 ```
 
 En el hub es la opción **volver a vX** de Actualizaciones (aparece solo cuando hay a cuál).
-Te muestra a qué versión vuelves y te pide confirmación. **Solo cambia el código**: tus
-agentes, cerebros y ajustes quedan como están. La versión nueva queda en pausa hasta que
+Te muestra a qué versión vuelves y te pide confirmación. Vuelve el código de la versión
+anterior; tus agentes, cerebros y ajustes no se tocan. La versión nueva queda en pausa hasta que
 publiquemos una más reciente. Los ajustes que la versión nueva ya aplicó están hechos para que
 la anterior siga funcionando con ellos.
 

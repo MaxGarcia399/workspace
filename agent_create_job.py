@@ -14,8 +14,10 @@ cada transición. Con eso:
                 módulos, así que salir de la pantalla y volver RE-ENGANCHA la
                 vista al proceso en curso. Si el PROCESO murió a media
                 creación, el archivo persistido lo delata (pid muerto + not
-                done) y la UI ofrece limpiar los restos o reintentar — jamás
-                un cerebro a medias en silencio.
+                done) y la UI lo avisa — jamás un cerebro a medias en
+                silencio. Limpiar SOLO mueve a la papelera lo que assess()
+                demuestra que son restos de ESA creación; un agente que ya
+                quedó registrado (o una carpeta con algo ajeno) no se toca.
   · HONESTO     costo: crear un agente NO consume tokens (es scaffolding
                 local, sin modelo). Lo que SÍ cuesta es el ARRANQUE de cada
                 sesión futura: estimate() mide la superficie HOT real del
@@ -31,6 +33,7 @@ solo se salta el pulido). Jamás se mata el hilo.
 
 Cero dependencias (stdlib, Python 3.9+). Mac y Windows. Falla-suave SIEMPRE.
 """
+import hashlib
 import io
 import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 import json
@@ -38,6 +41,7 @@ import os
 import sys
 import threading
 import time
+import unicodedata
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 if ROOT not in sys.path:
@@ -95,7 +99,8 @@ def _persist(job):
         snap = {k: job[k] for k in
                 ("name", "display", "engine", "dest", "owner", "steps",
                  "done", "ok", "error", "cancel", "t0_wall", "pid",
-                 "created_by_job", "params", "personalize", "skill_sourcing") if k in job}
+                 "created_by_job", "params", "personalize", "skill_sourcing",
+                 "escrito") if k in job}
         path = state_path()
         os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp = path + ".tmp-%d" % os.getpid()
@@ -244,6 +249,10 @@ def _worker(job):
             txt = lbl + ((" — " + str(note)) if note else "")
             job["live"].append((st, txt))
             del job["live"][:-60]
+        if key == "definicion" and st == "ok":
+            # CONSTANCIA de lo que create() escribió antes del registro (ruta
+            # → sha256): solo eso, intacto, podrá llamarse «restos» (cleanup)
+            job["escrito"] = _huella(job["dest"])
         _persist(job)
 
     old = (sys.stdout, sys.stderr, sys.stdin)
@@ -320,37 +329,198 @@ def stale():
     return None                         # otro proceso vivo lo está corriendo
 
 
+#: Lo que el sistema siembra solo con MIRAR una carpeta (Finder/Explorer):
+#: no es trabajo de nadie — no cuenta como archivo ajeno.
+_BASURA_SO = (".ds_store", "thumbs.db", "desktop.ini")
+
+
+def _paso(snap, key):
+    """Estado persistido del paso `key` (None si el snapshot no lo trae)."""
+    for s in snap.get("steps") or []:
+        if isinstance(s, dict) and s.get("key") == key:
+            return s.get("st")
+    return None
+
+
+def _clave(rel):
+    """Ruta relativa comparable: separador /, Unicode NFC (macOS puede
+    devolver «investigación» en NFD) y sin mayúsculas en Windows."""
+    rel = unicodedata.normalize("NFC", rel.replace(os.sep, "/"))
+    return rel.lower() if os.name == "nt" else rel
+
+
+def _sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for bloque in iter(lambda: fh.read(65536), b""):
+            h.update(bloque)
+    return h.hexdigest()
+
+
+def _lanzar(err):
+    raise err
+
+
+def _huella(dest):
+    """{ruta (clave): sha256} de lo que hay en `dest`, sin la basura del SO.
+    None si algo no se pudo leer o hay enlaces: sin constancia COMPLETA,
+    nada se llamará «restos»."""
+    out = {}
+    try:
+        for root, dirs, files in os.walk(dest, onerror=_lanzar):
+            if any(os.path.islink(os.path.join(root, d)) for d in dirs):
+                return None
+            for fn in files:
+                full = os.path.join(root, fn)
+                if os.path.islink(full):
+                    return None
+                if fn.lower() not in _BASURA_SO:
+                    out[_clave(os.path.relpath(full, dest))] = _sha256(full)
+    except Exception:
+        return None
+    return out
+
+
+def _motivo_conservar(snap, dest):
+    """"" si `dest` son RESTOS DEMOSTRABLES de esta creación; si no, el
+    motivo (legible) para NO tocarla. Ante cualquier duda → un motivo."""
+    if os.path.islink(dest):
+        return _t("addagent.job.keep.link", "la ruta es un enlace, no una carpeta de esta creación")
+    if not os.path.isdir(dest):
+        return _t("addagent.job.keep.not_dir", "la ruta no es una carpeta")
+    home = os.path.realpath(os.path.expanduser("~"))
+    rd = os.path.realpath(dest)
+    if not rd.startswith(home + os.sep) or rd == home:    # guard: solo bajo ~
+        return _t("addagent.job.keep.outside", "está fuera de tu carpeta personal")
+    # create() rechaza una carpeta que ya exista: solo si «validar» quedó ok y
+    # el scaffold arrancó, la carpeta la hizo ESTA creación
+    if _paso(snap, "validar") != "ok" or _paso(snap, "scaffold") in (None, "pend"):
+        return _t("addagent.job.keep.not_ours", "esta creación no llegó a escribir en ella")
+    import agentsreg
+    try:                                # «no pude leer» ≠ «no está registrada»
+        regs = agentsreg.read_local(strict=True)["agents"]
+    except Exception as e:
+        return _t("addagent.job.keep.registry_unreadable",
+                  "no pude leer el registro de agentes (%s)") % e
+    for a in regs:                                        # registrada = en uso
+        brain = str(a.get("brain") or "").strip() if isinstance(a, dict) else ""
+        if brain and _misma(os.path.expanduser(brain), rd):
+            return _t("addagent.job.keep.registered",
+                      "está registrada como el agente «%s»") % a.get("name", "?")
+    # restos = SOLO lo que create() escribió, idéntico: se compara contenido
+    # contra la constancia del job (no fechas: una edición inmediata cuenta)
+    escrito = snap.get("escrito")
+    if not isinstance(escrito, dict) or not escrito:
+        return _t("addagent.job.keep.no_record",
+                  "no quedó constancia de lo que escribió esta creación")
+    ajeno = _t("addagent.job.keep.foreign", "tiene archivos que esta creación no escribió (%s)")
+    errores = []
+    for root, dirs, files in os.walk(dest, onerror=errores.append):
+        for d in dirs:                                    # create() no hace enlaces
+            if os.path.islink(os.path.join(root, d)):
+                return ajeno % os.path.relpath(os.path.join(root, d), dest)
+        for fn in files:
+            if fn.lower() in _BASURA_SO:
+                continue
+            full = os.path.join(root, fn)
+            rel = os.path.relpath(full, dest)
+            clave = _clave(rel)
+            if os.path.islink(full) or clave not in escrito:
+                return ajeno % rel
+            if _sha256(full) != escrito[clave]:
+                return _t("addagent.job.keep.changed",
+                          "tiene cambios posteriores a la creación (%s)") % rel
+    if errores:                         # un rincón ilegible podría ser trabajo
+        return _t("addagent.job.keep.unreadable", "no pude revisarla entera (%s)") % errores[0]
+    return ""
+
+
+def _misma(a, b):
+    """¿Misma carpeta? samefile resuelve mayúsculas/enlaces (disco de Mac o
+    Windows); si una no existe, se comparan las rutas reales."""
+    try:
+        return os.path.samefile(a, b)
+    except (OSError, ValueError):
+        return (os.path.normcase(os.path.realpath(a))
+                == os.path.normcase(os.path.realpath(b)))
+
+
+def assess(snap):
+    """Qué hay REALMENTE en disco de una creación interrumpida: lo que la
+    vista enseña y lo ÚNICO que autoriza a cleanup() a mover algo.
+    Devuelve {"estado", "motivo", "pendiente"}:
+      · creado       el registro quedó ok → el agente EXISTE y es usable (el
+                     proceso murió en el pulido / la pasada IA / las skills):
+                     nada que limpiar; `pendiente` = lo que no terminó
+      · sin_carpeta  no quedó carpeta → solo queda el aviso
+      · restos       carpeta que ESTA creación escribió (su constancia
+                     ruta → sha256, idéntica), sin registrar, nada ajeno
+      · en_uso       existe pero NO se puede demostrar que sean restos
+                     (registrada, ajena, cambiada, sin constancia…) → no
+                     se toca
+    Falla-suave: un error al revisar = en_uso (ante la duda, no borrar)."""
+    snap = snap if isinstance(snap, dict) else {}
+    if _paso(snap, "registro") == "ok":
+        pend = [s.get("label") or s.get("key") for s in snap.get("steps") or []
+                if isinstance(s, dict) and s.get("st") in ("pend", "run")]
+        return {"estado": "creado", "pendiente": pend,
+                "motivo": _t("addagent.job.keep.created",
+                             "el agente quedó creado y registrado")}
+    dest = str(snap.get("dest") or "")
+    if not dest or not os.path.lexists(dest):
+        return {"estado": "sin_carpeta", "motivo": "", "pendiente": []}
+    try:
+        motivo = _motivo_conservar(snap, dest)
+    except Exception as e:
+        motivo = _t("addagent.job.keep.unreadable", "no pude revisarla entera (%s)") % e
+    return {"estado": "en_uso" if motivo else "restos", "motivo": motivo,
+            "pendiente": []}
+
+
+def _clear_if_same(snap):
+    """Quita el snapshot SOLO si sigue siendo el de ESE job (otra ventana pudo
+    arrancar otra creación entre tanto: su aviso no se toca)."""
+    cur = _read_state()
+    if cur is not None and all(cur.get(k) == snap.get(k)
+                               for k in ("pid", "t0_wall", "name")):
+        clear_state()
+
+
+def dismiss(snap):
+    """Da por VISTO el aviso SIN tocar el disco (el agente quedó creado, o la
+    carpeta no son restos demostrables)."""
+    if snap:
+        _clear_if_same(snap)
+
+
 def cleanup(snap):
-    """Limpia los RESTOS de un job interrumpido: borra la carpeta del cerebro
-    (solo si la creó el job — create() exige que no existiera antes), quita el
-    registro per-máquina y el snapshot. Devuelve (ok, detalle)."""
-    import shutil
+    """Limpia los RESTOS de un job interrumpido — SOLO si assess() demuestra
+    que son restos de ESTA creación. Y aun así NO borra: mueve la carpeta a
+    la papelera de Workspace (brain_cleanup.quarantine_tree, recuperable con
+    `brain_cleanup.py --restore <dir>`). Jamás toca el registro: una carpeta
+    registrada no son restos. Devuelve (ok, detalle); ok=False = no se movió
+    nada y el aviso se queda."""
     if not snap:
         clear_state()
         return True, _t("addagent.job.cleanup.nothing", "nada que limpiar")
-    det = []
-    dest = snap.get("dest") or ""
-    home = os.path.realpath(os.path.expanduser("~"))
-    if snap.get("created_by_job") and dest and os.path.isdir(dest):
-        rd = os.path.realpath(dest)
-        if rd.startswith(home + os.sep) and rd != home:   # guard: solo bajo ~
-            shutil.rmtree(dest, ignore_errors=True)
-            det.append(_t("addagent.job.cleanup.folder_deleted", "carpeta borrada"))
-        else:
-            det.append(_t("addagent.job.cleanup.folder_outside", "carpeta fuera de ~ — no la toco"))
-    name = snap.get("name") or ""
-    if name:
+    ev = assess(snap)
+    if ev["estado"] in ("creado", "en_uso"):
+        return False, _t("addagent.job.cleanup.kept", "no borro nada: %s") % ev["motivo"]
+    det = _t("addagent.job.cleanup.no_folder", "no quedó carpeta — nada que mover")
+    if ev["estado"] == "restos":
         try:
-            import agentsreg
-            reg = agentsreg.find(name)
-            if reg and os.path.realpath(reg["brain"]) == \
-                    os.path.realpath(dest or reg["brain"]):
-                agentsreg.remove(name)
-                det.append(_t("addagent.job.cleanup.reg_removed", "registro quitado"))
-        except Exception:
-            det.append(_t("addagent.job.cleanup.reg_fail", "no pude tocar el registro"))
-    clear_state()
-    return True, " · ".join(det) or _t("addagent.job.cleanup.snapshot_deleted", "snapshot borrado")
+            import brain_cleanup
+            qdir = brain_cleanup.quarantine_tree(snap["dest"])
+        except Exception as e:
+            return False, _t("addagent.job.cleanup.trash_fail",
+                             "no pude moverlos a la papelera (%s) — no se borró nada") % e
+        home = os.path.expanduser("~")
+        if qdir.startswith(home + os.sep):
+            qdir = "~" + qdir[len(home):]
+        det = _t("addagent.job.cleanup.trashed",
+                 "movidos a la papelera (recuperables): %s") % qdir
+    _clear_if_same(snap)
+    return True, det
 
 
 # ── costo HONESTO ────────────────────────────────────────────────────────────

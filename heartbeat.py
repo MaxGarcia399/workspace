@@ -54,7 +54,7 @@ import time
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
 # Lock N8 (R3-F2) para el RMW del backlog — falla-suave (mismo patrón que
-# messages.py/dream.py): sin olock, reorder sigue funcionando sin lock.
+# messages.py/brain_write.py): sin olock, reorder sigue funcionando sin lock.
 try:
     from olock import file_lock
 except Exception:

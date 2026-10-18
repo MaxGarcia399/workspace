@@ -2,8 +2,8 @@
 """WORKSPACE hook · PreCompact — memory flush (N2, robo OpenClaw R2).
 
 Antes de que Claude Code COMPACTE el contexto (manual o auto), este hook
-"guarda a disco lo importante" para que sobreviva a la compactación y
-alimente memoria v2 (N1 · Dreaming). Primer consumidor real del evento
+"guarda a disco lo importante" para que sobreviva a la compactación y la
+pestaña retome con su maleta al día (memoria v1). Primer consumidor real del evento
 `pre_compact` del contrato N9 (`events.py` / `engines/EVENTS.md`): se declara
 en `events.LISTENERS` y `install.build_hooks` lo cablea solo.
 
@@ -15,22 +15,20 @@ todo lo demás se trata con tolerancia (basura/vacío → exit 0).
 Qué hace (3 capas, todas best-effort):
 1. **Snapshot del transcript crudo** — refresca el respaldo Y2b
    (~/.claude/workspace/transcripts-backup/<enc>/) vía
-   `transcript_backup.backup_transcript()`. El crudo PRE-compactación es la
-   materia prima de N1; con esto sobrevive aunque la sesión muera después.
-2. **Breadcrumb al journal de sesión** — si la sesión tiene pestaña (ws) y
-   socio, anexa una línea fechada a `STATE/sessions/<socio>/<slug>.md`
-   (## Historial): "el contexto se compactó; el detalle previo vive en el
-   crudo respaldado". Eso queda en el CEREBRO (sincronizado) y le dice al
-   agente post-compactación —y al destilador N1— dónde está el detalle.
-   Máx. 1 breadcrumb por sesión/día (anti-spam en compactaciones repetidas).
-3. **Rastro JSONL** — siempre (con o sin journal: Atlas no tiene), un evento a
-   `~/.claude/workspace/memory-flush/YYYY-MM-DD.jsonl`. Es el índice barato que
-   memoria v2 puede leer para saber qué sesiones se compactaron y dónde está
-   su crudo.
+   `transcript_backup.backup_transcript()`. El crudo PRE-compactación
+   sobrevive aunque la sesión muera después.
+2. **Maleta de la pestaña** (memoria v1) — si la sesión tiene pestaña (ws),
+   rehace `STATE/sessions/<socio>/maleta/<slug>.md` con el extracto sin IA
+   de la conversación ANTES de compactar (memoria.actualizar_maleta). Antes
+   era una línea «contexto compactado» en el diario: ruido.
+3. **Rastro JSONL** — siempre (con o sin pestaña: Atlas no tiene), un evento a
+   `~/.claude/workspace/memory-flush/YYYY-MM-DD.jsonl`: qué sesiones se
+   compactaron y dónde está su crudo (el campo `journal` = ruta de la maleta).
 
-Por qué NO escribe a STATE/MEMORY.md ni a staging de memoria canónica: este
-hook es mecánico (sin LLM) — destilar es N1/N3. N2 solo garantiza que nada
-se pierda en el momento de la compactación. Jamás escribe canónicos.
+Por qué NO escribe a STATE/MEMORY.md ni a la ficha de la pestaña: este hook es
+mecánico (sin LLM) y solo garantiza que nada se pierda en el momento de la
+compactación. Lo que se guarda lo decide el agente con `workspace memoria
+nota`; ordenar es de memoria.al_cerrar al cerrar la sesión. Jamás escribe canónicos.
 
 Diseño: observer puro (la salida se ignora; PreCompact no puede bloquear la
 compactación y este hook JAMÁS lo intenta). Falla-suave absoluta (todo en
@@ -39,7 +37,7 @@ borrar este archivo + su fila en events.LISTENERS = la feature se apaga.
 On-by-default; kill-switch: WORKSPACE_NO_MEMORY_FLUSH=1 (el env SIEMPRE gana)
 o `settings set hooks.memory_flush off` (canal nuevo, settings.py).
 """
-import sys, os, json, datetime, re, unicodedata
+import sys, os, json, datetime
 
 try:   # M1/B2 · Windows: UTF-8 en stdout/err — un hook capturado por Claude Code en
        # cp1252 reventaría al imprimir caracteres no-ASCII. No-op en Mac (UTF-8 default).
@@ -86,56 +84,6 @@ def _marker(sid):
         return {}
 
 
-def _slug(s):
-    s = unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode("ascii")
-    return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
-
-
-def _socio(brain):
-    try:
-        return open(os.path.join(brain, ".claude", "socio.local"),
-                    encoding="utf-8").read().strip().lower()
-    except Exception:
-        return ""
-
-
-def _home_rel(path):
-    """Ruta legible con ~ (para breadcrumbs portables entre máquinas)."""
-    home = os.path.expanduser("~")
-    if path and path.startswith(home):
-        return "~" + path[len(home):].replace(os.sep, "/")
-    return path or ""
-
-
-def _atomic_write(path, text):
-    """tmp + os.replace (F1): el archivo de sesión nunca queda truncado si el
-    proceso muere escribiendo. Amputable/duplicado a propósito (C10)."""
-    tmp = "%s.tmp%d" % (path, os.getpid())
-    with open(tmp, "w", encoding="utf-8") as fh:
-        fh.write(text)
-    os.replace(tmp, path)
-
-
-def _append_breadcrumb(memfile, line):
-    """Anexa `line` al final de ## Historial (misma convención que
-    session_end.py — duplicado a propósito: cada hook es amputable, C10)."""
-    with open(memfile, encoding="utf-8") as fh:
-        txt = fh.read()
-    lines = txt.splitlines()
-    hidx = next((i for i, l in enumerate(lines)
-                 if l.strip().startswith("## Historial")), None)
-    if hidx is None:
-        lines += ["", "## Historial", line]
-    else:
-        nxt = next((j for j in range(hidx + 1, len(lines))
-                    if lines[j].startswith("## ")), len(lines))
-        at = nxt
-        while at - 1 > hidx and lines[at - 1].strip() == "":
-            at -= 1
-        lines.insert(at, line)
-    _atomic_write(memfile, "\n".join(lines) + "\n")
-
-
 def _snapshot(transcript, brain):
     """Capa 1: refrescar el respaldo Y2b del transcript crudo. '' si no aplicó."""
     if not _tb:
@@ -146,40 +94,29 @@ def _snapshot(transcript, brain):
         return ""
 
 
-def _journal_breadcrumb(brain, sid, trigger, backup):
-    """Capa 2: breadcrumb fechado al journal de la pestaña activa.
-    Devuelve la ruta del journal tocado, o '' si no aplicó (sin ws/socio/
-    journal — p. ej. Atlas con setup ligero: capa 3 igual deja rastro)."""
+def _maleta(brain, sid, transcript=""):
+    """Capa 2 (memoria v1, 2026-10-17): en vez de la línea «contexto
+    compactado» en el diario (ruido), se rehace la MALETA de la pestaña con
+    el extracto de la conversación ANTES de compactar; el paquete que vuelve
+    a entrar tras la compactación la trae. Devuelve la ruta de la maleta o
+    '' si no aplicó (sin pestaña/socio/ficha)."""
     try:
         ws = (os.environ.get("WORKSPACE_WS", "")
               or os.environ.get("ZENITH_WS", "")
               or _marker(sid).get("ws", ""))
-        soc = _socio(brain)
-        if not (ws and soc and brain):
+        if not (ws and brain and transcript):
             return ""
-        memfile = os.path.join(brain, "STATE", "sessions", soc,
-                               _slug(ws) + ".md")
-        if not os.path.isfile(memfile):
-            return ""   # no auto-creamos archivos estructurados curados
-        today = datetime.date.today().isoformat()
-        tag = f"(pre-compact · {(sid or 'sin-id')[:8]})"
-        txt = open(memfile, encoding="utf-8").read()
-        if today + " " + tag in txt:
-            return memfile   # ya hay flush de esta sesión hoy — no spamear
-        where = _home_rel(backup) if backup else \
-            "~/.claude/workspace/transcripts-backup/ (al cierre de sesión)"
-        line = (f"- {today} {tag} — contexto compactado"
-                + (f" [{trigger}]" if trigger else "")
-                + f"; el detalle previo vive en el transcript crudo: {where}."
-                  " Si falta contexto fino post-compactación, está ahí.")
-        _append_breadcrumb(memfile, line)
-        return memfile
+        import memoria
+        root = memoria.raiz_cerebro(brain)
+        if memoria.actualizar_maleta(root, ws, "claude-code", transcript):
+            return memoria.maleta_path(root, ws)
+        return ""
     except Exception:
         return ""
 
 
 def _log(rec):
-    """Capa 3: rastro JSONL per-máquina (índice barato para memoria v2)."""
+    """Capa 3: rastro JSONL per-máquina (qué se compactó y dónde quedó)."""
     try:
         d = _flush_dir()
         os.makedirs(d, exist_ok=True)
@@ -213,7 +150,7 @@ def main():
     brain = data.get("cwd", "") or os.getcwd()
 
     backup = _snapshot(transcript, brain)
-    journal = _journal_breadcrumb(brain, sid, trigger, backup)
+    journal = _maleta(brain, sid, transcript)
     _log({"ts": datetime.datetime.now().isoformat(timespec="seconds"),
           "session_id": sid, "trigger": trigger, "brain": brain,
           "transcript": transcript, "backup": backup, "journal": journal})

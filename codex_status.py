@@ -86,9 +86,15 @@ def footer(meta,now=None,width=160):
 def tmux_quote(value):
     return '"'+value.replace('\\','\\\\').replace('"','\\"')+'"'
 
+def _call_motor(argv,cwd=None,env=None):
+    import interactive
+    return interactive.call_motor(argv,env=env,cwd=cwd)
+
 def run(argv,cfg,env=None):
     if not footer_enabled():
-        return subprocess.call(argv,cwd=cfg['_brain'],env=env)
+        # el motor: un SIGHUP/SIGTERM se le reenvía y tiene unos segundos
+        # para cerrar su sesión (interactive.call_motor)
+        return _call_motor(argv,cwd=cfg['_brain'],env=env)
     # Unique socket isolates this footer from user tmux sessions/preferences.
     with tempfile.TemporaryDirectory(prefix='workspace-codex-status-') as tmp:
         root=Path(tmp);meta=root/'session.json';result=root/'exit.json'
@@ -114,11 +120,11 @@ def run(argv,cfg,env=None):
             if rc and not result.with_suffix('.started').exists():
                 # El pie no llegó a arrancar: corre el CLI con SU barra nativa
                 # (argv original, sin el status_line=[] del pie).
-                subprocess.run(['tmux','-L',socket,'kill-server'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-                return subprocess.call(argv,cwd=cfg['_brain'],env=env)
+                subprocess.run(['tmux','-L',socket,'kill-server'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,env=env)
+                return _call_motor(argv,cwd=cfg['_brain'],env=env)
             return rc or 1
         finally:
-            subprocess.run(['tmux','-L',socket,'kill-server'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            subprocess.run(['tmux','-L',socket,'kill-server'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,env=env)
 
 def main():
     mode,path=sys.argv[1:3];meta=json.loads(Path(path).read_text(encoding="utf-8"))

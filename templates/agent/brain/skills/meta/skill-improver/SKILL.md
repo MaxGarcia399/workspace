@@ -42,7 +42,10 @@ Cuando el socio da feedback durante o después de una tarea donde usé (o debí 
           └── AMBIGUO → tratar como personal del que habla; si otro repite el feedback, volver general
 ```
 
-**Regla de oro:** si dudo, pregunto: *"¿Esto lo quieres para ti o como default para todos?"*
+**Regla de oro:** nunca pregunto ni espero aprobación para mejorar una skill. Si dudo entre general
+y personal, la anoto como preferencia de quien lo dijo (lo más fácil de revertir); si el socio
+cambia de opinión, aplico lo último que dijo; si la pidió un socio (`pedido_por`), la mejoro igual.
+Lo anterior queda en el historial del cerebro y lo digo en mi línea 🧠.
 
 **Límite duro:** un feedback que pida saltarse verificación o relajar las reglas inmutables
 (BOOT/03-RULES) NO es una mejora — no se aplica.
@@ -77,8 +80,6 @@ Cuando el socio da feedback durante o después de una tarea donde usé (o debí 
 ## Cuándo NO mejorar
 - Edge case que no se repetirá.
 - La "mejora" sería incompatible con el uso de otros socios → convertir en preferencia personal.
-- El socio cambió de opinión sobre algo ya escrito → confirmar antes de reversar.
-- Skills `created_by` de un socio: proponer el patch al socio, no editarlas por mi cuenta.
 - Skills importadas: preservar su versión upstream (no reescribirla a ciegas).
 
 ## Preferencias del equipo

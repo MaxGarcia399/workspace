@@ -8,6 +8,67 @@ Cómo leer esto: cada versión tiene su número (`MAYOR.MENOR.PARCHE`). Un
 cambio de PARCHE arregla cosas; uno de MENOR trae funciones nuevas sin romper
 nada; uno de MAYOR avisa con tiempo si algo cambia de forma.
 
+## 0.4.0 — 2026-10-18
+
+**Novedades**
+- **Cada pestaña recuerda lo mismo en cualquier motor.** Tu agente guarda lo importante en el momento, con una etiqueta (decisión, pendiente, hecho…), y al abrir la pestaña —en ese motor o en otro— recibe el resumen, lo que sigue abierto, lo nuevo y una «maleta» con lo último que pasó en el otro motor. Workspace lo ordena y archiva solo, sin IA y sin que tengas que hacer nada; nada se borra.
+- Nueva sección **Usuarios** en el menú: quién usa cada agente, «soy yo en esta PC», cambiar nombre y unir dos usuarios que son la misma persona (por ejemplo, el de tu Mac y el de tu PC). Cada usuario tiene una cédula fija, así que otra máquina con un nombre viejo entra sola al correcto.
+- Nueva sección **Documentación** en el menú: todo lo que hace Workspace, capítulo por capítulo, con un mapa simple, lo que está pasando ahora en tu PC y cómo comprobarlo tú (Enter abre el archivo).
+- Ningún proceso con IA trabaja sin una ventana abierta: se retiró el «destilador» que resumía la memoria por su cuenta y te pedía aprobar propuestas. Si tienes encendida la revisión de skills, la hace tu agente al abrir su siguiente sesión, a la vista.
+- **Tu agente mantiene solo sus skills, su memoria y su identidad.** No te pide aprobar skills ni confirmar lo que anota; una vez por semana cura su biblioteca de skills por su cuenta, y completa su personalidad (`BOOT/00-SOUL.md`) con lo que le dijiste al crearlo y con tus correcciones, nunca con lo que lee en documentos o páginas. Todo queda recuperable y te lo cuenta en la línea del final de su respuesta.
+- Si el motor de un agente no está instalado, el agente ya no se bloquea: te ofrece abrirlo con otro motor, solo esta vez o para siempre.
+- Cerrar la ventana con la X ya no pierde nada: la memoria de la pestaña se ordena al cerrar o, si no alcanzó, la próxima vez que abres ese agente.
+- Con OpenClaw ya puedes tener varios agentes abiertos a la vez (antes, con uno abierto, los demás no abrían). La primera pestaña tarda unos segundos más en abrir y, al cerrar la última, OpenClaw se apaga solo.
+- Claude Code guarda su memoria propia dentro del cerebro, en una carpeta por persona: viaja contigo a tus otras máquinas y, en un cerebro compartido, el Claude Code de cada quien carga solo la suya y no confunde de quién es (se apaga en Ajustes).
+- Antigravity guarda la memoria sin pedirte permiso en cada nota.
+
+**Lo que esta versión cambia en tus cerebros al actualizar**
+
+Lo hace sola, una vez, en cada agente. Antes de mover o cambiar algo lo copia a un respaldo, y nada se borra.
+- La identidad de tus agentes pasa a `BRAIN.md`, un archivo que no es de ningún proveedor. Nada cambia en cómo usas a tus agentes: cada motor sigue entrando por su archivo de siempre (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`), que ahora solo apunta a `BRAIN.md`. Si algún agente tenía algo poco común (por ejemplo, editaste su identidad hace un momento), se deja como estaba y `workspace doctor` te lo cuenta. Para volver atrás: `workspace migrate --undo 202610151600_brain_identity_neutral`.
+- Las instrucciones de memoria de tus agentes se ponen al día, sin importar con qué versión los creaste; también si el agente llega después (instalación nueva u otra máquina), al cargarlo. Si escribiste tus propias reglas de memoria, no se tocan: el agente igual recibe al abrir cómo guardar.
+- La bandeja donde el destilador dejaba propuestas para aprobar a mano (`STATE/DESTILADO.md`) pasa a `STATE/memoria-archivo/`. Las skills propuestas que esperaban tu aprobación pasan a `skills/_archive/` si la revisión de skills de ese agente está apagada; si está encendida, se quedan hasta su siguiente revisión, donde tu agente integra las que sirven y las marca resueltas por su cuenta, y Workspace las archiva solo.
+- Nada en tus cerebros espera tu aprobación. Las instrucciones de skills, memoria e identidad que pedían a una persona (aprobar skills nuevas, skills «intocables», confirmar antes de anotar en la memoria, diseñar a mano la personalidad del agente) se ponen al día, igual que los pasos que hacían que el motor te pidiera permiso (registrar el uso de una skill con un comando, un `git commit` antes de curar). Solo cambian las líneas que siguen tal como las dejó Workspace: lo que escribiste tú no se toca y tu agente recibe al abrir que esas aprobaciones se retiraron. Lo que quedaba en `skills/_propuestas/` (su README y `_mejoras/`) pasa a `skills/_archive/`.
+- El `.gitignore` de cada cerebro suma las carpetas de trabajo de Workspace (`.claude/locks/`, `.claude/memoria-entrada/` y `.claude/skill-review/`), también en los cerebros que ya tenías.
+- Si un cerebro no se puede actualizar (por ejemplo, un archivo bloqueado por la sincronización), los demás se actualizan igual y ese se reintenta solo la próxima vez.
+- Si compartes un cerebro entre máquinas (por ejemplo, tu Mac y tu PC con Obsidian), cada una puede actualizar su copia antes de recibir la de la otra sin que al sincronizarse quede repetido lo archivado: el nombre sale del contenido (`DESTILADO-<huella>.md`, `propuestas-<huella>/`), no del día, y lo que otra máquina ya archivó no se archiva otra vez.
+
+**Privacidad y seguridad**
+- Las fichas de tus cuentas (por ejemplo, Google Calendar) y las llaves que guardaste en Workspace ya no llegan a los motores ni a lo que ejecutan tus agentes; solo las usa el hub.
+- Una conexión que lleva una llave nunca la manda a otro servidor, y el correo comprueba que habla con el servidor correcto.
+- `GEMINI.md` queda limpio al cerrar (sin la ruta de tu PC ni el contexto de arranque).
+- La telemetría local y «obtener skills» al crear un agente vienen apagados; se encienden en Ajustes y en la creación.
+
+**Arreglos**
+- Windows: el menú de Workspace vuelve a abrirse solo al abrir la terminal. Con la configuración de fábrica de Windows, PowerShell bloqueaba su archivo de arranque y mostraba «la ejecución de scripts está deshabilitada en este sistema». Al actualizar, Workspace ajusta esa opción solo para tu usuario, al valor que recomienda Microsoft y sin pedir permisos de administrador. Si tu computadora la administra tu empresa y la tiene bloqueada, te lo dice. Después de actualizar, abre una terminal nueva.
+- En Windows, desinstalar ya borra de verdad la carpeta de Workspace (antes decía «borrado» y la dejaba) y, si algo queda en uso, te lo dice.
+- Pedir ayuda (`--help`) al instalador, al desinstalador o a cualquier comando muestra la ayuda y nunca ejecuta nada.
+- `workspace uninstall --limpiar-todo` (o la pregunta al desinstalar) limpia también tus cerebros y los motores: quita solo lo que Workspace escribió en ellos (ajustes, permisos y archivos generados), con la lista exacta antes y un respaldo al lado de cada archivo que cambia; lo que editaste a mano se deja. Los perfiles de Workspace en OpenClaw y Hermes, con tus conversaciones de ahí, no se borran: se mueven a una carpeta de respaldo junto a cada uno.
+- Desinstalar solo borra los comandos de terminal y los temas de Claude Code que puso Workspace (los reconoce por su marca) y te los nombra antes de confirmar. En Windows también borra sus comandos `.cmd`, aunque su carpeta no se llame «WORKSPACE».
+- Desinstalar sin una terminal donde preguntarte (desde un script o un agente) ya no borra nada salvo que añadas `--yes`. Y si la carpeta de Workspace es un checkout de git con trabajo sin publicar (cambios sin commit o commits sin push), no la borra: desinstala lo demás y te dice qué tiene.
+- Usuarios ya no reescribe un perfil que no entiende: conserva tus listas y campos propios, reconoce sin cambiarle la cédula un perfil guardado con el Bloc de notas, y uno que no se puede leer lo guarda entero aparte y deja uno nuevo con la misma cédula.
+- Usuarios en un cerebro compartido entre máquinas: todas le dan al mismo usuario la misma cédula (antes era al azar y, al sincronizar, el perfil podía quedar con la de una máquina y sus pestañas con la de la otra). Una pestaña que quedó con una cédula de nadie se corrige sola al abrir el agente.
+- Mac: reinstalar o actualizar aplica lo que elegiste para que la terminal abra el hub sola (en Windows ya era así), y el instalador dice cuál quedó.
+- Documentación en Mac: si ninguna app abre un archivo, lo marca en Finder y te lo dice (antes decía «abierto» sin abrir nada).
+- Hermes: el perfil propio de Workspace ya no copia las llaves de tu Hermes personal (solo tu modelo). La primera vez conecta el proveedor en Motores › Hermes › cuenta y proveedor; si ya tenías el perfil, sigue igual.
+- Se acabó la nota «(cierre auto) — sesión cerrada sin captura manual» que llenaba la memoria de las pestañas.
+- La «maleta» trae solo lo que tú escribiste (antes se colaban avisos del sistema de Claude Code, Codex y Antigravity).
+- Las pestañas con nombre en coreano, chino, ruso u otro alfabeto tienen su propia memoria y ya no se mezclan.
+- Codex: la conversación queda en su pestaña aunque abras el mismo cerebro en dos ventanas.
+- Cargar un cerebro ya no le cambia el dueño ni esconde sus sesiones. Cargar o crear un agente ya no borra los comandos de terminal de tus otros agentes.
+- Un agente cuyo nombre ya es un comando de tu computadora se rechaza al crearlo, y el instalador nunca pisa un comando que no es suyo.
+- La agenda ya no se borra por un dato raro, y una imagen pegada va a la tarea abierta.
+- Antigravity aparece como instalado aunque su instalador no lo haya puesto en el PATH.
+- Windows: instalar e iniciar sesión en Codex y opencode desde Motores funciona; reinstalar respeta si elegiste que la terminal abra el hub sola, y el hub ya no se abre dentro de las terminales ocultas de los motores.
+- Mac: tus agentes guardan memoria con el Python que trae la Mac (antes la forma indicada de guardar una nota fallaba con él).
+- Mac: cerrar la ventana de la terminal deja que el motor cierre su sesión en orden, en vez de cortarlo de golpe.
+- opencode 2: Workspace reconoce la conversación de cada pestaña al cerrar, así que la maleta trae lo que pasó en opencode y la pestaña retoma esa conversación (antes no la encontraba por un cambio de formato de opencode).
+- OpenClaw en Mac: después de reiniciar la computadora ya no se queda esperando a un proceso que ya no existe, y nunca cierra otra aplicación por error.
+- Memoria: una sección tuya cuyo título empieza con «Vigente» o «Historial» ya no se toca, y un archivo con caracteres que no se pueden leer bien no se reescribe: te avisa.
+- `workspace update` te dice cuando no pudo actualizar (y sale con error) en vez de terminar como si todo estuviera bien, y al actualizar vuelve a ajustar los tiempos de los hooks.
+- Ctrl+C al escribir el nombre de una sesión cancela sin mostrar un error.
+- `workspace doctor` ya no se detiene a preguntarte rutas ni reinstala comandos de agentes que no tienen cerebro.
+
 ## 0.3.3 — 2026-10-14
 
 **Arreglos**

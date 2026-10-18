@@ -307,19 +307,20 @@ SETTINGS_SCHEMA = (
 
     # ── hooks (kill-switches — el env WORKSPACE_NO_* SIEMPRE gana) ──
     {"key": "hooks.skill_review", "group": "hooks",
-     "label": "Skill review (SessionEnd)", "type": "bool", "default": False,
-     "help": "Revisión de skills al cerrar sesión, con el motor del agente en "
-             "segundo plano (usa un poco de tu suscripción). Es el valor para "
+     "label": "Skill review (al abrir la siguiente sesión)", "type": "bool", "default": False,
+     "help": "Revisión de skills: al cerrar se guarda una vista de la sesión y, al "
+             "abrir la siguiente, el agente la revisa en su sesión, a la vista (usa "
+             "un poco de tu suscripción). Nada corre sin ventana. Es el valor para "
              "los agentes que no lo eligen en su agent.json (`skill_review`).",
-     "applies": "hooks/skill_review.py: `skill_review` del agent.json > este "
-                "ajuste; env WORKSPACE_NO_SKILL_REVIEW=1 gana siempre."},
+     "applies": "hooks/skill_review.py + skill_review_start.py: `skill_review` del "
+                "agent.json > este ajuste; env WORKSPACE_NO_SKILL_REVIEW=1 gana siempre."},
     {"key": "hooks.transcript_backup", "group": "hooks",
      "label": "Backup de transcripts (Y2b)", "type": "bool", "default": True,
      "help": "Respaldo del .jsonl crudo a ~/.claude/workspace/transcripts-backup/.",
      "applies": "hooks/transcript_backup.py; env WORKSPACE_NO_TRANSCRIPT_BACKUP=1 gana."},
     {"key": "hooks.memory_flush", "group": "hooks",
      "label": "Memory flush (PreCompact, N2)", "type": "bool", "default": True,
-     "help": "Antes de compactar: snapshot del crudo + breadcrumb al journal + rastro JSONL.",
+     "help": "Antes de compactar: snapshot del crudo + maleta de la pestaña al día + rastro JSONL.",
      "applies": "hooks/memory_flush.py; env WORKSPACE_NO_MEMORY_FLUSH=1 gana."},
     {"key": "hooks.security_guidance", "group": "hooks",
      "label": "Security guidance (PostToolUse, N15)", "type": "bool",
@@ -328,10 +329,11 @@ SETTINGS_SCHEMA = (
      "applies": "hooks/security_guidance.py; env WORKSPACE_NO_SECURITY_GUIDANCE=1 gana."},
     {"key": "hooks.telemetry", "group": "hooks",
      "label": "Telemetría en vivo (Pre/PostToolUse, N-telem)", "type": "bool",
-     "default": True,
+     "default": False,
      "help": "Registra metadata de herramientas (tool_name, timing, ok) "
              "en ~/.claude/workspace/telemetry/ para Mission Control en vivo. "
-             "NUNCA registra tool_input ni contenido.",
+             "NUNCA registra tool_input ni contenido. Apagada por defecto: "
+             "nada la lee si no la usas.",
      "applies": "hooks/telemetry.py; env WORKSPACE_NO_TELEMETRY=1 gana."},
 
     # ── modelos ──
@@ -368,16 +370,15 @@ SETTINGS_SCHEMA = (
      "choices": ("full", "lite"), "scaffold": True,
      "help": "full = BOOT/ canónico · lite = digest ≤4k de boot_lite.py (N17).",
      "applies": "futuro: session_start / motor #2 elegirán el perfil."},
-    {"key": "cerebro.dreaming_auto", "group": "cerebro",
-     "label": "Dreaming automático", "type": "bool", "default": False,
-     "scaffold": True,
-     "help": "Correr la destilación de memoria (dream.py/nightly.py) sin pedirla a mano.",
-     "applies": "futuro: scheduler C6 (ver job consolidador-nocturno)."},
     {"key": "cerebro.cleanup_period_days", "group": "cerebro",
      "label": "Retención de transcripts (días)", "type": "int",
      "default": 365, "range": (30, 36500), "delegated": True,
      "help": "cleanupPeriodDays de Claude Code — cuántos días se conservan tus sesiones (materia prima de la memoria).",
      "applies": "~/.claude/settings.json (get lee de ahí; set escribe ahí). El instalador/doctor solo lo fija en 365 si NO hay valor; uno propio jamás se toca."},
+    {"key": "cerebro.claude_memoria_en_cerebro", "group": "cerebro",
+     "label": "Memoria de Claude Code en el cerebro", "type": "bool", "default": True,
+     "help": "La memoria propia de Claude Code se guarda en motores/claude-code/memoria/<socio>/ del cerebro, una carpeta por persona, y viaja con él (no se queda en esta máquina). En un cerebro compartido, el Claude Code de cada quien carga solo la suya.",
+     "applies": "engines/claude_code.py → memoria.claude_settings_args: `--settings` con autoMemoryDirectory al abrir (no escribe la config de Claude Code); un --settings tuyo gana."},
 
     # ── agentes ──
     {"key": "agentes.default_agent", "group": "agentes",
@@ -731,12 +732,13 @@ JOBS = (
      "desc": "Revisa cambios al pipeline del cerebro y deja aviso en "
              "STATE/inbox/brain-monitor-*.md para la próxima sesión.",
      "how": "skill meta/reload-brain del cerebro; scheduler real = C6."},
-    {"id": "consolidador-nocturno", "label": "Pasada nocturna (nightly)",
+    {"id": "consolidador-nocturno", "label": "Mantenimiento del cerebro (sin IA)",
      "default": True,
-     "desc": "Procesa el backlog de transcripts respaldados: una lectura → "
-             "señales de memoria (N1) + skills + eventos (N3).",
+     "desc": "Mantenimiento MECÁNICO, sin ningún modelo: retención per-máquina, "
+             "rotación de log-recent, índice y limpieza de regenerables (cada "
+             "paso con su propio flag).",
      "how": "manual hoy (python3 nightly.py); nightly.run() RESPETA este "
-            "flag (off ⇒ la pasada no corre; --force lo puentea a mano)."},
+            "flag (off ⇒ no corre; --force lo puentea a mano)."},
     {"id": "atlas-research", "label": "Cola de investigación de Atlas",
      "default": False, "scaffold": True,
      "desc": "Atlas drena su cola de investigación delegada en horas valle.",
@@ -748,7 +750,7 @@ JOBS = (
      "how": "hooks/transcript_backup.py (SessionEnd) + memory_flush "
             "(PreCompact); el flag es alias de hooks.transcript_backup."},
     {"id": "telemetry", "label": "Telemetría en vivo (N-telem)",
-     "default": True, "setting": "hooks.telemetry",
+     "default": False, "setting": "hooks.telemetry",
      "desc": "Registra metadata de herramientas (tool_name, timing, ok) "
              "en ~/.claude/workspace/telemetry/ para Mission Control en vivo. "
              "NUNCA registra tool_input ni contenido.",
@@ -763,17 +765,16 @@ JOBS = (
              "toca el cerebro (N3) — activarlo es decisión del socio DUEÑO "
              "(un demo de cliente no se mueve sin su dueño). Guardas: mtime "
              "<48h y lsof (árbol vivo no se toca).",
-     "how": "nightly.run() al final de la pasada (o solo: python3 "
-            "brain_cleanup.py --brain X [--apply]); respeta este flag."},
+     "how": "nightly.run() (mantenimiento sin IA) o solo: python3 "
+            "brain_cleanup.py --brain X [--apply]; respeta este flag."},
     {"id": "retention", "label": "Retención per-máquina (purga M6)",
      "default": False,
      "desc": "Purga los .jsonl per-máquina más viejos que "
              "otros.retention_days: events/, telemetry/ y "
              "transcripts-backup/. OFF por default: los backups son materia "
              "prima de la memoria — activarlo es decisión del socio.",
-     "how": "nightly.run_retention() — corre al final de cada pasada "
-            "nocturna (o solo: python3 nightly.py --retention); respeta "
-            "este flag."},
+     "how": "nightly.run_retention() — corre en el mantenimiento sin IA "
+            "(o solo: python3 nightly.py --retention); respeta este flag."},
 )
 
 _JOB_BY_ID = {j["id"]: j for j in JOBS}

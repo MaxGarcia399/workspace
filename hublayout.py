@@ -352,9 +352,12 @@ _SHADOW.update({' ': ('   ', '   ', '   ', '   ', '   ', '   '),
 
 def _shadow_rows(word="WORKSPACE"):
     """Las 6 filas ANSI Shadow de `word` (sin color). WORKSPACE = 75 cols."""
+    import unicodedata
     rows = ["", "", "", "", "", ""]
     for ch in word:
-        g = _SHADOW.get(ch.upper())
+        # una letra con acento usa el glifo de su letra base (DOCUMENTACIÓN → O)
+        g = _SHADOW.get(ch.upper()) or _SHADOW.get(
+            unicodedata.normalize("NFD", ch)[:1].upper())
         if not g:
             continue
         for r in range(6):

@@ -690,7 +690,7 @@ _AGENT_FIELDS = {
     "color": {"type": "color",
               "help": "color canónico del banner/tema"},
     "setup.session_journal": {"type": "bool", "rederive_hooks": True,
-                              "help": "journals de sesión (gate de hooks)"},
+                              "help": "marcador y limpieza de sesión (gate de hooks)"},
     "setup.autonomous": {"type": "bool", "rederive_hooks": True,
                          "help": "participa del trabajo autónomo (heartbeat)"},
 }

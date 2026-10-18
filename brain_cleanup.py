@@ -27,12 +27,15 @@ SEGURIDAD (N3 — toca el cerebro, por eso TODO es opt-in):
     salvo `--force`.
   · LOCK compartido con el nightly (olock N8 sobre el state del nightly —
     el mismo mecanismo/timeout de rotate_log_recent): una limpieza y una
-    pasada nocturna no se pisan. Lock ocupado → skip falla-suave.
+    rotación del mantenimiento no se pisan. Lock ocupado → skip falla-suave.
   · ANTI-TRAVERSAL: candidato con realpath fuera del cerebro (o symlink) se
     salta. JAMÁS toca BOOT/, STATE/MEMORY.md, .obsidian/, .git/ ni config
     de Sync (ni entra a esos subárboles).
   · Atómico y falla-suave: move por os.rename con fallback shutil.move;
     un candidato podrido se reporta y se sigue.
+  · quarantine_tree(): una carpeta ENTERA que OTRO módulo ya decidió quitar
+    (los restos de una creación interrumpida — agent_create_job) va a la
+    MISMA cuarentena, con su MANIFEST.json → el mismo `--restore`.
 
 USO:
     python3 brain_cleanup.py --brain "/ruta/al/CEREBRO"            # dry-run
@@ -109,10 +112,10 @@ def _nightly_lock():
     try:
         from olock import file_lock, LockTimeout
         import nightly as _nightly
-        import dream as _dream
+        import brain_write as _bw
         lock_path = _nightly._state_path()
         os.makedirs(os.path.dirname(lock_path), exist_ok=True)
-        return (file_lock, LockTimeout, lock_path, _dream._lock_timeout())
+        return (file_lock, LockTimeout, lock_path, _bw._lock_timeout())
     except Exception:
         return (None, None, "", 0)
 
@@ -331,6 +334,53 @@ def _apply_moves(brain, plan, skipped, qdir, out):
                 "movidos siguen en %s" % (e, qdir))
     return {"moved": moved, "skipped": skipped, "bytes": total,
             "trash": qdir if entries else None}
+
+
+def quarantine_tree(path):
+    """Mueve una carpeta ENTERA a la cuarentena (trash/<carpeta>/<ts>/<carpeta>
+    + MANIFEST.json, el formato de run_cleanup → `--restore <dir>` la regresa).
+    Es para restos que OTRO módulo ya decidió quitar: aquí no se decide nada,
+    solo se mueve — jamás se borra. El MANIFEST va PRIMERO: sin él no hay
+    «recuperable», así que si no se puede escribir no se mueve nada. Luego
+    SOLO os.rename (atómico): entre discos habría que copiar y borrar, y un
+    borrado a medias dejaría la carpeta partida — si no hay rename, no se
+    toca. Devuelve el dir de la cuarentena; si algo falla, LANZA y la carpeta
+    queda intacta en su sitio."""
+    import brain_vitals
+    path = os.path.abspath(os.path.expanduser(path))
+    name = os.path.basename(path)
+    base = _quarantine_dir(path)
+    qdir, n = base, 1
+    while os.path.exists(qdir):            # dos limpiezas en el mismo segundo
+        qdir, n = "%s-%d" % (base, n), n + 1
+    dst = os.path.join(qdir, name)
+    os.makedirs(qdir)
+    try:
+        _write_json_atomic(os.path.join(qdir, "MANIFEST.json"), {
+            "version": 1, "brain": path,
+            "ts": datetime.datetime.now().isoformat(timespec="seconds"),
+            "retention_days": _trash_days(),
+            "moves": [{"src": path, "dst": dst, "rel": name,
+                       "bytes": brain_vitals._du(path)}],
+        })
+        os.rename(path, dst)               # otro disco / bloqueada → lanza
+    except Exception:
+        if not os.path.lexists(dst):       # la carpeta NO se movió
+            _quitar_lote(qdir)
+        raise
+    return qdir
+
+
+def _quitar_lote(qdir):
+    """Deshace un lote que no recibió la carpeta: quita SOLO su MANIFEST (y
+    el temporal) y el dir vacío — jamás recursivo: lo demás se queda."""
+    try:
+        for fn in os.listdir(qdir):
+            if fn.startswith("MANIFEST.json"):
+                os.remove(os.path.join(qdir, fn))
+        os.rmdir(qdir)
+    except OSError:
+        pass
 
 
 def restore(qdir, out=print):

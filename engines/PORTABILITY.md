@@ -27,7 +27,7 @@ de vida en `engines/LIFECYCLE.md`, runner en `neutral_hooks.py` (build B).
 
 | Tipo | Tools | Hooks (N9) | Estado |
 |---|---|---|---|
-| `openai_compatible` (API keys, OpenRouter+BYOK, locales) | **ninguno** en el uso actual (headless one-shot de destilación: el request jamás anuncia `tools` — sin manos POR DISEÑO, guard N6). Cuando WORKSPACE sea dueño del loop interactivo (motor #2, E-4+): loop de tool-calling propio + **puente MCP** (WORKSPACE ejecuta la tool que el modelo pide, vía cliente MCP propio). | `workspace-loop`: WORKSPACE arma el request ⇒ emite TODOS los eventos desde su loop (`events.emit`), incluido `pre_prompt` como middleware REAL (el punto que claude-code no expone). | headless: ✅ vivo (suite). Loop interactivo: extraído en `feat/multi-engine` (patrón probado en la corrida E-2/E-3). |
+| `openai_compatible` (API keys, OpenRouter+BYOK, locales) | **ninguno** en el uso actual (headless one-shot, texto→texto: el request jamás anuncia `tools` — sin manos POR DISEÑO, guard N6). Cuando WORKSPACE sea dueño del loop interactivo (motor #2, E-4+): loop de tool-calling propio + **puente MCP** (WORKSPACE ejecuta la tool que el modelo pide, vía cliente MCP propio). | `workspace-loop`: WORKSPACE arma el request ⇒ emite TODOS los eventos desde su loop (`events.emit`), incluido `pre_prompt` como middleware REAL (el punto que claude-code no expone). | headless: ✅ vivo (suite). Loop interactivo: extraído en `feat/multi-engine` (patrón probado en la corrida E-2/E-3). |
 | `native_api` (Anthropic Messages, Gemini API) | igual que openai_compatible: mismo seam, otro shape de request. | `workspace-loop` (idéntico). | **A-IMPLEMENTAR** — el registro los salta con razón visible, no los finge. |
 | `official_cli` (Claude Code / Codex CLI / Gemini CLI, login del socio) | **MCP nativo del CLI**: WORKSPACE registra sus tools como servidor MCP en la config del CLI (claude-code: ✅ mecanismo conocido del harness; codex/gemini: ⚠ A-VERIFICAR flags/config exactas). | `vendor-hooks` donde existan (claude-code: mapping completo en EVENTS.md). Donde NO existan (codex/gemini): `workspace-wrapper` — el proceso que lanza el CLI emite lo observable desde fuera: `session_start`/`session_end` alrededor de la corrida y `headless_ingest` al normalizar la sesión (ingester → schema neutral). `pre_prompt`/`post_tool_write` NO son observables desde fuera de un CLI ajeno ⇒ no se emiten (honestidad). | claude-code: ✅ completo. codex: andamiaje (`OFFICIAL_CLIS`, `official_cli_status`, ingester `parse_codex`) ⚠ A-VERIFICAR. gemini: asiento A-IMPLEMENTAR. |
 
@@ -40,7 +40,7 @@ Un adaptador nuevo (motor o CLI) declara/implementa:
    CLI oficial; jamás secretos en el perfil.
 2. **Invocación headless** — backend en `headless.py` (o vía
    `register_provider_backends`) con `can_disable_tools` HONESTO: sin
-   tools-off verificado no hay destilación (invariante Argus).
+   tools-off verificado no hay `tools="none"` (invariante Argus).
 3. **Datos** — ingester en `neutral_transcript.py` (crudo del vendor → schema
    `workspace.transcript` v1). Los consumidores jamás ven el formato del vendor.
 4. **Eventos** — columna en `events.ENGINE_MAP`: para cada evento N9, el hook

@@ -218,7 +218,7 @@ def _session_env(session):
     mouse_capture=false para que el scroll no rompa la ventana partida. Se
     aplica SOLO a las sesiones workspace-split-* (el config global del socio
     queda intacto). Best-effort: si el archivo no está, herdr usa su default."""
-    env = dict(os.environ)
+    env = mux.env_sin_boveda()           # el server de herdr: sin la bóveda
     env["HERDR_SESSION"] = session
     env.pop("HERDR_SOCKET_PATH", None)   # ganaría sobre HERDR_SESSION
     cfg = os.path.join(mux.ROOT, "herdr-split.toml")
@@ -254,7 +254,7 @@ def _json_result(proc):
 def session_running(session, env=None):
     try:
         proc = subprocess.run([HERDR, "session", "list", "--json"],
-                              env=env or os.environ.copy(),
+                              env=env or mux.env_sin_boveda(),
                               capture_output=True, text=True,
                               encoding="utf-8", errors="replace", timeout=15)
         for s in (json.loads(proc.stdout or "{}") or {}).get("sessions") or []:
@@ -297,8 +297,8 @@ def herdr_chat_cmd(agent, wid, name, session):
     pane → herdr no lo cierra y el controlador relanza. El `herdr session
     stop` al salir el socio lo hace el controlador INTERNAMENTE (equivalente
     del kill-session de tmux) — no se añade cola shell aquí."""
-    import shlex          # comilla SEGURO metacaracteres pegados (;$()`|&) que
-    #                       mux._q deja pasar; la línea corre vía sh -c
+    import shlex          # comilla SEGURO metacaracteres pegados (;$()`|&),
+    #                       igual que mux._q; la línea corre vía sh -c
     script = os.path.join(mux.ROOT, "mux.py")
     return (shlex.quote(mux.PY) + " " + shlex.quote(script)
             + " chat-controller " + shlex.quote(str(session)) + " "
@@ -452,7 +452,7 @@ def _running_split_sessions(env=None):
     names = set()
     try:
         r = subprocess.run([HERDR, "session", "list", "--json"],
-                           env=env or os.environ.copy(), capture_output=True,
+                           env=env or mux.env_sin_boveda(), capture_output=True,
                            text=True, encoding="utf-8", errors="replace",
                            timeout=15)
         for s in _safe_json(r.stdout).get("sessions") or []:

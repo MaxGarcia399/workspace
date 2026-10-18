@@ -584,6 +584,15 @@ def _dia_body(S, K, inner, alto=0):
 
 def render(S, w, h):
     K = _K()
+    # AVISO de la agenda (dañada y apartada, evento ilegible — personal.py):
+    # gana la línea de mensaje en cualquier vista; el socio tiene que verlo.
+    # Una copia apartada SIN REVISAR (aunque la haya apartado otro proceso)
+    # se sigue diciendo cada vez que la línea queda libre.
+    aviso = P.tomar_aviso()
+    if aviso:
+        S["msg"] = aviso
+    elif not S.get("msg"):
+        S["msg"] = P.aviso_copias()
     if S["modo"] in ("add", "edit", "ver"):
         return _task_form_render(S, K, w, h)
     if S["modo"] == "queue":
@@ -597,8 +606,11 @@ def render(S, w, h):
                              _t("cal.info.title", "CÓMO FUNCIONA TU CALENDARIO"),
                              _info_blocks(S, K), state=S["info"], box_w=74)
     pares = _pares()
-    # cabecera COMPARTIDA (wordmark + subtítulo + atajos clave + regla)
-    L = HL.screen_header(K, w, h, _t("cal.subtitle", "calendario"), hints=pares, word=HL.section_word('calendario'))
+    # cabecera COMPARTIDA (wordmark + subtítulo + atajos clave + regla). El
+    # wordmark grande cede bajo 32 filas (no 30): con 30-31 se comía la última
+    # semana de un mes de 6 y el día elegido quedaba fuera de la vista
+    L = HL.screen_header(K, w, h, _t("cal.subtitle", "calendario"), hints=pares,
+                         compact_h=32, word=HL.section_word('calendario'))
     top = len(L)
     mes_title = _t("cal.box.month_title", "MES · {month} {year}",
                    month=_mes_largo(S["sel"].month), year=S["sel"].year)
@@ -801,7 +813,23 @@ def _calendar_context(S, K, width, height, focused):
     rows = _calendar_events(S)
     idx = min(S.get("calendar_ev", 0), max(0, len(rows) - 1))
     S["calendar_ev"] = idx
-    body += ["", K["B2"] + _t("cal.ctx.day", "DÍA · {date}", date=S["sel"].isoformat()) + K["R"]]
+    dia = [K["B2"] + _t("cal.ctx.day", "DÍA · {date}", date=S["sel"].isoformat()) + K["R"]]
+    ih = max(1, height - 2)
+    if len(body) + 3 > ih:
+        # no cabe el mes entero con el día y su ficha (la ficha con poco
+        # alto): la cabecera de los días, una ventana de semanas con la del
+        # día elegido SIEMPRE a la vista y, debajo, el día con su ficha
+        # elegida (antes se cortaba por abajo y podían quedar fuera)
+        semana = next((i for i, s in enumerate(_cal.Calendar(firstweekday=0).monthdayscalendar(
+            S["sel"].year, S["sel"].month)) if S["sel"].day in s), 0)
+        n = max(1, ih - 1 - (len(dia) + 1 if ih >= 5 else 0))
+        resto, fila = body[1:], 1 + 2 * semana
+        ini = max(0, min(fila - (n - 1) // 2, len(resto) - n))
+        body = body[:1] + resto[ini:ini + n]
+        dia = dia if ih >= 5 else []
+    else:
+        body.append("")
+    body += dia
     capacity = max(1, min(4, height - 2 - len(body)))
     start = max(0, min(idx - capacity // 2, len(rows) - capacity))
     for i, e in enumerate(rows[start:start + capacity], start):
@@ -822,7 +850,9 @@ def _new_form(S):
 
 
 def _open_detail(S, event):
-    S.update(modo="ver", evs=[event], ev=0, campo=1,
+    # el DETALLE actúa sobre ESE evento: se suelta la edición anterior (un
+    # `editando` viejo mandaba la imagen pegada —y el Ctrl+X— a OTRA tarea)
+    S.update(modo="ver", evs=[event], ev=0, campo=1, editando=None,
              form_event=event["id"], form_date=datetime.date.fromisoformat(event["date"]),
              form_focus="editor", text_cursor={}, text_scroll={})
     S["calendar_ev"] = next((i for i, e in enumerate(_calendar_events(S)) if e["id"] == event["id"]), 0)
@@ -864,7 +894,9 @@ def _persist_form(S, close=True):
 # S["await_attach"]). Quitar la enfocada = Ctrl+X. Chips bajo cada campo.
 def _active_eid(S):
     """El id del evento en edición/detalle (store), o None en un alta sin
-    guardar todavía."""
+    guardar todavía. En el DETALLE manda la ficha que se ve (form_event)."""
+    if S.get("modo") == "ver":
+        return S.get("form_event")
     return S.get("editando") or S.get("form_event")
 
 
@@ -1121,6 +1153,9 @@ def _task_form_render(S, K, w, h):
         body = [" " + HL.pad(a, lw) + " " + b for a, b in zip(left, right)]
     else:
         calendar_h = min(len(_mes_body(S, K, w - 7)) + 6, available - 14)
+        # con poco alto el MES no baja de 7 filas (cabecera, la semana del
+        # día elegido y su ficha): los textos ceden, que se desplazan solos
+        calendar_h = max(calendar_h, min(7, available - 6))
         body = [" " + row for row in _calendar_context(S, K, w - 3, calendar_h, focus == "calendar")]
         text_h = available - calendar_h
         first = text_h // 2
@@ -1736,7 +1771,11 @@ def _accion(S, key):
 
 # ── drivers (mismo patrón que el hub y tono_tui) ──────────────────────────
 import responsive_ui as _responsive
-render = _responsive.renderer(render, 'CALENDARIO')
+# mínimo REAL del calendario (no es la cajita): 26 filas = todos los días de
+# un mes de 6 semanas —el elegido siempre a la vista— entre la cabecera
+# compacta y los botones; 66 columnas = la rejilla del MES sin cortar ningún
+# día (la semana del cursor, «[16]», mide una columna más) + la caja del DÍA
+render = _responsive.renderer(render, 'CALENDARIO', min_size=(66, 26))
 _accion = _responsive.action(_accion)
 
 def _draw(tout, S, first=False):

@@ -10,14 +10,13 @@
   "setup": {
     "session_journal": true,
     "autonomous": false,
-    "_note": "session_journal=true: hooks de sesión genéricos (WORKSPACE_WS) → STATE/sessions/<socio>/<slug>.md del cerebro; requiere .claude/socio.local en el cerebro. autonomous: cambiar a true si el agente corre headless/nocturno sin prompts."
+    "_note": "session_journal=true: hooks de sesión genéricos (WORKSPACE_WS = la pestaña) → memoria de la pestaña en STATE/sessions/<socio>/<slug>.md del cerebro (paquete al abrir, cierre sin IA); .claude/socio.local lo escribe Workspace. autonomous=false (default de Workspace): el agente trabaja solo en las sesiones que abre el socio."
   },
   "memory": {
     "tiering": "v1",
-    "dreaming": true,
     "fts_index": false,
     "index_contract": "STATE/INDEX.md",
-    "_note": "tiering v1 = E2 (HOT/WARM/COLD con INDEX.md). dreaming=true: dream.py puede correr sobre este cerebro. fts_index: activar en E3 (requiere módulo indexador FTS5 del harness). El bloque 'memory' lo lee workspace doctor para auditar expectativas por agente."
+    "_note": "tiering v1 = E2 (HOT/WARM/COLD con INDEX.md). fts_index: activar en E3 (requiere módulo indexador FTS5 del harness). El bloque 'memory' lo lee workspace doctor para auditar expectativas por agente."
   },
   "scripts": {
     "banner": "{root}/agents/{{AGENT_NAME}}/brand/{{AGENT_NAME}}-banner.py",

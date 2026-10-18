@@ -160,6 +160,11 @@ def _yes(on):
     return _t("agentes.p.yes", "sí", "yes") if on else _t("agentes.p.no", "no", "no")
 
 
+#: Averías de MOTOR (agent_state.ENGINE_STATUSES): el agente se abre igual y
+#: aquí se le puede cambiar el motor sin salir de «necesitan arreglo».
+_ENGINE_DOWN = ("engine_missing", "engine_unknown")
+
+
 def options(S, cfg):
     """Las opciones del agente elegido, en orden: [(clave, etiqueta, valor)].
     Primero los AJUSTES (interruptores y motor), luego las ACCIONES (ruta,
@@ -171,6 +176,10 @@ def options(S, cfg):
     if g == "fix":
         out.append(("repair", _t("agentes.o.repair", "reparar", "repair"),
                     _label(st.get("status", ""))))
+        if st.get("status") in _ENGINE_DOWN:
+            # solo le falta el motor: se le puede poner otro desde aquí
+            out.append(("engine", _t("agentes.f.engine", "motor", "engine"),
+                        cfg.get("engine") or "—"))
     else:
         out.append(("hub", _t("agentes.o.hub", "en el hub", "in the hub"),
                     not st.get("hidden")))
@@ -358,18 +367,20 @@ def info_blocks(S, K):
                    _t("agentes.info.c1", "tu carpeta: memoria y skills",
                       "your folder: memory and skills")),
                   (_t("agentes.info.n2", "un motor", "an engine"),
-                   _t("agentes.info.c2", "Claude Code, Codex o Antigravity",
-                      "Claude Code, Codex or Antigravity")),
+                   _t("agentes.info.c2", "uno de seis: Claude Code, Codex…",
+                      "one of six: Claude Code, Codex…")),
                   (_t("agentes.info.n3", "tu agente", "your agent"),
                    _t("agentes.info.c3", "con tu propia cuenta", "with your own account"))]),
         ("gap",),
         ("p", _t("agentes.info.p1",
                  "Un agente es su cerebro (una carpeta de archivos tuya, fuera de "
                  "Workspace) trabajando en un motor. Cambiar el motor no cambia quién "
-                 "es ni lo que sabe.",
+                 "es ni lo que sabe: cada pestaña guarda su memoria en el cerebro y "
+                 "cualquier motor la recibe igual al abrir.",
                  "An agent is its brain (a folder of your own files, outside Workspace) "
                  "working in an engine. Changing the engine doesn't change who it is or "
-                 "what it knows.")),
+                 "what it knows: each tab keeps its memory in the brain and every engine "
+                 "gets it the same way when it opens.")),
         ("h", _t("agentes.info.h_opts", "sus opciones", "its options")),
         ("kv", [(_t("agentes.o.hub", "en el hub", "in the hub"),
                  _t("agentes.info.o_hub", "si aparece en el hub; quitarlo no borra nada",
@@ -385,9 +396,10 @@ def info_blocks(S, K):
                     "reads and writes there without asking you")),
                 (_t("agentes.o.review", "revisión de skills", "skill review"),
                  _t("agentes.info.o_review",
-                    "al cerrar cada sesión mejora sus skills; usa un poco de tu suscripción",
-                    "when each session ends it improves its skills; uses a little of "
-                    "your subscription")),
+                    "al abrir cada sesión revisa la anterior y mejora sus skills, a la vista; "
+                    "usa un poco de tu suscripción",
+                    "when each session opens it reviews the previous one and improves its "
+                    "skills, in plain sight; uses a little of your subscription")),
                 (_t("agentes.o.remove", "quitar de esta máquina", "remove from this machine"),
                  _t("agentes.info.o_remove", "su cerebro y sesiones se quedan en disco",
                     "its brain and sessions stay on disk"))]),

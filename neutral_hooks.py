@@ -130,7 +130,36 @@ def _dashboard_of(cfg, brain):
 def _child_env(brain):
     env = dict(os.environ)
     env["WORKSPACE_BRAIN"] = brain   # los hooks/dashboard resuelven el cerebro por env
+    # memoria v1: el paquete de la pestaña lo arma memoria.paquete; el tablero
+    # del agente ya no repite la memoria (sus versiones nuevas leen esto).
+    env["WORKSPACE_MEMORIA_PAQUETE"] = "1"
     return env
+
+
+# Lo que los tableros de versiones anteriores (copias en cerebros de clientes)
+# todavía imprimen: pestaña + memoria + «haz append a ## Historial». Se quita
+# del texto del tablero para que el agente no reciba dos memorias ni dos
+# instrucciones que se contradicen (Panorama, hallazgos 3 y 8).
+_VIEJA_PESTANA = ("PESTAÑA ACTIVA:", "SESIÓN ACTIVA:")
+_VIEJA_INSTRUCCION = "Al cerrar trabajo significativo, haz append"
+
+
+def _sin_memoria_vieja(out):
+    try:
+        d = json.loads(out)
+        hso = d.get("hookSpecificOutput") if isinstance(d, dict) else None
+        ctx = hso.get("additionalContext") if isinstance(hso, dict) else None
+        if not isinstance(ctx, str):
+            return out
+        lines = ctx.split("\n")
+        i = next((k for k, l in enumerate(lines) if l.startswith(_VIEJA_PESTANA)), -1)
+        j = next((k for k, l in enumerate(lines) if l.startswith(_VIEJA_INSTRUCCION)), -1)
+        if i < 0 or j < i:
+            return out
+        hso["additionalContext"] = "\n".join(lines[:i] + lines[j + 1:])
+        return json.dumps(d, ensure_ascii=False)
+    except Exception:
+        return out
 
 
 def _run_child(cmd_tail, raw, timeout, env):
@@ -142,10 +171,19 @@ def _run_child(cmd_tail, raw, timeout, env):
     try:
         r = subprocess.run([sys.executable] + list(cmd_tail), input=raw,
                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                           timeout=timeout, env=env)
+                           timeout=timeout, env=env, **SIN_CONSOLA)
         return (r.stdout or b"").decode("utf-8", "replace")
     except Exception:
         return ""
+
+
+#: Windows: los listeners corren SIN consola (hablan por tuberías). Al salir de
+#: opencode con Ctrl+C la consola queda en un estado en que todo proceso nuevo
+#: que se le cuelga falla al arrancar (0xC0000142, STATUS_DLL_INIT_FAILED): el
+#: cierre entero (respaldo, revisión de skills, memoria) no corría. Sin consola,
+#: además, un 2º Ctrl+C no los corta (prueba real 2026-10-17).
+SIN_CONSOLA = ({"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+               if os.name == "nt" else {})
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -430,6 +468,18 @@ def inbox_notice(brain, agent=None):
     return "\n".join(lines)
 
 
+def _vigia_notice(brain):
+    """Alertas abiertas del Vigía de motores (CI semanal con la última versión
+    de cada motor). Solo en la máquina del dueño: el módulo vigia_aviso no
+    viaja a clientes, y está apagado salvo para los agentes que liste
+    ~/.claude/workspace/vigia.json. Jamás espera a la red. Falla-suave → ''."""
+    try:
+        import vigia_aviso
+        return vigia_aviso.notice(agent_for_brain(brain))
+    except Exception:
+        return ""
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Núcleo · run_event — fan-out + behaviors, texto neutral hacia afuera
 # ═══════════════════════════════════════════════════════════════════════════
@@ -485,29 +535,25 @@ def run_event(event, payload=None, brain=None, behaviors=None, raw=None):
                 out = _run_child([dash, "--context", "--brain", b],
                                  raw, _DASHBOARD_TIMEOUT, env)
                 if out:
-                    outs.append(out)
+                    outs.append(_sin_memoria_vieja(out))
                     ran.append("memory_context")
 
-        if event == "session_start" and "memory_context" in beh:
+        # memoria v1: UN paquete (resumen + Vigente + notas + maleta + cómo
+        # guardar). Claude Code lo recibe aquí, en cada arranque (también al
+        # retomar y tras compactar: el contexto se perdió). Los envueltos
+        # (payload con `engine`) lo llevan en su bloque de pestaña
+        # (sessions_registry.session_doc_block) → no se duplica.
+        if event == "session_start" and "memory_context" in beh and not data.get("engine"):
             try:
-                import session_continuity
                 tab = os.environ.get("WORKSPACE_WS") or os.environ.get("ZENITH_WS")
                 if tab:
-                    cp = session_continuity.read_checkpoint(b, tab)
-                    # Native Claude dashboard stays compatible; this adds the
-                    # same validated current state on resume and fresh starts.
-                    if cp and (not fresh or not _dashboard_of(cfg or {}, b)) and not data.get("engine"):
-                        parts.append(session_continuity.context(b, tab))
-                    revision = cp["revision"] if cp else 0
-                    parts.append(
-                        "Continuidad: al terminar una unidad de trabajo o antes de "
-                        "cambiar de motor, guardar un checkpoint con `workspace memoria "
-                        "checkpoint --expected-revision %s --objective ... --decision ... "
-                        "--blocker ... --next-step ... --result ...`. Campos ≤600 caracteres; "
-                        "--tab usa la pestaña activa. Si hay conflicto, leer "
-                        "`workspace memoria status` y reconciliar, nunca sobrescribir a ciegas. "
-                        "El checkpoint registra estado útil; no pensamiento privado."
-                        % revision)
+                    import memoria
+                    # se le ENTREGA al agente: aquí sí se reserva la curación
+                    # semanal si toca (consultar con `ver` no la consume)
+                    pq = memoria.paquete(memoria.raiz_cerebro(b), tab, motor="claude-code",
+                                         retomada=(source == "resume"), entregar=True)
+                    if pq:
+                        parts.append(pq)
             except Exception:
                 pass
 
@@ -528,6 +574,9 @@ def run_event(event, payload=None, brain=None, behaviors=None, raw=None):
             if notice:
                 parts.append(notice)
                 ran.append("inbox_on_boot")
+            vigia = _vigia_notice(b)
+            if vigia:
+                parts.append(vigia)
 
         if "status" in beh and event in ("session_start", "user_prompt",
                                          "session_end", "pre_compact"):

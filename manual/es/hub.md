@@ -41,6 +41,8 @@ Las secciones del **Menú**. Se abren desde Menú › o buscándolas:
 | Calendario | tu agenda, editable a pantalla completa |
 | Tono | los diales de personalidad de tus agentes |
 | Motores | estado de cada motor, qué puede hacer y sus conexiones |
+| Usuarios | quién usa cada agente: «soy yo en esta PC», cambiar nombre, unir dos usuarios que son la misma persona (p. ej. el de la Mac y el de Windows) y crear uno nuevo. Cada usuario tiene una cédula (un ID fijo), así que renombrar nunca confunde a otra máquina; nada se borra |
+| Documentación | todo lo que hace Workspace, en 13 capítulos (abrir una pestaña, cerrar, qué viaja, qué sale a la red, qué no hace…): cada uno con un mapa, el dato real de esta PC para el agente elegido, el archivo o comando que lo comprueba (Enter lo abre) y el ajuste que lo apaga |
 
 ## Las cifras
 

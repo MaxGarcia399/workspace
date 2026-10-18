@@ -411,6 +411,11 @@ def sync_engine_theme(engine, name, display=None, brain=None, home=None):
         if data is None:
             return None
         text = tmtheme_text(data) if engine == "codex" else json_text(data)
+        # un tema AJENO con ese nombre (del usuario, no nuestro) no se pisa ni
+        # se elige para el agente — mismo criterio que install.install_theme
+        if engine == "claude-code" and is_foreign(
+                dst, home, [text] + legacy_sources(name, brain, home)):
+            return {"ok": True, "written": [], "kept": [dst], "error": ""}
         res = stage_write([(dst, text, True)], home)
         if engine != "claude-code":
             return res
@@ -448,7 +453,9 @@ def overlay(rendered, explicit):
 # Un archivo existente cuyo hash ya no coincide con el registrado = el usuario
 # lo editó → no se pisa. Sin registro (archivo de una versión anterior, que lo
 # escribía siempre) = se presume generado: se reescribe como antes y desde ahí
-# queda registrado. El registro vive en el perfil, NUNCA junto al archivo
+# queda registrado. Excepción: el tema de un agente en ~/.claude/themes sin
+# registro NI copia de una fuente nuestra es del usuario (is_foreign) → no se
+# toca. El registro vive en el perfil, NUNCA junto al archivo
 # (~/.claude/themes/ es de Claude Code: no le dejamos basura que pueda leer).
 def _record_path(home=None):
     return os.path.join(_paths.state_dir(home), "theme-render.json")
@@ -480,6 +487,58 @@ def is_handmade(path, home=None):
         return False
     rec = _read_record(home).get(_key(path))
     return bool(rec) and rec != _sha(cur)
+
+
+def is_generated(path, home=None):
+    """True solo si `path` es TAL CUAL lo generamos: está en el registro y su
+    contenido no cambió. Sin registro (hecho a mano, o de otra instalación)
+    o ilegible → False: borrar algo exige esta prueba, no la falta de otra."""
+    if os.path.islink(path):
+        return False
+    try:
+        with open(path, encoding="utf-8") as fh:
+            cur = fh.read()
+    except Exception:
+        return False
+    rec = _read_record(home).get(_key(path))
+    return bool(rec) and rec == _sha(cur)
+
+
+def is_foreign(path, home=None, known=()):
+    """True si `path` existe y NO es nuestro → jamás se pisa: ni está en el
+    registro de lo que generamos ni es idéntico a algo que Workspace escribe
+    (`known`: lo que toca escribir ahora y lo que una versión sin registro
+    copiaba tal cual, ver legacy_sources). Así un tema PROPIO del usuario que
+    se llama igual que un agente (~/.claude/themes/nord.json y el agente
+    `nord`) se conserva. Un symlink o un archivo ilegible es ajeno."""
+    if os.path.islink(path):
+        return True
+    try:
+        with open(path, encoding="utf-8") as fh:
+            cur = fh.read()
+    except FileNotFoundError:
+        return False
+    except Exception:
+        return True
+    return _key(path) not in _read_record(home) and cur not in set(known)
+
+
+def legacy_sources(name, brain=None, home=None):
+    """Textos que una versión SIN registro (antes del 2026-10-12) copiaba tal
+    cual a ~/.claude/themes/<name>.json — las fuentes de install.install_theme.
+    Un archivo idéntico a uno de ellos es nuestro aunque no esté registrado."""
+    cands = [os.path.join(_paths.state_dir(home), "themes-cc", "%s.json" % name),
+             os.path.join(ROOT, "themes-cc", "%s.json" % name)]
+    if brain:
+        cands.append(os.path.join(brain, "assets", "brand", "%s-theme.json" % name))
+    out = []
+    for c in cands:
+        try:
+            with open(c, encoding="utf-8") as fh:
+                out.append(fh.read())
+        except Exception:
+            pass
+    return out
 
 
 def json_text(data):

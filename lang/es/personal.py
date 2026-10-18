@@ -20,4 +20,11 @@ STRINGS = {
     "personal.agenda.tag_done": "(hecha)",
     "personal.agenda.tag_archived": "(archivado)",
     "personal.unknown": "personal: comando desconocido '{cmd}' (agenda)",
+    "personal.aviso.saltados": "{n} evento(s) ilegible(s) en la agenda: se conservan tal cual en {archivo}",
+    "personal.aviso.ilegible": "no pude leer la agenda ({archivo}): no la toco; si sigue así, al guardar la aparto intacta como copia",
+    "personal.aviso.cambio": "la agenda cambió mientras la leía ({archivo}): no escribí encima; vuelve a intentarlo",
+    "personal.aviso.copias": "copia sin revisar de tu agenda dañada: {copia} — un agente puede recuperarla",
+    "personal.aviso.no_abre": "no pude abrir la agenda ({archivo}): no escribo encima",
+    "personal.aviso.no_aparta": "agenda dañada y no pude apartarla ({archivo}): no escribo encima",
+    "personal.aviso.apartada": "agenda dañada: quedó intacta como {copia}; sigues con una limpia",
 }

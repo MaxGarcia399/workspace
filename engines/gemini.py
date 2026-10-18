@@ -166,7 +166,8 @@ def run_turn(prompt, *, model=None, cwd=None, timeout=120,
     try:
         if cwd:
             os.makedirs(cwd, exist_ok=True)
-        env = dict(os.environ)
+        import secret_store
+        env = secret_store.engine_env()   # el motor no hereda la bóveda
         env["WORKSPACE_NO_AUTOUPDATE"] = "1"
         if runner is not None:
             r = runner(cmd, cwd=cwd or None, env=env, timeout=timeout,

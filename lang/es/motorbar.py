@@ -44,4 +44,14 @@ STRINGS = {
                                      'comandos pedirán permiso.',
     'motorbar.agy.commands_free': 'comandos sin preguntar',
     'motorbar.agy.tokens_in_bar': 'en la barra de Antigravity',
+    'motorbar.hermes.created': 'creé su perfil «{p}» (con tu modelo, sin copiar tus llaves; tu '
+                               'Hermes personal no cambia)',
+    'motorbar.hermes.pending': 'el perfil «{p}» de Hermes aún no existe: se crea sin tus llaves al '
+                               'abrir el agente; conecta el proveedor en Motores › cuenta y proveedor',
+    'motorbar.hermes.no_provider': 'el perfil «{p}» de Hermes no tiene proveedor con sesión '
+                                   '(Workspace no copia las llaves de tu Hermes personal)',
+    'motorbar.hermes.gate_hint': '  El perfil de Workspace en Hermes tiene su propio proveedor '
+                                 '(Workspace no copia tus llaves). Sin él, Hermes abre su propio '
+                                 'asistente en vez de tu agente: conéctalo en Motores › Hermes › '
+                                 'cuenta y proveedor (el proveedor y el modelo).',
 }

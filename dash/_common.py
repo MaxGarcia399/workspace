@@ -13,7 +13,7 @@ Expone utilidades que varios módulos de dash/ usan (o usarán):
   parse_pendientes(text)parser tolerante de PENDIENTES.md → lista de items
   read_pendientes(brain)lee STATE/PENDIENTES.md del cerebro → lista de items
   read_deliverables(brain) → lista de archivos de entregables con metadatos
-  read_sessions(brain, socio) → lista de journals de sesión del socio
+  read_sessions(brain, socio) → lista de fichas de pestaña del socio
   read_queue(agent_brain, socio=None) → encargos de research-queue pendientes
   agent_events(brain, agent_name, limit)
                         eventos del rastro N10 para un agente (falla-suave)
@@ -287,11 +287,11 @@ def read_deliverables(brain, max_per_project=20):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Sessions (journals por socio)
+# Sessions (fichas de pestaña por socio)
 # ═══════════════════════════════════════════════════════════════════════════
 
 def read_sessions(brain, socio):
-    """Journals de STATE/sessions/<socio>/ → lista de dicts.
+    """Fichas de pestaña de STATE/sessions/<socio>/ → lista de dicts.
     Cada item: {slug, title, estado, trabajo, actualizada, mtime, path}.
     Ordenado por mtime desc. Falla-suave."""
     d = os.path.join(brain, "STATE", "sessions", socio) if (brain and socio) else ""

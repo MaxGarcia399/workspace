@@ -14,16 +14,15 @@ used_count: 0
 
 ## Cuándo usar
 - El socio dice "reload", "recarga", "actualiza tu cerebro".
-- Hubo cambios a `CLAUDE.md`, `BOOT/` o mis skills durante esta sesión abierta.
+- Hubo cambios a `BRAIN.md` (mi identidad), `BOOT/` o mis skills durante esta sesión abierta.
 - Mi comportamiento no refleja cambios recientes al pipeline.
-- Al detectar `monitored: false` en `STATE/brain-version.md` (ofrecer monitor, una vez por sesión).
 
 ## Procedimiento
-1. **Leer versión:** `Read STATE/brain-version.md` → anotar `version`, `last_updated`, `monitored`,
-   y las últimas entradas del changelog.
+1. **Leer versión:** `Read STATE/brain-version.md` → anotar `version`, `last_updated` y las
+   últimas entradas del changelog.
 2. **Re-leer core en orden:**
    ```
-   Read CLAUDE.md
+   Read BRAIN.md
    Read BOOT/00-SOUL.md
    Read BOOT/01-IDENTITY.md
    Read BOOT/02-TEAM.md
@@ -39,12 +38,10 @@ used_count: 0
    - [entrada más reciente del changelog]
    ```
    Si cambiaron las reglas (`03-RULES.md`) o el Skill Loop, destacarlo.
-4. **Monitor:** si `monitored: false`, ofrecer activar un monitor diario que avise de cambios al
-   pipeline (una sola vez por sesión). Si el socio dice no, respetar y dejar `monitored: false`.
 
 ## Pitfalls
-- **Monitor ya activo:** verificar antes de crear el task (no duplicar).
-- **`monitored: false` tras rechazo:** no volver a preguntar en la misma sesión.
+- **Sin monitor:** no ofrezco monitores ni tareas programadas (Workspace no tiene un monitor
+  diario); `monitored:` en `brain-version.md` es un dato viejo y no pide nada.
 
 ## Verificación
 - [ ] `brain-version.md` leído y versión anotada

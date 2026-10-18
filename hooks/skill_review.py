@@ -1,91 +1,48 @@
 #!/usr/bin/env python3
-"""WORKSPACE hook · SessionEnd — background skill review (robo #1 de Hermes).
+"""WORKSPACE hook · revisión de skills — la hace el AGENTE, en su sesión, a la vista.
 
-Al cerrar una sesión, lanza un revisor AISLADO y en segundo plano que lee la sesión
-y crea/parcha skills siguiendo el Skill Loop (CLAUDE.md §7) — FUERA del turno real,
-sin gastar tokens del chat ni depender de que el agente "se acuerde".
+Hasta 2026-10-16 este hook lanzaba, al cerrar la sesión, un revisor SIN VENTANA
+(`claude -p`, `codex exec`, `agy -p`) en segundo plano, y las skills nuevas se
+quedaban en skills/_propuestas/ esperando que alguien las aprobara. El dueño
+retiró ese diseño: en la máquina del cliente no corre ningún agente sin
+ventana, y el proceso de memoria/skills no espera aprobación humana.
 
-OPCIONAL (0.3.0): corre solo si el agente lo pide en su agent.json
-(`"skill_review": true`) o, si no dice nada, si el ajuste global
-`hooks.skill_review` está prendido (viene APAGADO). WORKSPACE_NO_SKILL_REVIEW=1
-siempre gana.
+Ahora son dos momentos, y ninguno lanza procesos:
+  · AL CERRAR (`main`, evento session_end): si la opción está encendida y la
+    sesión tuvo sustancia, guarda una VISTA NEUTRA de la sesión (sin thinking,
+    sin tools, sin el crudo del vendor) y deja la revisión PENDIENTE. Todo en
+    `<cerebro>/.claude/skill-review/` (carpeta oculta: Obsidian no la sincroniza
+    y queda en el .gitignore del cerebro).
+  · AL ABRIR (`start_main`, evento session_start, vía skill_review_start.py):
+    si hay una revisión pendiente, se la entrega al agente como parte de su
+    contexto de arranque. El agente la hace en esa sesión, a la vista del socio
+    y con su misma cuenta, y la reporta en su bloque 🧠. Se entrega UNA vez.
 
-Revisor según el motor de la sesión que cerró (payload["engine"]; sin él es el
-hook nativo de Claude Code):
-- claude-code → `claude -p --model haiku` con tools solo de archivos.
-- codex       → `codex exec --ephemeral` en el cerebro (-C), sandbox
-                workspace-write SIN red, razonamiento bajo, prompt por stdin;
-                modelo "luna" solo si tu cuenta lo lista (models_cache.json).
-- antigravity → `agy -p` con --mode accept-edits y --add-dir del cerebro y del
-                log, corrido desde una carpeta NEUTRA (<estado>/review-cwd) —
-                nunca desde el cerebro (agy recuerda la última conversación
-                por carpeta: el revisor no debe ocupar la del agente);
-                modelo *-flash-low si `agy models` lo ofrece.
-Si el CLI de ese motor no está pero `claude` sí, revisa `claude`.
+La opción NO cambia: viene apagada; `"skill_review": true|false` en el
+agent.json del agente gana; si no dice nada, manda `hooks.skill_review`
+(settings); WORKSPACE_NO_SKILL_REVIEW=1 gana siempre. Throttle por cerebro
+(máx. una cada 2 h) y las sesiones triviales no se revisan.
 
-El revisor nunca ve el crudo del vendor: lee una VISTA NEUTRA del transcript
-(neutral_transcript → .md temporal en el log, se borra al terminar).
+Las skills NUEVAS se crean directo en skills/<categoría>/ (como ya hace el
+Skill Loop durante la conversación; quedan en el git del cerebro para
+deshacer). Si quedaron propuestas viejas en skills/_propuestas/, la revisión
+pide integrarlas (copiándolas, sin comandos que el motor pregunte) y marcarlas
+resueltas; sin_aprobacion las archiva en skills/_archive/: nada espera a un
+humano.
 
-Como el background-review de Hermes:
-- Corre detached: NO bloquea el cierre de la sesión (un proceso hijo propio
-  elige el modelo, corre el revisor y limpia).
-- Tools restringidas a archivos; sin terminal ni red.
-- Modelo barato — es trabajo de bookkeeping.
-- Guard anti-recursión (WORKSPACE_REVIEW_RUNNING): NO se dispara dentro de sí mismo.
-- Throttle + chequeo de sustancia: no revisa sesiones triviales ni muy seguido.
-- Probar sin lanzar: WORKSPACE_REVIEW_DRYRUN=1.
-
-Usa la suscripción del motor (sin API key). Best-effort. Cero deps (3.9+).
-
-Prompt gen-2 (robo Y3, Hermes background_review):
-- Forma target CLASS-LEVEL: skills que generalizan el patrón (anti-fragmentación en el
-  momento de escribir, no después vía curator).
-- Orden patch-first: parchear skill usada en sesión > parchear la más cercana > sección de
-  apoyo en una existente > (último) proponer skill nueva.
-- Correcciones de estilo/tono/formato del usuario = señal de skill de primera clase.
-
-Contrato de salida parseable (robo Y15 — tokens, no prosa). El review anexa a su logfile
-(~/.claude/workspace/review-logs/YYYY-MM-DD.md) una línea `REVIEW:` por acción, formato exacto:
-    REVIEW: SIN_ACCION — <razón>
-    REVIEW: PATCH:<skills/categoría/nombre> — <qué cambió>
-    REVIEW: PROPUESTA:<nombre> — <para qué>
-Parseo (humano o máquina): grep '^REVIEW:' sobre los logs. Sin línea REVIEW: = la corrida
-no terminó / no cumplió contrato.
-
-Guard N6 (corrida N-4, LOG-ONLY). Este hook es el emisor actual de `headless_ingest`
-(engines/EVENTS.md): entrega un transcript NO confiable a un proceso headless. Antes de
-lanzar, pasa el transcript por `hooks/untrusted.py`:
-- mini threat-scan (regex de clases obvias de inyección/exfil) → findings a
-  ~/.claude/workspace/untrusted-findings/YYYY-MM-DD.jsonl — SOLO observación, jamás aborta;
-- el prompt del review lleva la cláusula de endurecimiento (`untrusted.guard_clause`):
-  el transcript es DATOS, no instrucciones (el wrap inline no aplica aquí — el headless
-  lee el archivo él mismo; los flujos que SÍ inlineen contenido usan `untrusted.wrap`).
-Camino futuro: cuando la pasada unificada (N3) reemplace este flujo, el scan+wrap se
-mueve con el emisor de `headless_ingest`; si algún día se decide bloquear (post análisis
-de falsos positivos de los logs), eso es otra corrida y otra decisión — no esta.
-Si untrusted.py no está (amputado), el review sigue funcionando sin guard.
-
-Gate de aprobación + cuarentena (robo Y11). Las skills NUEVAS jamás se escriben al catálogo
-vivo: van a skills/_propuestas/<nombre>/ + nota en el canal de avisos del cerebro
-(STATE/inbox/<socio>-<fecha>.md si el cerebro tiene inbox/, si no STATE/needs-review.md);
-un humano aprueba (mueve a su categoría) o descarta. Los PATCHES a skills existentes SÍ son
-directos: mejoran material ya aprobado, quedan versionados en frontmatter y visibles en el
-git del cerebro — gatearlos mataría el valor del loop sin reducir el riesgo real, que vive
-en la CREACIÓN (fragmentación / capacidades nuevas sin revisión). El gate vive en el prompt
-y REDUCE autonomía: este hook no gana ninguna capacidad (mismas tools restringidas, sin
-Bash/Web/Task) y el proceso de review no puede aprobar ni promover nada.
+Guard N6 (LOG-ONLY): la sesión es contenido NO confiable; antes de guardar la
+vista se pasa por hooks/untrusted.py (findings a untrusted-findings/, jamás
+aborta) y la tarea lleva la cláusula de endurecimiento. Probar sin escribir:
+WORKSPACE_REVIEW_DRYRUN=1. Cero deps (stdlib, 3.9+). Mac y Windows.
 """
-import sys, os, json, time, datetime, subprocess, shutil, re
+import sys, os, json, time, datetime, re
 
-try:   # M1/B2 · Windows: UTF-8 en stdout/err — un hook capturado por Claude Code en
-       # cp1252 reventaría al imprimir caracteres no-ASCII. No-op en Mac (UTF-8 default).
+try:   # Windows: UTF-8 en stdout/err (un hook capturado en cp1252 reventaría).
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
 
-# untrusted (N6) vive junto a este hook; hooks/ no es paquete → import por path.
-# Amputable: si falta, el review corre sin guard (jamás romper el cierre).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     import untrusted
@@ -95,7 +52,9 @@ except Exception:
 SKIP_REASONS = {"resume"}            # no revisar en continuaciones de sesión
 MIN_TRANSCRIPT_LINES = 25            # sesiones triviales no valen una revisión
 THROTTLE_SECONDS = 2 * 3600          # máx 1 revisión por cerebro cada 2 h
-DEFAULT_MODEL = os.environ.get("WORKSPACE_REVIEW_MODEL", "haiku")
+KEEP_VIEWS = 3                       # vistas viejas que se conservan por cerebro
+REVIEW_DIR = os.path.join(".claude", "skill-review")   # dentro del cerebro
+PROPUESTAS = os.path.join("skills", "_propuestas")
 
 
 def _stdin():
@@ -106,9 +65,7 @@ def _stdin():
 
 
 def _state_dir():
-    """Dir de estado per-máquina vía el resolver único (`paths.py`, en la raíz
-    de WORKSPACE = padre de hooks/). append (no insert) para no alterar qué
-    módulo homónimo de hooks/ gana en sys.path."""
+    """Dir de estado per-máquina (paths.py en la raíz de WORKSPACE)."""
     _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if _root not in sys.path:
         sys.path.append(_root)
@@ -116,77 +73,17 @@ def _state_dir():
     return paths.state_dir()
 
 
-def _workspace_dir():
-    return _state_dir()
-
-
 def _throttle_path(brain):
     enc = re.sub(r"[^a-zA-Z0-9]", "-", brain)
-    return os.path.join(_workspace_dir(), "review-throttle", enc + ".stamp")
+    return os.path.join(_state_dir(), "review-throttle", enc + ".stamp")
 
 
-REVIEW_PROMPT = """\
-Eres un REVISOR DE SKILLS en segundo plano de WORKSPACE (no eres el agente de este cerebro en
-conversación). Único trabajo: revisar la sesión que acaba de terminar y mejorar la biblioteca
-de skills de ESTE cerebro: {brain}
-Toda ruta relativa de abajo (CLAUDE.md, skills/, STATE/) es relativa a esa carpeta, aunque tu
-directorio actual sea otro.
+def _review_dir(brain):
+    return os.path.join(brain, REVIEW_DIR)
 
-{guard}
 
-1. Lee el transcript de la sesión (vista neutral de Workspace): {transcript}
-2. Lee el Skill Loop documentado en el CLAUDE.md de este cerebro (la sección del Skill Loop /
-   bloque 🧠) y el catálogo en skills/README.md si existe.
-3. SEÑALES para actuar — criterio ACTIVO pero conservador; NO actúes sobre tareas one-shot que
-   no se repetirán:
-   - El usuario corrigió un approach.
-   - El usuario corrigió ESTILO, tono, formato o verbosidad → señal de skill de PRIMERA CLASE
-     (va a la skill relevante, no es solo "memoria"): mejoras generales al cuerpo, preferencias
-     personales a la sección de preferencias que ya use este cerebro (si no hay, `## Preferencias`).
-   - 4+ tool calls de una tarea repetible; se halló el path correcto tras un error; pitfalls
-     no obvios; el usuario dijo "siempre que..." / "cada vez que...".
-   - Se usó una skill existente → registra el uso en su SIDECAR `.usage.json` (paso 4-bis).
-     NO edites el `used_count:` del frontmatter — quedó congelado como valor histórico.
-4-bis. REGISTRO DE USO (convención N12, documentada en skills/README.md del cerebro): por cada
-   skill USADA o PARCHADA en la sesión, actualiza skills/<categoría>/<nombre>/.usage.json —
-   JSON con {{"schema": 1, "use_count": N, "view_count": N, "patch_count": N, "last_used":
-   "<ISO-8601 UTC>"}}. Si no existe: créalo sembrando use_count desde el `used_count:` del
-   frontmatter (si lo hay, y anota ese valor en "seeded_from_frontmatter") y suma el evento.
-   Skill usada → use_count+1; solo consultada → view_count+1; patch aplicado → patch_count+1
-   y "last_patched". Todo evento refresca "last_used". JSON válido siempre.
-4. ORDEN DE PREFERENCIA (patch-first — agota cada nivel antes de pasar al siguiente):
-   a) Parchear una skill que se USÓ o CARGÓ en esta sesión.
-   b) Parchear la skill existente más cercana al tema (mejorarla o generalizarla).
-   c) Añadir una sección o archivo de apoyo dentro de una skill existente.
-   d) ÚLTIMO recurso: PROPONER una skill nueva (paso 5 — nunca se escribe al catálogo vivo).
-   FORMA TARGET de la biblioteca: skills A NIVEL DE CLASE — el patrón general reutilizable con
-   un SKILL.md rico — NO una lista plana de skills angostas de un-incidente-una-skill. No
-   fragmentar: una skill sirve a todos los que usan este cerebro.
-5. APLICAR:
-   - PATCH a skill existente: edita directo en skills/<categoría>/<nombre>/ siguiendo
-     skills/meta/skill-improver; bump de `version` en el frontmatter.
-   - Skill NUEVA: NUNCA escribas en skills/<categoría>/. Escríbela completa en
-     skills/_propuestas/<nombre>/SKILL.md siguiendo skills/meta/skill-creator, con frontmatter
-     normal más `status: propuesta`, `propuesta_por: skill-review` y
-     `categoria_sugerida: <categoría>`. Después ANEXA (append, sin tocar lo existente) una nota
-     a {notify} :
-       "- [skill-review] Propuesta de skill `<nombre>` (<categoría sugerida>): <1 línea de qué
-        resuelve>. Aprobar = mover a skills/<categoría>/<nombre>/ y actualizar skills/README.md;
-        descartar = borrar la carpeta."
-     Tú NO la mueves, NO la registras en skills/README.md, NO la apruebas: eso lo hace un humano.
-6. LÍMITES duros: escribe SOLO dentro de skills/ (incluida skills/_propuestas/), el append a
-   {notify} y el reporte de abajo. NO toques BOOT/, wiki/, deliverables/ ni el resto de STATE/.
-   {tools_rule}
-7. REPORTE (contrato parseable, obligatorio) — anexa al final de {logfile} una línea por acción
-   realizada (o la única de sin-acción), formato EXACTO, sin prosa antes:
-     REVIEW: SIN_ACCION — <razón en <=8 palabras>
-     REVIEW: PATCH:<skills/categoría/nombre> — <qué cambió en <=10 palabras>
-     REVIEW: PROPUESTA:<nombre> — <para qué en <=10 palabras>
-   Después de las líneas REVIEW:, máximo 5 líneas de detalle. Si no puedes escribir en
-   {logfile}, imprime esas mismas líneas REVIEW: en tu respuesta final (Workspace las anota).
-
-Sé breve y quirúrgico. Si no hay nada que valga la pena, no inventes: REVIEW: SIN_ACCION.
-"""
+def _pending_path(brain):
+    return os.path.join(_review_dir(brain), "pending.json")
 
 
 def _socio(brain):
@@ -200,12 +97,9 @@ def _socio(brain):
 
 
 def _notify_path(brain):
-    """Canal de avisos del cerebro para propuestas (ruta RELATIVA al cwd del review).
-
-    Cerebros con STATE/inbox/ (Zenith) → inbox diario del socio activo.
-    Cerebros sin inbox pero con STATE/needs-review.md (Atlas) → esa cola de revisión.
-    Fallback: el inbox diario (el review crea STATE/inbox/ si hace falta).
-    """
+    """Canal de avisos del cerebro (ruta RELATIVA al cerebro). Lo usa también
+    skill_audit (herramienta de desarrollo). Inbox diario del socio si existe
+    STATE/inbox/; si no, STATE/needs-review.md si existe; si no, el inbox."""
     today = datetime.date.today().isoformat()
     inbox = os.path.join("STATE", "inbox", "%s-%s.md" % (_socio(brain), today))
     if os.path.isdir(os.path.join(brain, "STATE", "inbox")):
@@ -216,9 +110,7 @@ def _notify_path(brain):
 
 
 def _setting_on(key):
-    """Setting bool del store unificado (settings.py, raíz de WORKSPACE).
-    Falla-suave → False (la revisión es opcional: ante la duda, no corre). El
-    env kill-switch se chequea aparte y SIEMPRE gana."""
+    """Setting bool del store unificado. Falla-suave → False (opcional)."""
     try:
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         if root not in sys.path:
@@ -230,8 +122,7 @@ def _setting_on(key):
 
 
 def _root_import(name):
-    """Importa un módulo de la raíz de WORKSPACE (append: no altera qué
-    homónimo de hooks/ gana). None si no se puede."""
+    """Importa un módulo de la raíz de WORKSPACE. None si no se puede."""
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if root not in sys.path:
         sys.path.append(root)
@@ -242,8 +133,7 @@ def _root_import(name):
 
 
 def _agent_def(brain):
-    """La definición del agente de este cerebro (<cerebro>/.workspace/agent.json)
-    o {}. Falla-suave."""
+    """<cerebro>/.workspace/agent.json o {}. Falla-suave."""
     ar = _root_import("agentsreg")
     try:
         if ar is not None:
@@ -257,30 +147,10 @@ def _agent_def(brain):
         return {}
 
 
-#: La regla de herramientas del paso 6, por motor. Codex no tiene herramientas
-#: de archivos aparte de la terminal: con «no uses la terminal» se negaba a
-#: leer nada y la revisión terminaba en SIN_ACCION (visto en vivo 2026-10-14).
-#: Su sandbox (escritura solo en el cerebro y el log, sin red) es el límite.
-TOOLS_RULE = {
-    "codex": ("Sin red. En Codex lees y editas archivos con comandos dentro de tu sandbox: "
-              "úsalos SOLO para leer (cat, sed -n, ls, rg) y editar (apply_patch) archivos "
-              "de este cerebro y el reporte; ningún otro comando."),
-}
-TOOLS_RULE_DEFAULT = "No uses la terminal ni la red: solo leer y editar archivos."
-
-
-def tools_rule(engine):
-    return TOOLS_RULE.get(engine or "", TOOLS_RULE_DEFAULT)
-
-
 def brain_root(cwd, env=None):
-    """La RAÍZ del cerebro de la sesión. El hook recibe el cwd del momento, que
-    puede ser una subcarpeta (p. ej. deliverables/…) si el agente se movió:
-    revisar ahí dejaba las skills en el lugar equivocado e ignoraba la elección
-    del agente en Agentes → Enter. Orden: 1) subir desde el cwd hasta la carpeta
-    con la definición de un agente (la más cercana: un agente abierto dentro
-    del cerebro de otro revisa ESE cerebro), 2) WORKSPACE_BRAIN (lo exporta el
-    lanzador; cubre un cwd fuera de todo cerebro), 3) el cwd tal cual."""
+    """La RAÍZ del cerebro de la sesión (el cwd puede ser una subcarpeta).
+    1) subir hasta la carpeta con la definición de un agente; 2) WORKSPACE_BRAIN;
+    3) el cwd tal cual."""
     env = os.environ if env is None else env
     ar = _root_import("agentsreg")
     start = os.path.abspath(cwd or os.getcwd())
@@ -304,156 +174,18 @@ def brain_root(cwd, env=None):
 
 
 def review_enabled(brain):
-    """¿Revisar las sesiones de este cerebro? `skill_review` del agent.json
-    (true/false) gana; si el agente no dice nada, el ajuste global
-    `hooks.skill_review` (default OFF). El env kill-switch va aparte."""
+    """`skill_review` del agent.json (true/false) gana; si no dice nada, el
+    ajuste global `hooks.skill_review` (default OFF)."""
     v = _agent_def(brain).get("skill_review")
     if isinstance(v, bool):
         return v
     return _setting_on("hooks.skill_review")
 
 
-#: binario del revisor por motor (los demás motores revisan con claude)
-REVIEWER_BIN = {"claude-code": "claude", "codex": "codex", "antigravity": "agy"}
-REVIEW_TIMEOUT = 30 * 60             # el hijo detached corta un revisor colgado
-
-
-def pick_reviewer(engine, which=None):
-    """(motor_revisor, ejecutable) para una sesión del motor `engine`: su
-    propio CLI si es codex/antigravity y está instalado; si no, `claude`.
-    (None, None) si no hay revisor posible. which() resuelve la ruta completa
-    (en Windows el shim de npm es `claude.cmd` y CreateProcess no lo
-    encuentra por nombre pelado)."""
-    which = which or shutil.which
-    engine = (engine or "claude-code").strip().lower()
-    if engine in ("codex", "antigravity"):
-        exe = which(REVIEWER_BIN[engine])
-        if exe:
-            return engine, exe
-    exe = which("claude")
-    return ("claude-code", exe) if exe else (None, None)
-
-
-def codex_model(codex_home=None):
-    """El modelo "luna" de codex SOLO si tu cuenta lo lista en
-    models_cache.json (el más barato de la familia); '' = el default de
-    codex. Solo lectura local, jamás credenciales."""
-    home = codex_home or os.environ.get("CODEX_HOME") or os.path.join(
-        os.path.expanduser("~"), ".codex")
-    try:
-        with open(os.path.join(home, "models_cache.json"), encoding="utf-8") as fh:
-            data = json.load(fh)
-        models = data.get("models") if isinstance(data, dict) else data
-        for m in models or []:
-            slug = str((m or {}).get("slug") or "")
-            if "luna" in slug and (m or {}).get("visibility") != "hide":
-                return slug
-    except Exception:
-        pass
-    return ""
-
-
-def agy_model(exe, runner=None, timeout=20):
-    """El primer modelo *-flash-low que `agy models` ofrece a tu cuenta; ''
-    = el default de agy. Corre en el hijo detached (puede tardar unos
-    segundos): nunca en el cierre de la sesión."""
-    run = runner or subprocess.run
-    try:
-        r = run([exe, "models"], stdin=subprocess.DEVNULL, capture_output=True,
-                text=True, encoding="utf-8", errors="replace", timeout=timeout)
-        for line in (r.stdout or "").splitlines():
-            mid = line.strip().split("\t")[0].split(" ")[0]
-            if mid.endswith("-flash-low"):
-                return mid
-    except Exception:
-        pass
-    return ""
-
-
-def review_cwd():
-    """Carpeta NEUTRA desde la que corre el revisor de Antigravity."""
-    d = os.path.join(_workspace_dir(), "review-cwd")
-    os.makedirs(d, exist_ok=True)
-    return d
-
-
-def claude_no_persist(exe, runner=None):
-    """True si este `claude` conoce --no-session-persistence (las versiones
-    viejas no: pasarlo rompería la revisión). Sin él, cada revisión quedaba
-    guardada como una sesión más del cerebro (aparecía en /resume), lo mismo
-    que evitan --ephemeral en Codex y la carpeta neutra en Antigravity."""
-    run = runner or subprocess.run
-    try:
-        r = run([exe, "--help"], capture_output=True, text=True, timeout=20)
-        out = getattr(r, "stdout", "")
-        return isinstance(out, str) and "--no-session-persistence" in out
-    except Exception:
-        return False
-
-
-_PLACEHOLDER = re.compile(r"<[^<>]{1,60}>")
-
-
-def _append_review_lines(logfile, output):
-    """Anota en el log las líneas `REVIEW:` que el revisor imprimió y no pudo
-    escribir él mismo (Claude Code protege ~/.claude: le niega el log)."""
-    if not logfile or not isinstance(output, str):
-        return 0
-    lines = []
-    for ln in output.splitlines():
-        ln = ln.strip()
-        # solo líneas del contrato; jamás las de ejemplo del prompt («<razón…>»),
-        # que algunos CLIs repiten en su salida
-        if ln.startswith("REVIEW:") and not _PLACEHOLDER.search(ln) and ln not in lines:
-            lines.append(ln)
-    if not lines:
-        return 0
-    try:
-        with open(logfile, encoding="utf-8") as fh:
-            have = set(ln.strip() for ln in fh)
-    except OSError:
-        have = set()
-    new = [ln for ln in lines if ln not in have]
-    if not new:
-        return 0
-    try:
-        with open(logfile, "a", encoding="utf-8") as fh:
-            fh.write("\n".join(new) + "\n")
-    except OSError:
-        return 0
-    return len(new)
-
-
-def reviewer_cmd(engine, exe, prompt, brain, logdir, model="", cwd=None,
-                 no_persist=False):
-    """(argv, cwd, stdin) EXACTOS del revisor de `engine`. Sin red ni
-    terminal en ninguno; nunca --dangerously-* ni bypass. `no_persist` (solo
-    Claude Code): la revisión no se guarda como sesión del cerebro."""
-    if engine == "codex":
-        argv = [exe, "exec", "--ephemeral", "--skip-git-repo-check",
-                "-C", brain, "-s", "workspace-write", "--add-dir", logdir,
-                "-c", "sandbox_workspace_write.network_access=false",
-                "-c", 'model_reasoning_effort="low"', "--color", "never"]
-        if model:
-            argv += ["-m", model]
-        return argv + ["-"], brain, prompt               # prompt por stdin
-    if engine == "antigravity":
-        argv = [exe, "-p", prompt]
-        if model:
-            argv += ["--model", model]
-        argv += ["--mode", "accept-edits", "--add-dir", brain, "--add-dir", logdir]
-        return argv, cwd or review_cwd(), None
-    return ([exe, "-p", prompt, "--model", DEFAULT_MODEL,
-             "--permission-mode", "acceptEdits",
-             "--allowedTools", "Read Edit Write Glob Grep",
-             "--add-dir", logdir] + (["--no-session-persistence"] if no_persist else []),
-            brain, None)
-
-
-def write_neutral_transcript(transcript, logdir, engine=""):
-    """Vista NEUTRA del transcript (neutral_transcript) a un .md temporal en
-    `logdir` — el revisor jamás lee el crudo del vendor. '' si el formato no
-    se reconoce o no hay diálogo visible."""
+def write_neutral_transcript(transcript, outdir, engine=""):
+    """Vista NEUTRA de la sesión (neutral_transcript) en `outdir`: el agente
+    jamás lee el crudo del vendor. '' si el formato no se reconoce o no hay
+    diálogo visible."""
     nt = _root_import("neutral_transcript")
     if nt is None:
         return ""
@@ -469,8 +201,9 @@ def write_neutral_transcript(transcript, logdir, engine=""):
         files = meta.get("files_touched") or []
         if files:
             head.append("- archivos tocados: %s" % ", ".join(str(f) for f in files[:40]))
+        os.makedirs(outdir, exist_ok=True)
         stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        path = os.path.join(logdir, "transcript-%s-%d.md" % (stamp, os.getpid()))
+        path = os.path.join(outdir, "sesion-%s-%d.md" % (stamp, os.getpid()))
         with open(path, "w", encoding="utf-8") as fh:
             fh.write("\n".join(head) + "\n\n" + text + "\n")
         return path
@@ -478,87 +211,144 @@ def write_neutral_transcript(transcript, logdir, engine=""):
         return ""
 
 
-def _detached():
-    # Detached cross-platform: start_new_session es POSIX-only (en Windows lanza
-    # ValueError); allá se usa DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP (0x208),
-    # el mismo patrón que front.py cmd_dev.
-    return {"creationflags": 0x208} if os.name == "nt" else {"start_new_session": True}
-
-
-def _review_env():
-    env = dict(os.environ)
-    env["WORKSPACE_REVIEW_RUNNING"] = "1"     # rompe la recursión en el revisor
-    env["WORKSPACE_NO_AUTOUPDATE"] = "1"
-    return env
-
-
-def run_spec(spec_path, runner=None):
-    """El HIJO detached: elige el modelo, corre el revisor y limpia (el .md
-    neutral y el spec). Nunca levanta."""
+def _prune_views(outdir, keep=KEEP_VIEWS):
+    """Deja solo las `keep` vistas más recientes (no se acumulan)."""
     try:
-        with open(spec_path, encoding="utf-8") as fh:
-            spec = json.load(fh)
-    except Exception:
-        return 1
-    engine, exe = spec.get("engine"), spec.get("exe")
-    model = ""
-    try:
-        if engine == "codex":
-            model = codex_model()
-        elif engine == "antigravity":
-            model = agy_model(exe)
-    except Exception:
-        model = ""
-    run = runner or subprocess.run
-    try:
-        np = engine not in ("codex", "antigravity") and claude_no_persist(exe, run)
-        argv, cwd, stdin = reviewer_cmd(engine, exe, spec["prompt"], spec["brain"],
-                                        spec["logdir"], model=model, no_persist=np)
-        kw = {"text": True, "encoding": "utf-8", "errors": "replace",
-              "stdout": subprocess.PIPE, "stderr": subprocess.PIPE}
-        if stdin is not None:
-            kw["input"] = stdin
-        else:
-            kw["stdin"] = subprocess.DEVNULL
-        r = run(argv, cwd=cwd, env=_review_env(), timeout=REVIEW_TIMEOUT, **kw)
-        out = getattr(r, "stdout", "")
-        err = getattr(r, "stderr", "")
-        for chunk in (out, err):                     # ambos siguen quedando en _run.log
-            if isinstance(chunk, str) and chunk:
-                try:
-                    sys.stdout.write(chunk)
-                    sys.stdout.flush()
-                except Exception:
-                    pass
-        if isinstance(out, str) and out:             # solo la RESPUESTA (stdout)
-            _append_review_lines(spec.get("logfile"), out)
-        return 0
-    except Exception:
-        return 1
-    finally:
-        for p in (spec.get("transcript_md"), spec_path):
+        views = sorted((f for f in os.listdir(outdir)
+                        if f.startswith("sesion-") and f.endswith(".md")), reverse=True)
+        for f in views[keep:]:
             try:
-                if p:
-                    os.remove(p)
+                os.remove(os.path.join(outdir, f))
             except OSError:
                 pass
+    except OSError:
+        pass
 
 
+def _write_json(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = "%s.tmp-%d" % (path, os.getpid())
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, ensure_ascii=False, indent=1)
+    os.replace(tmp, path)
+
+
+def _ensure_gitignore(brain):
+    """La carpeta de revisión no se versiona (trae texto de la sesión). Dos
+    capas: un `.gitignore` propio DENTRO de la carpeta («*», git lo respeta
+    sin importar el del cerebro) y la línea en el `.gitignore` del cerebro.
+    Un `.gitignore` del cerebro que no es UTF-8 (ANSI, o UTF-16 de `>>` en
+    PowerShell 5) no se toca (regla 2): antes hacía reventar el cierre y la
+    vista quedaba sin ignorar (revisión 0.3.4). → True si quedó protegida."""
+    protegida = False
+    try:
+        d = _review_dir(brain)
+        os.makedirs(d, exist_ok=True)
+        propio = os.path.join(d, ".gitignore")
+        if not os.path.isfile(propio):
+            with open(propio, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write("*\n")
+        protegida = True
+    except OSError:
+        pass
+    line = ".claude/skill-review/"
+    gi = os.path.join(brain, ".gitignore")
+    try:
+        try:
+            with open(gi, "rb") as fh:
+                have = fh.read().decode("utf-8-sig")
+        except FileNotFoundError:
+            have = ""
+        if line not in [l.strip() for l in have.splitlines()]:
+            with open(gi, "a", encoding="utf-8", newline="") as fh:
+                fh.write(("" if not have or have.endswith("\n") else "\n") + line + "\n")
+        protegida = True
+    except (OSError, ValueError):        # UnicodeDecodeError: no se entiende, no se toca
+        pass
+    return protegida
+
+
+# ── la tarea que recibe el agente al abrir ──────────────────────────────────
+REVIEW_PROMPT = """\
+REVISIÓN DE SKILLS PENDIENTE (Workspace · tu opción «Revisión de skills» está encendida).
+Antes de seguir con lo que pida el socio, dedica un momento a revisar la sesión anterior
+y a mejorar la biblioteca de skills de este cerebro, siguiendo el Skill Loop de BRAIN.md.
+
+{guard}
+
+1. Lee la sesión anterior (vista neutral de Workspace): {transcript}
+2. SEÑALES para actuar — activo pero conservador; NO actúes sobre tareas one-shot:
+   el socio corrigió un approach o el ESTILO/tono/formato (señal de primera clase);
+   4+ pasos de una tarea repetible; se halló el camino tras un error; un pitfall no
+   obvio; el socio dijo «siempre que…» / «cada vez que…».
+3. ORDEN (patch-first): a) parchea la skill que se usó; b) la más cercana al tema;
+   c) una sección de apoyo en una existente; d) último recurso: una skill NUEVA, a
+   nivel de clase, directo en skills/<categoría>/<nombre>/SKILL.md (skill-creator) y
+   registrada en skills/README.md. No fragmentes: una skill sirve a todos.
+4. REGISTRO DE USO (convención N12): por cada skill USADA o PARCHADA actualiza, con tus
+   herramientas de archivos (sin comandos), skills/<categoría>/<nombre>/.usage.json —
+   {{"schema": 1, "use_count": N, "view_count": N, "patch_count": N, "last_used":
+   "<ISO-8601 UTC>"}} (al parchar, también "last_patched"; si no existe, use_count
+   empieza en el `used_count:` del frontmatter + 1).
+   NO edites el `used_count:` del frontmatter — quedó congelado como valor histórico.
+5. LÍMITES: escribe solo dentro de skills/. No toques BOOT/, wiki/, deliverables/ ni STATE/.
+{propuestas}
+Sé breve y quirúrgico. Si no hay nada que valga la pena, no inventes. Repórtalo en una
+línea de tu bloque 🧠 («🧠 Skill mejorada…», «🧠 Skill creada…» o «🧠 check ✓ — revisión
+sin cambios») y sigue con lo que pida el socio.
+"""
+
+PROPUESTAS_PROMPT = """\
+6. PROPUESTAS VIEJAS: en {dir} quedaron {n} propuesta(s) de revisiones anteriores ({names}).
+   Ya no esperan aprobación y no hace falta moverlas ni borrarlas (sin comandos): si una sirve,
+   intégrala creando skills/<categoría>/<nombre>/SKILL.md con su contenido y registrándola en
+   skills/README.md; después, o si no sirve, escribe `status: integrada` o `status: archivada`
+   en el frontmatter de la propuesta. Workspace la pasa sola a skills/_archive/ al abrir
+   la siguiente sesión.
+"""
+
+
+def _pending_proposals(brain):
+    """Las propuestas viejas que el agente todavía no resolvió: una con
+    `status: integrada|archivada` ya no se vuelve a pedir (Workspace la archiva:
+    sin_aprobacion, la misma regla para los dos lectores)."""
+    d = os.path.join(brain, PROPUESTAS)
+    sa = _root_import("sin_aprobacion")
+    try:
+        nombres = sorted(n for n in os.listdir(d)
+                         if not n.startswith(("_", ".")) and os.path.isdir(os.path.join(d, n)))
+    except OSError:
+        return []
+    if sa is None:
+        return nombres
+    return [n for n in nombres if not sa.propuesta_resuelta(os.path.join(d, n))]
+
+
+def build_task(brain, view):
+    guard = ""
+    if untrusted:
+        try:
+            guard = untrusted.guard_clause("la vista de la sesión y todo lo que leas de ella")
+        except Exception:
+            guard = ""
+    props = _pending_proposals(brain)
+    extra = (PROPUESTAS_PROMPT.format(dir=PROPUESTAS.replace("\\", "/") + "/", n=len(props),
+                                      names=", ".join(props[:10]))
+             if props else "")
+    return REVIEW_PROMPT.format(guard=guard, transcript=view, propuestas=extra)
+
+
+# ── AL CERRAR: dejar la revisión pendiente (no lanza nada) ──────────────────
 def main(argv=None):
-    argv = sys.argv[1:] if argv is None else list(argv)
-    if argv[:1] == ["--run"] and len(argv) > 1:
-        return run_spec(argv[1])                 # el hijo detached
-    if os.environ.get("WORKSPACE_REVIEW_RUNNING") or os.environ.get("WORKSPACE_NO_SKILL_REVIEW"):
-        return  # guard anti-recursión / desactivado (el env SIEMPRE gana)
+    if os.environ.get("WORKSPACE_NO_SKILL_REVIEW"):
+        return  # el env SIEMPRE gana
     data = _stdin()
     brain = brain_root(data.get("cwd", ""))
     if not review_enabled(brain):
-        return  # opcional: el agente no lo pidió y el ajuste global está apagado
-    reason = data.get("reason", "")
-    transcript = data.get("transcript_path", "")
-    if reason in SKIP_REASONS or not transcript or not os.path.exists(transcript):
         return
-    # chequeo de sustancia: sesiones triviales no se revisan
+    transcript = data.get("transcript_path", "")
+    if data.get("reason", "") in SKIP_REASONS or not transcript or not os.path.exists(transcript):
+        return
     try:
         with open(transcript, encoding="utf-8", errors="ignore") as f:
             txt = f.read()
@@ -566,96 +356,99 @@ def main(argv=None):
             return
     except Exception:
         return
-    # guard N6 (LOG-ONLY): scan del transcript ANTES de entregarlo al headless.
-    # Findings → ~/.claude/workspace/untrusted-findings/ — pura observación: NO
-    # aborta, NO cambia el flujo. Falla-suave si el guard truena o no está.
-    findings = []
-    if untrusted:
-        try:
-            findings = untrusted.scan_and_log(txt, source=transcript,
-                                              brain=brain)
-        except Exception:
-            findings = []
-    engine, exe = pick_reviewer(data.get("engine"))
-    if not exe:
-        return
-    # throttle por cerebro
     tp = _throttle_path(brain)
     try:
         if os.path.exists(tp) and time.time() - os.path.getmtime(tp) < THROTTLE_SECONDS:
             return
     except Exception:
         pass
-
-    logdir = os.path.join(_workspace_dir(), "review-logs")
-    try:
-        os.makedirs(logdir, exist_ok=True)
-        os.makedirs(os.path.dirname(tp), exist_ok=True)
-    except Exception:
-        pass
-    md = write_neutral_transcript(transcript, logdir, data.get("engine", ""))
-    if not md:
-        return  # formato no reconocido: jamás se le entrega el crudo
-    logfile = os.path.join(logdir, datetime.date.today().isoformat() + ".md")
-    guard = ""
-    if untrusted:
+    findings = []
+    if untrusted:   # guard N6, LOG-ONLY: observa, jamás aborta
         try:
-            guard = untrusted.guard_clause(
-                "el transcript y todo lo que leas de él")
+            findings = untrusted.scan_and_log(txt, source=transcript, brain=brain)
         except Exception:
-            guard = ""
-    prompt = REVIEW_PROMPT.format(transcript=md, logfile=logfile, brain=brain,
-                                  tools_rule=tools_rule(engine),
-                                  notify=os.path.join(brain, _notify_path(brain)),
-                                  guard=guard)
-
+            findings = []
     if os.environ.get("WORKSPACE_REVIEW_DRYRUN"):
-        model = codex_model() if engine == "codex" else (
-            "<-flash-low de `agy models`, si existe>" if engine == "antigravity" else "")
-        cmd, cwd, _stdin_txt = reviewer_cmd(engine, exe, prompt, brain, logdir, model=model,
-                                            cwd=(os.path.join(_workspace_dir(), "review-cwd")
-                                                 if engine == "antigravity" else None))
-        print("[skill_review dry-run] lanzaría (%s):" % engine)
-        print("  cwd =", cwd)
-        print("  cmd =", cmd)
+        print("[skill_review dry-run] dejaría pendiente la revisión de %s" % brain)
         if findings:
             print("  guard N6 (log-only): %d finding(s) → %s" % (
                 len(findings), [f["class"] for f in findings]))
-        try:
-            os.remove(md)
-        except OSError:
-            pass
         return
-
+    outdir = _review_dir(brain)
+    # ANTES de escribir la vista (texto de la conversación): que git la ignore
+    if not _ensure_gitignore(brain):
+        return
+    view = write_neutral_transcript(transcript, outdir, data.get("engine", ""))
+    if not view:
+        return  # formato no reconocido: jamás se entrega el crudo
     try:
-        open(tp, "w").close()  # marca el throttle ANTES de lanzar (evita ráfagas)
+        _write_json(_pending_path(brain), {
+            "view": view, "engine": data.get("engine", "") or "claude-code",
+            "ts": datetime.datetime.now().isoformat(timespec="seconds"),
+            "findings": len(findings)})
+        os.makedirs(os.path.dirname(tp), exist_ok=True)
+        open(tp, "w").close()
     except Exception:
         pass
-    spec = {"engine": engine, "exe": exe, "brain": brain, "logdir": logdir,
-            "logfile": logfile, "prompt": prompt, "transcript_md": md}
-    spec_path = md[:-3] + ".spec.json"
+    _prune_views(outdir)
+
+
+# ── AL ABRIR: entregar la revisión pendiente al agente (una vez) ────────────
+def archivar_resueltas(brain):
+    """Al abrir CADA sesión (con o sin revisión encendida): las propuestas
+    viejas que el agente ya marcó `status: integrada|archivada` pasan a
+    skills/_archive/ con sin_aprobacion.archivar_propuestas_resueltas — la
+    misma lógica y el mismo candado que las tres puertas. La tarea promete que
+    «Workspace la pasa sola a skills/_archive/» y antes solo pasaba al
+    actualizar, al cargar o con `doctor --fix` (Greptile, 2026-10-18).
+    Barato (sin skills/_propuestas/ no hace nada) y falla-suave: con el
+    candado ocupado o cualquier error, queda para la próxima sesión."""
+    if not brain or not os.path.isdir(os.path.join(brain, PROPUESTAS)):
+        return []
+    sa = _root_import("sin_aprobacion")
+    if sa is None:
+        return []
     try:
-        with open(spec_path, "w", encoding="utf-8") as fh:
-            json.dump(spec, fh, ensure_ascii=False)
+        return sa.archivar_propuestas_resueltas(brain, timeout=1.0)
     except Exception:
-        return
+        return []
+
+
+def start_context(brain):
+    """Texto para el contexto de arranque, o '' si no hay nada que entregar.
+    Consume el pendiente (se entrega UNA vez). Antes archiva las propuestas
+    que el agente ya resolvió (archivar_resueltas): no se vuelven a pedir."""
+    archivar_resueltas(brain)
+    if os.environ.get("WORKSPACE_NO_SKILL_REVIEW") or not review_enabled(brain):
+        return ""
+    pp = _pending_path(brain)
     try:
-        runlog = open(os.path.join(logdir, "_run.log"), "a", encoding="utf-8")
+        with open(pp, encoding="utf-8") as fh:
+            pending = json.load(fh)
     except Exception:
-        runlog = subprocess.DEVNULL
+        return ""
+    view = str((pending or {}).get("view") or "")
     try:
-        subprocess.Popen([sys.executable or "python3", os.path.abspath(__file__),
-                          "--run", spec_path],
-                         cwd=logdir, env=_review_env(), stdin=subprocess.DEVNULL,
-                         stdout=runlog, stderr=runlog, **_detached())
+        os.replace(pp, os.path.join(os.path.dirname(pp), "delivered.json"))
+    except OSError:
+        return ""
+    if not view or not os.path.isfile(view):
+        return ""
+    return build_task(brain, view)
+
+
+def start_main():
+    data = _stdin()
+    try:
+        txt = start_context(brain_root(data.get("cwd", "")))
+        if txt:
+            sys.stdout.write(json.dumps(
+                {"hookSpecificOutput": {"hookEventName": "SessionStart",
+                                        "additionalContext": txt}},
+                ensure_ascii=False))
     except Exception:
-        return
-    finally:
-        if runlog is not subprocess.DEVNULL:
-            try:
-                runlog.close()               # el hijo ya tiene su copia
-            except Exception:
-                pass
+        pass                             # jamás rompe el arranque
+    return 0
 
 
 if __name__ == "__main__":

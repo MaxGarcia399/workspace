@@ -16,13 +16,13 @@ hook-system propio.
 
 | Evento WORKSPACE | Cuándo dispara | Modo | Mapping en `claude-code` | Listeners hoy |
 |---|---|---|---|---|
-| `session_start` | arranca una sesión interactiva (startup / resume / compact) | observer + **inyección aditiva** (lo que el listener imprime se suma al contexto) | hook `SessionStart` | `session_start.py` (marcador) · dashboard `--context` (per-agente, matcher `startup`) |
-| `session_end` | cierra una sesión (logout, exit, clear…) | observer **cleanup-only** (la salida se ignora; no puede bloquear ni invocar al modelo) | hook `SessionEnd` | `session_end.py` (breadcrumb) · `skill_review.py` (review headless) · `transcript_backup.py` (Y2b) |
-| `pre_compact` | el contexto está por compactarse (manual o auto) | observer + **instrucciones al compactador** (puede sugerir qué preservar; no edita el contexto) | hook `PreCompact` | `memory_flush.py` (N2 · corrida N-5: snapshot del transcript crudo al respaldo Y2b + breadcrumb al journal de sesión + rastro JSONL en `~/.claude/workspace/memory-flush/` — todo ANTES de compactar; kill-switch `WORKSPACE_NO_MEMORY_FLUSH=1`) |
+| `session_start` | arranca una sesión interactiva (startup / resume / compact) | observer + **inyección aditiva** (lo que el listener imprime se suma al contexto) | hook `SessionStart` | `session_start.py` (marcador) · paquete de memoria de la pestaña (`memoria.paquete`, vía `neutral_hooks`) · dashboard `--context` (per-agente, matcher `startup`) |
+| `session_end` | cierra una sesión (logout, exit, clear…) | observer **cleanup-only** (la salida se ignora; no puede bloquear ni invocar al modelo) | hook `SessionEnd` | `session_end.py` (limpieza) · `skill_review.py` (deja la revisión pendiente para la próxima sesión) · `transcript_backup.py` (Y2b) · `memoria_cierre.py` (memoria v1, sin IA: maleta, datos/preferencias a MEMORY.md, compactación) |
+| `pre_compact` | el contexto está por compactarse (manual o auto) | observer + **instrucciones al compactador** (puede sugerir qué preservar; no edita el contexto) | hook `PreCompact` | `memory_flush.py` (N2 · corrida N-5: snapshot del transcript crudo al respaldo Y2b + maleta de la pestaña (memoria v1) + rastro JSONL en `~/.claude/workspace/memory-flush/` — todo ANTES de compactar; kill-switch `WORKSPACE_NO_MEMORY_FLUSH=1`) |
 | `post_tool_write` | el motor ejecutó un tool de ESCRITURA (Write / Edit / NotebookEdit) | observer **no-bloqueante** (guidance al tool-result; jamás revierte ni bloquea) | hook `PostToolUse` con matcher `Write\|Edit\|NotebookEdit` | **disponible, sin listeners aún** — aquí cuelga N15 (`security_guidance`) |
 | `pre_prompt` | el prompt/contexto ensamblado está por mandarse al modelo | **middleware** (único evento que puede MUTAR: reescribir/filtrar el payload antes del modelo — el modo middleware de Hermes) | **pendiente motor #2** (ver honestidad abajo) | — |
 | `user_prompt` | el socio mandó un prompt en una sesión interactiva | observer puro (el payload trae el texto; los listeners miran, no mutan — la degradación observer honesta de `UserPromptSubmit`, "otro evento, no `pre_prompt`") | hook `UserPromptSubmit` ⚠ *en este hook, stdout se inyecta al contexto — los listeners NO imprimen nada* | — (disponible; sin listeners) |
-| `headless_ingest` | el harness entrega un transcript a un proceso headless para destilarlo | observer (interno) | **interno** — lo emite el propio WORKSPACE (hoy: `skill_review.py` al cerrar sesión; mañana: la pasada unificada N3), no el motor | `skill_review.py` es a la vez listener de `session_end` y el emisor actual · **guard N6**: todo emisor pasa el contenido por `hooks/untrusted.py` (ver abajo) |
+| `headless_ingest` | el harness entrega un transcript a un proceso headless | observer (interno) | **interno** — lo emite el propio WORKSPACE, no el motor. Desde 2026-10-16 ningún flujo del cliente lo emite (la revisión de skills y la memoria corren en la sesión visible); queda para herramientas de desarrollo (`skill_audit`) | — · **guard N6**: todo emisor pasa el contenido por `hooks/untrusted.py` (ver abajo) |
 | `model_fallback` | el failover (E-3, `failover.py`) cambió de modelo, se recuperó tras fallos, o agotó la cadena | observer (interno) | **None** — el failover del motor #1 lo hace el VENDOR por dentro (opaco, honestidad) · en `ollama` es `INTERNAL`: lo emite `failover.py` por transición | — (diagnóstico al rastro N10: `from_model`/`to_model`/`reason`/`strategy`, y campos planos `fallbackStep1..N` al agotarse la cadena) |
 
 ## Observer vs middleware (la distinción de Hermes)
@@ -65,7 +65,7 @@ Un listener portable parsea stdin con tolerancia (basura/vacío → exit 0, cont
   **Eso ya pasó**: `user_prompt` ES esa degradación (observer sobre `UserPromptSubmit`, base del
   status en vivo) — `pre_prompt` sigue intacto como middleware pendiente del motor #2.
 - **`headless_ingest`**: no es un hook del motor en ningún caso — lo emite el harness. Está en el
-  vocabulario para que N3 (pasada unificada) y el dashboard (N10, `events.jsonl`) hablen el mismo
+  vocabulario para que las herramientas de desarrollo y el dashboard (N10, `events.jsonl`) hablen el mismo
   idioma.
 
 ## Guard N6 — `hooks/untrusted.py` (obligación de los emisores de `headless_ingest`)
@@ -79,7 +79,7 @@ proceso headless. Estado actual: **LOG-ONLY** (corrida N-4) — observación, ja
   `~/.claude/workspace/untrusted-findings/YYYY-MM-DD.jsonl`. 15 clases de regex ancladas en
   vocabulario de ataque inequívoco (filosofía anti-falsos-positivos de Hermes).
 - `untrusted.wrap(texto, label)` → bloque con markers anti-breakout para INLINEAR contenido no
-  confiable en un prompt (lo usarán N1/N3 cuando inyecten md/extractos directamente).
+  confiable en un prompt (lo usan `skill_audit` y los workflows).
 - `untrusted.guard_clause(label)` → cláusula de endurecimiento cuando el headless LEE él mismo
   los archivos (caso skill_review hoy).
 
@@ -129,7 +129,7 @@ Schema por línea (vocabulario SSE de **Odysseus**, probado — no inventado):
 
 - `kind` ∈ `delta / tool_start / tool_output / agent_step / metrics / done` (taxonomía del
   `stream_agent_loop` de Odysseus). Hoy el harness emite `agent_step` (pasos de pipelines:
-  destilados, audits, propuestas de skills) — el resto queda reservado para el tee de
+  audits, propuestas de skills, workflows) — el resto queda reservado para el tee de
   stream-json (activity-strip, dashboard F2+). El mapping evento N9 → kind vive en
   `events.EVENT_KIND` (`post_tool_write` → `tool_output`, lo demás → `agent_step`).
 - `payload` es **metadata acotada** (strings recortados a `events._CLIP`) — actividad, jamás
@@ -137,9 +137,8 @@ Schema por línea (vocabulario SSE de **Odysseus**, probado — no inventado):
 - APIs en `events.py`: `record(kind, …)` (escritor núcleo) · `emit(event, payload, emitter)`
   (fachada N9, firma estable — la llaman skill_audit/nightly) · `read_events(limit, offset)`
   (lector paginado del dashboard; normaliza líneas legacy pre-N10).
-- Espejos: `skill_loop.log_event` (su `skills-events.jsonl` sigue siendo el índice FUNCIONAL
-  con cursor) y `dream._audit` (`runs.jsonl` ídem) duplican cada evento aquí. Un evento = un
-  record, sea directo o espejo.
+- Espejo: `skill_loop.log_event` (su `skills-events.jsonl` sigue siendo el índice FUNCIONAL
+  con cursor) duplica cada evento aquí. Un evento = un record, sea directo o espejo.
 - Lo consume la sección **Actividad** del dashboard vía `GET /api/events` — read-only y detrás
   del guard Y1 (Host + token: 403 sin token, como toda `/api/*`).
 

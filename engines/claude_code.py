@@ -369,6 +369,19 @@ def launch(cfg, passthrough, plan=False, preselect=None, show_banner=True):
         print(f"  env sesión  : {session_env} / {wid_env}  (+ WORKSPACE_WS / WORKSPACE_WID genéricos)")
         print(f"  python      : {py}")
         print(f"  sesiones en : {sdir}")
+        try:
+            import memoria as _memoria
+            import settings as _settings
+            _dir = _memoria.claude_memoria_dir(brain)
+            if not _settings.enabled("cerebro.claude_memoria_en_cerebro", default=True):
+                _mem = "la de Claude Code en esta máquina (ajuste cerebro.claude_memoria_en_cerebro apagado)"
+            elif not _dir:
+                _mem = "la de Claude Code en esta máquina (no se sabe quién es el socio: .claude/socio.local)"
+            else:
+                _mem = _dir + "  (--settings autoMemoryDirectory)"
+        except Exception:
+            _mem = "?"
+        print(f"  memoria CC  : {_mem}")
         if preselect and preselect.get("wid"):
             print(f"  preselect   : {preselect.get('name','')} ({preselect['wid']})  → sin menú")
         print(f"  banner      : {'sí' if show_banner else 'no (modo directo)'}")
@@ -430,6 +443,8 @@ def launch(cfg, passthrough, plan=False, preselect=None, show_banner=True):
                         # spawnea (hooks, statusline) → UTF-8 de punta a punta en Windows.
     env["CLAUDE_CODE_HIDE_CWD"] = "1"
     env["WORKSPACE_BRAIN"] = brain   # explícito: la statusline (hija de claude) lo lee
+    import engines                            # memoria v1: el motor de cada nota
+    engines.mark_session_engine(env, "claude-code")
     # which() resuelve la ruta completa del binario: imprescindible en Windows, donde
     # el shim de npm es `claude.cmd` y CreateProcess no lo encuentra por nombre pelado.
     # En Mac/Linux devuelve el mismo binario que el PATH lookup (no cambia nada).
@@ -437,8 +452,14 @@ def launch(cfg, passthrough, plan=False, preselect=None, show_banner=True):
     # — con ON la sesión interactiva arranca en acceptEdits.
     # model_args: override de modelo por agente (settings agentes.<n>.model;
     # un --model explícito del socio o ANTHROPIC_MODEL ganan — ver docstring).
+    # memoria v1: `--settings` con autoMemoryDirectory → la memoria propia de
+    # Claude Code se guarda en el cerebro (motores/claude-code/memoria/<socio>/,
+    # una carpeta por persona), viaja con él a otras máquinas; opción
+    # documentada, sin escribir su config.
+    import memoria as _memoria
     cmd = ([shutil.which("claude") or "claude"]
            + auto_mode_args(passthrough, cfg) + model_args(cfg, passthrough)
+           + _memoria.claude_settings_args(brain, passthrough)
            + list(passthrough))
     parts = choice.split("\t")
     if len(parts) >= 3 and parts[0] == "WS":
@@ -477,6 +498,16 @@ if os.name != "nt":
     _DETACHED["start_new_session"] = True
 
 
+def _env_motor():
+    """El env para correr el CLI del motor: sin NADA de la bóveda
+    (secret_store.engine_env). Falla-suave: sin secret_store, el heredado."""
+    try:
+        import secret_store
+        return secret_store.engine_env()
+    except Exception:
+        return None
+
+
 def session_active(runner=None):
     """¿Hay sesión de Claude Code? Vía el comando OFICIAL `claude auth status
     --json` y SOLO su campo `loggedIn` (jamás se lee ni se guarda el correo ni
@@ -486,9 +517,10 @@ def session_active(runner=None):
     if not exe:
         return None
     run = runner or subprocess.run
+    extra = {} if runner else {"env": _env_motor()}
     try:
         r = run([exe, "auth", "status", "--json"], capture_output=True, text=True,
-                timeout=15, encoding="utf-8", errors="replace", **_DETACHED)
+                timeout=15, encoding="utf-8", errors="replace", **_DETACHED, **extra)
         import json as _json
         data = _json.loads(getattr(r, "stdout", "") or "{}")
         v = data.get("loggedIn") if isinstance(data, dict) else None
@@ -498,6 +530,11 @@ def session_active(runner=None):
 
 
 def _exec(cmd, env):
+    try:                        # el motor no hereda lo que cargó la bóveda
+        import secret_store
+        env = secret_store.engine_env(env)
+    except Exception:
+        pass
     if os.name == "nt":
         sys.exit(subprocess.run(cmd, env=env).returncode)
     os.execvpe(cmd[0], cmd, env)

@@ -263,3 +263,89 @@ class file_lock(object):
         self._fd = None
         self._mode = None
         return False            # jamás tragar excepciones del bloque
+
+
+_SIN_ESTADO = None
+
+
+def sin_estado():
+    """True si ESTE proceso no puede escribir el estado per-máquina: corre en
+    el sandbox de un motor que solo deja escribir dentro del cerebro (Codex
+    con workspace-write). Ahí, lo que el proceso CREA en el cerebro puede
+    quedar con los permisos del sandbox (ilegible para el socio y para
+    Obsidian): los que escriben archivos del cerebro reescriben el existente
+    en el lugar en vez de crear uno nuevo (2026-10-17). Se mide una vez."""
+    global _SIN_ESTADO
+    if _SIN_ESTADO is None:
+        try:
+            import tempfile
+            import paths as _paths
+            d = os.path.join(_paths.state_dir(), "locks")
+            os.makedirs(d, exist_ok=True)
+            fd, p = tempfile.mkstemp(prefix=".probe-", dir=d)
+            os.close(fd)
+            os.unlink(p)
+            _SIN_ESTADO = False
+        except Exception:
+            _SIN_ESTADO = True
+    return _SIN_ESTADO
+
+
+def _carpeta_cerebro(path):
+    """El cerebro que contiene `path` (la carpeta con `.claude/`), o None."""
+    d = os.path.dirname(os.path.abspath(path))
+    for _ in range(8):
+        if os.path.isdir(os.path.join(d, ".claude")):
+            return d
+        up = os.path.dirname(d)
+        if up == d:
+            return None
+        d = up
+    return None
+
+
+def ruta_candado(path):
+    """Dónde vive el candado de `path` (sin el `.lock` que agrega file_lock).
+    UN SOLO lugar para todos los procesos, también el sandbox de Codex, que
+    solo puede escribir dentro del cerebro: si el de afuera usaba el estado
+    per-máquina y el de adentro el cerebro, los dos entraban a la vez
+    (Greptile, 2026-10-17). Archivo de un cerebro → `<cerebro>/.claude/locks/`
+    (Obsidian no sube `.claude/`; un `<archivo>.lock` hermano sí viajaría);
+    fuera de un cerebro → `<estado>/locks/`."""
+    import hashlib
+    real = os.path.normcase(os.path.realpath(path))
+    nombre = hashlib.sha256(real.encode("utf-8")).hexdigest()
+    cerebro = _carpeta_cerebro(path)
+    if cerebro:
+        try:
+            d = os.path.join(cerebro, ".claude", "locks")
+            os.makedirs(d, exist_ok=True)
+            return os.path.join(d, nombre)
+        except OSError:
+            pass
+    try:
+        import paths as _paths
+        d = os.path.join(_paths.state_dir(), "locks")
+        os.makedirs(d, exist_ok=True)
+        return os.path.join(d, nombre)
+    except Exception:
+        return str(path)
+
+
+class local_lock(object):
+    """`file_lock` con el `.lock` en un lugar fijo y no sincronizado (ver
+    ruta_candado), nunca como hermano del archivo del cerebro."""
+
+    def __init__(self, path, timeout=DEFAULT_TIMEOUT, **kw):
+        self.path, self.timeout, self.kw = str(path), timeout, kw
+        self._lk = None
+
+    def __enter__(self):
+        lk = file_lock(ruta_candado(self.path), timeout=self.timeout, **self.kw)
+        lk.__enter__()
+        self._lk = lk
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        lk, self._lk = self._lk, None
+        return lk.__exit__(exc_type, exc, tb) if lk else False

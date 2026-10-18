@@ -17,7 +17,8 @@ Contrato (ver research/agent-state-contract.md):
     cada definición/cerebro). Si la firma no cambió, devuelve el cache.
   · Cada AgentState separa: registrado · cerebro (ruta/existe/legible) ·
     definición (presente/válida) · motor (adapter/binarios) · oculto. `status`
-    es UNO de STATUSES; `launchable` solo si status == "ready".
+    es UNO de STATUSES; `launchable` solo si status == "ready"; `openable`
+    también con el motor caído (ENGINE_STATUSES: al abrir se elige otro).
   · `brain_source` (override|loaded|committed|none) viene del resolver
     canónico (brain_resolver); en BRAIN_MISSING, `suggested_brain` trae la
     ruta donde el discovery (índice/escaneo acotado) lo encontró, si hay.
@@ -52,6 +53,11 @@ HIDDEN = "hidden"                      # registrado y sano, oculto por el socio
 
 STATUSES = (READY, INVALID_CONFIG, BRAIN_MISSING, BRAIN_UNREADABLE,
             DEFINITION_MISSING, ENGINE_UNKNOWN, ENGINE_MISSING, HIDDEN)
+
+#: Averías que NO impiden ABRIR al agente: solo su motor está caído. Al abrir,
+#: dispatch dice cuál y por qué y ofrece otro motor disponible — un agente
+#: jamás queda bloqueado por su motor (el resto de averías sí bloquean).
+ENGINE_STATUSES = (ENGINE_UNKNOWN, ENGINE_MISSING)
 
 _LABELS = {
     "es": {
@@ -139,6 +145,12 @@ class AgentState(dict):
     @property
     def launchable(self):
         return self.get("status") == READY
+
+    @property
+    def openable(self):
+        """¿Se puede ABRIR desde el hub? Listo, o con el motor caído (dispatch
+        ofrece otro al abrir). `launchable` sigue siendo «listo de verdad»."""
+        return self.get("status") in (READY,) + ENGINE_STATUSES
 
     @property
     def id(self):

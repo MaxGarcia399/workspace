@@ -1,0 +1,183 @@
+{
+ "_doc": "Generado por gen_legacy_template_lines.py desde git (8fa2a0e → 9e5b797). Placeholders {{X}} se comparan como comodín; el resto, literal.",
+ "files": {
+  "BOOT/00-SOUL.md": [
+   {
+    "new": "- **v0.1** — {{DATE}}. Nace del template de agente de WORKSPACE (`WORKSPACE/templates/agent/`).",
+    "old": "- **v0.1** — {{DATE}}. Nace del template de agente de OLYMPUS (`OLYMPUS/templates/agent/`)."
+   }
+  ],
+  "BOOT/01-IDENTITY.md": [
+   {
+    "new": "- **Online desde:** {{DATE}} (nace del template de agente de WORKSPACE)",
+    "old": "- **Online desde:** {{DATE}} (nace del template de agente de OLYMPUS)"
+   }
+  ],
+  "BOOT/03-RULES.md": [
+   {
+    "new": "     viejo suele predatar las capacidades (lección de cablear-agente-workspace §5). -->",
+    "old": "     viejo suele predatar las capacidades (lección de cablear-agente-olympus §5). -->"
+   },
+   {
+    "new": "   *Refuerzo automático del harness:* WORKSPACE escanea cada escritura mía al cerebro y **frena**",
+    "old": "   *Refuerzo automático del harness:* OLYMPUS escanea cada escritura mía al cerebro y **frena**"
+   },
+   {
+    "new": "   positivos: marcador `workspace:allow-secret` al final de esa línea, o `WORKSPACE_ALLOW_SECRET=1`",
+    "old": "   positivos: marcador `olympus:allow-secret` al final de esa línea, o `OLYMPUS_ALLOW_SECRET=1`"
+   },
+   {
+    "new": "> El flow técnico de auth se retiró con OpenClaw. En WORKSPACE la auth es implícita por la sesión",
+    "old": "> El flow técnico de auth se retiró con OpenClaw. En OLYMPUS la auth es implícita por la sesión"
+   }
+  ],
+  "BOOT/04-BRAIN-MAP.md": [
+   {
+    "new": "4. **FTS5 (E3):** `~/.claude/workspace/index/<cerebro>.db` — cubre destilados + wiki +",
+    "old": "4. **FTS5 (E3):** `~/.claude/olympus/index/<cerebro>.db` — cubre destilados + wiki +"
+   },
+   {
+    "new": "| El harness | `~/Desktop/WORKSPACE/` | Leer N1 · tocar = tiers de BOOT/03 |",
+    "old": "| El harness | `~/Desktop/OLYMPUS/` | Leer N1 · tocar = tiers de BOOT/03 |"
+   },
+   {
+    "new": "| Mi registro/brand en el harness | `WORKSPACE/agents/{{AGENT_NAME}}/` | Es código de WORKSPACE — tiers de BOOT/03 |",
+    "old": "| Mi registro/brand en el harness | `OLYMPUS/agents/{{AGENT_NAME}}/` | Es código de OLYMPUS — tiers de BOOT/03 |"
+   }
+  ],
+  "CLAUDE.md": [
+   {
+    "new": "<!-- context_budget (E2 — tier architecture; medir: python3 <WORKSPACE>/memory_blocks.py --brain .)",
+    "old": "<!-- context_budget (E2 — tier architecture; medir: python3 <OLYMPUS>/memory_blocks.py --brain .)"
+   },
+   {
+    "new": "inyecta la sesión activa vía `$WORKSPACE_WS`. Al cerrar trabajo significativo: append fechado",
+    "old": "inyecta la sesión activa vía `$OLYMPUS_WS`. Al cerrar trabajo significativo: append fechado"
+   }
+  ],
+  "STATE/DESTILADO.md": [
+   {
+    "new": "> (`~/.claude/workspace/transcripts-backup/`).",
+    "old": "> (`~/.claude/olympus/transcripts-backup/`)."
+   },
+   {
+    "new": "> Disparo manual: desde WORKSPACE, `python3 dream.py --brain \"<ruta de este cerebro>\"` ·",
+    "old": "> Disparo manual: desde OLYMPUS, `python3 dream.py --brain \"<ruta de este cerebro>\"` ·"
+   },
+   {
+    "new": "> Lo escribe el pipeline **Dreaming** (N1, `WORKSPACE/dream.py`): destila los transcripts crudos",
+    "old": "> Lo escribe el pipeline **Dreaming** (N1, `OLYMPUS/dream.py`): destila los transcripts crudos"
+   }
+  ],
+  "STATE/MEMORY.md": [
+   {
+    "new": "  `WORKSPACE/templates/agent/` (sistema de memoria por tiers incorporado de fábrica).",
+    "old": "  `OLYMPUS/templates/agent/` (sistema de memoria por tiers incorporado de fábrica)."
+   },
+   {
+    "new": "- **Registro:** `WORKSPACE/agents/{{AGENT_NAME}}/agent.json` + brand {{COLOR}}.",
+    "old": "- **Registro:** `OLYMPUS/agents/{{AGENT_NAME}}/agent.json` + brand {{COLOR}}."
+   },
+   {
+    "new": "- **Runtime:** Claude Code vía WORKSPACE (`{{AGENT_NAME}}` / menú `workspace`).",
+    "old": "- **Runtime:** Claude Code vía OLYMPUS (`{{AGENT_NAME}}` / menú `olympus`)."
+   },
+   {
+    "new": "etiqueta se suman. Medir: `python3 ~/Desktop/WORKSPACE/memory_blocks.py --brain .`",
+    "old": "etiqueta se suman. Medir: `python3 ~/Desktop/OLYMPUS/memory_blocks.py --brain .`"
+   }
+  ],
+  "STATE/PENDIENTES.md": [
+   {
+    "new": "  stubs sobrios en paleta {{COLOR}}; el arte final (estética WORKSPACE) es follow-up.",
+    "old": "  stubs sobrios en paleta {{COLOR}}; el arte final (estética OLYMPUS) es follow-up."
+   },
+   {
+    "new": "- [ ] **Brand definitivo** — los scripts de `WORKSPACE/agents/{{AGENT_NAME}}/brand/` nacen como",
+    "old": "- [ ] **Brand definitivo** — los scripts de `OLYMPUS/agents/{{AGENT_NAME}}/brand/` nacen como"
+   }
+  ],
+  "STATE/sessions/README.md": [
+   {
+    "new": "- **Al abrir una pestaña**: el hook de arranque inyecta la memoria de esa sesión vía `$WORKSPACE_WS`.",
+    "old": "- **Al abrir una pestaña**: el hook de arranque inyecta la memoria de esa sesión vía `$OLYMPUS_WS`."
+   },
+   {
+    "new": "WORKSPACE (`hooks/session_start.py` / `session_end.py`) + el `--context` de",
+    "old": "OLYMPUS (`hooks/session_start.py` / `session_end.py`) + el `--context` de"
+   },
+   {
+    "new": "`{{AGENT_NAME}}-dashboard.py`, que leen `$WORKSPACE_WS`.",
+    "old": "`{{AGENT_NAME}}-dashboard.py`, que leen `$OLYMPUS_WS`."
+   }
+  ],
+  "STATE/users/README.md": [
+   {
+    "new": "`WORKSPACE_WS`/`{{AGENT_UPPER}}_WS`. Si el perfil no existe, {{AGENT_DISPLAY}} opera con su default",
+    "old": "`OLYMPUS_WS`/`{{AGENT_UPPER}}_WS`. Si el perfil no existe, {{AGENT_DISPLAY}} opera con su default"
+   }
+  ],
+  "adapters/claude-code.md": [
+   {
+    "new": "  (dispatch, hooks, banners) vive en `~/Desktop/WORKSPACE/`; este cerebro es contenido.",
+    "old": "  (dispatch, hooks, banners) vive en `~/Desktop/OLYMPUS/`; este cerebro es contenido."
+   },
+   {
+    "new": "  re-correr `python3 WORKSPACE/install.py <socio>` (pitfall conocido: sin esa clave no hay error,",
+    "old": "  re-correr `python3 OLYMPUS/install.py <socio>` (pitfall conocido: sin esa clave no hay error,"
+   },
+   {
+    "new": "# Adapter — Claude Code vía WORKSPACE (runtime primario)",
+    "old": "# Adapter — Claude Code vía OLYMPUS (runtime primario)"
+   },
+   {
+    "new": "- **Launcher:** `{{AGENT_NAME}}` (comando en `~/.local/bin/`) o el menú `workspace`. El motor",
+    "old": "- **Launcher:** `{{AGENT_NAME}}` (comando en `~/.local/bin/`) o el menú `olympus`. El motor"
+   },
+   {
+    "new": "- **Sesiones:** el picker (`{{AGENT_NAME}}-dashboard.py --pick`) exporta `WORKSPACE_WS` /",
+    "old": "- **Sesiones:** el picker (`{{AGENT_NAME}}-dashboard.py --pick`) exporta `OLYMPUS_WS` /"
+   },
+   {
+    "new": "- **Skill loop automático:** hook `SessionEnd → WORKSPACE/hooks/skill_review.py` (cableado en",
+    "old": "- **Skill loop automático:** hook `SessionEnd → OLYMPUS/hooks/skill_review.py` (cableado en"
+   },
+   {
+    "new": "- **Socio activo:** `.claude/socio.local` (lo escribe `workspace install <socio>`).",
+    "old": "- **Socio activo:** `.claude/socio.local` (lo escribe `olympus install <socio>`)."
+   }
+  ],
+  "skills/INDEX-LITE.md": [
+   {
+    "new": "(`python3 <WORKSPACE>/usage.py <skill_dir> use`). Toda respuesta con tool calls termina con el",
+    "old": "(`python3 <OLYMPUS>/usage.py <skill_dir> use`). Toda respuesta con tool calls termina con el"
+   }
+  ],
+  "skills/README.md": [
+   {
+    "new": "  WORKSPACE (`skill_review`, SessionEnd) van ahí con `status: propuesta` — nunca directo al catálogo.",
+    "old": "  OLYMPUS (`skill_review`, SessionEnd) van ahí con `status: propuesta` — nunca directo al catálogo."
+   },
+   {
+    "new": "- **Uso:** sidecar `.usage.json` (N12, `python3 <WORKSPACE>/usage.py <skill_dir> use`); se versiona,",
+    "old": "- **Uso:** sidecar `.usage.json` (N12, `python3 <OLYMPUS>/usage.py <skill_dir> use`); se versiona,"
+   }
+  ],
+  "skills/_propuestas/README.md": [
+   {
+    "new": "Las skills NUEVAS que proponga el review automático de WORKSPACE (`hooks/skill_review.py`,",
+    "old": "Las skills NUEVAS que proponga el review automático de OLYMPUS (`hooks/skill_review.py`,"
+   }
+  ],
+  "skills/meta/buscar-memoria/SKILL.md": [
+   {
+    "new": "   python3 <WORKSPACE>/memory_index.py --brain . --query \"términos clave de la pregunta\"",
+    "old": "   python3 <OLYMPUS>/memory_index.py --brain . --query \"términos clave de la pregunta\""
+   },
+   {
+    "new": "- **El índice es DERIVADO.** Vive fuera del cerebro (`~/.claude/workspace/index/`), per-máquina,",
+    "old": "- **El índice es DERIVADO.** Vive fuera del cerebro (`~/.claude/olympus/index/`), per-máquina,"
+   }
+  ]
+ }
+}

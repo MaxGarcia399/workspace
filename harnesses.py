@@ -51,7 +51,8 @@ _DEFAULT_CAPS = {
 }
 
 #: Orden de PRESENTACIÓN en selectores (los demás van después, alfabético).
-_PREFERRED_ORDER = ("claude-code", "codex", "antigravity")
+_PREFERRED_ORDER = ("claude-code", "codex", "antigravity", "opencode", "openclaw",
+                    "hermes")
 
 
 def _dispatch():

@@ -29,6 +29,10 @@ Más leyes de esta capa:
     key del socio no viaja a un endpoint que no la pidió).
   · api_key sobre http:// plano solo a loopback — a un host remoto sin TLS
     NO se manda una key (vet_provider lo rechaza).
+  · Redirecciones: JAMÁS se siguen (_urlopen). urllib, por default, las
+    sigue COPIANDO la key al destino (otro host, otro puerto o http://
+    plano) — un 3xx se reporta como error claro y la key no sale del
+    base_url vetado.
   · Los conectores directos (openai_compatible y native_api) NO tienen canal
     de tools por construcción (el request jamás anuncia "tools") ⇒ cumplen
     tools="none" del contrato headless trivialmente — aptos para destilación
@@ -38,15 +42,15 @@ CÓMO SE ENCHUFA (cero flip de default — claude-code sigue siendo el primario;
 todo esto es opt-in por nombre de backend):
 
   providers/<name>.json  →  register_provider_backends()  →  backend headless
-  `<name>` disponible para run_headless / WORKSPACE_DREAM_BACKEND /
+  `<name>` disponible para run_headless / WORKSPACE_DREAM_BACKEND (juez de
+  skill_audit, herramienta de desarrollo) /
   WORKSPACE_EVAL_BACKEND. headless.get_backend hace la registración LAZY al
-  primer miss, así que `WORKSPACE_DREAM_BACKEND=ollama workspace dream` funciona
+  primer miss, así que `WORKSPACE_EVAL_BACKEND=ollama workspace eval …` funciona
   sin tocar código. Un backend ya registrado (builtin) JAMÁS se pisa.
 
 Ejemplo (modelo local, cero nube):
   ollama pull llama3.1   # una vez, en la máquina del socio
-  WORKSPACE_DREAM_BACKEND=ollama WORKSPACE_DREAM_MODEL=llama3.1 \
-      python3 dream.py <cerebro>
+  WORKSPACE_EVAL_BACKEND=ollama workspace eval <agente>
 
 Portabilidad de hooks/tools por tipo de conexión: `PORTABILITY` (datos) +
 `engines/PORTABILITY.md` (doc). Tools cross-motor = MCP; hooks que un motor
@@ -192,6 +196,45 @@ def _redact(msg, key):
 FORBIDDEN_HEADERS = ("authorization", "proxy-authorization", "cookie")
 
 
+# ── HTTP de los conectores: JAMÁS sigue una redirección ─────────────────────
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """urllib, por default, SIGUE los 3xx y COPIA todos los headers (la key
+    incluida) a la URL de destino, aunque sea otro host o http:// plano — y
+    vet_provider solo vio el base_url inicial. Aquí no se sigue ninguno: el
+    3xx sube como HTTPError y el llamador lo reporta con _redirect_error."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _urlopen(req, timeout):
+    """urlopen SIN redirecciones — ÚNICA vía HTTP de los conectores (headless,
+    nativos, ping y el path interactivo). Mismos handlers que urlopen
+    (proxies, TLS por default); solo cambia el manejo de los 3xx."""
+    return urllib.request.build_opener(_NoRedirect).open(req, timeout=timeout)
+
+
+def _redirect_error(name, err, key):
+    """'' si el HTTPError no es una redirección (3xx). Si lo es, el error
+    CLARO para el socio. Del destino solo se muestra esquema://host:puerto —
+    jamás ruta ni query (ahí un server podría ecoar la key) — y redactado."""
+    if not 300 <= err.code < 400:
+        return ""
+    dest = "destino sin indicar"
+    try:
+        loc = (err.headers.get("Location") or "").strip()
+        if loc:
+            u = urllib.parse.urlsplit(urllib.parse.urljoin(err.filename, loc))
+            if u.netloc:              # sin credenciales user:pass@ del netloc
+                dest = "%s://%s" % (u.scheme, u.netloc.rpartition("@")[2])
+    except (AttributeError, TypeError, ValueError):
+        pass
+    return _redact(
+        "%s: el proveedor respondió con una redirección (HTTP %d → %s) y no "
+        "se sigue: una credencial jamás viaja a otro servidor. Revisa "
+        "base_url en providers/%s.json" % (name, err.code, dest, name), key)
+
+
 # ── adaptador CONCRETO: openai_compatible ───────────────────────────────────
 def make_openai_compatible(provider):
     """Backend headless para un provider OpenAI-compatible (OpenAI,
@@ -227,9 +270,12 @@ def make_openai_compatible(provider):
             url, data=json.dumps(payload).encode("utf-8"),
             headers=hdrs, method="POST")
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with _urlopen(req, timeout=timeout) as resp:
                 raw = resp.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as e:
+            redir = _redirect_error(name, e, key)
+            if redir:                 # 3xx: no se sigue (la key no sale)
+                return False, redir
             try:
                 # redactar ANTES de truncar (un corte a media key fugaría
                 # el prefijo parcial al log)
@@ -348,9 +394,12 @@ def _post_json(url, payload, hdrs, timeout, key, name):
         url, data=json.dumps(payload).encode("utf-8"),
         headers=hdrs, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with _urlopen(req, timeout=timeout) as resp:
             raw = resp.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as e:
+        redir = _redirect_error(name, e, key)
+        if redir:                   # 3xx: no se sigue (la key no sale)
+            return False, redir
         try:
             # redactar ANTES de truncar (un corte a media key fugaría el
             # prefijo parcial al log)
@@ -644,7 +693,8 @@ def ping_provider(provider, key=None, timeout=6.0):
     redactada en errores. Devuelve dict {ok, kind, detail}:
       kind: 'ok' (verificada) · 'auth' (rechazada 401/403 — NO guardar) ·
       'unverified' (alcanzable pero sin endpoint de verificación 404/405) ·
-      'network'/'http' (no se pudo verificar) · 'no_key' · 'blocked' ·
+      'network'/'http' (no se pudo verificar; un 3xx cae aquí — jamás se
+      sigue) · 'no_key' · 'blocked' ·
       'cli'/'cli_missing' (official_cli: solo binario en PATH) · 'unsupported'.
     key=None ⇒ usa la del env (para RE-validar una ya conectada). Un secreto
     JAMÁS se loguea (pasa por _redact)."""
@@ -675,11 +725,14 @@ def ping_provider(provider, key=None, timeout=6.0):
     url, hdrs = _ping_url(p, key)
     req = urllib.request.Request(url, headers=hdrs, method="GET")
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with _urlopen(req, timeout=timeout) as resp:
             resp.read(64)                        # drena un poco; no nos importa
         return {"ok": True, "kind": "ok",
                 "detail": "conexión verificada — %s respondió" % name}
     except urllib.error.HTTPError as e:
+        redir = _redirect_error(name, e, key)
+        if redir:                                # 3xx: no se sigue ni verifica
+            return {"ok": False, "kind": "http", "detail": redir}
         if e.code in (401, 403):
             return {"ok": False, "kind": "auth",
                     "detail": "%s rechazó la credencial (HTTP %d) — revisa la "

@@ -32,10 +32,10 @@ inventado):
 
   · kind    — taxonomía SSE de Odysseus: delta / tool_start / tool_output /
               agent_step / metrics / done. Hoy el harness emite agent_step
-              (pasos de pipelines: destilados, audits, propuestas) y
+              (pasos de pipelines: audits, propuestas, workflows) y
               tool_output (post_tool_write); el resto queda reservado para
               el tee de stream-json (activity-strip, dashboard F2+).
-  · source  — quién escribió (script emisor: nightly.py, dream.py, …).
+  · source  — quién escribió (script emisor: nightly.py, skill_loop.py, …).
   · agent / brain — a quién pertenece la actividad (brain se extrae del
               payload si el emisor lo traía; agent opcional).
   · payload — metadata acotada del paso (strings recortados a _CLIP chars:
@@ -51,7 +51,7 @@ pre-N10 (`{ts, event, emitter, …payload}` aplanado) al schema unificado.
 Resolución de la tensión "dos logs sin schema común" (§1.3.1): este stream
 es EL lugar de la actividad operacional. `skill_loop.skills-events.jsonl`
 sigue existiendo como índice FUNCIONAL con cursor (lo consume sync_events),
-pero espeja cada evento aquí; `dream.runs.jsonl` ídem. Un evento = un
+pero espeja cada evento aquí. Un evento = un
 record aquí, sea directo (emit) o espejo (_audit/log_event).
 
 Falla-suave absoluta: record/emit/read_events jamás levantan.
@@ -105,8 +105,10 @@ EVENTS = {
     },
     "headless_ingest": {
         "mode": OBSERVER,
-        "desc": "el harness entrega un transcript a un proceso headless para "
-                "destilarlo (hoy skill_review; mañana la pasada unificada N3)",
+        "desc": "el harness entrega un transcript a un proceso headless. "
+                "Desde 2026-10-16 NINGÚN flujo del cliente lo emite (la revisión "
+                "de skills y la memoria corren en la sesión visible); queda para "
+                "herramientas de desarrollo (skill_audit)",
     },
     "model_fallback": {
         "mode": OBSERVER,
@@ -218,6 +220,33 @@ ENGINE_MAP = {
         "model_fallback": None, "pre_tool": None, "post_tool": None,
         "wf_step": INTERNAL, "wf_run": INTERNAL,
     },
+    # opencode y openclaw (wrapper, 2026-10-15): mismo ciclo neutral que
+    # codex/antigravity. headless_ingest None igual que agy: su transcript SÍ es
+    # legible (export de opencode / JSONL de OpenClaw) y la revisión de skills
+    # corre desde session_end; este mapa no cablea un emisor propio.
+    "opencode": {
+        "session_start": INTERNAL, "session_end": INTERNAL,
+        "pre_compact": None, "post_tool_write": None, "pre_prompt": None,
+        "user_prompt": None, "headless_ingest": None,
+        "model_fallback": None, "pre_tool": None, "post_tool": None,
+        "wf_step": INTERNAL, "wf_run": INTERNAL,
+    },
+    "openclaw": {
+        "session_start": INTERNAL, "session_end": INTERNAL,
+        "pre_compact": None, "post_tool_write": None, "pre_prompt": None,
+        "user_prompt": None, "headless_ingest": None,
+        "model_fallback": None, "pre_tool": None, "post_tool": None,
+        "wf_step": INTERNAL, "wf_run": INTERNAL,
+    },
+    # hermes (wrapper, 2026-10-15): mismo ciclo neutral; transcript legible por
+    # el export oficial de la sesión. Sus hooks nativos no se cablean.
+    "hermes": {
+        "session_start": INTERNAL, "session_end": INTERNAL,
+        "pre_compact": None, "post_tool_write": None, "pre_prompt": None,
+        "user_prompt": None, "headless_ingest": None,
+        "model_fallback": None, "pre_tool": None, "post_tool": None,
+        "wf_step": INTERNAL, "wf_run": INTERNAL,
+    },
 }
 
 # ── listeners: qué scripts de hooks/ escuchan qué evento ──────────────────
@@ -248,13 +277,22 @@ LISTENERS = (
     # mismo orden que la telemetría, que ya corre en cada tool.
     {"script": "personalidad.py", "event": "user_prompt", "timeout": 5,
      "severity": MINOR, "requires": None},
+    # revisión de skills (opcional): al CERRAR solo deja la tarea pendiente
+    # (vista neutral, sin lanzar procesos); al ABRIR se la entrega al agente,
+    # que la hace en su sesión, a la vista (2026-10-16: nada sin ventana).
     {"script": "skill_review.py", "event": "session_end", "timeout": 15,
      "severity": CRITICAL, "requires": None},
+    {"script": "skill_review_start.py", "event": "session_start", "timeout": 5,
+     "severity": MINOR, "requires": None},
     # transcript_backup (Y2b): universal pero MENOR (⚠, jamás ✗)
     {"script": "transcript_backup.py", "event": "session_end", "timeout": 15,
      "severity": MINOR, "requires": None},
-    # memory_flush (N2): flush a disco ANTES de compactar — universal (el
-    # journal es opcional dentro del hook; sin journal igual deja rastro en
+    # memoria v1 (2026-10-17): al cerrar, sin IA — maleta de la pestaña,
+    # datos/preferencias a MEMORY.md, compactar el diario. Universal y MENOR.
+    {"script": "memoria_cierre.py", "event": "session_end", "timeout": 20,
+     "severity": MINOR, "requires": None},
+    # memory_flush (N2): flush a disco ANTES de compactar — universal (la
+    # maleta solo se rehace si hay pestaña; sin ella igual deja rastro en
     # ~/.claude/workspace/). MENOR: su falta jamás convierte un setup sano en ✗.
     {"script": "memory_flush.py", "event": "pre_compact", "timeout": 10,
      "severity": MINOR, "requires": None},
@@ -340,7 +378,7 @@ EVENT_KIND = {
     "pre_tool": "tool_start",
     "post_tool": "tool_output",
     # pasos de pipeline del runner de workflows = agent_step (mismo criterio
-    # que los pasos de destilados/audits). wf_run (pasada) ídem.
+    # que los pasos de audits). wf_run (pasada) ídem.
     "wf_step": "agent_step",
     "wf_run": "agent_step",
 }

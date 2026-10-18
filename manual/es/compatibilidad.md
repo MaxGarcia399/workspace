@@ -25,24 +25,35 @@ Son funciones opcionales: el doctor no las revisa.
 
 Vale para macOS, Linux y Windows, salvo donde se indica.
 
-| Función | Claude Code | Codex | Antigravity |
-|---|---|---|---|
-| Abrir el agente desde el hub | ✅ | ✅ (envuelto) | ✅ (envuelto) |
-| El agente arranca con su memoria | ✅ automático | ✅ vía un `AGENTS.md` que Workspace genera en el cerebro | ✅ vía un `GEMINI.md` que Workspace genera en el cerebro |
-| Conectores MCP | ✅ | ✅ (configuración del propio Codex) | ✅ |
-| Avisos de sesión (*hooks*: guardar memoria al cerrar, etc.) | ✅ | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace) |
-| Retomar sesiones desde las pestañas de Workspace | ✅ | ✅ | ✅ |
-| Estado en vivo del agente en el hub | ✅ | ❌ | ❌ |
-| Tareas sin ventana (evals, workflows) | ✅ | ✅ | ❌ |
+| Función | Claude Code | Codex | Antigravity | OpenCode | OpenClaw | Hermes |
+|---|---|---|---|---|---|---|
+| Abrir el agente desde el hub | ✅ | ✅ (envuelto) | ✅ (envuelto) | ✅ (envuelto) | ✅ (envuelto, con gateway: varias pestañas) | ✅ (envuelto) |
+| El agente arranca con su memoria | ✅ automático | ✅ vía un `AGENTS.md` que Workspace genera en el cerebro | ✅ vía un `GEMINI.md` que Workspace genera en el cerebro | ✅ vía un `AGENTS.md` que Workspace genera en el cerebro | ✅ vía el mismo `AGENTS.md` (perfil propio de OpenClaw, sin archivos extra) | ✅ vía el mismo `AGENTS.md` (perfil propio de Hermes, identidad neutral); el agente lee su cerebro con tu primer mensaje |
+| Conectores MCP | ✅ | ✅ (configuración del propio Codex) | ✅ | ✅ (configuración del propio OpenCode) | ✅ (configuración del propio OpenClaw) | ✅ (configuración del propio Hermes) |
+| Avisos de sesión (*hooks*: guardar memoria al cerrar, etc.) | ✅ | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace), más tu tono en cada mensaje |
+| Retomar sesiones desde las pestañas de Workspace | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Estado en vivo del agente en el hub | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Tareas sin ventana (evals, workflows) | ✅ | ✅ evals con herramientas¹ | ❌ | ✅ evals con herramientas¹ | ✅ solo turnos sueltos¹ | ✅ solo turnos sueltos¹ |
 
 ✅ funciona · ❌ no disponible · ❔ sin verificar
+
+¹ Los workflows y los evals que corren sin herramientas necesitan un motor que pueda apagar las
+suyas: hoy solo Claude Code. Codex y OpenCode corren los evals que usan herramientas dentro del
+sandbox del sistema. OpenClaw y Hermes todavía no pueden apagar sus herramientas ni correr dentro de
+ese sandbox: Workspace no los usa para evals ni workflows (sí responden turnos sueltos sin ventana).
 
 Si el programa del motor no está instalado (o no está en el PATH), nada de esto funciona con
 él: `workspace doctor` te dice que instales su programa oficial ([Motores](motores.md)).
 
-Codex y Antigravity también traen *hooks* propios, pero Workspace no los activa: los avisos de
-abrir y cerrar ya los emite Workspace alrededor del programa, y activarlos los duplicaría. Por
-eso con esos dos motores no hay avisos por herramienta ni estado en vivo.
+Codex, Antigravity, OpenCode, OpenClaw y Hermes también traen *hooks* propios, pero Workspace no los activa: los
+avisos de abrir y cerrar ya los emite Workspace alrededor del programa, y activarlos los
+duplicaría. La excepción es uno de Hermes, por mensaje, que añade tu tono (Hermes te pide
+aprobarlo una vez). Por eso con esos motores no hay avisos por herramienta ni estado en vivo. Con
+OpenCode, OpenClaw y Hermes, el modelo es el que elijas en su propia configuración: Workspace no lo cambia.
+
+Hermes corre en un perfil propio de Workspace (tu Hermes personal no cambia). En ese perfil su
+memoria propia está apagada, porque la comparten todos tus agentes: la memoria de cada agente vive
+en su cerebro. Sus skills y tareas programadas siguen como en tu Hermes.
 
 ## Permisos por motor
 
@@ -100,8 +111,9 @@ Se cambia en **Agentes** (elige el agente y Enter) (ver [Permisos](motores.md#pe
 
 ## Límites actuales
 
-- **"Tú eliges el motor" es verdad a medias hoy.** Los tres motores abren agentes con su
-  memoria, pero Claude Code tiene más integración, y parte de la configuración local todavía
+- **"Tú eliges el motor" es verdad a medias hoy.** Todos los motores abren agentes con la
+  misma memoria de pestaña, pero Claude Code tiene más integración, y parte de la configuración local todavía
   vive en `~/.claude/workspace/` aunque no uses Claude Code.
-- **Cambiar de motor no traslada conversaciones**: el cerebro sí viaja; el historial interno
-  de cada proveedor, no.
+- **Cambiar de motor no traslada la conversación del proveedor**, pero sí la pestaña: su memoria
+  (resumen, lo vigente, las notas y la maleta con lo último del otro motor) es de Workspace y
+  entra igual en cualquier motor. Ver [Motores · La memoria de cada pestaña](motores.md).

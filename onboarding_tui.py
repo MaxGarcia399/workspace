@@ -28,8 +28,11 @@ Qué REUSA (nada se duplica — este módulo solo orquesta):
                 (solo si apareció uno nuevo).
 
 No re-disparo: ~/.claude/workspace/onboarded.json (env WORKSPACE_ONBOARDED lo
-pisa — tests herméticos). Se escribe APENAS arranca el flujo (un Ctrl-C a
-medias no vuelve a molestar) y se completa al final con el resumen real.
+pisa — tests herméticos). Se escribe en cuanto la bienvenida se PINTA sin el
+aviso de tamaño (desde ahí un Ctrl-C a medias o cerrar la ventana no vuelven
+a molestar) y se completa al final con el resumen real. Antes de verse no se
+escribe nada, y salir desde el AVISO DE TAMAÑO (la ventana no llega al
+mínimo) tampoco cuenta: el siguiente arranque lo ofrece otra vez.
 
 REANUDABLE (U07/Z07): el flag guarda el estado por ETAPA (completa/omitida/
 pendiente) y la vista donde quedó; `workspace onboarding` CONTINÚA desde ahí
@@ -80,16 +83,17 @@ def _t(key, es):
         return es
 
 #: Harnesses OFRECIDOS en el onboarding — los soportados de verdad hoy.
-#: harnesses.py puede listar más engines instalados; aquí solo estos tres.
-SOPORTADOS = ("claude-code", "codex", "antigravity")
+#: harnesses.py puede listar más engines instalados; aquí solo estos seis.
+SOPORTADOS = ("claude-code", "codex", "antigravity", "opencode", "openclaw",
+              "hermes")
 
 #: Copy honesto por motor: qué es, de quién, cómo se entra. Nada inventado.
 _MOTOR_INFO = {
     "claude-code": (
         "Claude Code — el CLI oficial de Anthropic (binario `claude`).",
         "Entra con tu suscripción: corre `claude` una vez y sigue el login.",
-        "Es el motor con más integración en Workspace: hooks reales, memoria "
-        "inyectada al agente y sesiones del harness."),
+        "Es el motor con más integración en Workspace: hooks reales, avisos "
+        "en vivo y su memoria propia dentro del cerebro."),
     "codex": (
         "Codex — el CLI de OpenAI (binario `codex`), con tu suscripción de "
         "ChatGPT.",
@@ -99,6 +103,28 @@ _MOTOR_INFO = {
         "Antigravity — el CLI `agy` de Google (Gemini).",
         "La sesión se abre con tu cuenta Google desde el propio CLI.",
         "Workspace lo envuelve igual que a los demás motores."),
+    "opencode": (
+        "OpenCode — CLI de código abierto (binario `opencode`), agnóstico de "
+        "modelo.",
+        "Conecta tu proveedor con `opencode auth login` (OpenRouter, Anthropic, "
+        "OpenAI u otros).",
+        "Workspace lo envuelve; el modelo es el que elijas en tu config de "
+        "opencode y nunca lee tu credencial."),
+    "openclaw": (
+        "OpenClaw — agente personal de código abierto (binario `openclaw`), en "
+        "su modo terminal local.",
+        "Conecta tu proveedor y elige tu modelo desde Motores › cuenta y "
+        "proveedor (abre el setup oficial de OpenClaw).",
+        "Workspace usa un perfil propio de OpenClaw sobre tu mismo cerebro: no "
+        "crea archivos extra, no fija modelo y nunca lee tu credencial."),
+    "hermes": (
+        "Hermes — agente de código abierto de Nous Research (binario `hermes`), "
+        "en su terminal.",
+        "Conecta tu proveedor y elige tu modelo desde Motores › cuenta y "
+        "proveedor (abre el setup oficial de Hermes).",
+        "Workspace usa un perfil propio de Hermes (copia tu config; tu Hermes "
+        "personal no cambia) con la identidad de tu agente y sin la memoria propia "
+        "de Hermes; nunca lee tu credencial."),
 }
 
 #: Fondos del onboarding = las opciones de ui.background MENOS `personalizado`
@@ -113,7 +139,7 @@ _ETAPAS = ("motores", "apariencia", "agente")
 #: Opción extra del paso agente (las otras 3 se toman de add_agent_tui).
 _SIN_AGENTE = ("ninguno", "terminar sin agente",
                ("También puedes agregarlo cuando quieras desde el hub "
-                "(Menú › «Agregar agente») — crear, cargar o descubrir siguen "
+                "(Agentes › «+ agregar agente») — crear, cargar o descubrir siguen "
                 "ahí, idénticos.",))
 
 
@@ -191,6 +217,44 @@ def _marcar(extra=None):
     except Exception:
         pass
     return data
+
+
+def _flag_previo():
+    """Los bytes del flag ANTES de una corrida (None = no existía). Uno que
+    existe pero no se puede leer cuenta como existente (b""): no se toca."""
+    try:
+        p = flag_path()
+        if not os.path.exists(p):
+            return None
+        with open(p, "rb") as fh:
+            return fh.read()
+    except Exception:
+        return b""
+
+
+def _visto(S):
+    """La bienvenida YA se vio (se pintó sin el aviso de tamaño): desde aquí
+    cuenta como corrida. Antes no se escribe nada (ver run)."""
+    if not S.get("_visto"):
+        S["_visto"] = True
+        S["_flag_mio"] = _marcar({"modo": "onboarding", "completo": False})
+
+
+def _restaurar_flag(previo):
+    """Deja el flag como estaba antes de la corrida (lo de _flag_previo).
+    Falla-suave: el peor caso es el de siempre (no re-ofrecer)."""
+    try:
+        p = flag_path()
+        if previo is None:
+            if os.path.exists(p):
+                os.remove(p)
+        elif previo:
+            tmp = p + ".tmp"
+            with open(tmp, "wb") as fh:
+                fh.write(previo)
+            os.replace(tmp, p)
+    except Exception:
+        pass
 
 
 # ── helpers de pantalla (mismo lenguaje que tono_tui) ───────────────────────
@@ -707,8 +771,8 @@ def _b_bienvenida(S, K, iw, full=2):
         _t("onboarding.welcome.p1",
            "Workspace es un hub local para tus agentes de IA: cada agente vive "
            "en su propio cerebro (una carpeta de archivos tuya) y corre sobre "
-           "un motor CLI que ya tengas instalado — Claude Code, Codex o "
-           "Antigravity."),
+           "un motor CLI que ya tengas instalado — Claude Code, Codex, "
+           "Antigravity, OpenCode, OpenClaw o Hermes."),
         _t("onboarding.welcome.p2",
            "Todo pasa en tu máquina: cero dependencias, sin cuentas nuevas, y "
            "Workspace nunca ve ni guarda tus credenciales (el login es de cada "
@@ -1040,7 +1104,7 @@ def _b_resumen(S, K, iw, full=2):
         der += _parrafo(K, (
             _t("onboarding.resumen.adelante_p1",
                "Enter te deja en el hub: ahí lanzas agentes y en el Menú "
-               "tienes Tono, Agentes y «Agregar agente»."),
+               "tienes Agentes (a = agregar), Motores, Usuarios y Tono."),
             _t("onboarding.resumen.adelante_p2",
                "Repetir este flujo: `workspace onboarding`."),), iw)
     return izq, der
@@ -1161,6 +1225,12 @@ def _cuerpo_ob(S, K, iw):
     return [HL.clip(ln, iw) for ln in out]
 
 
+#: Pasos de solo texto (una sola acción): con poco alto ↑↓ desplazan la caja.
+#: Abre siguiendo al botón, como siempre; lo de arriba se alcanza con ↑ (antes
+#: la caja solo seguía al botón y el principio quedaba fuera de alcance).
+_SOLO_TEXTO = ("bienvenida", "gcal", "resumen")
+
+
 def render(S, w, h):
     K = _K()
     v = S["view"]
@@ -1170,9 +1240,14 @@ def render(S, w, h):
         return SB.info_frame(K, w, h, palabra, t_der,
                              [("lines", lambda iw: _VISTAS[v][0](S, K, iw, 2)[1])],
                              state=S["info"], box_w=66)
-    return SB.frame(K, w, h, palabra, t_izq, lambda iw: _cuerpo_ob(S, K, iw), _chips_ob(S),
-                    msg=S.get("msg", ""), cursor_line=lambda: S.get("_cur", 0),
-                    box_w=_OB_BOX_W)
+    sigue = S.get("_desplaza")
+    desde = sigue[1] if v in _SOLO_TEXTO and sigue and sigue[0] == v else None
+    out = SB.frame(K, w, h, palabra, t_izq, lambda iw: _cuerpo_ob(S, K, iw), _chips_ob(S),
+                   msg=S.get("msg", ""), cursor_line=lambda: S.get("_cur", 0),
+                   scroll=desde, box_w=_OB_BOX_W)
+    if v in _SOLO_TEXTO:                          # dónde quedó la caja y su tope
+        S["_caja"] = (v, SB.frame.last_start, SB.frame.last_max_scroll)
+    return out
 
 
 # ── acciones ────────────────────────────────────────────────────────────────
@@ -1208,6 +1283,12 @@ def _accion(S, key):
     if key in ("q", "Q") and v != "resumen":
         S["salir"] = "quit"
         return False
+    if v in _SOLO_TEXTO and key in ("up", "down"):
+        # pasos de solo texto: ↑↓ desplazan la caja, desde donde está
+        caja = S.get("_caja") or (v, 0, 0)
+        desde, tope = (caja[1], caja[2]) if caja[0] == v else (0, 0)
+        S["_desplaza"] = (v, max(0, min(tope, desde + (1 if key == "down" else -1))))
+        return True
 
     if v == "idioma":
         opts = i18n.available() if i18n else [("es", "Español"),
@@ -1399,6 +1480,10 @@ def _draw(tout, S, first=False):
         _responsive.paint(tout, render(S, w, h), first=first)
     except Exception:
         pass
+    # se pintó la bienvenida, no el aviso (si falló al pintarse, ante la duda
+    # también cuenta: jamás re-ofrecer en cada arranque una pantalla rota)
+    if not S.get("_size_blocked"):
+        _visto(S)
 
 
 def _pantalla_unix(S):
@@ -1450,11 +1535,14 @@ def _pantalla_windows(S):
     try:
         _draw(tout, S, first=True)
         while True:
-            if not msvcrt.kbhit():
-                time.sleep(0.1)
-                _draw(tout, S)
-                continue
-            ch = msvcrt.getwch()
+            try:
+                if not msvcrt.kbhit():
+                    time.sleep(0.1)
+                    _draw(tout, S)
+                    continue
+                ch = msvcrt.getwch()
+            except KeyboardInterrupt:
+                ch = "\x03"                       # Ctrl-C en Windows: excepción, no tecla
             if ch in ("\x00", "\xe0"):
                 a = msvcrt.getwch()
                 key = {"H": "up", "P": "down", "M": "right",
@@ -1574,8 +1662,9 @@ def _resumen_flag(S, completo):
             "tono": S.get("tono") or None}
 
 
-#: Cómo terminó la última corrida: "fin" (✦ ir al hub) · "quit" · None.
-#: front._run_onboarding lo lee para abrir el hub al terminar.
+#: Cómo terminó la última corrida: "fin" (✦ ir al hub) · "quit" · "tamano"
+#: (q/Esc en el aviso de tamaño: no cuenta, ver run) · "sin_ver" (nunca se
+#: pintó: no corrió) · None. front._run_onboarding lo lee para abrir el hub.
 ULTIMA_SALIDA = None
 
 
@@ -1599,19 +1688,28 @@ def run(force=False):
                  "y corre: workspace onboarding"))
         return 0
     prev = leer_flag()
-    _marcar({"modo": "onboarding", "completo": False})   # jamás re-molestar
+    previo = _flag_previo()                       # para deshacerlo (ver finally)
+    # el flag NO se escribe aquí: se escribe al pintarse la bienvenida sin el
+    # aviso de tamaño (_draw → _visto). Quien solo vio el aviso —y salió con
+    # q/Esc/Ctrl-C, o cerró la ventana— no deja nada escrito.
     S = _estado_inicial()
     _reanudar(S, prev)
     _probe_start(S)
+
+    def marca(extra):                             # lo último que ESTA corrida escribió
+        S["_flag_mio"] = _marcar(extra)
+
     try:
         while True:
             token = _pantalla(S)
-            _marcar(_progreso(S))                 # cada salida del driver guarda
+            if S.get("_size_exit") or not S.get("_visto"):
+                break                             # desde el aviso, o sin haberse visto
+            marca(_progreso(S))                   # cada salida del driver guarda
             if token == "quit":
-                _marcar(_resumen_flag(S, False))
+                marca(_resumen_flag(S, False))
                 break
             if token == "fin":
-                _marcar(_resumen_flag(S, True))
+                marca(_resumen_flag(S, True))
                 break
             if token in ("crear", "cargar", "descubrir", "ninguno"):
                 if token != "ninguno":
@@ -1627,7 +1725,7 @@ def run(force=False):
                     S.setdefault("omitidas", set()).add("agente")
                 else:
                     S.get("omitidas", set()).discard("agente")
-                _marcar(_progreso(S))
+                marca(_progreso(S))
                 # paso opcional antes del resumen (Google Calendar: en pausa)
                 S["view"], S["salir"] = ("gcal" if _gcal_on() else "resumen"), None
                 continue
@@ -1637,9 +1735,19 @@ def run(force=False):
                 continue
             break                                 # token desconocido → fuera
     finally:
-        _marcar(_resumen_flag(S, S.get("salir") == "fin"))
+        if not S.get("_visto"):
+            pass                                  # nunca se vio: no se escribe nada
+        elif S.get("_size_exit"):
+            # la vio, pero salió desde el aviso de tamaño (la ventana dejó de
+            # alcanzar): no cuenta como saltada → el flag vuelve a como estaba,
+            # salvo que otra corrida lo haya cambiado mientras (gana la otra)
+            if leer_flag() == S.get("_flag_mio"):
+                _restaurar_flag(previo)
+        else:
+            marca(_resumen_flag(S, S.get("salir") == "fin"))
         _aplicar_osc()                            # el hub entra ya pintado
-        ULTIMA_SALIDA = S.get("salir")
+        ULTIMA_SALIDA = ("tamano" if S.get("_size_exit") else
+                         S.get("salir") if S.get("_visto") else "sin_ver")
     return 0
 
 
@@ -1673,9 +1781,12 @@ def _reanudar(S, prev):
 
 def maybe_run():
     """Trigger de front.py: corre el onboarding SOLO en el primer uso real.
-    Devuelve True si corrió (front re-lanza el hub con lo elegido).
+    Devuelve True si corrió (front re-lanza el hub con lo elegido); False
+    también si se salió desde el aviso de tamaño o nunca se pintó (no corrió
+    de verdad: front sigue al hub aquí mismo — re-lanzarlo la reabriría).
     Guardas: subcomando/--banner · sin TTY · env WORKSPACE_NO_ONBOARDING ·
     flag presente · máquina con agentes (se adopta en silencio)."""
+    global ULTIMA_SALIDA
     try:
         if os.environ.get("WORKSPACE_NO_ONBOARDING"):
             return False
@@ -1688,8 +1799,9 @@ def maybe_run():
         if _agentes():                            # máquina ya operando
             _marcar({"modo": "adopcion", "completo": True})
             return False
+        ULTIMA_SALIDA = None
         run(force=True)
-        return True
+        return ULTIMA_SALIDA not in ("tamano", "sin_ver")
     except Exception:
         return False
 

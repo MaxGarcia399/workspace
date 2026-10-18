@@ -7,7 +7,7 @@ dos contratos:
 
 | Contrato | Módulo | Forma | Para qué |
 |---|---|---|---|
-| headless one-shot | `headless.py` | texto→texto, sin sesión, sin tools (guard N6) | destilación / bookkeeping |
+| headless one-shot | `headless.py` | texto→texto, sin sesión, sin tools (guard N6) | funciones que el socio dispara a la vista (evals, copiloto, personalización) |
 | ciclo de vida neutral | `neutral_hooks.py` | `run_event(...)` → texto neutral | los comportamientos ricos, sin vendor |
 | **interactivo** | `interactive.py` | sesión con estado, N turnos, loop tool-calling | **la conversación viva en otro motor** |
 
@@ -79,8 +79,9 @@ jamás ven el shape del vendor.
   adaptador (suscripción directa ⇒ `InteractiveSecurityError`, sin bypass);
   keys solo por NOMBRE de env-var resueltas al llamar; `auth_type: none` ⇒
   jamás viaja `Authorization` (locales); `quirks.extra_headers` no puede
-  meter `Authorization`/`Cookie` de contrabando; errores redactados.
-- **El guard headless queda intacto**: la destilación sigue por `headless.py`
+  meter `Authorization`/`Cookie` de contrabando; errores redactados; un 3xx
+  JAMÁS se sigue (`connectors._urlopen`: la key no sale del `base_url`).
+- **El guard headless queda intacto**: lo one-shot sigue por `headless.py`
   con `tools="none"` (N6). Este path es OTRO contrato, para sesiones vivas.
 
 ## 4 · `official_cli` interactivo — andamiaje (A-VERIFICAR)

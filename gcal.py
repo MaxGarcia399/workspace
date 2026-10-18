@@ -19,9 +19,11 @@ Google (p. ej. personal + trabajo). El modelo es una LISTA de cuentas:
       Sus cuentas se fusionan aquí con iCal; OAuth NO implica editar eventos.
     · Compatibilidad: la URL ÚNICA de antes (secreto WORKSPACE_GCAL_ICS_URL, o
       el env del sistema que GANA) sigue funcionando. Si el env trae esa URL,
-      es la cuenta "default" (el env manda, igual que siempre). Si solo estaba
-      guardada en la bóveda, se MIGRA sola a la lista como cuenta "default" sin
-      que el socio pierda la conexión.
+      es la cuenta "default" (el env manda, igual que siempre) — salvo que
+      sea la misma que la app ya guarda: esa es su copia, no del sistema. Si
+      solo estaba guardada en la bóveda, se MIGRA sola a la lista como cuenta
+      "default" sin que el socio pierda la conexión. Nada de la bóveda se
+      exporta al entorno (secret_store.PROVIDER_KEYS): se lee de disco.
     · JAMÁS se imprime una URL completa: solo el host (el path lleva el token).
     · Se exige https — una URL file:// o http:// no se toca.
 
@@ -130,8 +132,18 @@ def cache_path():
 
 def _env_url():
     """La URL iCal única en el env del sistema (GANA sobre la bóveda, misma
-    regla que toda credencial del harness). "" si no hay. NUNCA loguear."""
-    return (os.environ.get(URL_VAR) or "").strip()
+    regla que toda credencial del harness). "" si no hay. NUNCA loguear.
+    Si es IDÉNTICA a una URL que la app ya guarda en la bóveda no es «del
+    sistema»: es la copia que exportaba un hub de una versión anterior (y que
+    sobrevive en la terminal abierta) — tomarla por env impedía quitarla. Esa
+    copia sale del entorno (no reaparece al quitar la cuenta ni la heredan
+    los agentes que se lancen después)."""
+    u = (os.environ.get(URL_VAR) or "").strip()
+    if u and (u == _store_url()
+              or any(a["url"] == u for a in _persisted_accounts())):
+        os.environ.pop(URL_VAR, None)
+        return ""
+    return u
 
 
 def _store_url():

@@ -22,13 +22,17 @@ metadata en atributos, contenido JAMÁS en telemetría.
 
 Kill-switches (en orden de precedencia):
   1. WORKSPACE_NO_TELEMETRY=1   → env var (más rápido, siempre gana)
-  2. settings.py hooks.telemetry = off  → canal canónico de configuración
+  2. settings.py hooks.telemetry (APAGADA por defecto: solo escribe si se
+     enciende a propósito) → canal canónico de configuración
 
 Falla-suave absoluta:
   · Cualquier excepción → exit 0 (el hook NUNCA bloquea la herramienta del socio)
   · Sin stdin / stdin basura / JSON malformado → exit 0 sin efecto
   · Directorio de telemetría no crea → exit 0 sin efecto
-  · settings.py no disponible → asume habilitado (on-by-default)
+  · settings.py no disponible → apagada (off-by-default)
+
+El listener sigue cableado (como skill_review): el doctor no lo da por
+faltante y encenderla no exige reinstalar; apagada sale sin escribir nada.
 
 Per-máquina (~/.claude/workspace/telemetry/): fuera del vault, no se sincroniza,
 no se versiona. El agregador lo lee desde la misma ruta.
@@ -59,7 +63,8 @@ _ENV_KILL = "WORKSPACE_NO_TELEMETRY"
 
 
 def _is_enabled():
-    """True si la telemetría está habilitada. Falla-suave: cualquier error → True."""
+    """True si la telemetría está habilitada. Falla-suave: cualquier error →
+    False (apagada por defecto)."""
     if os.environ.get(_ENV_KILL):
         return False
     try:
@@ -69,9 +74,9 @@ def _is_enabled():
         if _root not in sys.path:
             sys.path.insert(0, _root)
         import settings as _s
-        return _s.enabled("hooks.telemetry", default=True)
+        return _s.enabled("hooks.telemetry", default=False)
     except Exception:
-        return True   # sin settings → on-by-default
+        return False  # sin settings → apagada (off-by-default)
 
 
 def _enc(path):

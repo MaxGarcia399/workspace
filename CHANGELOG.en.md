@@ -8,6 +8,67 @@ How to read this: every version has a number (`MAJOR.MINOR.PATCH`). A PATCH
 change fixes things; a MINOR one brings new features without breaking
 anything; a MAJOR one warns you well in advance if something changes shape.
 
+## 0.4.0 — 2026-10-18
+
+**What's new**
+- **Each tab remembers the same thing on any engine.** Your agent saves what matters right away, with a label (decision, pending, done…), and when you open the tab —on that engine or another— it gets the summary, what is still open, what is new and a "handoff" with the latest from the other engine. Workspace sorts and archives it on its own, with no AI and nothing for you to do; nothing is deleted.
+- New **Users** section in the menu: who uses each agent, «that's me on this PC», rename, and merge two users who are the same person (for example, your Mac one and your PC one). Each user has a fixed ID, so another machine with an old name lands on the right one.
+- New **Documentation** section in the menu: everything Workspace does, chapter by chapter, with a simple map, what is happening on your PC right now and how to check it yourself (Enter opens the file).
+- No AI process works without an open window: the "distiller" that summarized memory on its own and asked you to approve proposals is gone. If you have skill review turned on, your agent does it when it opens its next session, in plain sight.
+- **Your agent keeps its skills, memory and identity up to date on its own.** It doesn't ask you to approve skills or to confirm what it notes down; once a week it curates its skill library by itself, and it completes its personality (`BOOT/00-SOUL.md`) from what you told it when you created it and from your corrections, never from what it reads in documents or pages. Everything stays recoverable and it tells you in the line at the end of its reply.
+- If an agent's engine isn't installed, the agent no longer gets stuck: it offers to open it with another engine, just this once or from now on.
+- Closing the window with the X no longer loses anything: the tab's memory is sorted on close or, if there wasn't time, the next time you open that agent.
+- With OpenClaw you can now have several agents open at once (before, with one open, the others would not open). The first tab takes a few seconds longer to open and, when you close the last one, OpenClaw stops on its own.
+- Claude Code keeps its own memory inside the brain, in one folder per person: it travels with you to your other machines and, in a shared brain, each person's Claude Code loads only their own and never mixes up who it belongs to (turn it off in Settings).
+- Antigravity saves memory without asking for permission on every note.
+
+**What this version changes in your brains when you update**
+
+It does it on its own, once, in each agent. Before moving or changing anything it copies it to a backup, and nothing is deleted.
+- Your agents' identity moves to `BRAIN.md`, a file that belongs to no vendor. Nothing changes in how you use your agents: each engine still comes in through its usual file (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`), which now just points to `BRAIN.md`. If an agent had something unusual (for example, you edited its identity a moment ago), it is left as it was and `workspace doctor` tells you. To go back: `workspace migrate --undo 202610151600_brain_identity_neutral`.
+- Your agents' memory instructions are brought up to date, no matter which version you created them with; also when the agent arrives later (a fresh install or another machine), as you load it. If you wrote your own memory rules, they are left alone: the agent still gets how to save when the tab opens.
+- The tray where the distiller left proposals for you to approve (`STATE/DESTILADO.md`) moves to `STATE/memoria-archivo/`. Proposed skills that were waiting for your approval move to `skills/_archive/` if skill review is off for that agent; if it is on, they stay until its next review, where your agent integrates the useful ones and marks them resolved on its own, and Workspace archives them by itself.
+- Nothing in your brains waits for your approval. The skill, memory and identity instructions that asked for a person (approving new skills, "untouchable" skills, confirming before noting something in memory, designing the agent's personality by hand) are brought up to date, and so are the steps that made the engine ask you for permission (recording a skill's use with a command, a `git commit` before curating). Only the lines still exactly as Workspace left them change: what you wrote yourself is left alone, and your agent is told when it opens that those approvals are gone. What was left in `skills/_propuestas/` (its README and `_mejoras/`) moves to `skills/_archive/`.
+- Each brain's `.gitignore` adds Workspace's working folders (`.claude/locks/`, `.claude/memoria-entrada/` and `.claude/skill-review/`), including in the brains you already had.
+- If one brain can't be updated (for example, a file locked by sync), the others update anyway and that one is retried on its own next time.
+- If you share a brain between machines (for example, your Mac and your PC through Obsidian), each one can update its copy before receiving the other's and syncing won't leave archived items twice: the name comes from the content (`DESTILADO-<fingerprint>.md`, `propuestas-<fingerprint>/`), not from the day, and what another machine already archived isn't archived again.
+
+**Privacy and security**
+- Your account tokens (for example, Google Calendar) and the keys you saved in Workspace no longer reach the engines or anything your agents run; only the hub uses them.
+- A connection that carries a key never sends it to another server, and email checks that it is talking to the right server.
+- `GEMINI.md` is left clean on close (no path of your PC and no startup context).
+- Local telemetry and «get skills» when creating an agent now come off; turn them on in Settings and during creation.
+
+**Fixes**
+- Windows: the Workspace menu opens on its own again when you open a terminal. With Windows' factory settings, PowerShell blocked its startup file and showed "running scripts is disabled on this system". When you update, Workspace adjusts that setting for your user only, to the value Microsoft recommends and without asking for admin rights. If your organization manages your computer and has it locked, it tells you. After updating, open a new terminal.
+- On Windows, uninstalling now really deletes the Workspace folder (it used to say «deleted» and leave it) and, if something is still in use, it tells you.
+- Asking for help (`--help`) from the installer, the uninstaller or any command shows the help and never runs anything.
+- `workspace uninstall --clean-all` (or the question when uninstalling) also cleans your brains and the engines: it removes only what Workspace wrote in them (settings, permissions and generated files), with the exact list first and a backup next to every file that changes; what you edited by hand is left alone. Workspace's OpenClaw and Hermes profiles, with your conversations there, are not deleted: they are moved to a backup folder next to each one.
+- Uninstalling only removes the terminal commands and Claude Code themes Workspace added (it recognizes them by their mark) and names them before you confirm. On Windows it also removes its `.cmd` commands, even if its folder isn't called «WORKSPACE».
+- Uninstalling without a terminal to ask you (from a script or an agent) no longer deletes anything unless you add `--yes`. And if the Workspace folder is a git checkout with unpublished work (uncommitted changes or unpushed commits), it isn't deleted: the rest is uninstalled and you're told what's there.
+- Users no longer rewrites a profile it doesn't understand: it keeps your own lists and fields, recognizes a profile saved with Notepad without changing its ID, and one it can't read is kept whole on the side and replaced by a new one with the same ID.
+- Users in a brain shared between machines: every machine gives the same user the same ID (it used to be random and, after syncing, the profile could keep one machine's ID and its tabs the other's). A tab left with an ID that belongs to nobody fixes itself when you open the agent.
+- Mac: reinstalling or updating applies what you chose about the terminal opening the hub on its own (Windows already did), and the installer says which one is in place.
+- Documentation on Mac: if no app opens a file, it highlights it in Finder and tells you (it used to say «opened» without opening anything).
+- Hermes: Workspace's own profile no longer copies your personal Hermes keys (only your model). The first time, connect the provider in Engines › Hermes › account and provider; if you already had the profile, nothing changes.
+- No more «(auto close) — session closed without manual capture» notes filling your tabs' memory.
+- The "handoff" carries only what you wrote (system notices from Claude Code, Codex and Antigravity used to slip in).
+- Tabs named in Korean, Chinese, Russian or another alphabet have their own memory and no longer get mixed up.
+- Codex: the conversation stays in its tab even if you open the same brain in two windows.
+- Loading a brain no longer changes its owner or hides its sessions. Loading or creating an agent no longer removes your other agents' terminal commands.
+- An agent whose name is already a command on your computer is rejected when you create it, and the installer never overwrites a command that isn't its own.
+- The calendar is no longer wiped by an odd entry, and a pasted image goes to the open task.
+- Antigravity shows up as installed even if its installer didn't add it to the PATH.
+- Windows: installing and signing in to Codex and opencode from Engines works; reinstalling respects whether you chose to have the terminal open the hub on its own, and the hub no longer opens inside the engines' hidden terminals.
+- Mac: your agents save memory with the Python that ships with the Mac (before, the documented way to save a note failed with it).
+- Mac: closing the terminal window lets the engine close its session properly instead of cutting it off.
+- opencode 2: Workspace recognizes each tab's conversation when it closes, so the carry-over note includes what happened in opencode and the tab resumes that conversation (before, a format change in opencode kept it from finding it).
+- OpenClaw on Mac: after a restart it no longer waits on a process that no longer exists, and it never closes another app by mistake.
+- Memory: a section of yours whose title starts with «Vigente» or «Historial» is left alone, and a file with characters that can't be read cleanly is not rewritten: you get a warning.
+- `workspace update` tells you when it couldn't update (and exits with an error) instead of finishing as if all went well, and updating re-applies the hook timeouts.
+- Ctrl+C while typing a session name cancels without showing an error.
+- `workspace doctor` no longer stops to ask you for paths or reinstalls commands for agents that have no brain.
+
 ## 0.3.3 — 2026-10-14
 
 **Fixes**

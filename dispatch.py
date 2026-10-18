@@ -18,6 +18,9 @@ Cambio de motor (precedencia, de más explícita a menos):
   4. settings unificado `modelos.default_engine` (solo si el agente NO declara
      motor — hoy todos lo declaran, así que nada cambia por default).
 La elección explícita (1/2) es ESTRICTA (selection-source policy — sin fallbacks).
+Motor caído (sin adaptador o sin su programa en PATH): se dice en una línea y
+se ofrecen los motores disponibles para abrir ESTA sesión (opcional: dejarlo
+como su motor en esta máquina). Sin terminal o con --plan: lista y sale con 1.
 
 Cero dependencias (stdlib, Python 3.9+). Config en JSON.
 Resolución del cerebro (en orden) — brain_resolver.py es la ÚNICA implementación:
@@ -359,6 +362,161 @@ def _warn_engine_broken(full, exc):
         pass
 
 
+# ── Motor caído al abrir: avisar y ofrecer otro (nunca un callejón sin salida) ──
+def _t(key, es, **kw):
+    """Cadena de la UI (i18n, catálogo lang/<code>/dispatch.py) con el español
+    inline como red. Falla-suave: sin i18n o sin la clave → `es`."""
+    try:
+        import i18n
+        s = i18n.t(key)
+        if s == key:
+            s = es
+    except Exception:
+        s = es
+    if kw:
+        try:
+            return s.format(**kw)
+        except Exception:
+            return s
+    return s
+
+
+def _engine_problem(mod):
+    """'' si el motor puede arrancar; si no, el porqué en corto. Chequeo
+    BARATO y el MISMO del hub (harnesses.describe / agent_state): adaptador
+    cargable + los programas de su META.needs en PATH. El login lo sigue
+    avisando el motor al arrancar (probarlo aquí cuesta red/segundos).
+    Falla-suave: si no se puede saber → '' (el motor decide, como antes)."""
+    if mod is None:
+        return _t("dispatch.engine.no_adapter",
+                  "no tiene adaptador en este Workspace")
+    try:
+        import shutil
+        meta = getattr(mod, "META", None)
+        needs = meta.get("needs") if isinstance(meta, dict) else None
+        faltan = [b for b in (needs or ()) if isinstance(b, str) and b
+                  and not shutil.which(b)]
+    except Exception:
+        return ""
+    if faltan:
+        return _t("dispatch.engine.not_installed",
+                  "no está instalado (falta {bins})", bins=", ".join(faltan))
+    return ""
+
+
+def _engines_ready(exclude=""):
+    """Motores que SÍ pueden arrancar ahora (adaptador + programas en PATH),
+    en el orden del hub (harnesses). Falla-suave → []."""
+    try:
+        import harnesses
+        return [d["id"] for d in harnesses.registry(probe=False)
+                if d.get("ready") and d.get("id") != exclude]
+    except Exception:
+        return []
+
+
+def _interactive():
+    """¿Hay alguien en la terminal para elegir? stdin Y stdout tty (igual que
+    engine_versions.allow_anyway). Tests, pipes y el hub tmux → False."""
+    try:
+        return bool(sys.stdin.isatty() and sys.stdout.isatty())
+    except Exception:
+        return False
+
+
+def _cancel_open():
+    """El socio no eligió motor: de vuelta al hub si vino de ahí (el mismo
+    regreso que Esc en el menú de pestañas); si no, sale sin abrir."""
+    if os.environ.get("WORKSPACE_FROM_HUB") == "1":
+        try:
+            from engines import claude_code as _cc
+            _cc.back_to_hub()
+        except SystemExit:
+            raise
+        except Exception:
+            pass
+    sys.exit(1)
+
+
+def _other_engine(entry, cfg, engine, problema, plan=False, agent_default=""):
+    """El motor de esta corrida no puede arrancar: UNA línea con cuál y por
+    qué, y los motores disponibles para abrir ESTA sesión. Con terminal, el
+    socio elige con número y Enter (Enter solo = cancelar) y, si quiere, lo
+    deja como el motor del agente EN ESTA MÁQUINA (harnesses.set_binding — el
+    mismo binding de ←→ en el hub; el agent.json no se toca). Sin terminal
+    (tests, pipes, --plan) jamás espera: lista y sale con 1, como siempre.
+    Devuelve (motor, módulo) elegidos; si no hay salida, sys.exit."""
+    name = cfg.get("display") or entry.get("name") or "?"
+    print(_t("dispatch.engine.down",
+             "WORKSPACE: {name} usa {engine}, pero ese motor no está "
+             "disponible: {why}.", name=name, engine=engine, why=problema))
+    opts = _engines_ready(exclude=engine)
+    if not opts:
+        print(_t("dispatch.engine.none",
+                 "  No hay ningún motor disponible en esta máquina — instala "
+                 "uno en el hub › Motores."))
+        sys.exit(1)
+    if plan or not _interactive():
+        print(_t("dispatch.engine.available", "  Motores disponibles: {list}",
+                 list=", ".join(opts)))
+        print(_t("dispatch.engine.hint",
+                 "  Para abrirlo con otro esta vez: {agent} --engine <motor>",
+                 agent=entry.get("name") or name))
+        sys.exit(1)
+    try:
+        import tuitheme
+        P = tuitheme.palette()
+        C, DIM, R = P.C, P.DIM, P.R
+    except Exception:
+        C = DIM = R = ""
+    print(_t("dispatch.engine.ask", "  ¿Con cuál lo abro esta vez?"))
+    for i, eid in enumerate(opts, 1):
+        print("    %s%d%s  %s" % (C, i, R, eid))
+    elegido = ""
+    while not elegido:
+        try:
+            ans = input("  %s%s%s" % (DIM, _t(
+                "dispatch.engine.prompt",
+                "Número y Enter · Enter solo cancela: "), R)).strip()
+        except (EOFError, KeyboardInterrupt):
+            ans = ""
+        if not ans:
+            _cancel_open()
+        if ans.isdigit() and 1 <= int(ans) <= len(opts):
+            elegido = opts[int(ans) - 1]
+        elif ans in opts:
+            elegido = ans
+    try:
+        si = input(_t("dispatch.engine.make_default",
+                      "  ¿Dejar {engine} como el motor de {name} en esta "
+                      "máquina? [s/N] ", engine=elegido, name=name))
+        si = si.strip().lower() in ("s", "si", "sí", "y", "yes")
+    except (EOFError, KeyboardInterrupt):
+        si = False
+    if si:
+        try:
+            import harnesses
+            res = harnesses.set_binding(entry.get("name") or "", elegido,
+                                        agent_default)
+        except Exception as e:
+            res = {"ok": False, "error": "%s: %s" % (type(e).__name__, e)}
+        if res.get("ok"):
+            print(_t("dispatch.engine.saved",
+                     "  ✓ {name} usará {engine} de ahora en adelante "
+                     "(se cambia en Agentes).", name=name, engine=elegido))
+        else:
+            print(_t("dispatch.engine.save_fail",
+                     "  No pude guardarlo ({err}); se abre igual con {engine} "
+                     "esta vez.", err=res.get("error") or "?", engine=elegido))
+    else:
+        suyo = (_settings_agent_engine(entry.get("name")) or agent_default
+                or engine)
+        print(_t("dispatch.engine.this_time",
+                 "  Solo esta vez: {name} sigue con {engine} como su motor.",
+                 name=name, engine=suyo))
+    return elegido, load_engine(elegido)
+
+
 # ── Aislamiento de credenciales por agente (opt-in: "isolate": true en agent.json) ──
 def _agent_home(agent_name):
     """Home per-agente para AISLAR credenciales de subprocesos. Per-máquina, fuera del
@@ -593,6 +751,18 @@ def cmd_list():
 
 
 def main():
+    # NADA de la bóveda llega al motor ni a lo que corra el agente: lo que el
+    # hub cargó (API keys, por su marca), las credenciales INTERNAS (tokens de
+    # Google, URL del calendario) y cualquier copia idéntica a lo guardado.
+    # Va ANTES de lanzar nada: dispatch es la puerta de todo lanzamiento (hub,
+    # alias del agente, panes del multiplexor) y el env puede venir de un hub
+    # de una versión anterior que exportaba la bóveda completa. El hub
+    # conserva lo suyo (el calendario lee de la bóveda). Falla-suave.
+    try:
+        import secret_store
+        secret_store.strip_from_environ()
+    except Exception:
+        pass
     argv = sys.argv[1:]
     plan = False
     if argv and argv[0] in ("--plan", "-n"):
@@ -604,6 +774,15 @@ def main():
         sys.exit(2)
 
     name, rest = argv[0], argv[1:]
+    try:                    # motor instalado sin tocar el PATH (Antigravity) o tras abrir la terminal
+        import path_refresh
+        path_refresh.refresh()
+    except Exception:
+        pass
+    # Los shells que abra el motor (Antigravity corre cada comando en un
+    # PowerShell que carga el $PROFILE) no lanzan el menú del greeter: se
+    # quedaba esperando una tecla y cada `workspace memoria nota` tardaba minutos.
+    os.environ["WORKSPACE_NO_GREETER"] = "1"
     # Flags propios de WORKSPACE (lo demás pasa a claude):
     #   --open <wid>  --name <ws>   abrir directo un workspace (sin menú; lo usa tmux)
     #   --no-banner                 omitir el banner (ventanas tmux)
@@ -704,7 +883,19 @@ def main():
     # agente al cerrar, y telemetry.py para etiquetar eventos. Nombre canónico del
     # registro (no el alias tecleado).
     os.environ["WORKSPACE_AGENT_NAME"] = entry["name"]
-    engine = cfg.get("engine") or entry.get("engine") or _settings_default_engine()
+    # Y QUÉ SESIÓN es esta apertura: id único + el pid que vive lo que vive la
+    # sesión (claude-code en Mac/Linux hace exec y conserva este pid; en Windows
+    # y en los motores envueltos este proceso espera al motor). `workspace
+    # worktree` la guarda como dueña del árbol y el hook SessionEnd libera SOLO
+    # lo de ella — nunca el worktree de otra pestaña viva del mismo agente.
+    # Siempre fresca: una apertura anidada (desde la terminal de otro agente)
+    # es OTRA sesión; la MISMA pestaña relanzada (WORKSPACE_WID) retoma al
+    # arrancar los worktrees de su proceso anterior muerto (hook SessionStart).
+    import uuid
+    os.environ["WORKSPACE_SESSION_ID"] = uuid.uuid4().hex
+    os.environ["WORKSPACE_SESSION_PID"] = str(os.getpid())
+    engine_default = str(cfg.get("engine") or entry.get("engine") or "")
+    engine = engine_default or _settings_default_engine()
     # Cambio de motor sin tocar agent.json — precedencia
     #   cli (--engine) > env (WORKSPACE_ENGINE) > settings agentes.<n>.engine
     #   (override PER-MÁQUINA, tier A) > agent.json.
@@ -715,7 +906,10 @@ def main():
     ov_engine = _settings_agent_engine(entry["name"])
     if ov_engine:
         engine, engine_src = ov_engine, "settings"
-    env_engine = (os.environ.get("WORKSPACE_ENGINE") or "").strip()
+    # El WORKSPACE_ENGINE que memoria v1 deja en la sesión desde la que se abre
+    # (otro agente desde la terminal de uno) no es una elección del socio.
+    import engines as _engines
+    env_engine = _engines.env_engine_override()
     if env_engine:
         engine, engine_src = env_engine, "env"
     if engine_cli:
@@ -724,6 +918,17 @@ def main():
     cfg["_engine_source"] = engine_src
 
     mod = load_engine(engine)
+    # Motor CAÍDO (sin adaptador o sin su programa): jamás un callejón sin
+    # salida — se dice por qué ANTES de entrar al adaptador (que tronaba con
+    # un SystemExit crudo) y se ofrece abrir con otro motor disponible. Solo
+    # esta corrida, salvo que el socio lo deje como su motor. --pick-only
+    # solo corre el menú de pestañas: no necesita el programa del motor.
+    if not pick_only:
+        problema = _engine_problem(mod)
+        if problema:
+            engine, mod = _other_engine(entry, cfg, engine, problema, plan=plan,
+                                        agent_default=engine_default)
+            cfg["engine"], cfg["_engine_source"] = engine, "cli"
     if mod is None:
         avail = ", ".join(available_engines()) or "(ninguno)"
         print(f"WORKSPACE: el motor '{engine}' no está disponible o no cumple el contrato.\n"
@@ -759,8 +964,63 @@ def main():
                                            display=cfg.get("display"), brain=brain)
         except Exception:
             pass
+    if not plan:
+        _usuarios_al_abrir(brain)
+        _reconcile_pending(brain)
     mod.launch(cfg, passthrough, plan=plan, preselect=preselect, show_banner=show_banner)
 
 
+def _usuarios_al_abrir(brain):
+    """Usuarios con cédula (2026-10-17): perfiles y pestañas con su ID, y el
+    nombre de esta máquina corregido si quedó uno viejo — solo, sin preguntar;
+    una línea si hizo algo. Jamás frena la apertura."""
+    try:
+        import usuarios
+        msg = usuarios.al_abrir(brain)
+        if msg:
+            print(msg)
+    except Exception:
+        pass
+
+
+def _reconcile_pending(brain):
+    """Red de seguridad del cierre (pending_runs, 2026-10-16): una corrida
+    anterior de ESTE cerebro que murió sin cerrar (la X en Windows, un crash)
+    se cierra aquí, ANTES de elegir pestaña — así su conversación ya está
+    atada y se retoma. Con tope de tiempo; jamás frena la apertura."""
+    try:
+        import pending_runs
+        for s in pending_runs.reconcile(brain, budget=8.0, notify=print):
+            print("  respaldo: %s · conversación %s" % (
+                s.get("capture_state") or "—",
+                "atada a «%s»" % s.get("tab") if s.get("bound") else "sin cambios"))
+    except Exception:
+        pass
+
+
+def _cancelado():
+    """Ctrl+C antes de que el motor tome la terminal: color normal, cursor
+    visible y el prompt de la shell en su propia línea. Falla-suave."""
+    try:
+        err = sys.stderr
+        err.write(("\033[0m\033[?25h" if err.isatty() else "") + "\n")
+        err.flush()
+    except Exception:
+        pass
+
+
+def run():
+    """Entrada del lanzador (`<agente>`, hub, multiplexor). Ctrl+C en el
+    greeter (p. ej. en «Nombre de la sesión:») o en cualquier paso previo al
+    motor cancela limpio: sin traceback y con código 130 (128 + SIGINT), como
+    cualquier programa de terminal (B08). Mientras corre el motor, el Ctrl+C
+    es suyo (interactive.py lo ignora en el envoltorio)."""
+    try:
+        return main()
+    except KeyboardInterrupt:
+        _cancelado()
+        return 130
+
+
 if __name__ == "__main__":
-    main()
+    sys.exit(run())

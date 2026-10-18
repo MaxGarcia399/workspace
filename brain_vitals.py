@@ -86,12 +86,15 @@ def read_len(p):
 
 
 def boot_files(brain, socio=None):
-    """[(rel, path)] de lo que CLAUDE.md manda leer al arranque: CLAUDE.md +
-    BOOT/ numerados (NN-*.md) + STATE vivo (brain-version, MEMORY, PENDIENTES,
-    MILESTONES, log-recent, users/<socio>). Solo lo que EXISTE en ese cerebro —
-    cada agente tiene su propio set (Atlas no tiene PENDIENTES, p. ej.).
-    Fuente única: doctor (fase 8) delega aquí."""
-    files = [("CLAUDE.md", os.path.join(brain, "CLAUDE.md"))]
+    """[(rel, path)] de lo que la identidad manda leer al arranque: el doc de
+    identidad (BRAIN.md en formato v2 —con su CLAUDE.md puntero, que Claude
+    Code también carga— o CLAUDE.md en cerebros anteriores) + BOOT/ numerados
+    (NN-*.md) + STATE vivo (brain-version, MEMORY, PENDIENTES, MILESTONES,
+    log-recent, users/<socio>). Solo lo que EXISTE en ese cerebro — cada
+    agente tiene su propio set (Atlas no tiene PENDIENTES, p. ej.)."""
+    import brain_identity as _bi
+    files = [(d, os.path.join(brain, d))
+             for d in (_bi.LEGACY_IDENTITY_DOC, _bi.IDENTITY_DOC)]
     bdir = os.path.join(brain, "BOOT")
     try:
         nums = sorted(x for x in os.listdir(bdir) if re.match(r"^\d\d-.+\.md$", x))

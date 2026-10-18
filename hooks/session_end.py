@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
-"""WORKSPACE hook · SessionEnd — red de seguridad de captura.
+"""WORKSPACE hook · SessionEnd — limpieza del cierre.
 
-Al cerrar una sesión: si la memoria de sesión NO se actualizó después del marcador
-de inicio (`session_start.py`), escribe una breadcrumb automática a su `## Historial`
-para no perder el rastro. Si el agente YA hizo su narrativa a mano, no hace nada.
+Al cerrar una sesión: libera los worktrees LIMPIOS del agente, estampa
+`updated` en la pestaña (.claude/*-workspaces.json) y borra el marcador de
+inicio (`session_start.py`).
+
+Memoria v1 (2026-10-17): ya NO escribe la nota «(cierre auto) — sesión cerrada
+sin captura manual»: era ruido (75 en una sola ficha, 4 de cada 12 líneas
+inyectadas; Panorama, hallazgo 13). Lo que pasó en la sesión lo guarda el
+agente con `workspace memoria nota` y, sin IA, `memoria_cierre.py` arma la
+maleta de la pestaña con el extracto de la conversación.
 
 Cleanup-only: Claude Code ignora la salida de SessionEnd (no puede bloquear ni
-invocar al modelo). Opera sobre el cerebro (cwd) y su convención STATE/sessions.
-Best-effort: un cierre por SIGKILL puede no dispararlo. Cero dependencias (3.9+).
+invocar al modelo). Best-effort: un cierre por SIGKILL puede no dispararlo.
+Cero dependencias (3.9+).
 """
-import sys, os, json, glob, datetime, subprocess, unicodedata, re
+import sys, os, json, glob, datetime
 
 try:   # M1/B2 · Windows: UTF-8 en stdout/err — un hook capturado por Claude Code en
        # cp1252 reventaría al imprimir caracteres no-ASCII. No-op en Mac (UTF-8 default).
@@ -21,6 +27,15 @@ except Exception:
 # No actuamos en transiciones de media sesión (evita falsos positivos por orden de
 # disparo). Solo en cierres reales: logout, prompt_input_exit, exit, other, ...
 SKIP_REASONS = {"clear", "resume"}
+
+#: Raíz del harness (padre de hooks/).
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _dev_worktrees_path():
+    """Ruta de dash/dev/_worktrees.py: solo existe en la build de desarrollo
+    (make-dist.sh quita dash/dev/ de la del cliente)."""
+    return os.path.join(_ROOT, "dash", "dev", "_worktrees.py")
 
 
 def _stdin():
@@ -44,29 +59,6 @@ def _state_dir():
 def _marker_path(sid):
     return os.path.join(_state_dir(), "markers",
                         (sid or "unknown") + ".json")
-
-
-def _slug(s):
-    s = unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode("ascii")
-    return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
-
-
-def _socio(brain):
-    try:
-        return open(os.path.join(brain, ".claude", "socio.local"),
-                    encoding="utf-8").read().strip().lower()
-    except Exception:
-        return ""
-
-
-def _git_changes(brain):
-    try:
-        r = subprocess.run(["git", "-C", brain, "status", "--porcelain"],
-                           capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=5)
-        return [ln for ln in r.stdout.splitlines() if ln.strip()]
-    except Exception:
-        return []
 
 
 def _touch_workspace_updated(brain, sid):
@@ -131,46 +123,50 @@ def _wt_log(agent, reason, res):
 
 
 def _release_worktrees(reason):
-    """Auto-libera los worktrees LIMPIOS del agente que cierra esta sesión, para
-    que su rama quede libre. Un worktree olvidado FIJA la rama (`git switch` da
+    """Auto-libera los worktrees LIMPIOS de la SESIÓN que cierra, para que su
+    rama quede libre. Un worktree olvidado FIJA la rama (`git switch` da
     "already used by worktree") y bloquea al desarrollador para entrar a revisar.
 
     Estructural: corre en CADA cierre real de CUALQUIER agente lanzado por el
-    harness — sabemos QUIÉN cierra por WORKSPACE_AGENT_NAME (lo exporta dispatch.py).
-    Sin esa var (sesión no nacida del harness, o agente desconocido) no tocamos
-    nada: la auto-limpieza es solo para agentes del harness. NUNCA remueve un
-    worktree con cambios sin commitear (lo garantiza _worktrees.release). Los
-    worktrees del POOL tibio no se destruyen: release() los devuelve al pool
-    (lease liberado, ignorados intactos) — aquí solo queda el rastro en el log.
-    Falla-suave TOTAL: jamás rompe el cierre (regla 6)."""
+    harness — sabemos QUIÉN cierra por WORKSPACE_AGENT_NAME y QUÉ sesión por
+    WORKSPACE_SESSION_ID/_PID (los exporta dispatch.py; `workspace worktree`
+    los guarda como dueños del árbol). POR SESIÓN, no por agente: otra pestaña
+    viva del mismo agente puede estar trabajando en SU worktree, y soltárselo
+    la deja en HEAD suelto (sus commits siguientes no quedan en la rama y el
+    pool puede reciclarle la carpeta). Suelta además los HUÉRFANOS del agente:
+    su proceso dueño murió sin cerrar (cierre abrupto) y su pestaña no los
+    retomó al relanzarse (eso lo hace session_start.py) — la auto-limpieza de
+    siempre, sin tocar jamás una sesión viva. El pid de ESTA sesión no se exige
+    vivo: en Windows, cerrar la consola mata primero al python del launcher. No
+    se toca nada:
+      · sin WORKSPACE_AGENT_NAME (sesión no nacida del harness);
+      · sin WORKSPACE_SESSION_ID (launcher previo a este registro: no sabemos
+        cuáles son suyos — quedan para `workspace worktree prune`);
+      · en las sesiones de fondo del harness (revisor de skills, headless:
+        WORKSPACE_REVIEW_RUNNING), que heredan el entorno de quien las lanzó.
+    NUNCA remueve un worktree con cambios sin commitear (lo garantiza
+    _worktrees.release). Los worktrees del POOL tibio no se destruyen: release()
+    los devuelve al pool (lease liberado, ignorados intactos) — aquí solo queda
+    el rastro en el log. Falla-suave TOTAL: jamás rompe el cierre (regla 6)."""
     agent = os.environ.get("WORKSPACE_AGENT_NAME", "").strip()
-    if not agent:
+    if not agent or os.environ.get("WORKSPACE_REVIEW_RUNNING"):
+        return
+    # Build de cliente: sin dash/dev/ no hay worktrees que liberar — ni se
+    # intenta (antes el import fallaba en silencio en CADA cierre).
+    if not os.path.isfile(_dev_worktrees_path()):
         return
     try:
-        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        sys.path.insert(0, _ROOT)
         from dash.dev import _worktrees
-        res = _worktrees.release(agent=agent)
+        session, _pid = _worktrees.current_session()
+        if not session:
+            return
+        res = _worktrees.release(agent=agent, session=session, orphans=True)
     except Exception:
         return
     if (res.get("removed") or res.get("pooled") or res.get("skipped_dirty")
             or res.get("stale")):
         _wt_log(agent, reason, res)
-
-
-def _append_breadcrumb(memfile, line):
-    with open(memfile, encoding="utf-8") as fh:
-        txt = fh.read()
-    lines = txt.splitlines()
-    hidx = next((i for i, l in enumerate(lines) if l.strip().startswith("## Historial")), None)
-    if hidx is None:
-        lines += ["", "## Historial", line]
-    else:
-        nxt = next((j for j in range(hidx + 1, len(lines)) if lines[j].startswith("## ")), len(lines))
-        at = nxt
-        while at - 1 > hidx and lines[at - 1].strip() == "":
-            at -= 1
-        lines.insert(at, line)
-    _atomic_write(memfile, "\n".join(lines) + "\n")
 
 
 def main():
@@ -179,7 +175,11 @@ def main():
     brain = data.get("cwd", "") or os.getcwd()
     reason = data.get("reason", "")
 
-    mp = _marker_path(sid)
+    # Motores envueltos (codex/agy/opencode/openclaw/hermes): session_start escribió el
+    # marcador con el run_id del wrapper, pero close_payload reemplaza
+    # session_id por el id del VENDOR → buscar por run_id primero (sin esto
+    # el marcador de esos motores nunca se encontraba ni se limpiaba).
+    mp = _marker_path(data.get("run_id") or sid)
     marker = {}
     if os.path.exists(mp):
         try:
@@ -196,49 +196,15 @@ def main():
     if reason in SKIP_REASONS:
         return  # transición, no cierre real; deja el marcador para el cierre verdadero
 
-    # Cierre real → libera los worktrees LIMPIOS de ESTE agente (la rama queda
-    # libre para entrar a revisarla). Estructural, automático, falla-suave.
+    # Cierre real → libera los worktrees LIMPIOS de ESTA sesión (la rama queda
+    # libre para entrar a revisarla); los de otras pestañas vivas del mismo
+    # agente no se tocan. Estructural, automático, falla-suave.
     _release_worktrees(reason)
 
     # Y10: cierre real → bookkeeping del hook estampa `updated` en la pestaña
     # (jamás `last_opened`, que es solo-humano y la escribe el picker).
     _touch_workspace_updated(brain, sid)
 
-    # WORKSPACE_WS = genérico (cualquier agente); ZENITH_WS = back-compat.
-    ws = (os.environ.get("WORKSPACE_WS", "") or os.environ.get("ZENITH_WS", "")
-          or marker.get("ws", ""))
-    started = marker.get("started")
-    soc = _socio(brain)
-
-    # Sin pestaña, sin socio, o sin marcador (sesión previa al hook) → no arriesgar ruido.
-    if not ws or not soc or started is None:
-        cleanup(); return
-
-    memfile = os.path.join(brain, "STATE", "sessions", soc, _slug(ws) + ".md")
-    if not os.path.exists(memfile):
-        cleanup(); return  # no auto-creamos archivos estructurados curados
-
-    # ¿Se actualizó la memoria DESPUÉS del inicio de esta sesión? → narrativa hecha.
-    try:
-        if os.path.getmtime(memfile) >= float(started):
-            cleanup(); return
-    except Exception:
-        cleanup(); return
-
-    # Me olvidé → breadcrumb mecánica.
-    changes = _git_changes(brain)
-    n = len(changes)
-    sample = ", ".join(c[3:] for c in changes[:5])
-    extra = f" ({sample}{'…' if n > 5 else ''})" if sample else ""
-    line = ("- " + datetime.date.today().isoformat() + " (cierre auto) — sesión cerrada"
-            + (f" [{reason}]" if reason else "") + " sin captura manual. "
-            + (f"{n} archivo(s) del cerebro con cambios sin commit{extra}." if n
-               else "Sin cambios sin commit.")
-            + " Revisar para consolidar.")
-    try:
-        _append_breadcrumb(memfile, line)
-    except Exception:
-        pass
     cleanup()
 
 

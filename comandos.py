@@ -6,6 +6,7 @@ ayuda»). Cada entrada declara su META una vez y de ahí se DERIVA todo lo
 demás — nadie vuelve a listar comandos a mano:
 
   · `workspace --help` (front._usage)          → usage_text()
+  · `workspace <comando> --help` (front.main)  → help_text()
   · la sección «Comandos» del hub              → comandos_tui (visible/usage_of)
   · `workspace comandos --json` (para agentes) → as_json()
   · `workspace comandos --markdown` (manual)   → as_markdown()
@@ -240,7 +241,9 @@ COMMANDS = (
         "Desinstala Workspace de esta máquina (tus cerebros se quedan).",
         "Uninstalls Workspace from this machine (your brains stay).",
         "Si ya no lo vas a usar aquí.", "If you will no longer use it here.",
-        args="[--dry-run | --no-backup | --keep-folder]", aliases=("remove",),
+        args={"es": "[--dry-run | --no-backup | --keep-folder | --limpiar-todo]",
+              "en": "[--dry-run | --no-backup | --keep-folder | --clean-all]"},
+        aliases=("remove",),
         hidden_aliases=("--uninstall",),
         dangerous=True),
     cmd("comandos", "comandos", "commands", "maquina",
@@ -271,16 +274,12 @@ COMMANDS = (
         "Local voice dictation: records, transcribes and pastes.",
         "Desde un atajo de teclado del sistema.", "From a system keyboard shortcut.",
         args="[--check | --setup]", aliases=("dictado",), hidden=True),
-    cmd("bus", "bus", "bus", "trabajo",
-        "Delegación automática entre agentes por el bus (opt-in).",
-        "Automatic delegation between agents over the bus (opt-in).",
-        "Solo si activaste la delegación autónoma.", "Only if you enabled autonomous delegation.",
-        args="…", hidden=True, requires_args=True),
     cmd("memoria", "memoria", "memory", "agentes",
-        "Continuidad de sesión de un agente (memoria por pestaña).",
-        "Session continuity of an agent (per-tab memory).",
-        "Lo usan los hooks; a mano, para depurar.", "Used by hooks; by hand, to debug.",
-        args="…", hidden=True, requires_args=True),
+        "Memoria de la pestaña: notas con etiqueta, vigente, maleta y resumen.",
+        "Tab memory: labelled notes, open items, handoff and summary.",
+        "La usa el agente (nota, checkpoint); a mano, para ver o depurar.",
+        "Used by the agent (nota, checkpoint); by hand, to view or debug.",
+        args="nota|ver|vigente|maleta|checkpoint|status …", hidden=True, requires_args=True),
     cmd("panel", "panel", "panel", "trabajo",
         "Panel del lado derecho de la terminal partida.",
         "Right-hand pane of the split terminal.",
@@ -556,7 +555,7 @@ def command_map(name, lg=None):
 # ── derivados: --help · JSON · Markdown ────────────────────────────────────
 
 _TXT = {
-    "es": {"usage": "uso: workspace [comando]", "nocmd": "(sin comando)",
+    "es": {"usage": "uso: workspace [comando]", "use": "uso", "nocmd": "(sin comando)",
            "hub": "abre el hub (tus agentes y el menú)",
            "also": "también", "when": "Cuándo", "ex": "Ejemplos",
            "danger": "Pide confirmación en la pantalla Comandos.",
@@ -565,7 +564,7 @@ _TXT = {
            "title": "Comandos de Workspace",
            "intro": "Todo lo que puedes escribir en la terminal. Cada comando "
                     "acepta su nombre en español y en inglés."},
-    "en": {"usage": "usage: workspace [command]", "nocmd": "(no command)",
+    "en": {"usage": "usage: workspace [command]", "use": "usage", "nocmd": "(no command)",
            "hub": "opens the hub (your agents and the menu)",
            "also": "also", "when": "When", "ex": "Examples",
            "danger": "Asks for confirmation in the Commands screen.",
@@ -607,6 +606,27 @@ def usage_text(lg=None, dev=False):
                 out.append("  %-22s %s" % ("", summary_of(c, lg)))
     out.append("")
     out.append(T["more"])
+    return "\n".join(out) + "\n"
+
+
+def help_text(cid, lg=None, dev=True):
+    """`workspace <comando> --help`: la FICHA de UN comando, derivada del
+    catálogo (cómo se escribe, sus otros nombres, qué hace, cuándo sirve y
+    ejemplos) en el idioma `lg`. Solo texto: front.main la imprime SIN correr
+    el comando. None si `cid` no tiene ficha."""
+    c = get(cid, dev)
+    if c is None:
+        return None
+    lg = lg if lg in LANGS else lang()
+    T = _TXT[lg]
+    out = ["%s: %s" % (T["use"], usage_of(c, lg))]
+    al = shown_aliases(c, lg)
+    if al:
+        out.append("  %s: %s" % (T["also"], ", ".join(al)))
+    out += ["", summary_of(c, lg), "%s: %s" % (T["when"], when_of(c, lg))]
+    ex = examples_of(c, lg)
+    if ex:
+        out += ["", "%s:" % T["ex"]] + ["  " + e for e in ex]
     return "\n".join(out) + "\n"
 
 

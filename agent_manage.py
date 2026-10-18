@@ -351,7 +351,7 @@ def set_skill_review(agent_id, on, expected_brain=None):
     if bad:
         return _err(bad)
     return _ok(_t("agentes.mg.review_on",
-                  "revisión de skills prendida para {n} · corre al cerrar "
-                  "cada sesión", n=a["name"]) if on else
+                  "revisión de skills prendida para {n} · la hace al abrir la "
+                  "siguiente sesión, a la vista", n=a["name"]) if on else
                _t("agentes.mg.review_off",
                   "revisión de skills apagada para {n}", n=a["name"]))

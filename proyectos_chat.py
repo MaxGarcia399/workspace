@@ -37,7 +37,7 @@ _TIMEOUT = 180                        # s por vuelta (una respuesta, no una tare
 _HIST = 8                             # vueltas de historial que viajan al prompt
 _HOST_PATH_RX = re.compile(r"(/Users/[^/\s]+|/home/[^/\s]+|[A-Z]:\\[^\s]+)\S*")
 
-_IDENT_MAX = 4000                     # cota del CLAUDE.md que viaja como identidad
+_IDENT_MAX = 4000                     # cota del doc de identidad que viaja como texto
 
 _RULES = (
     "El usuario organiza sus proyectos en un MAPA CONCEPTUAL (nodos conectados) y "
@@ -56,7 +56,10 @@ _RULES = (
 
 
 def _identity(brain):
-    """La identidad del agente, como TEXTO, leída de `<cerebro>/CLAUDE.md`.
+    """La identidad del agente, como TEXTO, leída de su doc de identidad
+    (`BRAIN.md` en cerebros v2; `CLAUDE.md` en los anteriores) vía el resolver
+    único `brain_identity` — que sigue un CLAUDE.md puntero hasta el BRAIN.md
+    (si no, el panel recibiría el puntero y el agente respondería genérico).
 
     POR QUÉ a mano y no por el runtime: el harness invoca el motor con
     `--setting-sources ""` (endurecimiento de Argus: no heredar las allow-rules
@@ -68,14 +71,18 @@ def _identity(brain):
 
     Se inyecta el mismo archivo que el runtime habría cargado, pero como texto del
     prompt que nosotros controlamos — sin reabrir la puerta que Argus cerró.
-    Falla-suave: sin CLAUDE.md legible se devuelve "" y el agente sigue siendo útil
-    (genérico), que es exactamente lo de hoy.
+    Falla-suave: sin doc de identidad legible se devuelve "" y el agente sigue
+    siendo útil (genérico), que es exactamente lo de hoy.
     """
     try:
-        with open(os.path.join(brain, "CLAUDE.md"), encoding="utf-8") as fh:
-            return fh.read(_IDENT_MAX).strip()
+        import brain_identity
+        return brain_identity.read_identity(brain, limit=_IDENT_MAX).strip()
     except Exception:
-        return ""
+        try:
+            with open(os.path.join(brain, "CLAUDE.md"), encoding="utf-8") as fh:
+                return fh.read(_IDENT_MAX).strip()
+        except Exception:
+            return ""
 
 
 def build_system(agent, identity):

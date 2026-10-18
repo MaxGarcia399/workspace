@@ -189,9 +189,11 @@ al día). Si el paso que necesitas NO está aquí, es una **primitiva nueva** �
 
 - `suite.green` — corre la suite de tests; verde = 0 fallos. Produce `suite_rc`, `suite_timeout_s`.
 - `worktree.acquire` / `worktree.verify_acquired` / `worktree.release` — worktree con dueño desde main.
-  Produce `worktree_path`, `branch`, `adopted` / `worktree_release`.
-- `front.integrate` — merge a main suite-gated (no-op verde si ya mergeado). Produce `integrate_rc`,
-  `integrate_noop`.
+  Produce `worktree_path`, `branch`, `adopted`, `branch_base` / `worktree_release`. Desde que existe
+  `worktree_path`, los pasos siguientes prueban ESE árbol (`ctx["repo"]`), no el checkout principal.
+- `front.integrate` — merge a main suite-gated de la rama DEL RUN (re-corrido con la rama ya en main,
+  vuelve a correr las suites; sin trabajo que main no tenga ni prueba de haberlo integrado, rojo).
+  Produce `integrate_rc`, `integrate_noop`, `integrate_tip`.
 - `integrity.check` — guard de integridad del repo. Produce `integrity_flagged`, `integrity_reasons`.
 - `triage.route` / `triage.verify_routed` / `triage.depth_plan` — router de hallazgos por riesgo.
   Produce `triage` / `depth_plan`.

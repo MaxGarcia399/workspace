@@ -34,6 +34,9 @@ API:
     read_requires(skill_dir)    # requires del SKILL.md/CLAUDE.md/INSTRUCCIONES.md
     evaluate(requires, ...)     # → (disponible: bool, faltantes: [str])
     check_skill(skill_dir)      # → {dir, requires, available, missing}
+    read_status(skill_dir)      # `status:` del frontmatter ('' si no hay)
+    archivada(skill_dir)        # ¿archivada en su lugar? (`status: archivada`)
+    iter_skill_dirs(root)       # carpetas del catálogo VIVO (sin _*, .*, archivadas)
     scan_catalog(brain)         # catálogo efectivo de <brain>/skills/
     current_os()                # "darwin" | "windows" | "linux"
 
@@ -240,17 +243,50 @@ def evaluate(requires, env=None, which=None, osname=None, base_dir=None):
 # ══════════════════════════════════════════════════════════════════════════
 #  Catálogo
 # ══════════════════════════════════════════════════════════════════════════
-def iter_skill_dirs(skills_root):
+#: `status:` de una skill archivada EN SU LUGAR: skill-curator archiva así,
+#: sin mover la carpeta (moverla haría que el motor pidiera permiso). Queda
+#: fuera del catálogo vivo; nada se borra y se reactiva quitando la marca.
+ARCHIVADA = "archivada"
+_STATUS_RX = re.compile(r"^status:\s*(.*)$", re.MULTILINE)
+
+
+def read_status(skill_dir):
+    """`status:` del frontmatter de la skill (SKILL.md o, en kits,
+    CLAUDE.md/INSTRUCCIONES.md), en minúsculas y sin comillas; '' si no hay.
+    Lo leen todos los que necesitan el estado de una skill o de una propuesta
+    (catálogo, auditoría, sin_aprobacion): una sola lectura (regla 5)."""
+    for name in SKILL_FILES:
+        p = os.path.join(str(skill_dir), name)
+        try:
+            with open(p, "r", encoding="utf-8-sig", errors="ignore") as fh:
+                text = fh.read(FM_READ_BYTES).replace("\r\n", "\n")
+        except OSError:
+            continue
+        fm = _frontmatter(text)
+        m = _STATUS_RX.search(fm) if fm is not None else None
+        return _clean(_strip_comment(m.group(1))).lower() if m else ""
+    return ""
+
+
+def archivada(skill_dir):
+    """True si la skill está archivada en su lugar (`status: archivada`)."""
+    return read_status(skill_dir) == ARCHIVADA
+
+
+def iter_skill_dirs(skills_root, archivadas=False):
     """Carpetas de skill bajo `skills_root` (las que contienen un archivo de
-    instrucciones). Salta dot-dirs y `_*` (`_propuestas` no es catálogo).
-    No desciende dentro de una skill (sus assets no son sub-skills)."""
+    instrucciones). Salta dot-dirs y `_*` (`_propuestas` no es catálogo) y,
+    salvo `archivadas=True`, las archivadas en su lugar (`status: archivada`,
+    Greptile 2026-10-18: seguían contando como vivas). No desciende dentro de
+    una skill (sus assets no son sub-skills)."""
     skills_root = str(skills_root)
     for dirpath, dirnames, filenames in os.walk(skills_root):
         dirnames[:] = sorted(d for d in dirnames
                              if not d.startswith((".", "_")))
         if dirpath != skills_root and any(f in filenames for f in SKILL_FILES):
             dirnames[:] = []
-            yield dirpath
+            if archivadas or not archivada(dirpath):
+                yield dirpath
 
 
 def check_skill(skill_dir, base_dir=None):

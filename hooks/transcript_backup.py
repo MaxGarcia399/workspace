@@ -6,10 +6,10 @@ Al cerrar una sesión, copia el .jsonl crudo de Claude Code
 
     ~/.claude/workspace/transcripts-backup/<enc>/<wid>.jsonl
 
-Por qué existe: los transcripts crudos son la materia prima del backfill de
-memoria v2 (N1 · Dreaming). `cleanupPeriodDays=365` (Y2a) mitiga el borrado
-por edad, pero un reinstall / limpieza de ~/.claude/projects los pierde todos.
-Este hook es el respaldo activo: "no perder". La curación/destilación es N1.
+Por qué existe: el transcript crudo es la única copia completa de la
+conversación. `cleanupPeriodDays=365` (Y2a) mitiga el borrado por edad, pero
+un reinstall / limpieza de ~/.claude/projects los pierde todos. Este hook es
+el respaldo activo: "no perder".
 
 Diseño:
 - Idempotente: si el destino existe con el mismo tamaño y mtime que la fuente,
@@ -25,10 +25,9 @@ Diseño:
   `settings set hooks.transcript_backup off` (canal nuevo, settings.py).
 
 Retención: el backup CRECE sin rotación (a propósito — Y2b es "no perder";
-los .jsonl son texto, MBs por sesión). Cuando N1 (Dreaming) destile los
-transcripts a journals, la curación/poda del backup será suya. Si algún día
-estorba: borrar ~/.claude/workspace/transcripts-backup/ es seguro (solo se
-pierde el respaldo, no los originales).
+los .jsonl son texto, MBs por sesión). Si algún día estorba: borrar
+~/.claude/workspace/transcripts-backup/ es seguro (solo se pierde el respaldo,
+no los originales).
 
 Cero dependencias (Python 3.9+). Mac y Windows.
 """

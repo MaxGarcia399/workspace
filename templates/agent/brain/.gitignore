@@ -2,6 +2,9 @@
 .claude/settings.local.json
 .claude/socio.local
 .claude/{{AGENT_NAME}}-workspaces.json
+.claude/skill-review/
+# Candados de la memoria (olock.local_lock) cuando el motor corre en sandbox — per-máquina
+.claude/locks/
 
 # macOS
 .DS_Store
@@ -15,10 +18,6 @@ skills/**/.usage.json.lock*
 
 # N4 (audit pipeline): el .audit.json SÍ se versiona; su lock N8 es per-máquina → fuera
 skills/**/.audit.json.lock*
-
-# N1 (Dreaming): DESTILADO.md SÍ se versiona (superficie de revisión humana);
-# su lock N8 es estado per-máquina → fuera de git
-STATE/DESTILADO.md.lock*
 
 # Runtime / derivados — per-máquina, regenerables, no sincronizar (E1+E2)
 # boot-lite.md: digest DERIVADO de BOOT/ (boot_lite.py lo regenera; jamás fuente de verdad)

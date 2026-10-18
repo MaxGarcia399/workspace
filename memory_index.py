@@ -10,8 +10,9 @@ Principios (no negociables — son lo que hace que NO rompa git-sync ni multi-m�
     (per-máquina, gitignored). Jamás es fuente de verdad → se puede borrar y
     regenerar. Cada máquina indexa los MISMOS .md sincronizados → consistencia
     eventual gratis.
-  · Indexa conocimiento curado/archival: destilados, wiki, memoria-archivo,
-    log-archive, inbox consumido. NO indexa transcripts crudos (LP-5: ruido).
+  · Indexa conocimiento curado/archival: la ficha de cada pestaña y su archivo/
+    (memoria v1), wiki, memoria-archivo, log-archive, inbox consumido. NO indexa
+    transcripts crudos ni la maleta (extracto de la conversación) (LP-5: ruido).
   · Ranking = BM25 × recencia × importancia (frontmatter de triage, si existe).
     Excluye lo invalidado (`reemplazado_por:` no nulo) salvo --historico.
   · Falla-suave SIEMPRE: archivo podrido → se salta; sin .db → el caller cae al
@@ -44,14 +45,19 @@ W_RECENCY = 0.6          # boost máximo por documento fresco
 W_IMPORTANCIA = 0.8      # boost máximo por importancia=100
 RECENCY_HALFLIFE_DAYS = 120.0   # a los 120 días el boost de recencia cae a la mitad
 
-# Qué se indexa: (subruta relativa al cerebro, glob recursivo, categoría).
-# Solo conocimiento curado/archival — NUNCA transcripts crudos.
+# Qué se indexa: (subruta relativa al cerebro, patrón de la ruta DENTRO de esa
+# subruta con '/' — None = todo —, categoría). Solo conocimiento curado/archival
+# — NUNCA transcripts crudos: en STATE/sessions quedan fuera la maleta (extracto
+# sin IA de la conversación) y los checkpoints.
 SOURCES = [
-    ("STATE/sessions",       "destilados/", "destilado"),
-    ("wiki",                 "",            "wiki"),
-    ("STATE/memoria-archivo", "",           "memoria-archivo"),
-    ("STATE/log-archive",    "",            "log-archive"),
-    ("STATE/inbox/consumed", "",            "inbox"),
+    ("STATE/sessions",        r"[^/]+/[^/]+",          "sesion"),          # ficha de cada pestaña
+    ("STATE/sessions",        r"[^/]+/archivo/[^/]+",  "sesion-archivo"),  # sus notas viejas, por mes
+    # cerebros previos a memoria v1: destilados planos o por mes (YYYY-MM)
+    ("STATE/sessions",        r"[^/]+/(destilados|\d{4}-\d{2})/.+", "destilado"),
+    ("wiki",                  None, "wiki"),
+    ("STATE/memoria-archivo", None, "memoria-archivo"),
+    ("STATE/log-archive",     None, "log-archive"),
+    ("STATE/inbox/consumed",  None, "inbox"),
 ]
 MAX_BODY_CHARS = 40_000   # cota por documento (cola de costo del índice)
 
@@ -116,7 +122,7 @@ def _iter_source_files(brain):
     """Genera (abs_path, categoría) de todo lo indexable. Falla-suave: rutas
     inexistentes se saltan."""
     brain = os.path.expanduser(brain)
-    for sub, needle, cat in SOURCES:
+    for sub, pattern, cat in SOURCES:
         # `sub` usa '/' como separador canónico en SOURCES; lo partimos para que
         # os.path.join arme la ruta con os.sep nativo (en Windows, '\'). Si no,
         # join conserva el '/' interno y os.walk propaga separadores MEZCLADOS.
@@ -130,7 +136,8 @@ def _iter_source_files(brain):
                 if fn.upper().startswith("README"):
                     continue
                 p = os.path.join(root, fn)
-                if needle and needle not in p.replace(os.sep, "/") + "/":
+                rel = os.path.relpath(p, base).replace(os.sep, "/")
+                if pattern and not re.fullmatch(pattern, rel):
                     continue
                 yield p, cat
 

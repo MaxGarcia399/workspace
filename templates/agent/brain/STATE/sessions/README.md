@@ -1,105 +1,102 @@
 # Memoria de sesión (por pestaña, por socio)
 
-Un archivo por **sesión/pestaña** y por **socio**: el historial detallado de cada conversación de
-trabajo con {{AGENT_DISPLAY}}. Complementa —no reemplaza— a `STATE/MEMORY.md` (memoria curada) y
+Un archivo por **sesión/pestaña** y por **socio**: la memoria de cada conversación de trabajo con
+{{AGENT_DISPLAY}}, igual en todos los motores (Claude Code, Codex, opencode, OpenClaw, Hermes,
+Antigravity). Complementa —no reemplaza— a `STATE/MEMORY.md` (memoria del agente) y
 `STATE/log-recent.md` (índice cronológico).
 
-Misma convención que el resto de los agentes del equipo; el motor son los hooks genéricos de
-WORKSPACE (`hooks/session_start.py` / `session_end.py`) + el `--context` de
-`{{AGENT_NAME}}-dashboard.py`, que leen `$WORKSPACE_WS`.
+**Reparto del trabajo** (memoria v1): el agente entiende y etiqueta, en su sesión visible; el
+código de Workspace ordena, sin IA. Nada corre de noche ni sin ventana, y nadie tiene que
+aprobar ni ordenar nada a mano.
 
 ## Árbol
 
 ```
 STATE/sessions/
-  README.md                          ← este archivo
-  <socio>/<slug>.md                  ← journal vivo por pestaña (WARM la activa, COLD las demás)
-  <socio>/<YYYY-MM>/                 ← destilados mensuales INMUTABLES (COLD)
+  README.md                       ← este archivo
+  <socio>/<slug>.md               ← el diario de la pestaña: ## Vigente + ## Historial
+  <socio>/checkpoints/<slug>.md   ← el resumen (con número de revisión) + history/
+  <socio>/maleta/<slug>.md        ← lo último de cada motor, para seguir en otro
+  <socio>/archivo/<slug>-AAAA-MM.md  ← notas viejas que salieron del diario (nada se borra)
 ```
 
-## Dos capas: live journal vs destilado mensual
+`<slug>` lo calcula Workspace: el nombre de la pestaña en kebab-case ASCII; si trae letras de
+otro alfabeto (coreano, chino, cirílico…) lleva además un código corto estable (p. ej.
+`tab-23185649`). No lo armes a mano: los comandos de abajo ya escriben en el archivo correcto.
 
-### Capa 1 — Live journal (`<socio>/<slug>.md`)
+## Cómo guarda el agente
 
-- Archivo WARM cuando la pestaña está activa (el hook inyecta ≤1.2k chars al boot).
-- COLD el resto del tiempo (acceso bajo consulta explícita).
-- Lo escribe: el agente (append fechado al cerrar trabajo significativo) + `session_end.py`
-  (breadcrumb automática de red de seguridad si la sesión cierra sin captura).
-- **Por socio:** solo se toca `STATE/sessions/<socio-activo>/`, nunca el de otro.
+Una línea por cosa, **en el momento**, con su etiqueta:
 
-Formato del live journal:
+```
+workspace memoria nota --tipo decision "usar el gateway en OpenClaw"
+workspace memoria nota --tipo pendiente "probar Hermes"          → responde «P-3»
+workspace memoria nota --tipo hecho --cierra P-3 "Hermes probado"
+workspace memoria nota --tipo preferencia "abre los HTML en Opera GX"
+```
+
+| Etiqueta | Va a |
+|---|---|
+| `decision`, `pendiente` | **Vigente** (arriba del diario) hasta que se cierre con `--cierra` |
+| `hecho`, `nota` | el **Historial**; lo viejo pasa al archivo del mes |
+| `dato`, `preferencia` | además, a `STATE/MEMORY.md` (vale en todas las pestañas) |
+
+Al terminar una unidad de trabajo o antes de cambiar de motor, el **resumen**:
+`workspace memoria checkpoint --expected-revision <n> --objective … --decision … --blocker …
+--next-step … --result …` (≤600 caracteres por campo; si hay conflicto, `workspace memoria status`
+y reconciliar, nunca pisar).
+
+**Si `workspace memoria nota` no existe** en la máquina (una versión anterior de Workspace
+responde «invalid choice: 'nota'»), el agente agrega al final de `## Historial` una línea fechada
+con el mismo formato: `- 2026-10-16 14:02 · codex · decisión: usar el gateway`. Al actualizar,
+Workspace la lee como una nota más.
+
+Fuera de ese caso, el agente **no edita** estos archivos a mano: Workspace escribe con candado,
+así dos pestañas o dos motores a la vez no se pisan. Ver lo que hay: `workspace memoria ver` · `vigente` · `maleta`.
+
+## Formato del diario
 
 ```markdown
 ---
 sesión: <slug>
 titulo: <nombre visible de la pestaña>
 socio: <socio>
-workspace: <uuid>
 creada: YYYY-MM-DD
 actualizada: YYYY-MM-DD
 estado: activa | inactiva | archivada
-migrar: sí | no | pendiente
-trabajo: alto | medio | bajo | por-confirmar
 ---
 
 # Sesión: <titulo>
 
 ## Resumen
-[1-3 líneas: qué es esta sesión y dónde va.]
+[Opcional: 1-3 líneas.]
+
+## Vigente
+<!-- Workspace rehace esta lista solo … -->
+- P-3 · pendiente (2026-10-16 · codex): probar Hermes
+- D-1 · decisión (2026-10-03 · claude-code): usar el gateway
 
 ## Historial
-- YYYY-MM-DD — [qué pasó, decisiones, estado.]
+- 2026-10-16 14:02 · codex · decisión D-1: usar el gateway
+- 2026-10-16 14:05 · codex · pendiente P-3: probar Hermes
 ```
 
-### Capa 2 — Destilados mensuales (`<socio>/<YYYY-MM>/<fecha>-<slug>-<sid8>.md`)
+Las líneas de versiones anteriores (`- YYYY-MM-DD — texto`) se leen como notas y se conservan.
 
-- COLD: archivos INMUTABLES generados por el pipeline Dreaming/nightly.
-- Agrupados por mes (el directorio `<YYYY-MM>/` agrupa todos los destilados del mes).
-- El día de la sesión va en el nombre de archivo (no en el directorio) — facilita ordenar
-  por fecha dentro del mes y locate sin abrir el directorio.
-- **Jamás se editan a mano.** El campo `reemplazado_por:` es la única modificación permitida
-  (la escribe el consolidador al invalidar, nunca al borrar — tipo Mem0).
+## Qué hace Workspace, solo y sin IA
 
-Convención de nombre: `<YYYY-MM-DD>-<slug>-<sid8>.md`
-  - `<YYYY-MM-DD>` — fecha de la sesión de origen
-  - `<slug>` — slug de la sesión (kebab-case)
-  - `<sid8>` — primeros 8 chars del session_id (provenance)
+- **Al abrir** una pestaña, en cualquier motor: el agente recibe un solo paquete — el resumen,
+  lo vigente, las notas nuevas desde el resumen, la maleta si la pestaña viene de otro motor y
+  cómo guardar. Si toca, le pide en una línea actualizar el resumen («mantenimiento»), y el agente
+  lo hace a la vista.
+- **Al cerrar** (también si la ventana se cerró con la X, en el siguiente arranque):
+  - rehace la **maleta** con el extracto de la conversación (lo último que pidió el socio, la
+    última respuesta, los archivos tocados; nada que parezca una llave);
+  - sube `dato`/`preferencia` a `STATE/MEMORY.md` (sección «Aprendido en las sesiones»);
+  - si el diario pasa de 30 notas u 8 KB, deja Vigente + las 10 más nuevas y mueve el resto,
+    completo, a `archivo/`;
+  - si `STATE/MEMORY.md` pasa de 200 líneas, o esa sección de 5 000 caracteres, lo más viejo
+    de la sección va a `STATE/memoria-archivo/`.
+- **Por socio:** solo se toca `STATE/sessions/<socio-activo>/`, nunca el de otro.
 
-Formato del destilado (frontmatter completo — contrato E2/E3):
-
-```markdown
----
-# provenance (escribe el pipeline — no editar)
-sid: 00f14635          # session_id de origen (8 chars)
-prompt: dream-v1       # versión del prompt destilador
-fingerprint: sha256…   # del transcript crudo
-
-# triage (escribe el pipeline al destilar — scoring Park)
-fecha: YYYY-MM-DD
-importancia: 72        # 0-100; alimenta ranking BM25 × recencia × importancia (E3)
-tags: [tag1, tag2]
-socio: <socio>
-
-# validez temporal (contrato E3 — invalidar, nunca borrar)
-valido_desde: YYYY-MM-DD
-reemplazado_por: null  # path del artefacto que lo invalida (si aplica)
-                       # git guarda el historial previo
----
-
-# Destilado — <titulo de la sesión>
-
-[Contenido destilado ≤80 líneas. Hechos, decisiones, preferencias aprendidas.]
-```
-
-## Cómo se mantiene
-
-- **Al abrir una pestaña**: el hook de arranque inyecta la memoria de esa sesión vía `$WORKSPACE_WS`.
-- **Al cerrar trabajo significativo**: append fechado a `## Historial` + actualizar `actualizada`
-  (y `estado`/`migrar`/`trabajo` si cambian). Conciso — no volcar el chat.
-- **Red de seguridad**: si la sesión cierra sin captura, `session_end.py` deja breadcrumb
-  automática (solo si el archivo ya existe — no auto-crea memorias).
-- **Dreaming nocturno**: `dream.py` destila journals vivos → `STATE/DESTILADO.md` (staging).
-  Los destilados aprobados por el humano se escriben a `<socio>/<YYYY-MM>/` como INMUTABLES.
-- **Inmutabilidad de destilados**: `reemplazado_por: null` = vigente. Al invalidar, el
-  consolidador rellena ese campo con el path del artefacto nuevo — el artefacto viejo queda
-  en COLD pero queda excluido de resultados normales (E3 FTS5 respeta ese campo).
+Si existen destilados viejos en `<socio>/<YYYY-MM>/` (versiones anteriores), siguen ahí, intactos.

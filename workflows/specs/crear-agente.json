@@ -121,9 +121,9 @@
       "on_fail": "retry",
       "max_iter": 3,
       "contract": {
-        "objetivo": "escribir la IDENTIDAD del agente en el cerebro recién scaffoldeado: BOOT/00-SOUL (quién es, carácter), 01-IDENTITY (nombre/emoji/color/rol), y afinar CLAUDE.md — siguiendo protocols/agent-creation/02-BRAIN-FORMAT.md",
+        "objetivo": "escribir la IDENTIDAD del agente en el cerebro recién scaffoldeado: BOOT/00-SOUL (quién es, carácter), 01-IDENTITY (nombre/emoji/color/rol), y afinar BRAIN.md (la identidad; CLAUDE.md es un puntero generado: no se edita) — siguiendo protocols/agent-creation/02-BRAIN-FORMAT.md",
         "formato": "los archivos del cerebro editados desde los placeholders del template — sin ningún {{...}} sin renderizar",
-        "tools": "editor sobre <agent_brain>/BOOT/*.md + CLAUDE.md; lectura de 02-BRAIN-FORMAT.md y el agent_config",
+        "tools": "editor sobre <agent_brain>/BOOT/*.md + BRAIN.md; lectura de 02-BRAIN-FORMAT.md y el agent_config",
         "limites": "disposiciones amplias (curiosidad, rigor, calidez), no opiniones rígidas; el carácter contra los pain points reales del intake"
       },
       "note": "STUB v1: la identidad la escribe el autor (socio/Zenith) siguiendo el protocolo; el verify (agent.verify_brain) confirma que el cerebro quedó completo y sin placeholders"
@@ -141,7 +141,7 @@
       ],
       "on_fail": "retry",
       "max_iter": 2,
-      "note": "quality bar ESTRUCTURAL (03-QUALITY-BAR, la parte determinista): el cerebro tiene la estructura mínima (BOOT/, CLAUDE.md, agent.json, STATE/) y CERO placeholders sin renderizar. brain_gaps lista lo que falta. La calidad SEMÁNTICA (¿es bueno el agente?) va en el launch gate humano"
+      "note": "quality bar ESTRUCTURAL (03-QUALITY-BAR, la parte determinista): el cerebro tiene la estructura mínima (BOOT/, BRAIN.md con su puntero CLAUDE.md —o CLAUDE.md en cerebros anteriores—, agent.json, STATE/) y CERO placeholders sin renderizar. brain_gaps lista lo que falta. La calidad SEMÁNTICA (¿es bueno el agente?) va en el launch gate humano"
     },
     {
       "id": "aprobar",

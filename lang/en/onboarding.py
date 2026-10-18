@@ -39,8 +39,8 @@ STRINGS = {
     "onboarding.welcome.p1": "Workspace is a local hub for your AI agents: "
                              "each agent lives in its own brain (a folder of "
                              "files you own) and runs on a CLI engine you "
-                             "already have installed — Claude Code, Codex or "
-                             "Antigravity.",
+                             "already have installed — Claude Code, Codex, "
+                             "Antigravity, OpenCode, OpenClaw or Hermes.",
     "onboarding.welcome.p2": "Everything happens on your machine: zero "
                              "dependencies, no new accounts, and Workspace "
                              "never sees or stores your credentials (login is "
@@ -100,8 +100,8 @@ STRINGS = {
                                           "`claude` once and follow the login.",
     "onboarding.motor.claude-code.changes": "It's the most deeply integrated "
                                             "engine in Workspace: real hooks, "
-                                            "memory injected into the agent and "
-                                            "harness sessions.",
+                                            "live events and its own memory "
+                                            "inside the brain.",
     "onboarding.motor.codex.what": "Codex — OpenAI's CLI (the `codex` binary), "
                                    "with your ChatGPT subscription.",
     "onboarding.motor.codex.login": "Log in with `codex login` in your "
@@ -114,6 +114,33 @@ STRINGS = {
                                           "account from the CLI itself.",
     "onboarding.motor.antigravity.changes": "Workspace wraps it just like the "
                                             "other engines.",
+    "onboarding.motor.opencode.what": "OpenCode — open-source CLI (`opencode` "
+                                      "binary), model-agnostic.",
+    "onboarding.motor.opencode.login": "Connect your provider with `opencode auth "
+                                       "login` (OpenRouter, Anthropic, OpenAI or "
+                                       "others).",
+    "onboarding.motor.opencode.changes": "Workspace wraps it; the model is the one "
+                                         "you choose in your opencode config, and "
+                                         "it never reads your credential.",
+    "onboarding.motor.openclaw.what": "OpenClaw — open-source personal agent "
+                                      "(`openclaw` binary), in its local terminal "
+                                      "mode.",
+    "onboarding.motor.openclaw.login": "Connect your provider and pick your model "
+                                       "from Engines › account and provider (opens "
+                                       "OpenClaw's official setup).",
+    "onboarding.motor.openclaw.changes": "Workspace uses its own OpenClaw profile on "
+                                         "your same brain: no extra files, no forced "
+                                         "model, and it never reads your credential.",
+    "onboarding.motor.hermes.what": "Hermes — open-source agent by Nous Research "
+                                    "(`hermes` binary), in its terminal.",
+    "onboarding.motor.hermes.login": "Connect your provider and pick your model "
+                                     "from Engines › account and provider (opens "
+                                     "Hermes' official setup).",
+    "onboarding.motor.hermes.changes": "Workspace uses a Hermes profile of its own "
+                                       "(with your model, without copying your keys; "
+                                       "your personal Hermes doesn't change) with "
+                                       "your agent's identity and without Hermes' own "
+                                       "memory; it never reads your credential.",
 
     # step 2: APPEARANCE
     "onboarding.apariencia.title_l": "THEME & BACKGROUND",
@@ -243,8 +270,8 @@ STRINGS = {
     "onboarding.resumen.fila_agentes": "registered agents",
     "onboarding.resumen.fila_onboarding": "this onboarding",
     "onboarding.resumen.adelante_p1": "Enter drops you into the hub: there you "
-                                      "launch agents, and the Menu has Tone, "
-                                      "Agents and “Add agent”.",
+                                      "launch agents, and the Menu has Agents "
+                                      "(a = add), Engines, Users and Tone.",
     "onboarding.resumen.adelante_p2": "Repeat this flow: "
                                       "`workspace onboarding`.",
     "onboarding.resumen.div_teclas": "the keys that matter",

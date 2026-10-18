@@ -475,6 +475,47 @@ def offer_actions(mid):
               id=mid)
 
 
+def modulo(mid, mdir=None):
+    """El módulo de UNA migración, cargado, o None. Para las otras puertas de
+    una migración de cerebro (cargar un agente, `workspace doctor --fix`): un
+    cerebro que llega después de la instalación no pasa por la cola, porque
+    los sellos son por máquina."""
+    m = next((x for x in discover(mdir) if x.id == mid), None)
+    return m.load().module if m is not None else None
+
+
+def undo(mid, home=None, mdir=None, log=None):
+    """`workspace migrate --undo <id>`: deshace una migración que declare
+    `undo(ctx)` (opcional en el contrato; hoy la tiene la del formato de
+    cerebro v2). La propia migración decide qué es seguro revertir: jamás pisa
+    cambios hechos después. Devuelve (ok, [(objetivo, estado, mensaje)] | str)."""
+    m = next((x for x in discover(mdir) if x.id == mid), None)
+    if m is None:
+        return False, _t("migrate.undo.unknown", "no existe la migración {id}", id=mid)
+    m.load()
+    fn = getattr(m.module, "undo", None) if m.module else None
+    if not callable(fn):
+        return False, _t("migrate.undo.unsupported",
+                         "la migración {id} no se puede deshacer", id=mid)
+    lk = _lock(home)
+    if lk is not None:
+        try:
+            lk.__enter__()
+        except Exception:
+            return False, _t("migrate.cli.busy", "Otro proceso está aplicando ajustes ahora mismo; "
+                             "reintenta en un momento.")
+    try:
+        return True, list(fn(Context(home=home, log=log)) or [])
+    except Exception as e:
+        return False, "%s: %s" % (type(e).__name__, e)
+    finally:
+        if lk is not None:
+            try:
+                lk.__exit__(None, None, None)
+            except Exception:
+                pass
+
+
 def mark_all(reason="first-install", home=None, mdir=None):
     """Sella todas las migraciones sin sello (instalación nueva: el instalador
     ya dejó el formato actual). Devuelve cuántas selló. Nunca lanza."""
@@ -506,7 +547,7 @@ def summary_line(result):
 
 
 def main(argv=None):
-    """`workspace migrate [--status | --run | --pending | --offer <id> | --decline <id> | --dry-run]`"""
+    """`workspace migrate [--status | --run | --pending | --offer <id> | --decline <id> | --undo <id> | --dry-run]`"""
     args = list(argv if argv is not None else sys.argv[1:])
     if "--first-install" in args:
         n = mark_all("first-install")
@@ -521,6 +562,19 @@ def main(argv=None):
         ok, msg = apply_offer(mid, log=print)
         print(("✓ " if ok else "✗ ") + msg)
         return 0 if ok else 1
+    if "--undo" in args:
+        i = args.index("--undo")
+        mid = args[i + 1] if i + 1 < len(args) else ""
+        ok, res = undo(mid, log=print)
+        if not ok:
+            print("✗ " + str(res))
+            return 1
+        if not res:
+            print(_t("migrate.undo.nothing", "No había nada que deshacer en esta máquina."))
+        for target, st, msg in res:
+            mark = {"undone": "✓", "refused": "✗"}.get(st, "·")
+            print("  %s %s — %s" % (mark, target, msg))
+        return 1 if any(st == "refused" for _, st, _ in res) else 0
     if "--decline" in args:
         i = args.index("--decline")
         mid = args[i + 1] if i + 1 < len(args) else ""

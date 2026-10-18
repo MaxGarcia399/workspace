@@ -38,7 +38,7 @@ Lo que el dispatcher (dispatch.py) espera de un motor:
       harness entiende, SIN duplicarla — el cerebro es la única fuente de
       verdad. Patrón de referencia: engines/codex.py genera un AGENTS.md
       PUNTERO (marcado WORKSPACE:GENERATED) que manda leer el doc de identidad
-      (`identity_doc` del agent.json, default CLAUDE.md). Un archivo propio
+      (resolver `brain_identity`: `identity_doc` del agent.json → BRAIN.md → CLAUDE.md). Un archivo propio
       del socio jamás se toca. Falla-suave: {'ok','action','path','detail'}.
 
 cfg (dict del agente, ya resuelto por dispatch.py) trae:

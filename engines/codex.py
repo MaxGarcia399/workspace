@@ -152,6 +152,16 @@ if os.name != "nt":
     _DETACHED["start_new_session"] = True
 
 
+def _env_motor():
+    """El env para correr el CLI del motor: sin NADA de la bóveda
+    (secret_store.engine_env). Falla-suave: sin secret_store, el heredado."""
+    try:
+        import secret_store
+        return secret_store.engine_env()
+    except Exception:
+        return None
+
+
 def session_active(exe_override=None, runner=None):
     """¿Hay sesión de codex ACTIVA (login del socio)? Vía `codex login status`
     — rápido, sin red pesada, y JAMÁS toca el token/auth.json. Cache 30s (se
@@ -170,7 +180,8 @@ def session_active(exe_override=None, runner=None):
             else:
                 r = subprocess.run([exe, "login", "status"],
                                    capture_output=True, text=True, timeout=15,
-                                   encoding="utf-8", errors="replace", **_DETACHED)
+                                   encoding="utf-8", errors="replace",
+                                   env=_env_motor(), **_DETACHED)
             out = ((getattr(r, "stdout", "") or "")
                    + (getattr(r, "stderr", "") or "")).lower()
             # Negar ANTES de afirmar: «not logged in» contiene «logged in»
@@ -285,7 +296,8 @@ def run_turn(prompt, *, model=None, cwd=None, timeout=120, sandbox=None,
         if model:
             cmd += ["--model", model]
         cmd += ["-"]                   # prompt por stdin (anti flag-injection)
-        env = dict(os.environ)
+        import secret_store
+        env = secret_store.engine_env()   # el motor no hereda la bóveda
         env["WORKSPACE_REVIEW_RUNNING"] = "1"
         env["WORKSPACE_NO_AUTOUPDATE"] = "1"
         if runner is not None:
@@ -689,13 +701,17 @@ def _rollout_exists(sid, root=None, max_files=4000):
     return False
 
 
-def _vendor_session_after(brain, t0, root=None, limit=64):
+def _vendor_session_after(brain, t0, root=None, limit=64, t1=None, tab="",
+                          by_signal=False):
     """Bind only one newly CREATED conversation; modification is not ownership.
 
     A resumed conversation retains its explicit id in launch(). Ambiguous new
     sessions remain unbound rather than stealing another tab's conversation.
+    `t1` (cierre tardío, pending_runs): lo creado después ya es de otra
+    corrida — la ventana se acota a [t0, t1).
+    Con `tab`, el contexto inyectado de cada una decide (_session_for_tab).
     """
-    matches = set()
+    matches = {}                        # sid → su rollout
     try:
         real = os.path.realpath(brain or "")
         if not brain:
@@ -711,14 +727,51 @@ def _vendor_session_after(brain, t0, root=None, limit=64):
                 created = datetime.fromisoformat(str(pay.get("timestamp") or meta.get("timestamp") or "").replace("Z", "+00:00"))
                 if created.tzinfo is None or created.timestamp() < t0:
                     continue
+                if t1 is not None and created.timestamp() >= float(t1):
+                    continue
                 sid = str(pay.get("session_id") or pay.get("id") or "").strip()
                 if sid:
-                    matches.add(sid)
+                    matches[sid] = path
             except (OSError, ValueError, TypeError, AttributeError):
                 continue
     except OSError:
         return ""
+    if tab:
+        return _session_for_tab(brain, tab, matches, by_signal)
     return next(iter(matches)) if len(matches) == 1 else ""
+
+
+def _ended_by_signal(rc):
+    """¿La sesión se cortó por SEÑAL? El wrapper (interactive.py) devuelve
+    128+SIGHUP al cerrar la ventana y 128+SIGTERM cuando el hub cambia de
+    pestaña. El socio salió: NO es un arranque fallido."""
+    import signal
+    return isinstance(rc, int) and rc in {
+        128 + s for s in (getattr(signal, "SIGHUP", 0),
+                          getattr(signal, "SIGTERM", 0)) if s}
+
+
+def _session_for_tab(brain, tab_name, found, by_signal=False):
+    """De las conversaciones NUEVAS de este cerebro ({sid: rollout}), la de
+    ESTA pestaña. Mira solo su contexto inyectado (el bloque de AGENTS.md,
+    vía codex_launch.transcript_tab):
+      · una sola → esa; si la sesión se cortó por SEÑAL, salvo que pruebe ser
+        de OTRA pestaña (codex murió antes de crear la suya);
+      · varias (el mismo cerebro en dos ventanas) → la ÚNICA cuyo bloque
+        nombra a esta pestaña; si no hay exactamente una, ninguna."""
+    import codex_launch
+    import sessions_registry as _reg
+    # el bloque lleva el nombre SANEADO (_clean_name); bind usa el crudo.
+    mine = {_reg._slug(tab_name), _reg._slug(_reg._clean_name(tab_name))} - {""}
+
+    def _owner(sid):
+        return codex_launch.transcript_tab(found[sid], brain, sid)
+    if len(found) == 1:
+        sid = next(iter(found))
+        owner = _owner(sid) if by_signal else ""
+        return "" if owner and owner not in mine else sid
+    hits = [sid for sid in found if _owner(sid) in mine]
+    return hits[0] if len(hits) == 1 else ""
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -730,8 +783,9 @@ def _vendor_session_after(brain, t0, root=None, limit=64):
 # contiene, y AGENTS.md es contenido CONFIABLE para el modelo). El adapter
 # genera en la raíz del cerebro un AGENTS.md **puntero** que manda leer el
 # doc de identidad del agente — JAMÁS duplica la identidad (el cerebro es la
-# única fuente de verdad; reescribirla sería N3). El doc de identidad default
-# es `CLAUDE.md`; un agente puede declarar otro con `identity_doc` en su
+# única fuente de verdad; reescribirla sería N3). El doc de identidad lo
+# resuelve `brain_identity`: `BRAIN.md` en cerebros con formato v2, `CLAUDE.md`
+# en los anteriores; un agente puede declarar otro con `identity_doc` en su
 # agent.json (hueco harness-agnóstico del agente-spec).
 #
 # Reglas de convivencia (falla-suave SIEMPRE, jamás rompe el launch):
@@ -761,20 +815,27 @@ def _is_generated(text):
     head = (text or "").lstrip()
     return head.startswith(_GEN_MARK) or head.startswith(_GEN_MARK_LEGACY)
 
-#: Doc de identidad por default (convención de los cerebros). Override por
-#: agente: "identity_doc" en agent.json.
-DEFAULT_IDENTITY_DOC = "CLAUDE.md"
+#: Doc de identidad de los cerebros ANTERIORES al formato v2 (el resolver
+#: único cae a él si no hay BRAIN.md). Override por agente: "identity_doc".
+try:
+    from brain_identity import LEGACY_IDENTITY_DOC as DEFAULT_IDENTITY_DOC
+except Exception:                        # pragma: no cover — sin resolver
+    DEFAULT_IDENTITY_DOC = "CLAUDE.md"
 
 
 def _identity_doc(cfg):
-    """Nombre del doc de identidad del agente (relativo al cerebro). Saneado:
-    un path absoluto o con separadores se rechaza (el doc vive en la RAÍZ del
-    cerebro; un agent.json no debe apuntar fuera — misma defensa SEC que
-    expand_scripts). Falla-suave → default."""
-    d = str((cfg or {}).get("identity_doc") or "").strip()
-    if not d or os.path.isabs(d) or "/" in d or "\\" in d or d.startswith(".."):
-        return DEFAULT_IDENTITY_DOC
-    return d
+    """Nombre del doc de identidad del agente (relativo al cerebro), vía el
+    resolver único `brain_identity`: identity_doc del agente → BRAIN.md si
+    existe → CLAUDE.md. Saneado (un path absoluto o con separadores se
+    rechaza: el doc vive en la RAÍZ del cerebro). Falla-suave."""
+    try:
+        import brain_identity
+        return brain_identity.identity_doc((cfg or {}).get("_brain", ""), cfg)
+    except Exception:
+        d = str((cfg or {}).get("identity_doc") or "").strip()
+        if not d or os.path.isabs(d) or "/" in d or "\\" in d or d.startswith(".."):
+            return DEFAULT_IDENTITY_DOC
+        return d
 
 
 def _agents_doc_text(cfg, session_context=""):
@@ -963,8 +1024,20 @@ def inject_context(cfg, session_context=""):
 # tuviera ya al contestar "sí" a mano. Reglas:
 #   · solo se auto-confía el CEREBRO del agente (carpeta que el socio ya
 #     eligió conscientemente al cargar el agente) — nada más.
-#   · si el path YA tiene una entrada [projects."…"] (cualquier trust_level,
-#     incluso negativo) → NO SE TOCA: la decisión del socio gana.
+#   · si el path YA tiene una entrada (cualquier trust_level, incluso
+#     negativo) → NO SE TOCA: la decisión del socio gana. Cuenta CUALQUIER
+#     forma TOML equivalente: comillas simples ('…', la que escribe codex en
+#     Windows), escapes, cabecera con comentario o espacios, la tabla en línea
+#     del formato viejo, clave punteada. Antes solo se reconocía la cabecera
+#     exacta y se anexaba un DUPLICADO: config.toml dejaba de cargar y codex
+#     no abría ni fuera de WORKSPACE.
+#   · ante la duda NO se escribe nada (p. ej. `projects = {…}` en la raíz,
+#     donde anexar invalida el archivo): codex solo vuelve a preguntar.
+#   · reparación: si config.toml TERMINA con el bloque exacto de WORKSPACE y
+#     el resto ya define el mismo path (el duplicado de la versión anterior:
+#     codex no abre), se quita SOLO ese bloque, con respaldo al lado
+#     (config.toml.before-repair-<fecha>) y aviso al arrancar. Si hay algo
+#     escrito detrás, no se adivina: el arranque dice qué borrar.
 #   · opt-out: WORKSPACE_CODEX_NO_AUTOTRUST=1.
 #   · falla-suave: si no se puede escribir, codex simplemente preguntará
 #     como siempre.
@@ -983,11 +1056,131 @@ def _toml_key_escape(path):
     return str(path).replace("\\", "\\\\").replace('"', '\\"')
 
 
+#: Escapes de un basic string TOML (\\ \" \b \t \n \f \r \e \xHH \uXXXX
+#: \UXXXXXXXX). Lo que no es un escape válido queda tal cual.
+_TOML_ESCAPE = re.compile(
+    r"\\(u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8}|x[0-9A-Fa-f]{2}|.)", re.S)
+_TOML_ESCAPE_CHARS = {"\\": "\\", '"': '"', "b": "\b", "t": "\t", "n": "\n",
+                      "f": "\f", "r": "\r", "e": "\x1b"}
+#: `projects` escrito como VALOR (tabla en línea, clave punteada) o como
+#: arreglo de tablas: ahí anexar [projects."…"] puede invalidar el archivo.
+_TOML_PROJECTS_RARO = re.compile(
+    r"""^[ \t]*(?:\[\[[ \t]*)?(?:projects|"projects"|'projects')[ \t]*[=.\]]""",
+    re.M)
+
+
+def _toml_unescape(text):
+    """Decodifica los escapes de basic string en TODO el texto. Aproximado
+    (también toca literales y comentarios): solo sirve para BUSCAR."""
+    def _uno(m):
+        esc = m.group(1)
+        if len(esc) > 1:
+            try:
+                return chr(int(esc[1:], 16))
+            except (ValueError, OverflowError):   # fuera del rango Unicode
+                return m.group(0)
+        return _TOML_ESCAPE_CHARS.get(esc, m.group(0))
+    return _TOML_ESCAPE.sub(_uno, text)
+
+
+def _toml_mentions(text, path):
+    """¿`path` ya aparece como string TOML COMPLETO en `text`? Vale cualquier
+    forma equivalente: comillas dobles o simples, escapes, cabecera con
+    comentario o espacios, tabla en línea, clave punteada. También cuenta si
+    sale en un comentario u otro valor: ante la duda, no se escribe. Una ruta
+    vecina (`<path> 2`, `<path>/sub`) NO cuenta: las comillas la delimitan."""
+    dobles, simples = '"%s"' % path, "'%s'" % path
+    return (dobles in text or simples in text
+            or dobles in _toml_unescape(text))
+
+
+#: Una parte de clave TOML: desnuda, "basic" o 'literal' (de una línea).
+_TOML_PARTE = r"""[A-Za-z0-9_-]+|"(?:[^"\\\n]|\\.)*"|'[^'\n]*'"""
+#: Línea que DEFINE algo: cabecera [a.b] / [[a.b]] o clave `a.b =`.
+_TOML_DEF = re.compile(
+    r"""^[ \t]*(\[\[?)?[ \t]*((?:%s)(?:[ \t]*\.[ \t]*(?:%s))*)[ \t]*(\]|=)"""
+    % (_TOML_PARTE, _TOML_PARTE))
+_TOML_TRUST_LINE = 'trust_level = "trusted"'
+
+
+def _toml_partes(clave):
+    """`projects."C:\\x"` → ['projects', 'C:\\x']: cada parte decodificada."""
+    out = []
+    for p in re.findall(_TOML_PARTE, clave):
+        if p[0] == '"':
+            p = _toml_unescape(p[1:-1])
+        elif p[0] == "'":
+            p = p[1:-1]
+        out.append(p)
+    return out
+
+
+def _toml_defines(text, path):
+    """¿`text` ya DEFINE projects.<path>, de modo que otra cabecera
+    [projects."<path>"] más abajo lo invalida? Otra cabecera igual (con
+    comentario, comillas simples, espacios, escapes), la tabla en línea del
+    formato viejo, claves punteadas o `projects = …` como valor en la raíz.
+    Mencionarlo NO es definirlo (comentario, otro valor, arreglo) y una
+    subtabla [projects."<path>".x] no choca. Línea a línea; aproximado: no
+    sigue strings multilínea."""
+    tabla = []
+    for ln in text.split("\n"):
+        m = _TOML_DEF.match(ln)
+        if not m or bool(m.group(1)) != (m.group(3) == "]"):
+            continue                           # comentario, valor, arreglo…
+        partes = _toml_partes(m.group(2))
+        if m.group(1):                         # [tabla] o [[arreglo]]
+            tabla = partes
+            if partes == ["projects", path]:
+                return True
+        elif len(tabla) < 2 and ((tabla + partes)[:2] == ["projects", path]
+                                 or tabla + partes == ["projects"]):
+            return True             # en la raíz o en [projects]: más hondo no
+    return False
+
+
+def _repair_own_duplicate(cfgp, real):
+    """La versión anterior de ensure_trusted solo reconocía la cabecera
+    exacta y ANEXABA un duplicado si la entrada ya estaba escrita de otra
+    forma: config.toml no carga y codex no abre (ni fuera de WORKSPACE).
+    Si el archivo TERMINA con nuestro bloque exacto y el resto ya define el
+    mismo path, se quita SOLO ese bloque (respaldo al lado). Devuelve
+    ('repaired', respaldo), ('broken', '') si hay algo escrito detrás del
+    bloque (no se adivina: se avisa) o None si no hay duplicado nuestro."""
+    header = '[projects."%s"]' % _toml_key_escape(real)
+    with open(cfgp, encoding="utf-8", newline="") as fh:
+        cur = fh.read()             # tal cual, CRLF incluido; UTF-8 roto → lanza
+    lines = re.findall(r"[^\n]*\n|[^\n]+", cur)
+    for i in range(len(lines) - 2, -1, -1):        # el último bloque primero
+        if (lines[i].strip() != header
+                or lines[i + 1].strip() != _TOML_TRUST_LINE
+                or not _toml_defines("".join(lines[:i] + lines[i + 2:]), real)):
+            continue                    # entrada única y válida: no se toca
+        if any(ln.strip() for ln in lines[i + 2:]):
+            return "broken", ""
+        if i and not lines[i - 1].strip():
+            i -= 1                      # + el renglón en blanco que anexamos
+        keep = "".join(lines[:i]).encode("utf-8")
+        backup = "%s.before-repair-%s" % (cfgp, time.strftime("%Y%m%d-%H%M%S"))
+        shutil.copy2(cfgp, backup)      # mismo contenido y permisos
+        # En su lugar (truncar): conserva permisos, symlink y el resto del
+        # archivo byte a byte. Si cambió desde que se leyó → no se toca.
+        with open(cfgp, "r+b") as fh:
+            if fh.read(len(keep)) != keep:
+                return "broken", ""
+            fh.truncate(len(keep))
+        return "repaired", backup
+    return None
+
+
 def ensure_trusted(brain):
     """Agrega `[projects."<brain>"] trust_level = "trusted"` al config.toml
-    de codex si el path NO tiene entrada aún. Devuelve {'ok', 'action':
-    added|exists|skipped, 'detail'}. Append puro con stdlib (3.9 no trae
-    writer TOML); jamás reescribe lo existente. Falla-suave."""
+    de codex si el path NO tiene entrada aún, en ninguna forma TOML. Devuelve
+    {'ok', 'action': added|exists|skipped|repaired|broken, 'detail'}. Append
+    puro con stdlib (3.9 no trae parser TOML); jamás reescribe lo existente
+    —salvo deshacer el duplicado que anexó la versión anterior, con respaldo
+    (repaired; broken = no se pudo, se avisa)— y, ante la duda, no escribe
+    (codex solo vuelve a preguntar). Falla-suave."""
     out = {"ok": False, "action": "skipped", "detail": ""}
     try:
         if os.environ.get(_NO_AUTOTRUST_ENV, "").strip():
@@ -1002,12 +1195,25 @@ def ensure_trusted(brain):
         if os.path.exists(cfgp):
             with open(cfgp, encoding="utf-8", errors="replace") as fh:
                 cur = fh.read()
-        header = '[projects."%s"]' % _toml_key_escape(real)
-        # ¿ya hay entrada para ESTE path (trusted o no)? → decisión del socio.
-        for ln in cur.splitlines():
-            if ln.strip() == header:
-                out.update(ok=True, action="exists")
+        # El archivo que la versión anterior ya duplicó no carga: se deshace
+        # solo NUESTRO bloque (o se avisa) antes de darlo por «exists».
+        if '[projects."%s"]' % _toml_key_escape(real) in cur:
+            fix = _repair_own_duplicate(cfgp, real)
+            if fix:
+                out.update(ok=fix[0] == "repaired", action=fix[0],
+                           detail=fix[1] or cfgp)
                 return out
+        # ¿ya hay entrada para ESTE path (trusted o no), en cualquier forma?
+        # → decisión del socio, no se toca.
+        if _toml_mentions(cur, real):
+            out.update(ok=True, action="exists")
+            return out
+        # `projects` escrito de una forma en la que anexar puede invalidar
+        # el archivo → ante la duda no se escribe (codex solo pregunta).
+        if _TOML_PROJECTS_RARO.search(cur):
+            out["detail"] = "config.toml: `projects` en una forma que no edito"
+            return out
+        header = '[projects."%s"]' % _toml_key_escape(real)
         os.makedirs(os.path.dirname(cfgp), exist_ok=True)
         block = "%s%s\ntrust_level = \"trusted\"\n" % (
             ("" if (not cur or cur.endswith("\n\n")) else
@@ -1164,7 +1370,12 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
             resume_sid = _reg.resume_id(brain, agent, wname, "codex")
             if resume_sid and not _rollout_exists(resume_sid):
                 resume_sid = ""       # id local huérfano → fresco + re-bind
-            session_blk = _reg.session_doc_block(brain, wname)
+            session_blk = _reg.session_doc_block(brain, wname, engine="codex",
+                                                 resumed=bool(resume_sid))
+            # memoria v1: el sandbox de Codex solo puede REESCRIBIR sin dañar
+            # permisos → la ficha y el checkpoint quedan creados desde aquí.
+            import memoria as _memoria
+            _memoria.preparar_sandbox(brain, wname)
     except Exception as e:
         # U04/Z04: antes este except abría un chat SIN pestaña en silencio
         # (el síntoma «caían a chat directo»). Ahora la causa se ve y queda
@@ -1217,14 +1428,26 @@ def _launch_selected(cfg, passthrough, brain, agent, tab, resume_sid, session_bl
             and not resume_sid:
         try:
             import sessions_registry as _reg
-            first_prompt = _reg.first_prompt_context(brain, tab[1])
+            first_prompt = _reg.first_prompt_context(brain, tab[1], engine="codex")
             print("WORKSPACE: no pude anexar la memoria al AGENTS.md del "
                   "socio — irá en el primer mensaje (visible).")
         except Exception:
             first_prompt = ""
     # auto-trust del cerebro (comodidad: salta el prompt "do you trust this
     # folder" de codex; sandbox y approvals de WORKSPACE siguen intactos).
-    ensure_trusted(brain)
+    # Si deshizo el duplicado de la versión anterior (o no pudo), se dice.
+    trust = ensure_trusted(brain)
+    if trust.get("action") == "repaired":
+        print("WORKSPACE: una versión anterior duplicó el cerebro en %s y "
+              "codex no podía abrir. Quité solo el bloque que agregó "
+              "WORKSPACE (respaldo: %s)." % (_codex_config_path(),
+                                              trust.get("detail")))
+    elif trust.get("action") == "broken":
+        print("WORKSPACE: %s define el cerebro dos veces y codex no puede "
+              "abrir. Borra a mano el bloque que agregó WORKSPACE (%s + "
+              "trust_level = \"trusted\") y deja la otra entrada."
+              % (trust.get("detail"), '[projects."%s"]'
+                 % _toml_key_escape(os.path.realpath(brain or "."))))
 
     # M1: si el sandbox EFECTIVO es full-access (solo posible con el opt-in
     # ruidoso por env), avisar en ROJO — el socio ve que el sandbox está
@@ -1292,7 +1515,10 @@ def _launch_selected(cfg, passthrough, brain, agent, tab, resume_sid, session_bl
         import codex_status
         rc = interactive.run_official_cli_interactive(
             "codex", brain=brain or None, argv=argv, context_sink=_ctx_sink,
-            runner=lambda cmd, **kw: codex_status.run(cmd, cfg, env=kw.get("env")))
+            runner=lambda cmd, **kw: codex_status.run(cmd, cfg, env=kw.get("env")),
+            pending={"tab": tab[1] if tab else "", "agent": agent, "resume_id": resume_sid,
+                     "no_bind": any(str(a) in ("resume", "fork") for a in passthrough)},
+            console_guard=True)
     except Exception as e:
         print("WORKSPACE: no pude lanzar codex interactivo (%s: %s)"
               % (type(e).__name__, e))
@@ -1318,14 +1544,40 @@ def _launch_selected(cfg, passthrough, brain, agent, tab, resume_sid, session_bl
     # atada a la pestaña → la próxima vez `codex resume <id>`. Se bindea si
     # DIFIERE del id con que entramos (cubre: pestaña nueva, resume huérfano
     # que arrancó fresco, fork del socio). Best-effort.
+    # Salidas con rc≠0 en las que el socio SALIÓ (no falló el arranque), y la
+    # conversación es legítima:
+    #   · por SEÑAL (Mac/Linux: cerrar la ventana = SIGHUP, cambiar de pestaña
+    #     en el hub = SIGTERM);
+    #   · por la X (Windows): se ata solo la creada DENTRO de esta corrida
+    #     (hasta la X).
+    # En ambas, ni la que ya tiene otra pestaña (registro) ni la que prueba ser
+    # de otra (su contexto inyectado: _session_for_tab con by_signal). Cuál:
+    # la nueva única, o con el cerebro en dos ventanas la única que nombra a
+    # esta pestaña. Un arranque fallido (rc≠0 sin señal ni X) sigue sin atar.
     if tab:
         try:
             import sessions_registry as _reg
-            sid = "" if rc != 0 or resume_sid or any(str(a) in ("resume", "fork") for a in passthrough) else _vendor_session_after(brain, t0)
+            x_at = (getattr(interactive, "LAST_CLOSE", None) or {}).get("interrupted_at")
+            by_signal = _ended_by_signal(rc)
+            if resume_sid or any(str(a) in ("resume", "fork") for a in passthrough):
+                sid = ""
+            elif rc == 0 or by_signal:
+                sid = _vendor_session_after(brain, t0, tab=tab[1], by_signal=by_signal)
+            elif x_at:
+                sid = _vendor_session_after(brain, t0, t1=x_at, tab=tab[1], by_signal=True)
+            else:
+                sid = ""
+            if sid and rc != 0 and _reg.owner(brain, "codex", sid, exclude=tab[1]):
+                sid = ""
             if sid and sid != resume_sid:
                 _reg.bind(brain, agent, tab[1], "codex", sid)
         except Exception:
             pass
+    try:
+        import pending_runs
+        pending_runs.done()               # atado y limpieza hechos: ya no está pendiente
+    except Exception:
+        pass
     sys.exit(rc if isinstance(rc, int) else 0)
 
 

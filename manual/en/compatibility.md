@@ -25,24 +25,35 @@ These are optional features: the doctor doesn't check them.
 
 Applies to macOS, Linux and Windows unless noted.
 
-| Feature | Claude Code | Codex | Antigravity |
-|---|---|---|---|
-| Open the agent from the hub | ✅ | ✅ (wrapped) | ✅ (wrapped) |
-| Agent starts with its memory | ✅ automatic | ✅ through an `AGENTS.md` Workspace writes into the brain | ✅ through a `GEMINI.md` Workspace writes into the brain |
-| MCP connectors | ✅ | ✅ (Codex's own config) | ✅ |
-| Session events (*hooks*: save memory on close, etc.) | ✅ | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace) |
-| Resume sessions from Workspace's tabs | ✅ | ✅ | ✅ |
-| Live agent status in the hub | ✅ | ❌ | ❌ |
-| Windowless tasks (evals, workflows) | ✅ | ✅ | ❌ |
+| Feature | Claude Code | Codex | Antigravity | OpenCode | OpenClaw | Hermes |
+|---|---|---|---|---|---|---|
+| Open the agent from the hub | ✅ | ✅ (wrapped) | ✅ (wrapped) | ✅ (wrapped) | ✅ (wrapped, with gateway: several tabs) | ✅ (wrapped) |
+| Agent starts with its memory | ✅ automatic | ✅ through an `AGENTS.md` Workspace writes into the brain | ✅ through a `GEMINI.md` Workspace writes into the brain | ✅ through an `AGENTS.md` Workspace writes into the brain | ✅ through the same `AGENTS.md` (OpenClaw profile of its own, no extra files) | ✅ through the same `AGENTS.md` (Hermes profile of its own, neutral identity); the agent reads its brain with your first message |
+| MCP connectors | ✅ | ✅ (Codex's own config) | ✅ | ✅ (OpenCode's own config) | ✅ (OpenClaw's own config) | ✅ (Hermes' own config) |
+| Session events (*hooks*: save memory on close, etc.) | ✅ | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace), plus your tone with every message |
+| Resume sessions from Workspace's tabs | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Live agent status in the hub | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Windowless tasks (evals, workflows) | ✅ | ✅ evals with tools¹ | ❌ | ✅ evals with tools¹ | ✅ single turns only¹ | ✅ single turns only¹ |
 
 ✅ works · ❌ not available · ❔ unknown
+
+¹ Workflows, and evals that run without tools, need an engine that can turn its own tools off:
+today only Claude Code. Codex and OpenCode run the evals that use tools inside the OS sandbox.
+OpenClaw and Hermes can't turn their tools off or run inside that sandbox yet: Workspace doesn't use
+them for evals or workflows (they still answer single windowless turns).
 
 If the engine's program isn't installed (or isn't on the PATH), none of this works with it:
 `workspace doctor` tells you to install its official program ([Engines](engines.md)).
 
-Codex and Antigravity have hooks of their own too, but Workspace doesn't turn them on: Workspace
-already sends the open and close events around the program, and turning them on would send them
-twice. That's why those two engines have no per-tool events or live status.
+Codex, Antigravity, OpenCode, OpenClaw and Hermes have hooks of their own too, but Workspace doesn't turn them on:
+Workspace already sends the open and close events around the program, and turning them on would
+send them twice. The exception is one Hermes hook, per message, that adds your tone (Hermes asks
+you to approve it once). That's why those engines have no per-tool events or live status. With
+OpenCode, OpenClaw and Hermes, the model is the one you pick in its own config: Workspace doesn't change it.
+
+Hermes runs in a Workspace profile of its own (your personal Hermes doesn't change). In that
+profile its own memory is off, because all your agents share it: each agent's memory lives in its
+brain. Its skills and scheduled tasks stay as in your Hermes.
 
 ## Permissions by engine
 
@@ -99,8 +110,9 @@ Change it in **Agents** (pick the agent and Enter) (see [Permissions](engines.md
 
 ## Current limits
 
-- **"You choose the engine" is only half true today.** All three engines open agents with
-  their memory, but Claude Code is more integrated, and part of the local configuration still
+- **"You choose the engine" is only half true today.** Every engine opens agents with the
+  same tab memory, but Claude Code is more integrated, and part of the local configuration still
   lives in `~/.claude/workspace/` even if you don't use Claude Code.
-- **Switching engines doesn't carry conversations over**: the brain travels; each vendor's
-  internal history doesn't.
+- **Switching engines doesn't carry the vendor's conversation over**, but the tab does: its
+  memory (summary, open items, notes and the handoff with the other engine's latest) belongs to
+  Workspace and loads the same on any engine. See [Engines · Each tab's memory](engines.md).

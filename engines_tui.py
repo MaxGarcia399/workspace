@@ -20,8 +20,9 @@ import section_box as SB
 import section_frame as SF
 from theme import screen as _theme_screen  # fondo/tinta del tema
 
-SUPPORTED = ('claude-code', 'codex', 'antigravity')
-_NAMES = {'claude-code': 'Claude Code', 'codex': 'Codex', 'antigravity': 'Antigravity'}
+SUPPORTED = ('claude-code', 'codex', 'antigravity', 'opencode', 'openclaw', 'hermes')
+_NAMES = {'claude-code': 'Claude Code', 'codex': 'Codex', 'antigravity': 'Antigravity',
+          'opencode': 'OpenCode', 'openclaw': 'OpenClaw', 'hermes': 'Hermes'}
 _t = SF.t
 
 
@@ -63,17 +64,34 @@ _SESSION_CACHE = {}
 _SESSION_TTL = 60.0
 
 
+#: Motores cuyo `status()` sabe más que «hay sesión»: falta elegir modelo o
+#: activar el proveedor (`model_ready`), o un bloqueo de versión. Sin esto,
+#: Motores decía «listo» y el agente abría en el asistente del motor.
+_STATUS_ENGINES = ('openclaw', 'hermes')
+
+
 def _probe(eid):
-    """True/False/None (no se pudo saber) con el comando OFICIAL de cada motor."""
+    """True/False/None (no se pudo saber) con el comando OFICIAL de cada motor,
+    o 'needs_model' / 'version' cuando el motor tiene sesión pero no puede
+    trabajar todavía."""
     hit = _SESSION_CACHE.get(eid)
     if hit and time.time() - hit[0] < _SESSION_TTL:
         return hit[1]
     try:
         import dispatch
         mod = dispatch.load_engine(eid)
-        fn = getattr(mod, 'session_active', None)
-        val = fn() if fn else None
-        val = val if isinstance(val, bool) else None
+        if eid in _STATUS_ENGINES and callable(getattr(mod, 'status', None)):
+            st = mod.status() or {}
+            if st.get('version_problem'):
+                val = 'version'
+            elif st.get('session_active') is True and st.get('model_ready') is False:
+                val = 'needs_model'
+            else:
+                val = st.get('session_active')
+        else:
+            fn = getattr(mod, 'session_active', None)
+            val = fn() if fn else None
+        val = val if isinstance(val, bool) or val in ('needs_model', 'version') else None
     except Exception:
         val = None
     _SESSION_CACHE[eid] = (time.time(), val)
@@ -98,9 +116,80 @@ def verify(S, eid, force=False):
 
     def worker():
         val = _probe(eid)
-        S['checks'][eid] = {'state': {True: 'verified', False: 'needs_login'}.get(val, 'unknown'),
+        S['checks'][eid] = {'state': {True: 'verified', False: 'needs_login',
+                                      'needs_model': 'needs_model',
+                                      'version': 'version'}.get(val, 'unknown'),
                             'at': time.time()}
+        S.setdefault('versions', {})[eid] = version_of(eid)
     threading.Thread(target=worker, daemon=True).start()
+
+
+def version_of(eid):
+    """La cara del sistema de versiones para el socio (política «la más nueva
+    por defecto» + Vigía, 2026-10-16) → {'st', 'have', 'rango', 'why', 'hint'}
+    o None. Solo los motores que declaran VERIFIED_VERSIONS (opencode,
+    OpenClaw, Hermes): Claude, Codex y Antigravity no dependen de la versión.
+    `--version` sale de la caché en disco de engine_versions (12 h)."""
+    try:
+        import shutil
+        import dispatch
+        import engine_versions as EV
+        mod = dispatch.load_engine(eid)
+        if not getattr(mod, 'VERIFIED_VERSIONS', None):
+            return None
+        exe = shutil.which(getattr(mod, 'BINARY', '') or '')
+        if not exe:
+            return None
+        v = EV.installed_version(exe)
+        st, have, rango = EV.drift(mod, v)
+        if not have:
+            return None
+        b = (EV.broken(mod, v) or {}) if st == 'broken' else {}
+        return {'st': st, 'have': have, 'rango': rango, 'why': b.get('why', ''),
+                'hint': b.get('hint', '') or (getattr(mod, 'UPGRADE_HINT', '')
+                                              if st == 'unsupported' else '')}
+    except Exception:
+        return None
+
+
+def version_label(info):
+    """(texto, color-key) de la fila «versión». Cabe en la columna de
+    opciones (≤20 visibles con una versión como 2026.10.12); el porqué va en
+    Enter (version_note) y en `i`."""
+    st, have = info.get('st'), info.get('have')
+    if st == 'ok':
+        return _t('motores.v.ok', '{v} · probada', '{v} · tested', v=have), 'OK'
+    if st == 'newer':
+        return _t('motores.v.newer', '{v} · nueva', '{v} · newer', v=have), 'DIM'
+    if st == 'older':
+        return _t('motores.v.older', '{v} · vieja', '{v} · older', v=have), 'DIM'
+    if st == 'unsupported':
+        return _t('motores.v.unsup', '{v} · muy vieja', '{v} · too old', v=have), 'ERR'
+    if st == 'broken':
+        return _t('motores.v.broken', '{v} · con falla', '{v} · known bug', v=have), 'ERR'
+    return have, 'DIM'
+
+
+def version_note(info):
+    """Enter sobre «versión»: el porqué en una línea."""
+    st = info.get('st')
+    if st == 'broken':
+        return '✗ %s%s' % (info.get('why') or '', (' — ' + info['hint']) if info.get('hint') else '')
+    if st == 'unsupported':
+        return '✗ ' + _t('motores.v.n_unsup', 'Workspace necesita {r}', 'Workspace needs {r}',
+                         r=info.get('rango')) + ((' — ' + info['hint']) if info.get('hint') else '')
+    if st == 'newer':
+        return _t('motores.v.n_newer',
+                  'lo normal: Workspace usa la más nueva; la verificada es {r} y la nueva se prueba '
+                  'sola a diario · si algo falla, `workspace update` trae el ajuste',
+                  "that's normal: Workspace uses the newest; {r} is verified and the new one is "
+                  'tested daily · if something breaks, `workspace update` brings the fix',
+                  r=info.get('rango'))
+    if st == 'older':
+        return _t('motores.v.n_older', 'verificadas: {r} · actualiza el motor desde su instalador oficial',
+                  "verified: {r} · update the engine with its official installer", r=info.get('rango'))
+    return _t('motores.v.n_ok', 'probada con Workspace (verificadas: {r})',
+              'tested with Workspace (verified: {r})', r=info.get('rango'))
 
 
 def selected(S):
@@ -173,6 +262,8 @@ def session_label(state):
             'needs_login': _t('motores.s.none', 'no iniciada', 'not signed in'),
             'unknown': _t('motores.s.cant', 'no se pudo verificar', "couldn't check"),
             'missing': _t('motores.s.missing', 'instala primero', 'install first'),
+            'needs_model': _t('motores.s.model', 'falta elegir modelo', 'choose a model'),
+            'version': _t('motores.s.version', 'revisa la versión (i)', 'check the version (i)'),
             }.get(state, _t('motores.s.checking', 'verificando…', 'checking…'))
 
 
@@ -186,6 +277,10 @@ def status_of(S, d):
         return _t('motores.l.ready', 'listo', 'ready'), 'OK'
     if st == 'needs_login':
         return _t('motores.l.login2', 'sin sesión', 'not signed in'), 'ERR'
+    if st == 'needs_model':
+        return _t('motores.l.model', 'falta modelo', 'no model'), 'ERR'
+    if st == 'version':
+        return _t('motores.l.version', 'revisar versión', 'check version'), 'ERR'
     if st == 'checking' or st is None:
         return _t('motores.l.checking', 'verificando…', 'checking…'), 'DIM'
     return _t('motores.l.installed', 'instalado', 'installed'), 'DIM'
@@ -211,14 +306,22 @@ def options(S, d):
                 ('reload', _t('motores.o.reload', 'ya lo instalé: recargar', 'I installed it: reload'), '')]
     chk = (S['checks'].get(eid) or {}).get('state')
     out = [('session', _t('motores.f.session', 'sesión', 'sign-in'), session_label(chk))]
-    if chk != 'verified':
+    ver = (S.get('versions') or {}).get(eid)
+    if ver:
+        out.append(('version', _t('motores.f.version', 'versión', 'version'), version_label(ver)[0]))
+    if chk not in ('verified', 'needs_model'):     # con sesión pero sin modelo: «cuenta y proveedor»
         out.append(('login', _t('motores.o.login', 'iniciar sesión', 'sign in'), ''))
+    # SIEMPRE disponible: el flujo oficial del motor para entrar, cambiar de
+    # cuenta o conectar proveedor. Workspace no guarda llaves ni tiene un
+    # sistema de providers: solo abre la configuración del propio motor.
+    out.append(('account', _t('motores.o.account', 'cuenta y proveedor',
+                              'account and provider'), ''))
     out.append(('hub', _t('motores.o.hub3', 'ofrecer en el hub', 'offer in the hub'),
                 m_enabled(eid)))
     return out
 
 
-_ACCIONES = ('install', 'reload', 'login')
+_ACCIONES = ('install', 'reload', 'login', 'account')
 
 
 def _chips(S):
@@ -279,6 +382,8 @@ def _detalle(S, K, d, iw):
             valor = '%s %s%s%s' % (SB.switch(K, val), K['OK'] if val else K['DIM'],
                                     _t('motores.v.yes', 'sí', 'yes') if val else _t('motores.v.no', 'no', 'no'),
                                     K['R'])
+        elif key == 'version':
+            valor = '%s%s%s' % (K[version_label(S['versions'][eid])[1]], val, K['R'])
         else:
             st = (S['checks'].get(eid) or {}).get('state')
             vcol = K['OK'] if st == 'verified' else (K['ERR'] if st == 'needs_login' else K['DIM'])
@@ -337,10 +442,14 @@ def info_blocks(S, K):
                    _t('motores.info.c3', 'el proveedor', 'the vendor'))]),
         ('gap',),
         ('p', _t('motores.info.p1',
-                 'Un motor es el programa oficial (Claude Code, Codex o Antigravity) que corre a tus '
-                 'agentes con tu propia cuenta. Workspace nunca ve ni guarda tus credenciales.',
-                 'An engine is the official program (Claude Code, Codex or Antigravity) that runs your '
-                 'agents with your own account. Workspace never sees or stores your credentials.')),
+                 'Un motor es el programa oficial (Claude Code, Codex, Antigravity, OpenCode, OpenClaw o Hermes) que corre a tus '
+                 'agentes con tu propia cuenta. Workspace nunca ve ni guarda tus credenciales. Al '
+                 'cambiar de motor, la pestaña sigue igual: el nuevo recibe su memoria y lo último '
+                 'que pasó en el anterior.',
+                 'An engine is the official program (Claude Code, Codex, Antigravity, OpenCode, OpenClaw or Hermes) that runs your '
+                 'agents with your own account. Workspace never sees or stores your credentials. When '
+                 'you switch engines the tab carries on: the new one gets its memory and the latest '
+                 'from the previous one.')),
         ('h', _t('motores.info.h_opts', 'sus opciones', 'its options')),
         ('kv', [(_t('motores.o.install', 'instalar', 'install'),
                  _t('motores.info.o_install', 'corre el instalador oficial (te muestra el comando antes)',
@@ -348,9 +457,23 @@ def info_blocks(S, K):
                 (_t('motores.f.session', 'sesión', 'sign-in'),
                  _t('motores.info.o_session2', 'se revisa sola al abrir; Enter vuelve a preguntar',
                     'checked on its own when you open this; Enter asks again')),
+                (_t('motores.f.version', 'versión', 'version'),
+                 _t('motores.info.o_version',
+                    'la instalada y si ya la probamos. Workspace usa siempre la más nueva: '
+                    'cada versión nueva se prueba sola a diario y, si una falla, la siguiente '
+                    'actualización de Workspace lo marca aquí (y te deja abrir igual)',
+                    'the installed one and whether we tested it. Workspace always uses the '
+                    'newest: each new version is tested daily and, if one breaks, the next '
+                    'Workspace update flags it here (and still lets you open it)')),
                 (_t('motores.o.login', 'iniciar sesión', 'sign in'),
                  _t('motores.info.o_login', 'abre el login del propio programa',
                     "opens the program's own sign-in")),
+                (_t('motores.o.account', 'cuenta y proveedor', 'account and provider'),
+                 _t('motores.info.o_account',
+                    'siempre a mano: abre la configuración oficial de cuenta y proveedor '
+                    'de ese motor (Workspace no guarda llaves)',
+                    "always there: opens that engine's official account and provider "
+                    "setup (Workspace stores no keys)")),
                 (_t('motores.o.hub3', 'ofrecer en el hub', 'offer in the hub'),
                  _t('motores.info.o_hub', 'si ←→ en el hub lo ofrece al cambiar el motor de un agente',
                     "whether ←→ in the hub offers it when changing an agent's engine"))]),
@@ -414,15 +537,55 @@ def _enter(S):
     return True
 
 
+def prepare_login(eid):
+    """Antes del login / «cuenta y proveedor»: si el motor corre en un perfil
+    propio que hay que crear (Hermes), su adapter lo prepara con el mecanismo
+    oficial (`prepare_account`). → (listo, aviso). Falla-suave: sin hook, listo."""
+    try:
+        import importlib
+        mod = importlib.import_module('engines.' + str(eid).replace('-', '_'))
+        prep = getattr(mod, 'prepare_account', None)
+        if not callable(prep):
+            return True, ''
+        ok, why = prep()
+        if ok:
+            return True, (why + '.') if why else ''
+        return False, '✗ ' + (why or 'no pude preparar el perfil del motor')
+    except Exception:
+        return True, ''
+
+
+def _account(S):
+    """«cuenta y proveedor»: corre el flujo OFICIAL de cuenta/proveedor del
+    motor (engine_install._ACCOUNT). Al volver, se re-verifica la sesión."""
+    eid = selected(S).get('id')
+    try:
+        import engine_install
+        cmd = engine_install.recipe(eid)['account_cmd']
+    except Exception:
+        cmd = []
+    if cmd:
+        S['request'] = ('login', eid, cmd)
+        return False
+    S['msg'] = _t('motores.m.no_account', 'este motor no tiene un flujo de cuenta conocido',
+                  'this engine has no known account flow')
+    return True
+
+
 def _aplica(S):
     """Enter sobre la opción elegida."""
     key = options(S, selected(S))[S.get('opt', 0)][0]
+    if key == 'account':
+        return _account(S)
     if key in ('install', 'login'):
         return _enter(S)
     if key == 'reload':
         refresh(S)
     elif key == 'session':
         check_login(S)
+    elif key == 'version':
+        ver = (S.get('versions') or {}).get(selected(S).get('id'))
+        S['msg'] = version_note(ver) if ver else ''
     elif key == 'hub':
         toggle_m(S)
     return True
@@ -495,28 +658,78 @@ def run():
         if not req:
             return
         kind, eid, cmd = req
-        import subprocess
-        print('\n  $ ' + ' '.join(cmd) + '\n')
-        try:
-            rc = subprocess.run(cmd, check=False).returncode
-        except (OSError, KeyboardInterrupt) as e:
-            rc = getattr(e, 'errno', 1) or 1
+        ready, why = prepare_login(eid) if kind == 'login' else (True, '')
+        if why:
+            print('\n  ' + why)
+        # sin perfil listo (Hermes) el aviso es el motivo, no «verificando…»;
+        # si el programa no está o no arranca, se dice aquí y en la lista
+        rc, problem = (launch(cmd) if ready else (1, why))
+        if ready and problem:
+            print('\n  ' + problem)
         try:
             input('\n' + _t('motores.m.return', 'Enter para volver a Motores', 'Enter to return to Engines'))
         except EOFError:
             pass
         refresh(S, announce=False)
-        if kind == 'install':
-            try:
-                import engine_install
-                why = engine_install.diagnose_exit(engine_install.recipe(eid), rc)
-            except Exception:
-                why = ''
-            S['msg'] = ('✗ ' + why) if why else ('✓ ' + _t('motores.m.installed', '{n} instalado · ahora Enter para iniciar sesión',
-                                                          '{n} installed · now Enter to sign in', n=_NAMES[eid]))
-        else:
-            S['msg'] = _t('motores.m.after_login', 'v verifica que la sesión quedó activa',
-                          'v checks that the sign-in is active')
+        S['msg'] = after_message(S, kind, eid, rc, problem, ready)
+
+
+def launch(cmd):
+    """Corre un comando de Motores con la RUTA real del programa. En Windows los
+    CLIs de npm (npm, opencode, openclaw, codex…) son atajos `.cmd` y por su
+    nombre suelto `subprocess` no los encuentra: instalar, iniciar sesión y
+    «cuenta y proveedor» fallaban sin decir por qué (auditoría 2026-10-16).
+    → (código, problema): problema = '' si se ejecutó; si no, la razón para
+    el socio y no se ejecutó nada."""
+    import shutil
+    import subprocess
+    exe = shutil.which(cmd[0])
+    if not exe:
+        return None, _t('motores.m.notfound',
+                        '✗ no encontré `{b}` en el PATH de esta terminal — no se ejecutó nada; '
+                        'si ya lo instalaste, elige «ya lo instalé: recargar» o abre una terminal nueva',
+                        "✗ couldn't find `{b}` on this terminal's PATH — nothing ran; if you "
+                        "already installed it, choose «I installed it: reload» or open a new terminal",
+                        b=cmd[0])
+    print('\n  $ ' + ' '.join(cmd) + '\n')
+    try:
+        # instalar / iniciar sesión / «cuenta y proveedor» corren el CLI del
+        # motor: sin las fichas que cargó el hub (Greptile, 2026-10-17)
+        import secret_store
+        return subprocess.run([exe] + list(cmd[1:]), check=False,
+                              env=secret_store.engine_env()).returncode, ''
+    except KeyboardInterrupt:
+        return 130, ''
+    except OSError as e:
+        return None, _t('motores.m.cantopen', '✗ no pude abrir `{b}` ({e}) — no se ejecutó nada',
+                        "✗ couldn't open `{b}` ({e}) — nothing ran", b=cmd[0], e=e)
+
+
+def after_message(S, kind, eid, rc, problem, ready=True):
+    """El aviso al volver a Motores: lo que pasó de verdad."""
+    if problem:
+        return problem
+    if not ready:
+        return S.get('msg') or ''
+    if kind == 'install':
+        try:
+            import engine_install
+            why = engine_install.diagnose_exit(engine_install.recipe(eid), rc)
+        except Exception:
+            why = ''
+        if why:
+            return '✗ ' + why
+        # el foco va a la siguiente acción útil: conectar la cuenta
+        ops = [o[0] for o in options(S, selected(S))]
+        nxt = 'login' if 'login' in ops else ('account' if 'account' in ops else None)
+        if nxt:
+            S['focus'], S['opt'] = 'detail', ops.index(nxt)
+        return '✓ ' + _t('motores.m.installed', '{n} instalado · Enter para conectar tu cuenta',
+                         '{n} installed · Enter to connect your account', n=_NAMES[eid])
+    if rc not in (0, None):
+        return _t('motores.m.login_rc', 'el programa terminó con código {rc} · verificando sesión…',
+                  'the program exited with code {rc} · checking sign-in…', rc=rc)
+    return _t('motores.m.checking', 'verificando sesión…', 'checking sign-in…')
 
 
 def _loop(S):

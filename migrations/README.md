@@ -66,5 +66,41 @@ usa `ctx.state_dir`.
   devuelve 1 si hay pendientes; `--offer <id>` aplica una oferta.
 - En una instalación nueva, `install.py` sella todas como `first-install`.
 
+### Migraciones de CEREBROS (formato v2 en adelante): hueco de los sellos
+
+Los sellos son **por máquina**, no por cerebro. Eso deja dos huecos para cambios de formato de
+cerebro, que hay que cerrar antes de migrar cerebros de clientes (release B de `BRAIN.md`):
+
+1. **Instalación nueva + cerebro viejo cargado después**: `install.py` sella todo como
+   `first-install`, así que ese cerebro nunca recibiría la migración.
+2. **Cerebros compartidos por sync** (Obsidian): cada máquina tiene su sello y no hay candado entre
+   máquinas; dos máquinas pueden migrar el mismo cerebro a la vez. Además Obsidian NO sincroniza
+   carpetas con punto (`.workspace/`, `.claude/`): la marca de formato tiene que ser el propio
+   contenido del cerebro (p.ej. existe `BRAIN.md` + `CLAUDE.md` con la marca de puntero).
+
+**Cerrado para el formato v2** (`202610151600_brain_identity_neutral` + `brain_format.py`): el reporte
+de cada corrida queda en `<state_dir>/brain-format/last-run.json`; un cerebro saltado no detiene la cola y
+las otras dos puertas lo reintentan. Patrón para las próximas migraciones de cerebro:
+
+Una migración de cerebro es una función por cerebro, **idempotente y determinista** (mismos
+bytes en cualquier máquina: sin fechas ni rutas absolutas; respaldo antes de cada archivo; se salta y
+avisa ante conflicto o contenido editado por el cliente), llamada desde TRES puertas: la migración
+(`workspace update`), al cargar un agente (`agent_admin.load`) y `workspace doctor --fix`. Nunca borra
+ni reescribe contenido del cliente. Puede declarar `undo(ctx)` → `workspace migrate --undo <id>`.
+Proceso completo en `runbooks/versiones-y-migraciones.md`.
+
+Ejemplo con textos: `202610170100_memoria_v1` + `memoria_textos.py`. Solo reemplaza un texto
+IDÉNTICO a alguna versión de la plantilla (sha256 de cada versión del historial, tal cual y con las
+líneas que renombra `brain_format`). Al cambiar un texto de la plantilla que una migración reemplaza:
+agregar el sha256 de la versión que se retira y correr `tests/e2e/historia_plantillas.py`, que crea
+un cerebro con cada versión del historial y lo lleva al día por las dos puertas (actualizar y cargar).
+
+Ejemplo por BLOQUES de líneas: `202610181200_sin_aprobacion` + `sin_aprobacion.py`. Reemplaza un
+bloque solo si cada línea es idéntica a la de alguna versión de la plantilla (marcadores `{{X}}`
+como comodín); la tabla `data/sin_aprobacion_lines.json` la genera `data/gen_sin_aprobacion_lines.py`
+desde el historial (declara cada bloque con anclas y verifica que no quede ninguna compuerta). Si
+cambias un texto de la plantilla que esa tabla cubre, vuelve a generarla (`--check` dice si está al
+día; la suite lo revisa) y corre `tests/e2e/historia_plantillas.py`.
+
 Prueba de contrato: `tests/test_migrations_contract.py` valida nombre, `TITLE`
 bilingüe, `KIND` y que cada migración sea idempotente sobre un HOME vacío.

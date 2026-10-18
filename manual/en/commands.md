@@ -181,7 +181,7 @@ Migrates or retires the previous Workspace install, with a backup.
 
 _also: `migrar-legado`_
 
-### `workspace uninstall [--dry-run | --no-backup | --keep-folder]`
+### `workspace uninstall [--dry-run | --no-backup | --keep-folder | --clean-all]`
 
 Uninstalls Workspace from this machine (your brains stay).
 

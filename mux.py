@@ -54,7 +54,7 @@ Subcomando:
 
 Cero dependencias (stdlib, Python 3.9+).
 """
-import sys, os, subprocess, shutil, signal, time
+import sys, os, subprocess, shutil, signal, time, shlex
 import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -62,7 +62,7 @@ PY = sys.executable or "python3"
 DISPATCH = os.path.join(ROOT, "dispatch.py")
 FRONT = os.path.join(ROOT, "front.py")
 
-SESSION_PREFIX = "workspace-split"    # una sesión por workspace (dedupe por nombre)
+SESSION_PREFIX = "workspace-split"    # una sesión por agente+pestaña (dedupe por nombre exacto)
 HERDR = "herdr"                     # el binario (el controlador tumba la sesión al salir)
 RIGHT_PCT_DEF = 50                  # ancho del pane derecho (%): el PANEL (menú) pide
                                     # más aire que el board pelón — mitad y mitad
@@ -77,8 +77,50 @@ UNEXPECTED_WINDOW_S = 20           # ...dentro de esta ventana (s) → teardown
 
 
 def _q(s):
-    s = str(s)
-    return "'" + s.replace("'", "'\\''") + "'" if (" " in s or "\t" in s or "'" in s) else s
+    """Cita UN argumento para una línea de shell POSIX (shlex.quote). Antes
+    solo citaba si había espacio/tab/comilla: una pestaña «P&L» rompía el
+    chat y «$(cmd)» EJECUTABA cmd. Con comillas simples nada (& ? ; | $( )
+    ` comillas) se interpreta. Las líneas de los panes las lee `sh` (_por_sh),
+    el shell para el que cita shlex."""
+    return shlex.quote(str(s))
+
+
+def _por_sh(linea):
+    """La línea de un pane como VARIOS argumentos: `sh -c <línea>`. tmux
+    (≥2.0) ejecuta así el comando directo, sin pasarlo por SU default-shell —
+    la del socio, que puede ser zsh (expande `=palabra`: «=Plan» tumba el
+    chat) o fish (otras reglas de comillas). Mismo criterio que herdr."""
+    return ["sh", "-c", linea]
+
+
+def _exacta(session):
+    """Target tmux EXACTO. Sin '=' tmux también acepta un PREFIJO o un glob
+    del nombre (`-t workspace-split-x` encuentra `workspace-split-x2` si la
+    primera no existe) → reconectaría o mataría OTRA sesión. '=' (tmux ≥2.1)
+    exige el nombre completo."""
+    return "=" + str(session)
+
+
+def _nombre_ventana(name):
+    """El nombre de la pestaña como nombre de VENTANA tmux, LITERAL. tmux
+    (≥2.7) expande formatos en `-n`: `#(cmd)` CORRERÍA cmd y `#S`/`#{…}` se
+    reemplazan → '#' va como '##'. Y un argumento que termina en ';' es
+    separador de comandos para tmux → el ';' final va como '\\;'."""
+    s = str(name).replace("#", "##")
+    return s[:-1] + "\\;" if s.endswith(";") else s
+
+
+def env_sin_boveda():
+    """El entorno para tmux/herdr: sin nada de la bóveda (regla 9). El hub
+    tiene cargadas las API keys; el servidor que arranca el multiplexor copia
+    el entorno de quien lo lanzó a su entorno GLOBAL y se lo pasa a cada
+    ventana o panel nuevo (prefijo+c, prefijo+%): un `claude` o `codex`
+    abierto ahí las heredaba. El chat no, porque pasa por dispatch."""
+    try:
+        import secret_store
+        return secret_store.engine_env()
+    except Exception:
+        return dict(os.environ)
 
 
 class Tmux:
@@ -91,7 +133,7 @@ class Tmux:
         if self.plan:
             print("  [plan] tmux " + " ".join(_q(a) for a in args))
             return 0
-        return subprocess.run(["tmux"] + args).returncode
+        return subprocess.run(["tmux"] + args, env=env_sin_boveda()).returncode
 
 
 def have_tmux():
@@ -103,8 +145,8 @@ def inside_tmux():
 
 
 def session_exists(session):
-    return subprocess.run(["tmux", "has-session", "-t", session],
-                          capture_output=True).returncode == 0
+    return subprocess.run(["tmux", "has-session", "-t", _exacta(session)],
+                          capture_output=True, env=env_sin_boveda()).returncode == 0
 
 
 def parse_args(argv):
@@ -148,12 +190,36 @@ def default_agent():
     return ""
 
 
-def session_name(ws_name):
-    """Nombre de sesión tmux derivado del workspace (dedupe: mismo workspace →
-    misma sesión → reconectar, no duplicar)."""
+def session_name(agent, wid):
+    """Nombre de sesión tmux POR agente+pestaña (dedupe: mismo agente y misma
+    pestaña → misma sesión → reconectar, no duplicar). La pestaña es su wid
+    (id estable), NO su nombre: con el nombre, «General» de dos agentes (o
+    «Q&A» y «Q A» de uno) daban la MISMA sesión y el split abría el chat de
+    OTRO. Forma: workspace-split-<agente>-<huella de (agente, wid)>; solo
+    alnum/-/_ (sin ':' '.' ni '#', que tmux interpreta). `agent` = el nombre
+    canónico (split usa _agente_canonico)."""
+    import hashlib, json
+    agent = str(agent).strip().lower()
     slug = "".join(c if (c.isalnum() or c in "-_") else "-"
-                   for c in str(ws_name).strip().lower()).strip("-") or "ws"
-    return SESSION_PREFIX + "-" + slug
+                   for c in agent).strip("-") or "agent"
+    huella = hashlib.sha256(json.dumps([agent, str(wid)])
+                            .encode("utf-8")).hexdigest()[:12]
+    return SESSION_PREFIX + "-" + slug + "-" + huella
+
+
+def _agente_canonico(agent):
+    """Nombre CANÓNICO del agente (el del registry): un alias o el nombre con
+    mayúsculas deben dar la MISMA sesión que el nombre, o el dedupe abriría
+    un 2º chat de la misma conversación. Falla-suave: sin registry → el
+    nombre en minúsculas (dispatch.find_agent tampoco distingue)."""
+    try:
+        import dispatch as _dispatch
+        entry = _dispatch.find_agent(agent)
+        if entry and entry.get("name"):
+            return str(entry["name"])
+    except Exception:
+        pass
+    return str(agent).strip().lower()
 
 
 def pick(agent, plan=False):
@@ -228,16 +294,16 @@ def chat_cmd(agent, wid, name):
     no el banner, y `--resume` igual lo enterraría. Traer un banner al split
     necesita una variante COMPACTA (~88 cols) — tarea de diseño aparte
     (2026-07-05, pendiente con el socio). Hasta entonces, arranque limpio."""
-    return (_q(PY) + " " + _q(DISPATCH) + " " + agent +
+    return (_q(PY) + " " + _q(DISPATCH) + " " + _q(agent) +
             " --open " + _q(wid) + " --name " + _q(name) + " --no-banner")
 
 
 def left_cmd(agent, wid, name, session):
     """Pane IZQUIERDO (tmux): el chat — arranque directo del workspace
-    elegido (chat_cmd). Al salir el chat se tumba la sesión ENTERA: el
-    board no queda huérfano."""
+    elegido (chat_cmd). Al salir el chat se tumba la sesión ENTERA (target
+    exacto: solo ESTA): el board no queda huérfano."""
     return (chat_cmd(agent, wid, name) +
-            "; tmux kill-session -t " + _q(session) + " 2>/dev/null")
+            "; tmux kill-session -t " + _q(_exacta(session)) + " 2>/dev/null")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -448,8 +514,8 @@ def right_pane_cmd(agent=None, wid=None):
         import re
         cmd = _q(PY) + " " + _q(FRONT) + " panel"
         if agent:
-            # defensivo: el agente se interpola en la línea del pane; _q no cita
-            # metacaracteres sin espacio (foo;id pasaría) → acotar a [\w.-]
+            # defensivo (además de _q, que ya cita todo): el agente viaja en la
+            # línea del pane → acotar a [\w.-]
             safe = re.sub(r"[^A-Za-z0-9_.-]", "", str(agent))
             if safe:
                 cmd += " --agent " + _q(safe)
@@ -468,10 +534,14 @@ def split_cmds(session, ws_name, left, right, right_pct):
     """Los comandos tmux que arman la ventana partida. PURA (testeable):
       1. sesión detached con el chat como pane único
       2. split HORIZONTAL: pane derecho de `right_pct`% con el board
-      3. foco al pane izquierdo (el chat es el protagonista)"""
+      3. foco al pane izquierdo (el chat es el protagonista)
+    El nombre de la pestaña va como ventana LITERAL (_nombre_ventana) y cada
+    pane corre su línea con `sh -c` (_por_sh), no con la shell del socio."""
     return [
-        ["new-session", "-d", "-s", session, "-n", ws_name, left],
-        ["split-window", "-h", "-t", session, "-l", str(right_pct) + "%", right],
+        ["new-session", "-d", "-s", session, "-n", _nombre_ventana(ws_name)]
+        + _por_sh(left),
+        ["split-window", "-h", "-t", session, "-l", str(right_pct) + "%"]
+        + _por_sh(right),
         ["select-pane", "-t", session, "-L"],
     ]
 
@@ -545,12 +615,14 @@ def split(argv=None):
         print("WORKSPACE: no se eligió workspace; nada que abrir.")
         return 0
     wid, name = sel
-    session = session_name(name)
+    # La sesión es de ESTE agente y ESTA pestaña (wid), no del nombre a secas:
+    # así jamás se reconecta al chat de otro agente con una pestaña igual.
+    session = session_name(_agente_canonico(agent), wid)
 
     tx = Tmux(plan=plan)
     if not plan and session_exists(session):
-        # dedupe: ese workspace YA tiene su split → reconectar, no duplicar
-        return tx.run(["attach-session", "-t", session])
+        # dedupe: ese agente+pestaña YA tiene su split → reconectar, no duplicar
+        return tx.run(["attach-session", "-t", _exacta(session)])
 
     for cmd in split_cmds(session, name, left_cmd(agent, wid, name, session),
                           right_pane_cmd(agent), pct):
@@ -559,11 +631,11 @@ def split(argv=None):
             rc = tx.run(legacy_split(cmd))      # tmux viejo: -l N% → -p N
         if rc != 0 and not plan:
             # tmux falló a medio armado → limpiar el intento y abrir normal
-            subprocess.run(["tmux", "kill-session", "-t", session],
-                           capture_output=True)
+            subprocess.run(["tmux", "kill-session", "-t", _exacta(session)],
+                           capture_output=True, env=env_sin_boveda())
             return fallback(agent, "tmux no pudo armar la ventana partida")
 
-    return tx.run(["attach-session", "-t", session])
+    return tx.run(["attach-session", "-t", _exacta(session)])
 
 
 def main():

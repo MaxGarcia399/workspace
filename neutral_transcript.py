@@ -7,7 +7,7 @@ validado contra 144 transcripts reales con equivalencia byte a byte):
 la memoria de WORKSPACE se construye sobre un schema de transcript PROPIO
 (`workspace.transcript` v1), no sobre el `.jsonl` de ningún vendor. Cada motor
 aporta un ingester que normaliza su formato crudo al schema; los consumidores
-(dream.py hoy; memoria v2 mañana) jamás ven el formato del vendor.
+(la revisión de skills, el respaldo, la memoria) jamás ven el formato del vendor.
 
 DERIVACIÓN DEL SCHEMA (consejo de la 2ª opinión, research/model-agnostic-
 2a-opinion.md: derivar de lo que la destilación consume HOY, no de motores
@@ -78,7 +78,7 @@ y el filtro pertenece al INGESTER, no al consumidor.
 
 Cero dependencias (stdlib, Python 3.9+). Falla-suave: líneas corruptas se
 saltan; un archivo ilegible levanta OSError (el caller decide). Amputable
-(C10): dream.py cae a su parser nativo si este módulo no está.
+(C10): sus consumidores fallan suave si este módulo no está.
 """
 import json
 import os  # noqa: F401  (paridad de entorno con el resto del harness)
@@ -94,9 +94,8 @@ _SESSION_KEYS = ("id", "engine", "title", "cwd", "git_branch",
                  "first_ts", "last_ts", "source_path", "n_source_lines")
 _TURN_KEYS = ("role", "ts", "text", "noise", "tool_calls")
 
-# = dream.MAX_SANITIZED_CHARS. dream pasa el suyo explícito al llamar
-# sanitized_view; este default existe para consumidores directos. El test
-# de alineación (test_neutral_transcript) verifica que coincidan.
+# Cota de la vista sanitizada (heredada del sanitizador de dream.py, retirado
+# el 2026-10-16). La usan sus consumidores directos (revisión de skills).
 MAX_SANITIZED_CHARS = 60_000
 _TRUNC_MARKER = "\n\n[… TRUNCADO por el harness: transcript largo …]\n\n"
 
@@ -104,9 +103,12 @@ _TRUNC_MARKER = "\n\n[… TRUNCADO por el harness: transcript largo …]\n\n"
 CLAUDE_WRITE_TOOLS = ("Write", "Edit", "NotebookEdit")
 
 # prefijos de ruido inyectado por el harness, por vendor
-CLAUDE_NOISE_PREFIXES = ("<system-reminder", "<command-name")
+CLAUDE_NOISE_PREFIXES = ("<system-reminder", "<command-name", "<command-message",
+                         "<local-command", "<task-notification", "<cross-session-message",
+                         "<bash-stdout", "<bash-stderr", "[Request interrupted")
 CODEX_NOISE_PREFIXES = ("<user_instructions>", "<environment_context>",
-                        "<ENVIRONMENT_CONTEXT>")  # A-VERIFICAR: casing real
+                        "<ENVIRONMENT_CONTEXT>",  # A-VERIFICAR: casing real
+                        "# AGENTS.md instructions for")  # codex 2026-10: el AGENTS.md llega como «user»
 
 
 # ── constructores + validación del schema ──────────────────────────────────
@@ -247,8 +249,11 @@ def parse_claude_code(path):
         text = "\n".join(x for x in texts if x and x.strip())
         if not text.strip() and not tool_calls:
             continue
+        # isMeta (nota de imagen, caveat de comandos) e isCompactSummary (el
+        # resumen al compactar) llegan como «user» pero los escribe el harness
         noise = (t == "user"
-                 and text.lstrip().startswith(CLAUDE_NOISE_PREFIXES))
+                 and (text.lstrip().startswith(CLAUDE_NOISE_PREFIXES)
+                      or bool(d.get("isMeta")) or bool(d.get("isCompactSummary"))))
         doc["turns"].append(make_turn(
             t, text, ts=ts, noise=noise, tool_calls=tool_calls))
     ses["n_source_lines"] = n_lines
@@ -358,6 +363,9 @@ def parse_codex(path):
     return doc
 
 
+_AGY_REQUEST = re.compile(r"<USER_REQUEST>(.*?)</USER_REQUEST>", re.S)
+
+
 def parse_antigravity(path):
     """Official hook transcript: visible completed dialogue only.
 
@@ -381,9 +389,193 @@ def parse_antigravity(path):
                 not isinstance(text, str) or not text.strip() or
                 type(idx) is not int or idx < 0):
             continue
+        if role == "user":
+            # agy envuelve lo que escribió el socio: <USER_REQUEST>…</USER_REQUEST>
+            # + <ADDITIONAL_METADATA> (hora local). Solo cuenta lo de adentro.
+            m = _AGY_REQUEST.search(text)
+            if m and m.group(1).strip():
+                text = m.group(1).strip()
         ts = row.get("created_at")
         steps[idx] = make_turn(role, text, ts if isinstance(ts, str) else "")
     doc["turns"] = [steps[k] for k in sorted(steps)]
+    if doc["turns"]:
+        doc["session"]["first_ts"] = doc["turns"][0]["ts"]
+        doc["session"]["last_ts"] = doc["turns"][-1]["ts"]
+    return doc
+
+
+# ── OpenCode ───────────────────────────────────────────────────────────────
+#: Marca de la cabecera del .jsonl que arma session_continuity.capture_opencode
+#: a partir del export OFICIAL (`opencode session export <id>`). Cada mensaje
+#: va ENVUELTO (`opencode_message`) para que ningún consumidor lo confunda con
+#: el formato de Claude Code (ambos usan type user/assistant).
+OPENCODE_HEADER = "opencode_session"
+OPENCODE_MESSAGE = "opencode_message"
+
+
+def _ms_iso(ms):
+    import datetime
+    try:
+        return datetime.datetime.fromtimestamp(
+            float(ms) / 1000.0, datetime.timezone.utc).isoformat(timespec="seconds")
+    except (TypeError, ValueError, OverflowError, OSError):
+        return ""
+
+
+def parse_opencode(path):
+    """Export oficial de opencode → doc neutral. Solo diálogo VISIBLE: el
+    texto del usuario y las partes `text` de la respuesta. Jamás reasoning,
+    herramientas ni marcas idle (misma regla que Antigravity)."""
+    doc = empty_doc(id="", engine="opencode", source_path=str(path))
+    for n, row in _iter_jsonl(path):
+        doc["session"]["n_source_lines"] = n
+        if not isinstance(row, dict):
+            continue
+        if row.get("type") == OPENCODE_HEADER:
+            doc["session"]["id"] = str(row.get("id") or "")
+            doc["session"]["title"] = str(row.get("title") or "")
+            doc["session"]["cwd"] = str(row.get("directory") or "")
+            continue
+        if row.get("type") != OPENCODE_MESSAGE or not isinstance(row.get("message"), dict):
+            continue
+        m = row["message"]
+        if isinstance(m.get("info"), dict) and isinstance(m.get("parts"), list):
+            # opencode 1 (VERIFICADO 1.19.3): {"info": {"role", "time"},
+            # "parts": [{"type": "text"|"step-start"|…, "text"}]}
+            info = m["info"]
+            text = "\n".join(p.get("text", "") for p in m["parts"]
+                             if isinstance(p, dict) and p.get("type") == "text"
+                             and isinstance(p.get("text"), str)).strip()
+            if info.get("role") in ("user", "assistant") and text:
+                doc["turns"].append(make_turn(info["role"], text,
+                                              _ms_iso((info.get("time") or {}).get("created"))))
+            continue
+        ts = _ms_iso((m.get("time") or {}).get("created"))
+        if m.get("type") == "user":
+            text = m.get("text")
+            if isinstance(text, str) and text.strip():
+                doc["turns"].append(make_turn("user", text, ts))
+        elif m.get("type") == "assistant":
+            parts = m.get("content") if isinstance(m.get("content"), list) else []
+            text = "\n".join(p.get("text", "") for p in parts
+                             if isinstance(p, dict) and p.get("type") == "text"
+                             and isinstance(p.get("text"), str)).strip()
+            if text:
+                doc["turns"].append(make_turn("assistant", text, ts))
+    if doc["turns"]:
+        doc["session"]["first_ts"] = doc["turns"][0]["ts"]
+        doc["session"]["last_ts"] = doc["turns"][-1]["ts"]
+    return doc
+
+
+# ── OpenClaw ───────────────────────────────────────────────────────────────
+#: OpenClaw 2026.5.12 (VERIFICADO): agents/<id>/sessions/<sessionId>.jsonl.
+#: 1ª línea {"type":"session","version":N,"id":…,"cwd":…}; los turnos son
+#: {"type":"message","message":{"role":"user|assistant","content":[{type,text}]}}.
+#: OpenClaw antepone al texto del usuario un sobre con la fecha
+#: («[Thu 2026-10-15 10:27 CST] …»): se quita, no es diálogo.
+_OPENCLAW_ENVELOPE = re.compile(
+    r"^\[(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{4}-\d{2}-\d{2} \d{2}:\d{2}[^\]]*\]\s*")
+
+
+def _is_openclaw_header(d):
+    return (d.get("type") == "session" and type(d.get("version")) is int
+            and bool(d.get("id")) and "cwd" in d)
+
+
+def parse_openclaw(path):
+    """Transcript de sesión de OpenClaw → doc neutral. Solo diálogo VISIBLE:
+    partes `text` de user/assistant. Jamás thinking, herramientas, resultados
+    de herramientas, errores ni eventos del runtime (model_change, custom…)."""
+    doc = empty_doc(id="", engine="openclaw", source_path=str(path))
+    for n, row in _iter_jsonl(path):
+        doc["session"]["n_source_lines"] = n
+        if not isinstance(row, dict):
+            continue
+        if _is_openclaw_header(row):
+            doc["session"]["id"] = str(row.get("id") or "")
+            doc["session"]["cwd"] = str(row.get("cwd") or "")
+            continue
+        if row.get("type") != "message" or not isinstance(row.get("message"), dict):
+            continue
+        m = row["message"]
+        role = m.get("role")
+        if role not in ("user", "assistant"):
+            continue
+        content = m.get("content")
+        if isinstance(content, str):          # export 2026.9+/10.x: user como string
+            content = [{"type": "text", "text": content}]
+        parts = content if isinstance(content, list) else []
+        text = "\n".join(p.get("text", "") for p in parts
+                         if isinstance(p, dict) and p.get("type") == "text"
+                         and isinstance(p.get("text"), str)).strip()
+        if role == "user":
+            text = _OPENCLAW_ENVELOPE.sub("", text).strip()
+        if text:
+            ts = row.get("timestamp")
+            doc["turns"].append(make_turn(role, text, ts if isinstance(ts, str) else ""))
+    if doc["turns"]:
+        doc["session"]["first_ts"] = doc["turns"][0]["ts"]
+        doc["session"]["last_ts"] = doc["turns"][-1]["ts"]
+    return doc
+
+
+# ── Hermes Agent ───────────────────────────────────────────────────────────
+#: Marca de la cabecera del .jsonl que arma session_continuity.capture_hermes a
+#: partir del export OFICIAL (`hermes sessions export --format jsonl`, v0.18.2
+#: VERIFICADO): un registro por sesión con `messages` [{role, content,
+#: timestamp (epoch), reasoning, tool_calls…}]. Cada mensaje va ENVUELTO
+#: (`hermes_message`) para que ningún consumidor lo confunda con otro formato.
+HERMES_HEADER = "hermes_session"
+HERMES_MESSAGE = "hermes_message"
+_THINK_BLOCK = re.compile(r"<think>.*?</think>\s*", re.S)
+
+
+def _epoch_iso(sec):
+    import datetime
+    try:
+        return datetime.datetime.fromtimestamp(
+            float(sec), datetime.timezone.utc).isoformat(timespec="seconds")
+    except (TypeError, ValueError, OverflowError, OSError):
+        return ""
+
+
+def _hermes_text(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(p.get("text", "") for p in content
+                         if isinstance(p, dict) and p.get("type") in ("text", "input_text", "output_text")
+                         and isinstance(p.get("text"), str))
+    return ""
+
+
+def parse_hermes(path):
+    """Export oficial de Hermes → doc neutral. Solo diálogo VISIBLE: texto de
+    user/assistant. Jamás reasoning, herramientas (rol tool / tool_calls) ni
+    mensajes de sistema."""
+    doc = empty_doc(id="", engine="hermes", source_path=str(path))
+    for n, row in _iter_jsonl(path):
+        doc["session"]["n_source_lines"] = n
+        if not isinstance(row, dict):
+            continue
+        if row.get("type") == HERMES_HEADER:
+            doc["session"]["id"] = str(row.get("id") or "")
+            doc["session"]["title"] = str(row.get("title") or "")
+            doc["session"]["cwd"] = str(row.get("cwd") or "")
+            continue
+        if row.get("type") != HERMES_MESSAGE or not isinstance(row.get("message"), dict):
+            continue
+        m = row["message"]
+        role = m.get("role")
+        if role not in ("user", "assistant"):
+            continue
+        text = _hermes_text(m.get("content"))
+        if role == "assistant":
+            text = _THINK_BLOCK.sub("", text)
+        text = text.strip()
+        if text:
+            doc["turns"].append(make_turn(role, text, _epoch_iso(m.get("timestamp"))))
     if doc["turns"]:
         doc["session"]["first_ts"] = doc["turns"][0]["ts"]
         doc["session"]["last_ts"] = doc["turns"][-1]["ts"]
@@ -410,6 +602,12 @@ def detect_format(path, probe_lines=25):
                     break
                 continue
             t = d.get("type")
+            if t == OPENCODE_HEADER:
+                return "opencode"
+            if t == HERMES_HEADER:
+                return "hermes"
+            if _is_openclaw_header(d):
+                return "openclaw"
             if (t in {"USER_INPUT", "PLANNER_RESPONSE", "GENERIC", "SYSTEM_MESSAGE"}
                     and type(d.get("step_index")) is int
                     and "source" in d and "status" in d):
@@ -429,7 +627,9 @@ def detect_format(path, probe_lines=25):
     return None
 
 
-PARSERS = {"claude-code": parse_claude_code, "codex": parse_codex, "antigravity": parse_antigravity}
+PARSERS = {"claude-code": parse_claude_code, "codex": parse_codex,
+           "antigravity": parse_antigravity, "opencode": parse_opencode,
+           "openclaw": parse_openclaw, "hermes": parse_hermes}
 
 
 def ingest(path):

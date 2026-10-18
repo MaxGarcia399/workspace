@@ -43,4 +43,15 @@ STRINGS = {
                                      'ask for permission.',
     'motorbar.agy.commands_free': 'commands without asking',
     'motorbar.agy.tokens_in_bar': "in Antigravity's bar",
+    'motorbar.hermes.created': "created its «{p}» profile (with your model, without copying your "
+                               "keys; your personal Hermes doesn't change)",
+    'motorbar.hermes.pending': "Hermes' «{p}» profile doesn't exist yet: it's created without your "
+                               "keys when you open the agent; connect the provider in Engines › "
+                               "account and provider",
+    'motorbar.hermes.no_provider': "Hermes' «{p}» profile has no provider signed in (Workspace "
+                                   "doesn't copy your personal Hermes keys)",
+    'motorbar.hermes.gate_hint': "  Workspace's Hermes profile has its own provider (Workspace "
+                                 "doesn't copy your keys). Without one, Hermes opens its own "
+                                 "wizard instead of your agent: connect it in Engines › Hermes › "
+                                 "account and provider (provider and model).",
 }

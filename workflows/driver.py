@@ -22,7 +22,9 @@ Contrato del driver (un callable):
     "artifact": str|None,                # COMMIT — el artefacto que el spec
                                          #   espera de este paso
     "workdir":  ruta,                    # dir del run donde materializarlo
-    "params", "repo", "attempt", "dry",
+    "repo":     ruta,                    # árbol de trabajo del run: su
+                                         #   worktree tras worktree.acquire
+    "params", "attempt", "dry",
   }
 
   resultado["artifacts"] debe mapear el `artifact` declarado a su ruta real
@@ -106,7 +108,7 @@ def rehydrate(ident):
 # Cablea el paso agent al contrato `headless.run_headless` del harness:
 # brief → prompt → LLM one-shot → su TEXTO se captura como el artefacto.
 #
-# POSTURA DE SEGURIDAD (no negociable — guard N6, mismo modelo que dream.py):
+# POSTURA DE SEGURIDAD (no negociable — guard N6):
 #   · El despacho corre SIEMPRE con tools="none" (TOOLS_NONE): el LLM no
 #     tiene manos — no toca filesystem ni red. No hay parámetro para
 #     relajarlo desde aquí; el invariante de headless además RECHAZA
@@ -131,7 +133,7 @@ _ENV_TIMEOUT = "WORKSPACE_WF_TIMEOUT"
 
 def _imports():
     """headless (OBLIGATORIO) + guards (amputables, con postura declarada),
-    con la raíz del harness y hooks/ en el path — mismo patrón que dream.py."""
+    con la raíz del harness y hooks/ en el path."""
     import os as _o, sys as _s
     here = _o.path.dirname(_o.path.abspath(__file__))
     root = _o.path.dirname(here)
@@ -152,7 +154,7 @@ def _imports():
 
 def _redact_secrets(text, secret_scan):
     """Líneas con secretos → redactadas (solo la clase, jamás el secreto).
-    Sin secret_scan el texto pasa intacto (módulo amputable, como en dream)."""
+    Sin secret_scan el texto pasa intacto (módulo amputable)."""
     if secret_scan is None or not text:
         return text
     try:

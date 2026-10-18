@@ -92,9 +92,19 @@ def _read_json(path):
         return {}
 
 
-def read_local():
-    """El doc completo del registro per-máquina, saneado. Falla-suave → vacío."""
-    data = _read_json(local_path())
+def read_local(strict=False):
+    """El doc completo del registro per-máquina, saneado. Falla-suave → vacío.
+    `strict=True`: si el archivo EXISTE pero no se puede leer (o no trae la
+    lista de agentes) LANZA en vez de pasar por vacío — para quien decide
+    algo destructivo con «no está registrado» (agent_create_job.cleanup)."""
+    path = local_path()
+    if strict and os.path.lexists(path):
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        if not isinstance(data, dict) or not isinstance(data.get("agents"), list):
+            raise ValueError("forma inesperada: %s" % path)
+    else:
+        data = _read_json(path)
     ags = data.get("agents")
     if not isinstance(ags, list):
         data["agents"] = []

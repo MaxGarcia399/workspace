@@ -20,4 +20,11 @@ STRINGS = {
     "personal.agenda.tag_done": "(done)",
     "personal.agenda.tag_archived": "(archived)",
     "personal.unknown": "personal: unknown command '{cmd}' (agenda)",
+    "personal.aviso.saltados": "{n} unreadable event(s) in the agenda: kept as-is in {archivo}",
+    "personal.aviso.ilegible": "couldn't read the agenda ({archivo}): left untouched; if it stays that way, saving will set it aside intact as a copy",
+    "personal.aviso.cambio": "the agenda changed while it was being read ({archivo}): didn't write over it; try again",
+    "personal.aviso.copias": "unreviewed copy of your damaged agenda: {copia} — an agent can recover it",
+    "personal.aviso.no_abre": "couldn't open the agenda ({archivo}): not writing over it",
+    "personal.aviso.no_aparta": "agenda damaged and couldn't be set aside ({archivo}): not writing over it",
+    "personal.aviso.apartada": "agenda damaged: kept intact as {copia}; you continue with a clean one",
 }

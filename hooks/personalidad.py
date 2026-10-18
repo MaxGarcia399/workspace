@@ -34,7 +34,11 @@ except Exception:
     pass
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
+# Este hook se llama IGUAL que el módulo que importa (`personalidad`). Python
+# pone la carpeta del script (hooks/) primero en sys.path: si ROOT ya venía en
+# PYTHONPATH (detrás), `import personalidad` resolvía a ESTE archivo, fallaba
+# en silencio y el tono desaparecía. ROOT va SIEMPRE primero.
+if not sys.path or sys.path[0] != ROOT:
     sys.path.insert(0, ROOT)
 
 

@@ -11,7 +11,7 @@ NO se abstiene. No premiar confianza sobre corrección — un "no sé" correcto 
 
 Honestidad de alcance:
   · La invocación headless (`_invoke_claude`) usa el contrato compartido `headless.run_headless`
-    (mismo camino que dream.py): texto puro sin tools, mockeable en tests. La fidelidad del "correr el agente" es APROXIMADA (inyecta identidad + input; el boot
+    (el mismo contrato de headless.py): texto puro sin tools, mockeable en tests. La fidelidad del "correr el agente" es APROXIMADA (inyecta identidad + input; el boot
     completo del cerebro vía el motor es un refinamiento). El VALOR es el harness: golden + juez +
     scorecard + scoring, todo probado.
   · No-inglés: el juez-LLM NO es confiable en KO/no-latino → el scorecard marca `requiere_nativo: true`
@@ -148,7 +148,7 @@ def load_golden(brain):
     return out
 
 
-# ── invocación headless (mockeable; contrato compartido con dream) ──────────
+# ── invocación headless (mockeable; contrato de headless.py) ────────────────
 def _eval_backend():
     """Backend headless efectivo del eval (model-agnostic §0.5): sale del engine
     conectado vía WORKSPACE_EVAL_BACKEND, default claude-code. Función para que
@@ -180,7 +180,16 @@ def _agent_identity(brain):
     dimensiones seguridad/copiloto se medirían sobre un agente que nunca vio sus
     límites (sesgo a la baja del scorecard)."""
     bits = []
-    for rel in ("CLAUDE.md", os.path.join("BOOT", "00-SOUL.md"),
+    # Identidad vía el resolver único: BRAIN.md (formato v2, sigue un CLAUDE.md
+    # puntero) o CLAUDE.md en cerebros anteriores.
+    try:
+        import brain_identity
+        ident = brain_identity.read_identity(os.path.expanduser(brain))
+        if ident:
+            bits.append(ident[:4000])
+    except Exception:
+        pass
+    for rel in (os.path.join("BOOT", "00-SOUL.md"),
                 os.path.join("BOOT", "03-RULES.md"),
                 os.path.join("BOOT", "02-OWNER.md"),
                 os.path.join("BOOT", "02-TEAM.md")):

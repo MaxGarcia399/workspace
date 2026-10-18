@@ -18,6 +18,7 @@ genérico del template. Stdlib puro, falla-suave (jamás crashea al consumidor),
 UTF-8 (estos scripts los captura el motor por subprocess).
 """
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -25,10 +26,50 @@ import unicodedata
 
 
 # ── helpers de texto ─────────────────────────────────────────────────────────
-def slug(s):
-    """kebab-case ASCII de un nombre de pestaña (igual que los dashboards)."""
+def slug_ascii(s):
+    """El slug de siempre: kebab-case ASCII (NFKD, sin acentos). Para nombres
+    latinos ES el slug; los demás alfabetos los perdía (ver slug())."""
     s = unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode("ascii")
     return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
+
+
+def _no_latina(c):
+    """¿LETRA de otro alfabeto (coreano, chino, cirílico, griego…) que el slug
+    ASCII perdería? No cuentan —su slug de siempre no cambia—: lo que el ASCII
+    conserva (é → e, Ａ → a), las latinas sin descomposición (ø, ß, ł), los
+    modificadores (ʻ), los números (❶, ٣) ni los signos de unidad o de
+    matemáticas (µ, ℵ). Ω cuenta como griega aunque sea el signo de ohm: NFC
+    lo convierte en la omega. `c`: un carácter del nombre en NFC."""
+    cat = unicodedata.category(c)
+    if c.isascii() or cat[0] != "L" or cat == "Lm":
+        return False
+    if ord(c) <= 0xFF or 0x2100 <= ord(c) <= 0x214F:
+        return False
+    if any(x.isascii() for x in unicodedata.normalize("NFKD", c)):
+        return False
+    return not unicodedata.name(c, "").startswith("LATIN")
+
+
+def slug(s):
+    """kebab-case ASCII de un nombre de pestaña (igual que los dashboards).
+
+    Nombre latino → el slug de siempre (slug_ascii), byte a byte. Si trae letras
+    de otro alfabeto (coreano, chino, cirílico…) el ASCII las perdía: slug vacío
+    o choques («회의 A» y «기획 A» → «a», memoria y resume compartidos). Entonces
+    va lo ASCII que sobreviva (o «tab») + un hash corto y ESTABLE del nombre
+    normalizado (NFKC, minúsculas, sin puntuación): sin transliterar, igual en
+    toda máquina y distinto por nombre."""
+    s = s or ""
+    base = slug_ascii(s)
+    if not any(_no_latina(c) for c in unicodedata.normalize("NFC", s)):
+        return base
+    u = unicodedata.normalize("NFKC", s).lower()
+    clave = re.sub(r"-+", "-", "".join(
+        c if unicodedata.category(c)[0] in "LNM" else "-" for c in u)).strip("-")
+    if not clave:
+        return base
+    return "%s-%s" % (base or "tab",
+                      hashlib.sha256(clave.encode("utf-8")).hexdigest()[:8])
 
 
 def parse_frontmatter(path):
@@ -74,6 +115,60 @@ def _epoch(date_str):
 _BACKUP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[-_t]", re.IGNORECASE)
 
 
+def _fm_name(fm):
+    """Nombre de la pestaña según su frontmatter (cualquier esquema)."""
+    return (fm.get("titulo") or fm.get("sesión") or fm.get("sesion")
+            or fm.get("slug") or fm.get("tarea") or "").strip()
+
+
+def _sesiones_md(d):
+    """[(archivo, ruta, frontmatter, nombre)] de los .md de pestaña de `d`, por
+    nombre de archivo. Salta README.md, subdirectorios, los backups date+hash
+    sin título y `.md` (sin nombre: residuo del slug vacío de nombres no
+    latinos, un archivo OCULTO que compartían todas esas pestañas)."""
+    out = []
+    try:
+        names = sorted(os.listdir(d))
+    except Exception:
+        return out
+    for fn in names:
+        if not fn.endswith(".md") or fn in ("README.md", ".md"):
+            continue
+        path = os.path.join(d, fn)
+        if not os.path.isfile(path):
+            continue
+        fm = parse_frontmatter(path)
+        name = _fm_name(fm)
+        if not name:
+            if _BACKUP_RE.match(fn):
+                continue                # backup date+hash sin título → fuera
+            name = fn[:-3]              # nombrada por el archivo (sin frontmatter)
+        out.append((fn, path, fm, name))
+    return out
+
+
+def _ajena(stem, nombre):
+    """Slug de la pestaña de nombre NO latino a la que pertenece un .md que no
+    es su archivo: el del slug viejo («회의 A» → a.md) o el nombre que le puso
+    el agente cuando no le daban ruta (도시-계획.md; dosi-gyehoek.md con
+    `titulo: 도시 계획`). '' para todo lo demás (los latinos no cambian)."""
+    sl = slug(nombre)
+    return sl if sl and sl != slug_ascii(nombre) and stem != sl else ""
+
+
+def legacy_session_file(d, name):
+    """Compat de LECTURA (nombres no latinos de antes del arreglo): el .md donde
+    vivía la memoria de ESTA pestaña con otro nombre de archivo — el slug viejo
+    (a.md, que podía compartir con «기획 A») o el que eligió el agente
+    (도시-계획.md). Su frontmatter (o su nombre de archivo) debe probar que es
+    esta pestaña y tiene que ser UNO solo (si hay varios, ¿cuál?). '' si no."""
+    sl = slug(name)
+    if not d or not sl or sl == slug_ascii(name):
+        return ""                       # nombre latino: su archivo de siempre
+    cands = [p for fn, p, _fm, n in _sesiones_md(d) if _ajena(fn[:-3], n) == sl]
+    return cands[0] if len(cands) == 1 else ""
+
+
 def brain_sessions(brain, socio):
     """Sesiones NOMBRADAS del cerebro: `STATE/sessions/<socio>/*.md`. 'Nombrada' = trae
     un nombre real en el frontmatter (cualquier esquema: `titulo`, `sesión`/`sesion`,
@@ -85,25 +180,24 @@ def brain_sessions(brain, socio):
     if not brain or not socio:
         return out
     d = os.path.join(brain, "STATE", "sessions", socio)
-    try:
-        names = sorted(os.listdir(d))
-    except Exception:
-        return out
-    for fn in names:
-        if not fn.endswith(".md") or fn == "README.md":
-            continue
-        path = os.path.join(d, fn)
-        if not os.path.isfile(path):
-            continue
-        fm = parse_frontmatter(path)
-        name = (fm.get("titulo") or fm.get("sesión") or fm.get("sesion")
-                or fm.get("slug") or fm.get("tarea") or "").strip()
-        if not name:
-            if _BACKUP_RE.match(fn):
-                continue                # backup date+hash sin título → fuera
-            name = fn[:-3]              # nombrada por el archivo (sin frontmatter)
+    files = _sesiones_md(d)
+    ajenos = {}                         # pestaña no latina → cuántos .md ajenos
+    for fn, _p, _fm, name in files:
+        a = _ajena(fn[:-3], name)
+        if a:
+            ajenos[a] = ajenos.get(a, 0) + 1
+    for fn, path, fm, name in files:
+        sl = slug(fn[:-3])
+        a = _ajena(fn[:-3], name)
+        if a:
+            # .md de una pestaña no latina con otro nombre de archivo: su
+            # identidad es la de su nombre. Si ya tiene su archivo y este era el
+            # ÚNICO (lo adoptó sessions_registry._seed_md) → no se lista doble.
+            if ajenos[a] == 1 and os.path.isfile(os.path.join(d, a + ".md")):
+                continue
+            sl = a
         out.append({
-            "slug": slug(fn[:-3]),
+            "slug": sl,
             "name": name,
             "workspace": (fm.get("workspace") or "").strip(),
             "actualizada": (fm.get("actualizada") or "").strip(),
@@ -349,3 +443,130 @@ def session_memory(brain, name, limit=1200):
     """Shared current-state selector for native dashboards (lazy: no cycle)."""
     import sessions_registry
     return sessions_registry.tab_memory(brain, name, limit=limit)
+
+
+def instruccion_memoria():
+    """Cómo guardar memoria, en los tableros de marca (fuente única, regla 5).
+    Los tableros solo la imprimen cuando Workspace NO inyecta el paquete de la
+    pestaña: cuando los corre una versión anterior (la copia del cerebro viaja
+    por Obsidian) o un hook viejo. Ahí `workspace memoria nota` puede no
+    existir, así que dice qué hacer en ese caso (regla 4, revisión 0.3.4). La
+    plantilla trae este mismo texto para un Workspace sin esta función."""
+    return ("Guarda memoria con `workspace memoria nota --tipo <decision|pendiente|hecho|nota|dato|"
+        "preferencia> 'texto'`, en el momento (cerrar un pendiente: --tipo hecho --cierra P-n), y el "
+        "resumen con `workspace memoria checkpoint`. Si en esta máquina `workspace memoria nota` no "
+        "existe (Workspace anterior: «invalid choice: 'nota'»), agrega al final de ## Historial del "
+        "archivo de la pestaña una línea fechada con el mismo formato: "
+        "`- 2026-10-16 14:02 · claude-code · decisión: texto`. Fuera de ese caso, no edites ese "
+        "archivo a mano.")
+
+
+# ── dashboards de marca GUARDADOS EN EL CEREBRO ──────────────────────────────
+# El paso `agent.brand` de crear-agente copia la plantilla del dashboard a
+# `<cerebro>/brand/<nombre>-dashboard.py` UNA vez y nunca la regenera. Las copias
+# de antes del arreglo de nombres no latinos calculan el slug viejo (solo-ASCII):
+# en Claude Code una pestaña «도시 계획» no recibe su memoria. Huellas (sha256) de
+# las tres funciones afectadas tal como venían en cada versión de la plantilla
+# que pudo llegar a un cerebro (2026-06-27 → 2026-10-17); una función con OTRA
+# huella la editó alguien → ese archivo no se toca.
+_DASH_PLANTILLA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates",
+                               "agent", "workspace", "brand", "agent-dashboard.py")
+_DASH_VIEJAS = {
+    "_slug": {"b29ff7ab1910d68dee4716f1c42e9ce3cd9e8a47d75ce31e2e8f55ddaebd282d"},
+    "session_body": {"ed11edd1331e651c7edc4007697d8c18add1b5df2d5a43a47daf23830d265519"},
+    "render_context": {
+        "3991f98b165228f55e4b6c146442e4b64d1fe2be8ab376c7392473cedeff4c62",
+        "1eddd18c4977a40b0edcccd5d9ecb61599824c114f697964fc77a8f2e801596f",
+        "958f7c7e10065edec194dadd3f8e20a1a8c775542f1befacd73d03ac7e55c7cb",
+        "0be181d70dfabe8dd0028c097ed35d3f765c78cf39029f29c205610fb1ac8ce3",
+        # memoria v1 (2026-10-17): f2d5342 y 6f21d8c… (agentes creados con esa
+        # versión: slug viejo, instrucción nueva)
+        "fecb5736bdf20ec5c0fa531d9b26fd0b5c138201078ef15dfa1c943c1eb037e7",
+        "62f9c4c703ed7ce7f1f8cf7d821fcfb950a582770b238df0b9c712127a268a62",
+    },
+}
+
+
+def _funciones_dash(texto):
+    """({nombre: (línea_ini, línea_fin, texto)} de las funciones de _DASH_VIEJAS
+    a nivel de módulo, ¿hace `import agent_brand`?). ({}, False) si no es
+    Python válido."""
+    import ast
+    try:
+        tree = ast.parse(texto)
+    except (SyntaxError, ValueError):
+        return {}, False
+    lineas = texto.splitlines(keepends=True)
+    funcs, importa = {}, False
+    for n in tree.body:
+        if isinstance(n, ast.Import) and any(a.name == "agent_brand" and not a.asname
+                                             for a in n.names):
+            importa = True
+        elif isinstance(n, ast.FunctionDef) and n.name in _DASH_VIEJAS:
+            funcs[n.name] = (n.lineno - 1, n.end_lineno,
+                             "".join(lineas[n.lineno - 1:n.end_lineno]))
+    return funcs, importa
+
+
+def _sha(texto):
+    return hashlib.sha256(texto.encode("utf-8")).hexdigest()
+
+
+def refresh_brand_dashboards(brain, dashboard, dry_run=False, backup_dir=None):
+    """Pone al día el dashboard de marca que el agente USA (`dashboard`: su
+    `scripts.dashboard` ya expandido) si vive DENTRO del cerebro: regenera DESDE
+    LA PLANTILLA sus funciones de memoria de pestaña (`_slug`, `session_body`,
+    `render_context`), que pasan a usar agent_brand.slug como todo lo demás.
+    Solo si las tres vienen tal cual de una versión anterior de la plantilla y
+    el archivo importa agent_brand; el resto del archivo no se toca. Las copias
+    sueltas que nadie ejecuta no se miran. Respaldo en `backup_dir` antes de
+    escribir. Idempotente, falla-suave. Devuelve [(archivo, estado)] si trae la
+    función vieja: «actualizado» («por actualizar» en dry_run), «personalizado»
+    (editado a mano: no se toca) o «error: …». Al día o ajeno → []."""
+    try:
+        raiz = os.path.realpath(brain or "")
+        path = os.path.realpath(dashboard or "")
+        if (not brain or not dashboard or os.path.islink(dashboard)
+                or not os.path.normcase(path).startswith(os.path.normcase(raiz) + os.sep)
+                or not os.path.isfile(path)):
+            return []                             # en el harness, o no existe
+        rel = os.path.relpath(path, raiz).replace(os.sep, "/")
+        with open(_DASH_PLANTILLA, encoding="utf-8") as fh:
+            nuevas, _ = _funciones_dash(fh.read())
+        with open(path, encoding="utf-8") as fh:
+            texto = fh.read()
+    except Exception:
+        return []
+    if set(nuevas) != set(_DASH_VIEJAS):
+        return []                                 # plantilla irreconocible
+    funcs, importa = _funciones_dash(texto)
+    if _sha(funcs.get("_slug", (0, 0, ""))[2]) not in _DASH_VIEJAS["_slug"]:
+        return []                                 # al día, o no es de la plantilla
+    viejas = [k for k, (_i, _j, t) in funcs.items() if _sha(t) in _DASH_VIEJAS[k]]
+    al_dia = [k for k, (_i, _j, t) in funcs.items() if t == nuevas[k][2]]
+    if not importa or len(viejas) + len(al_dia) != len(_DASH_VIEJAS):
+        return [(rel, "personalizado")]
+    if dry_run:
+        return [(rel, "por actualizar")]
+    lineas = texto.splitlines(keepends=True)
+    for k in sorted(viejas, key=lambda k: funcs[k][0], reverse=True):
+        i, j, _t = funcs[k]
+        lineas[i:j] = [nuevas[k][2]]
+    import shutil
+    tmp = "%s.tmp-%d" % (path, os.getpid())
+    try:
+        if backup_dir:                            # respaldo ANTES de escribir
+            dest = os.path.join(backup_dir, _sha(raiz)[:12], os.path.dirname(rel))
+            os.makedirs(dest, exist_ok=True)
+            shutil.copy2(path, os.path.join(dest, os.path.basename(path)))
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write("".join(lineas))
+        shutil.copymode(path, tmp)
+        os.replace(tmp, path)                     # atómico: nunca a medias
+        return [(rel, "actualizado")]
+    except Exception as e:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        return [(rel, "error: %s" % type(e).__name__)]

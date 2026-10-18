@@ -78,6 +78,7 @@ _NOTE_KEYS = {
     "no se pudo verificar": "addagent.note.verify_fail",
     "la carpeta no existe": "addagent.note.no_folder",
     "colisión de nombre": "addagent.note.name_collision",
+    "choca con un comando": "addagent.note.command",
     "no se pudo sembrar": "addagent.note.seed_fail",
     "def mínima sembrada (no había)": "addagent.note.seeded",
     "def existente — se respeta": "addagent.note.def_kept",
@@ -370,8 +371,8 @@ def seed_definition(folder, name=None, owner=None, display=None, tagline="",
 # ── permisos + revisión de skills: las DOS preguntas al crear/cargar ─────────
 #: Contrato común de los motores (agent.json): `autonomy` brain|ask (default
 #: brain = lee y escribe su cerebro sin preguntar; ask = pregunta también
-#: dentro de su cerebro) y `skill_review` (revisión de skills al cerrar cada
-#: sesión). Se cambian en Agentes → Enter. "full" (comandos sin preguntar) ya NO
+#: dentro de su cerebro) y `skill_review` (revisión de skills: el agente la hace
+#: al abrir la siguiente sesión, a la vista). Se cambian en Agentes → Enter. "full" (comandos sin preguntar) ya NO
 #: se ofrece (decisión del dueño 2026-10-14: no es tan seguro); los motores lo
 #: siguen entendiendo si un agent.json lo trae escrito a mano.
 AUTONOMY_CHOICES = ("ask", "brain")
@@ -440,9 +441,9 @@ def ask_preferences(autonomy=None, skill_review=None, interactive=None,
     if skill_review is None:
         skill_review = _si(_t(
             "addagent.prefs.q_review",
-            "¿Revisión automática de skills al cerrar cada sesión? Mejora sus "
-            "skills con lo que corriges; usa un poco de tu suscripción. "
-            "[s/N]: "))
+            "¿Revisión automática de skills? Al abrir cada sesión, tu agente revisa "
+            "la anterior y mejora sus skills con lo que corriges; usa un poco de tu "
+            "suscripción. [s/N]: "))
     return autonomy, skill_review
 
 
@@ -494,6 +495,32 @@ def default_brain_dest(name):
                         "%s - BRAIN" % (name or "").strip().upper())
 
 
+def command_conflict(name):
+    """'' si `name` puede ser el COMANDO de un agente nuevo; si no, el porqué
+    (texto para el usuario). Si ya es otro programa —el hub, el CLI de un
+    motor (instalado o no), git, python…— el lanzador del agente lo taparía en
+    la terminal (install.launcher_conflict). Lo usan create() y el formulario.
+    Falla-suave: sin install no se puede saber → no bloquea."""
+    try:
+        import install
+        hit = install.launcher_conflict(name)
+    except Exception:
+        return ""
+    if not hit:
+        return ""
+    if hit == install.RESERVED:
+        return _t("addagent.err.reserved", "«{n}» es el comando de Workspace "
+                  "o de un motor — elige otro nombre", n=name)
+    if hit == install.POWERSHELL:
+        return _t("addagent.err.powershell", "«{n}» es un comando de PowerShell "
+                  "— elige otro nombre", n=name)
+    home = os.path.expanduser("~")
+    if hit.startswith(home + os.sep):
+        hit = "~" + hit[len(home):]
+    return _t("addagent.err.command", "«{n}» ya es un comando de tu terminal "
+              "— elige otro nombre (su lanzador taparía {c})", n=name, c=hit)
+
+
 def _prog(progress, key, st, note=""):
     """Reporta un paso al callback de la UI. Falla-suave ABSOLUTA: un callback
     roto jamás tumba la creación."""
@@ -528,14 +555,18 @@ def _render_tree(src, dst, subs):
 def _write_owner_profile(dest, display, owner, intake):
     """Siembra `STATE/users/<owner>.md` con lo que el intake dijo del DUEÑO
     (quién es · cómo trabaja · qué necesita). Ese perfil es HOT al boot (el
-    CLAUDE.md del template lo lee) → el agente conoce a su dueño desde la
-    PRIMERA sesión, no desde el primer feedback. Solo si hay algo que decir;
-    jamás pisa un perfil existente. Falla-suave ABSOLUTA."""
+    archivo de identidad del template lo lee) → el agente conoce a su dueño desde la
+    PRIMERA sesión, no desde el primer feedback. Nace CON SU CÉDULA (frontmatter
+    de usuarios: id fijo, nombre, alias, creado, revision), escrita con los
+    helpers de usuarios → mismo formato que la sección Usuarios. Solo si hay algo
+    que decir (sin intake, usuarios.asegurar lo crea al abrir el agente); jamás
+    pisa un perfil existente. Falla-suave ABSOLUTA."""
     datos = {k: str((intake or {}).get(k) or "").strip()
              for k in ("dueño_quien", "dueño_como", "dueño_necesita")}
     if not owner or not any(datos.values()):
         return
     try:
+        import usuarios
         path = os.path.join(dest, "STATE", "users", "%s.md" % owner)
         if os.path.exists(path):
             return
@@ -552,8 +583,10 @@ def _write_owner_profile(dest, display, owner, intake):
             if datos[clave]:
                 cuerpo += ["## %s" % titulo, "", datos[clave], ""]
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write("\n".join(cuerpo))
+        usuarios._guardar_cedula({
+            "id": usuarios._nuevo_id(set(), owner), "nombre": owner, "alias": [],
+            "creado": datetime.date.today().isoformat(), "revision": 1,
+            "ruta": path, "cuerpo": "\n".join(cuerpo), "extra": {}})
     except Exception:
         pass
 
@@ -618,6 +651,13 @@ def create(name, tagline="", display=None, owner="", scope="", soul="",
         _prog(progress, "validar", "fail", "ya existe")
         return False, _t("addagent.err.exists", "ya existe un agente '{n}'",
                          n=name)
+    # el nombre es su COMANDO: si ya es otro programa (claude, hermes, git,
+    # workspace…) su lanzador lo taparía en la terminal → se rechaza aquí, el
+    # mismo chequeo que el formulario (también CLI y workflow crear-agente)
+    choque = command_conflict(name)
+    if choque:
+        _prog(progress, "validar", "fail", "choca con un comando")
+        return False, choque
     if not os.path.isdir(BRAIN_TEMPLATE):
         _prog(progress, "validar", "fail", "sin template")
         return False, _t("addagent.err.no_template",
@@ -659,7 +699,7 @@ def create(name, tagline="", display=None, owner="", scope="", soul="",
     # agent.json RICO — un agente nuevo nace al MISMO nivel que uno de equipo, no
     # empobrecido: `brain` (autocontenido), `session_env/id` PROPIOS (sin esto el
     # engine cae al default ZENITH_WS → colisión de workspace), y el bloque
-    # `memory` (contrato que audita `workspace doctor` + opt-in de dreaming/fts).
+    # `memory` (contrato que audita `workspace doctor` + opt-in de fts).
     defn = {
         "version": 1,
         "name": name, "display": display, "tagline": tagline,
@@ -668,7 +708,7 @@ def create(name, tagline="", display=None, owner="", scope="", soul="",
         "setup": {"session_journal": True, "autonomous": False},
         "autonomy": norm_autonomy(autonomy),
         "skill_review": bool(norm_bool(skill_review)),
-        "memory": {"tiering": "v1", "dreaming": True, "fts_index": False,
+        "memory": {"tiering": "v1", "fts_index": False,
                    "index_contract": "STATE/INDEX.md"},
         "scripts": {"banner": _GENERIC_BRAND % "banner",
                     "dashboard": _GENERIC_BRAND % "dashboard",
@@ -689,6 +729,9 @@ def create(name, tagline="", display=None, owner="", scope="", soul="",
     _prog(progress, "scaffold", "run")
     try:
         _render_tree(BRAIN_TEMPLATE, dest, subs)
+        # puntero CLAUDE.md: el MISMO generador que migración/load/doctor (B11)
+        import brain_format
+        brain_format.write_pointer(dest)
     except Exception as e:
         shutil.rmtree(dest, ignore_errors=True)        # rollback del scaffold parcial
         _prog(progress, "scaffold", "fail", "revertido")
@@ -704,8 +747,8 @@ def create(name, tagline="", display=None, owner="", scope="", soul="",
             with open(os.path.join(dest, ".claude", "socio.local"), "w",
                       encoding="utf-8") as fh:
                 fh.write(owner)
-            os.makedirs(os.path.join(dest, "STATE", "sessions", owner,
-                                     "destilados"), exist_ok=True)
+            os.makedirs(os.path.join(dest, "STATE", "sessions", owner),
+                        exist_ok=True)
         _write_owner_profile(dest, display, owner, intake)  # falla-suave
     except Exception as e:
         shutil.rmtree(dest, ignore_errors=True)        # rollback del scaffold parcial
@@ -861,8 +904,11 @@ def inspect_brain(folder):
         info["tagline"] = str(d.get("tagline") or "")
         info["engine"] = str(d.get("engine") or "")
         info["owner"] = str(d.get("owner") or "") or _detect_owner(fab)
+        # identidad: BRAIN.md (formato v2) o CLAUDE.md (cerebros anteriores)
+        import brain_identity
+        ident = brain_identity.identity_doc(fab)
         info["marcas"] = [
-            ("CLAUDE.md", os.path.isfile(os.path.join(fab, "CLAUDE.md"))),
+            (ident, os.path.isfile(os.path.join(fab, ident))),
             ("BOOT", os.path.isdir(os.path.join(fab, "BOOT"))),
             ("STATE", os.path.isdir(os.path.join(fab, "STATE"))),
             ("skills", os.path.isdir(os.path.join(fab, "skills"))),
@@ -880,6 +926,54 @@ def inspect_brain(folder):
     return info
 
 
+def _socio_for_load(folder, cfg, machine=""):
+    """Qué socio deja `load` en `<cerebro>/.claude/socio.local` (agentes-N2:
+    antes se escribía encima el de la máquina o «owner» → el menú de sesiones
+    salía vacío y cada pestaña arrancaba sin memoria). Devuelve (socio, aviso):
+    socio "" = no escribir nada; aviso = lo que el socio debe saber, o "".
+      1. el cerebro ya declara su socio (`.claude/socio.local`) → se respeta;
+      2. si no, el que declara ESTA máquina (`--socio`): socio.local es
+         per-máquina y dice quién lo usa AQUÍ. Si el cerebro trae sesiones de
+         otros se avisa de quién son (no se mezclan con las suyas);
+      3. máquina sin socio → la única carpeta de STATE/sessions (la que el
+         menú ya usa; misma regla que sessions_registry.socio); con varias no
+         se adivina y se avisa con el comando exacto; sin sesiones → el
+         `owner` de su agent.json;
+      4. sin ningún dato → el «owner» genérico, como «Crear agente»: no hay
+         sesiones que esconder y la memoria de pestañas funciona desde ya.
+    Un socio.local o una carpeta «owner» SIN sesiones es el marcador genérico
+    (lo dejaba este mismo bug), no un socio: no cuenta (install.brain_socio)."""
+    import install
+    if install.brain_socio(folder) != "":
+        return "", ""
+    d = os.path.join(folder, "STATE", "sessions")
+    try:
+        cands = sorted(x for x in os.listdir(d)
+                       if os.path.isdir(os.path.join(d, x))
+                       and not x.startswith(("_", "."))
+                       and not (x == install.GENERIC_SOCIO
+                                and not install.socio_has_sessions(folder, x)))
+    except Exception:
+        cands = []
+    machine = (machine or "").strip().lower()
+    if install.SOCIO_RE.match(machine):
+        if cands and machine not in cands:
+            return machine, ("tiene sesiones de %s; en esta máquina eres «%s» "
+                             "y verás solo las tuyas" % (", ".join(cands), machine))
+        return machine, ""
+    if len(cands) == 1:
+        # tal cual: un nombre raro no se copia (el store la sigue hallando)
+        return (cands[0] if install.SOCIO_RE.match(cands[0]) else ""), ""
+    if cands:
+        return "", ("tiene sesiones de %s y esta máquina no dice quién eres — "
+                    "no elegí ninguno; díselo con: %s"
+                    % (", ".join(cands), install.socio_remedy_cmd()))
+    owner = str((cfg or {}).get("owner") or "").strip().lower()
+    if install.SOCIO_RE.match(owner):
+        return owner, ""
+    return install.GENERIC_SOCIO, ""
+
+
 def load(folder, name=None, out=print, progress=None, autonomy=None,
          skill_review=None):
     """Carga un agente apuntando a una carpeta de cerebro. Si no es
@@ -888,7 +982,9 @@ def load(folder, name=None, out=print, progress=None, autonomy=None,
     pantalla «Agregar agente» lo pinta). `autonomy`/`skill_review` = lo que
     el usuario ACABA de elegir: se anotan en su agent.json y los permisos se
     reescriben según la autonomía. None = no se eligió: se respeta lo que el
-    cerebro ya declara (y sus permisos actuales). Devuelve (ok, name|error)."""
+    cerebro ya declara (y sus permisos actuales). El dueño (socio.local) que
+    el cerebro ya declara JAMÁS se cambia (ver _socio_for_load). Devuelve
+    (ok, name|error)."""
     folder = os.path.abspath(os.path.expanduser(folder or ""))
     _prog(progress, "validar", "run")
     if not os.path.isdir(folder):
@@ -952,17 +1048,30 @@ def load(folder, name=None, out=print, progress=None, autonomy=None,
         cfg = agentsreg.load_definition(folder) or {"name": intended}
         if autonomy is not None:
             cfg = dict(cfg, autonomy=norm_autonomy(autonomy))
+        # el socio.local que el cerebro ya tiene manda; si falta, el socio de
+        # ESTA máquina; sin él, sus sesiones u owner; sin nada, «owner»
         try:
-            socio = open(install.machine_socio_path(), encoding="utf-8").read().strip()
+            with open(install.machine_socio_path(), encoding="utf-8") as fh:
+                machine = fh.read()
         except Exception:
-            socio = ""
+            machine = ""
+        socio, sin_dueno = _socio_for_load(folder, cfg, machine)
+        if sin_dueno:
+            out("AGENT: WARN: el cerebro de %s %s" % (intended, sin_dueno))
         _prog(progress, "cableado", "run")
-        install.configure_brain(intended, cfg, folder, socio or "owner",
+        install.configure_brain(intended, cfg, folder, socio,
                                 apply_autonomy=autonomy is not None)
         _prog(progress, "cableado", "ok")
         _prog(progress, "launcher", "run")
-        install.install_launchers([intended])
-        _prog(progress, "launcher", "ok")
+        # un nombre que ya es otro programa (git, claude…) se carga SIN comando:
+        # su lanzador taparía ese programa — se abre desde `workspace`
+        sin = [x for x in install.install_launchers([intended]) or []
+               if x[0] == intended]
+        for n, hit in sin:
+            out("AGENT: WARN: %s — el agente queda cargado pero sin comando en "
+                "la terminal; ábrelo desde `workspace`" % install.conflict_text(n, hit))
+        _prog(progress, "launcher", "warn" if sin else "ok",
+              "choca con un comando" if sin else "")
         out("AGENT: CONFIG:%s (hooks · statusline · launcher · tema)" % intended)
     except Exception as e:
         warn_cfg = str(e)
@@ -970,6 +1079,61 @@ def load(folder, name=None, out=print, progress=None, autonomy=None,
             _prog(progress, k, "warn", "doctor lo completa")
         out("AGENT: WARN: %s registrado pero no pude configurarlo (%s) — "
             "corre `workspace doctor`" % (intended, e))
+    # Formato de cerebro v2 (identidad en BRAIN.md): un cerebro cargado DESPUÉS
+    # de la actualización no pasa por la migración (los sellos son por máquina
+    # y una instalación nueva las da por hechas) → se lleva aquí. Idempotente;
+    # un cerebro raro se deja como está y se dice por qué. Falla-suave.
+    try:
+        import brain_format
+        bf = brain_format.ensure_brain_format(
+            folder, cfg=agentsreg.load_definition(folder) or None, name=intended)
+        if bf["state"] in (brain_format.MIGRATED, brain_format.COMPLETED):
+            out("AGENT: FORMAT:%s — identidad movida a BRAIN.md (respaldo guardado)" % intended)
+        elif bf["state"] in (brain_format.CONFLICT, brain_format.MISSING, brain_format.ERROR):
+            out("AGENT: WARN: formato del cerebro de %s sin cambiar — %s" % (intended, bf["reason"]))
+    except Exception:
+        pass
+    # Memoria v1: lo mismo para los textos de memoria de la plantilla vieja
+    # (README de sesiones y §2.5 de la identidad). Solo plantilla intacta.
+    try:
+        import memoria_textos
+        hechos = memoria_textos.actualizar(folder, name=intended)
+        if hechos:
+            out("AGENT: MEMORIA:%s — textos de memoria al día (%s; respaldo guardado)"
+                % (intended, ", ".join(r.replace(os.sep, "/") for r in hechos)))
+    except Exception as e:
+        out("AGENT: WARN: textos de memoria de %s sin cambiar — %s" % (intended, e))
+    # Sin destilador (202610162300): STATE/DESTILADO.md y las propuestas que
+    # esperaban aprobación. Una instalación nueva sella esa migración, así que
+    # un cerebro viejo cargado después solo la recibe aquí (o con doctor --fix):
+    # se decide por lo que hay en el cerebro, no por el sello de la máquina.
+    try:
+        import migrate
+        import paths
+        sd = migrate.modulo("202610162300_sin_destilado")
+        if sd is not None and sd.pendiente(folder):
+            n = sd.archivar(folder, paths.state_dir(), intended)
+            if n:
+                out("AGENT: MEMORIA:%s — %d sobra(s) del destilador archivada(s) "
+                    "(STATE/memoria-archivo/ · skills/_archive/; respaldo guardado)" % (intended, n))
+    except Exception as e:
+        out("AGENT: WARN: sobras del destilador de %s sin archivar — %s "
+            "(`workspace doctor --fix` lo reintenta)" % (intended, e))
+    # Sin aprobación humana (202610181200): los textos de la plantilla vieja
+    # que pedían aprobar skills, confirmar la memoria o diseñar a mano la
+    # identidad, y lo que quedó en skills/_propuestas/. Igual que arriba: un
+    # cerebro que llega después de la actualización solo lo recibe aquí (o con
+    # doctor --fix). Solo texto idéntico a la plantilla; respaldo antes.
+    try:
+        import sin_aprobacion
+        hechos = sin_aprobacion.actualizar(
+            folder, name=intended, log=lambda m: out("AGENT: WARN: %s — %s" % (intended, m)))
+        if hechos:
+            out("AGENT: MEMORIA:%s — ya nada espera aprobación (%s; respaldo guardado)"
+                % (intended, ", ".join(hechos)))
+    except Exception as e:
+        out("AGENT: WARN: textos de aprobación de %s sin cambiar — %s "
+            "(`workspace doctor --fix` lo reintenta)" % (intended, e))
     _prog(progress, "verificacion", "run")
     ph = _scan_placeholders(folder)
     if ph:

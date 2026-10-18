@@ -41,8 +41,9 @@ snapshot ANTES/DESPUÉS de la corrida para no bindear un id stale).
 
 INYECCIÓN INVISIBLE: la memoria de la pestaña activa va en el GEMINI.md
 GENERADO (doc de proyecto que agy lee como contexto) — el socio NO ve el
-bloque en el chat. El bloque se regenera por corrida y se LIMPIA al cerrar
-(_strip_session_block). Si el GEMINI.md es PROPIO del socio, su CONTENIDO
+bloque en el chat. El bloque se regenera por corrida y al cerrar el GEMINI.md
+generado vuelve a su puntero en reposo, sin la ruta de esta máquina ni el
+contexto de arranque (_restore_gemini). Si el GEMINI.md es PROPIO del socio, su CONTENIDO
 no se toca: el bloque de sesión va ANEXADO al final, marcado y efímero
 (strip al cerrar + strip-antes-de-anexar en cada launch — un huérfano por
 crash se auto-limpia). Solo si ni el anexo se puede escribir, la memoria
@@ -80,6 +81,20 @@ AGY_MODE = "accept-edits"
 #: Regla de agy que deja correr cualquier comando sin preguntar — solo en el
 #: proyecto del agente, solo con autonomía full.
 FULL_GRANT = "command(*)"
+#: Reglas de agy para la memoria. agy solo deja pasar sin preguntar un
+#: comando IDÉNTICO a su regla `command(…)` (VERIFICADO 2026-10-17 con su log:
+#: `command(workspace.cmd memoria vigente)` corre solo; el mismo comando con un
+#: argumento de más pide permiso). Una nota trae su texto, así que en agy el
+#: agente la escribe en su bandeja del cerebro y corre un comando FIJO
+#: (memoria.ENTRADA_ARCHIVO): esos fijos son los que se permiten, con y sin
+#: `.cmd` (Windows).
+_MEMORIA_FIJOS = ("nota --entrada", "checkpoint --entrada", "ver", "vigente", "maleta", "status")
+MEMORIA_RULES = tuple("command(%s memoria %s)" % (b, s)
+                      for b in ("workspace", "workspace.cmd") for s in _MEMORIA_FIJOS)
+#: Las de versiones anteriores (no servían): se quitan al abrir.
+_MEMORIA_RULES_VIEJAS = (("command(workspace memoria)", "command(workspace.cmd memoria)")
+                         + tuple("command(%s memoria %s)" % (b, s) for b in ("workspace", "workspace.cmd")
+                                 for s in ("nota", "checkpoint", "context")))
 #: Prefijo de los proyectos de agy que crea Workspace (marca de propiedad).
 PROJECT_PREFIX = "workspace-"
 
@@ -115,6 +130,16 @@ if os.name != "nt":
     _DETACHED["start_new_session"] = True
 
 
+def _env_motor():
+    """El env para correr el CLI del motor: sin NADA de la bóveda
+    (secret_store.engine_env). Falla-suave: sin secret_store, el heredado."""
+    try:
+        import secret_store
+        return secret_store.engine_env()
+    except Exception:
+        return None
+
+
 def session_active(runner=None):
     """¿Hay sesión de Antigravity? agy no tiene comando de estado de sesión;
     `agy models` sí la exige (sin sesión responde «Please sign in…» y rc 1 —
@@ -125,9 +150,10 @@ def session_active(runner=None):
     if not exe:
         return None
     run = runner or subprocess.run
+    extra = {} if runner else {"env": _env_motor()}
     try:
         r = run([exe, "models"], capture_output=True, text=True, timeout=40,
-                encoding="utf-8", errors="replace", **_DETACHED)
+                encoding="utf-8", errors="replace", **_DETACHED, **extra)
         out = ((getattr(r, "stdout", "") or "") + (getattr(r, "stderr", "") or "")).lower()
         if "sign in" in out or "log in" in out or "authentication" in out:
             return False
@@ -179,8 +205,18 @@ def _interactive_argv(cfg, passthrough, resume_cid="", first_prompt="",
     if resume_cid:
         return pre + ["--conversation", resume_cid]
     return pre + ["--prompt-interactive",
-                  first_prompt or ("Lee CLAUDE.md e inicia el cerebro. Al terminar, confirma en "
-                                   "una línea breve.")]
+                  first_prompt or ("Lee %s e inicia el cerebro. Al terminar, confirma en "
+                                   "una línea breve." % _identity_name(cfg))]
+
+
+def _identity_name(cfg):
+    """Doc de identidad del agente vía el resolver único (BRAIN.md en cerebros
+    v2, CLAUDE.md en los anteriores, o el `identity_doc` del agente)."""
+    try:
+        import brain_identity
+        return brain_identity.identity_doc((cfg or {}).get("_brain", ""), cfg)
+    except Exception:
+        return "CLAUDE.md"
 
 
 # ── store local de agy (solo lectura — jamás credenciales) ──────────────────
@@ -237,7 +273,12 @@ def ensure_brain_access(brain, settings_path=None, write=True):
     from pathlib import Path
     from antigravity_usage import _atomic
     root = os.path.realpath(os.path.abspath(os.path.expanduser(str(brain))))
-    if not brain or not os.path.isdir(root) or not os.path.isfile(os.path.join(root,'CLAUDE.md')):
+    try:
+        import brain_identity
+        is_brain = brain_identity.looks_like_brain_root(root)   # BRAIN.md o CLAUDE.md
+    except Exception:
+        is_brain = os.path.isfile(os.path.join(root, 'CLAUDE.md'))
+    if not brain or not os.path.isdir(root) or not is_brain:
         return False
     path = Path(settings_path or os.path.join(_agy_home(),'settings.json'))
     try:
@@ -266,6 +307,13 @@ def ensure_brain_access(brain, settings_path=None, write=True):
             allowed[:] = [r for r in allowed if r != legacy_rule]
         if rule not in allowed:
             allowed.append(rule)
+        # memoria v1: el agente guarda con `workspace memoria …` sin que agy
+        # pregunte en cada nota (como Claude Code con su --settings). Solo ese
+        # subcomando: escribe con validación y solo en la memoria del cerebro.
+        allowed[:] = [r for r in allowed if r not in _MEMORIA_RULES_VIEJAS]
+        for r in MEMORIA_RULES:
+            if r not in allowed:
+                allowed.append(r)
         if original != json.dumps(data,sort_keys=True):
             if path.exists():
                 backup = path.with_name('settings.workspace-brain-access-backup.json')
@@ -436,10 +484,18 @@ def _write_gemini(brain, ctx, session_block=""):
     try:
         if _gemini_is_custom(brain):
             return False
+        try:
+            import brain_identity
+            doc = brain_identity.identity_doc(brain)
+        except Exception:
+            doc = "CLAUDE.md"
+        # A-VERIFICAR: pasar a rutas RELATIVAS (el GEMINI.md se sincroniza y hoy
+        # lleva la ruta de esta máquina). No se cambia sin verificar que el
+        # lector de archivos de agy las acepte.
         body = (_GEMINI_MARK + "\n# Arranque de WORKSPACE\n"
                 "El cerebro de esta sesión está en " + os.path.realpath(brain) + ". "
-                "Su identidad está en " + os.path.join(os.path.realpath(brain), "CLAUDE.md") + ". "
-                "Lee CLAUDE.md completo y sigue su protocolo de arranque. "
+                "Su identidad está en " + os.path.join(os.path.realpath(brain), doc) + ". "
+                "Lee " + doc + " completo y sigue su protocolo de arranque. "
                 "Los documentos de estado están en STATE/ (STATE/brain-version.md, "
                 "STATE/MEMORY.md, STATE/PENDIENTES.md, STATE/MILESTONES.md). "
                 "Durante el arranque usa las herramientas de lectura de archivos; "
@@ -496,6 +552,45 @@ def _strip_session_block(brain):
         tmp = p + ".workspace-tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
             fh.write(base.rstrip() + "\n")
+        os.replace(tmp, p)
+        return True
+    except Exception:
+        return False
+
+
+def _gemini_pointer(brain):
+    """GEMINI.md en REPOSO (fuera de sesión): puntero GENERADO al doc de
+    identidad, sin rutas de esta máquina ni contexto de arranque — es lo que
+    viaja con el cerebro cuando se sincroniza."""
+    try:
+        import brain_identity
+        doc = brain_identity.identity_doc(brain)
+    except Exception:
+        doc = "CLAUDE.md"
+    return (_GEMINI_MARK + "\n# Arranque de WORKSPACE\n"
+            "Este directorio es el cerebro del agente. Su identidad está en "
+            + doc + " (raíz de este directorio). Lee " + doc + " completo y "
+            "sigue su protocolo de arranque.\n")
+
+
+def _restore_gemini(brain):
+    """Cierre: deja el GEMINI.md como antes de la sesión. GENERADO → vuelve
+    al puntero en reposo (sin la ruta de esta máquina ni el contexto de
+    arranque); PROPIO del socio → solo se quita lo que Workspace anexó.
+    Idempotente. Falla-suave → False."""
+    try:
+        p = _gemini_path(brain)
+        if not brain or not os.path.isfile(p):
+            return False
+        if _gemini_is_custom(brain):
+            return _strip_session_block(brain)
+        body = _gemini_pointer(brain)
+        with open(p, encoding="utf-8", errors="replace") as fh:
+            if fh.read() == body:
+                return False
+        tmp = p + ".workspace-tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(body)
         os.replace(tmp, p)
         return True
     except Exception:
@@ -605,7 +700,8 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
             resume_cid = _reg.resume_id(brain, agent, wname, "antigravity")
             if resume_cid and not _conversation_exists(resume_cid):
                 resume_cid = ""
-            session_blk = _reg.session_doc_block(brain, wname)
+            session_blk = _reg.session_doc_block(brain, wname, engine="antigravity",
+                                                 resumed=bool(resume_cid))
     except Exception as e:
         # U04/Z04: la causa se ve y se traza (antes: chat sin pestaña en silencio)
         tab, resume_cid, session_blk = None, "", ""
@@ -629,7 +725,7 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
     if tab and not doc_ok and not appended and not resume_cid:
         try:
             import sessions_registry as _reg
-            first_prompt = _reg.first_prompt_context(brain, tab[1])
+            first_prompt = _reg.first_prompt_context(brain, tab[1], engine="antigravity")
             print("WORKSPACE: GEMINI.md propio del socio y no pude anexar — "
                   "la memoria de la pestaña irá en el primer mensaje "
                   "(visible).")
@@ -693,18 +789,28 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
     _osc = _tty_write(palette_osc())
     try:
         rc = interactive.run_official_cli_interactive(
-            "antigravity", brain=brain, argv=args, context_sink=save_context)
+            "antigravity", brain=brain, argv=args, context_sink=save_context,
+            pending={"tab": tab[1] if tab else "", "agent": agent,
+                     "resume_id": resume_cid, "before_cid": before_cid})
     finally:
         if _osc:
             _tty_write(PALETTE_RESET)
     if _bar is not None:
         _bar.clear_title()
 
-    # Limpieza (session_end): el bloque de sesión era de ESTA corrida —
-    # generado O anexado al doc del socio, se quita igual (strip). Un crash
-    # deja un huérfano que el strip-antes-de-anexar del siguiente launch
-    # auto-limpia.
-    if session_blk or appended or _appended_ctx:
+    # Limpieza (session_end): el arranque, el contexto y el bloque de sesión
+    # eran de ESTA corrida. Doc generado → vuelve al puntero en reposo (sin
+    # la ruta de esta máquina: el cerebro se sincroniza); doc del socio → se
+    # quita solo lo anexado. Si otra corrida sigue viva en el cerebro, solo
+    # sale el bloque de la pestaña. Un crash lo limpia pending_runs al reabrir.
+    try:
+        import pending_runs
+        otra = pending_runs.live_in_brain(brain, exclude=pending_runs.current())
+    except Exception:
+        otra = False
+    if not otra:
+        _restore_gemini(brain)
+    elif session_blk or appended or _appended_ctx:
         _strip_session_block(brain)
     # Binding POST-HOC: solo si el cache CAMBIÓ durante esta corrida (un id
     # stale de una corrida vieja del mismo cerebro NO se bindea a esta
@@ -717,6 +823,11 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
                 _reg.bind(brain, agent, tab[1], "antigravity", cid)
         except Exception:
             pass
+    try:
+        import pending_runs
+        pending_runs.done()               # atado y limpieza hechos: ya no está pendiente
+    except Exception:
+        pass
     sys.exit(rc if isinstance(rc, int) else 0)
 
 

@@ -11,7 +11,7 @@ CÓMO SE APLICA (y por qué NO se reescriben los .md del cerebro)
   a) Reescribir `BOOT/*.md` → es la IDENTIDAD del agente (N3), está
      versionada y **sincroniza a todo el equipo**: mover un dial en Windows
      le cambiaría el carácter a otro socio. Además, churn en git en cada toque.
-  b) Reescribir `CLAUDE.md` → mismo problema de sync y se lee una sola vez.
+  b) Reescribir el doc de identidad (`BRAIN.md`/`CLAUDE.md`) → mismo problema de sync y se lee una sola vez.
   c) **Inyección por hook (esto).** Dos listeners:
        · `session_start` → el bloque COMPLETO (los diales con su
          instrucción) al abrir la pestaña.

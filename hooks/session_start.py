@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """WORKSPACE hook · SessionStart — estampa un marcador de inicio de sesión.
 
-Lo usa `session_end.py` como red de seguridad: si la memoria de la sesión NO se
-tocó después de este marcador, el cierre escribe una breadcrumb automática.
+Guarda la pestaña (`ws`) de la sesión para `memory_flush.py` cuando el entorno
+ya no la trae; `session_end.py` lo borra al cerrar.
 
 Per-máquina y efímero (`~/.claude/workspace/markers/<session_id>.json`). NO toca el
 vault sincronizado. Lee JSON de stdin (session_id, cwd, source). Silencioso.
 Cero dependencias (stdlib, Python 3.9+).
 
+Worktrees: si esta pestaña se relanzó tras un cierre abrupto, retoma como suyos
+los worktrees que dejó su proceso anterior (ver _reclaim_worktrees).
+
 F3 (Turing 2026-06-25) — early-warning de secretos: el gate DURO solo cubre
-los chokepoints que WORKSPACE controla (dream._write_brain_file). Un secreto que
+los chokepoints que WORKSPACE controla (brain_write.py). Un secreto que
 el socio pega a mano en un `.md` del cerebro NO pasa por ahí y Obsidian Sync lo
 sube sin barrera. Como red más temprana y visible, al ABRIR sesión escaneamos
 el working tree del cerebro y, si hay un secreto sin exención, lo advertimos en
@@ -101,8 +104,34 @@ def _secret_warning(brain):
     return "\n".join(lines)
 
 
+def _reclaim_worktrees():
+    """La pestaña sobrevive a su proceso (relanzamiento tras una muerte
+    inesperada, --resume tras un cierre abrupto): sus worktrees cuyo proceso
+    dueño murió sin cerrar pasan a ESTA sesión (_worktrees.reclaim_tab). Sin
+    esto, `prune` los vería de una sesión muerta y se los soltaría bajo los
+    pies, y su cierre no los liberaría. Solo con agente, sesión y pestaña del
+    launcher; jamás en sesiones de fondo (WORKSPACE_REVIEW_RUNNING), que
+    heredan la pestaña de quien las lanzó. Falla-suave TOTAL."""
+    agent = os.environ.get("WORKSPACE_AGENT_NAME", "").strip()
+    if not agent or os.environ.get("WORKSPACE_REVIEW_RUNNING"):
+        return
+    try:
+        _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if _root not in sys.path:
+            sys.path.append(_root)
+        from dash.dev import _worktrees
+        session, pid = _worktrees.current_session()
+        tab = _worktrees.current_tab()
+        if session and tab:
+            _worktrees.reclaim_tab(agent, tab, session, pid)
+    except Exception:
+        pass
+
+
 def main():
     data = _stdin()
+    # Antes que nada (no depende del marcador): la pestaña retoma sus worktrees.
+    _reclaim_worktrees()
     sid = data.get("session_id", "")
     if not sid:
         return
@@ -110,8 +139,8 @@ def main():
     brain = data.get("cwd", "") or os.getcwd()
     p = _marker_path(sid)
 
-    # En compaction NO re-estampamos: movería el baseline a media sesión y la red
-    # de seguridad creería que no actualicé la memoria desde la compactación.
+    # En compaction NO re-estampamos: el marcador de la sesión ya existe y
+    # conserva su inicio y su pestaña.
     if source == "compact" and os.path.exists(p):
         return
 

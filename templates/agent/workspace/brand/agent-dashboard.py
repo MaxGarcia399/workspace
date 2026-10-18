@@ -262,17 +262,17 @@ def socio():
     return ""
 
 def _slug(s):
-    import re, unicodedata
-    s = unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode("ascii")
-    return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
+    # fuente única: agent_brand.slug (también nombres no latinos: coreano, chino…)
+    return agent_brand.slug(s)
 
 def _sess_dir_socio():
     return os.path.join(BRAIN, "STATE", "sessions", socio())
 
 def session_body(name):
     """Cuerpo (resumen + historial) de la memoria de una sesión, por nombre."""
-    p = os.path.join(_sess_dir_socio(), f"{_slug(name)}.md")
-    if not os.path.exists(p):
+    sl = _slug(name)
+    p = os.path.join(_sess_dir_socio(), f"{sl}.md")
+    if not sl or not os.path.exists(p):     # sin slug: jamás el `.md` oculto
         return ""
     txt = open(p, encoding="utf-8").read()
     parts = txt.split("---", 2)
@@ -284,18 +284,33 @@ def render_context():
     Sin pestaña activa → '' (hook silencioso)."""
     ws = (os.environ.get("WORKSPACE_WS", "") or
           os.environ.get(f"{AGENT_UPPER}_WS", "")).strip()
-    if not ws:
+    # memoria v1: el paquete de la pestaña lo inyecta Workspace (memoria.paquete);
+    # aquí ya no se repite la memoria ni la instrucción vieja de guardar.
+    if not ws or os.environ.get("WORKSPACE_MEMORIA_PAQUETE"):
         return ""
     soc = socio()
     body = session_body(ws)
     parts = ["[Arranque de sesión — contexto inyectado automáticamente]",
              f"SESIÓN ACTIVA: «{ws}». Esta conversación es esa sesión persistente."]
     if body:
-        parts.append("Memoria de esta sesión (STATE/sessions/" + (soc or "<socio>") + "/):")
-        parts.append(agent_brand.session_memory(BRAIN, ws))
-    parts.append("Al cerrar trabajo significativo, haz append fechado a ## Historial de esa "
-                 "memoria y actualiza su frontmatter (actualizada/estado/trabajo). "
-                 "Ver CLAUDE.md §2.5 (Memoria de sesión).")
+        parts.append("Memoria de esta sesión (STATE/sessions/" + (soc or "<socio>") + "/"
+                     + _slug(ws) + ".md):")
+        # esta copia viaja en el cerebro a máquinas con otra versión: un
+        # Workspace anterior al 2026-10-10 no trae session_memory
+        memoria = getattr(agent_brand, "session_memory", None)
+        parts.append(memoria(BRAIN, ws) if memoria else body[:1200])
+    # fuente única: agent_brand.instruccion_memoria. Esta copia viaja en el
+    # cerebro: con un Workspace que no la trae, el mismo texto (sirve también
+    # donde `workspace memoria nota` todavía no existe)
+    instr = getattr(agent_brand, "instruccion_memoria", None)
+    parts.append(instr() if instr else (
+        "Guarda memoria con `workspace memoria nota --tipo <decision|pendiente|hecho|nota|dato|"
+        "preferencia> 'texto'`, en el momento (cerrar un pendiente: --tipo hecho --cierra P-n), y el "
+        "resumen con `workspace memoria checkpoint`. Si en esta máquina `workspace memoria nota` no "
+        "existe (Workspace anterior: «invalid choice: 'nota'»), agrega al final de ## Historial del "
+        "archivo de la pestaña una línea fechada con el mismo formato: "
+        "`- 2026-10-16 14:02 · claude-code · decisión: texto`. Fuera de ese caso, no edites ese "
+        "archivo a mano."))
     return json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart",
                                               "additionalContext": "\n".join(p for p in parts if p)}})
 
@@ -336,7 +351,7 @@ def header_lines():
     n = sum(1 for _ in _sessions())
     return [
         f"{HEAD}{BO}  {AGENT_UPPER}{R}{DIM} · {TAGLINE}{R}",
-        f"{MUTE}  {_t('banner.dash.sessions_count', '{n} sesión(es) · elige una para continuar o crea una nueva', n=n)}{R}",
+        f"{MUTE}  {_t('banner.dash.sessions_count', '{n} sesión(es) · cada una recuerda lo suyo, en cualquier motor · elige una o crea una nueva', n=n)}{R}",
         "",
         f"  {HEAD}◆ {_t('banner.dash.resume_q', '¿En qué seguimos?')}{R}   {MUTE}{_t('banner.dash.hint', '↑↓ para elegir · Enter para abrir')}{R}",
     ]

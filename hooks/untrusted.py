@@ -21,7 +21,7 @@ mañana la pasada unificada N3 y el nightly que lea el vault). Dos capacidades:
 
 (b) MINI THREAT-SCAN — clases obvias de inyección/exfil estilo
     `threat_patterns` de Hermes: regex ancladas en vocabulario de ataque
-    INEQUÍVOCO (no "bossy English": "you must…" es legítimo en CLAUDE.md),
+    INEQUÍVOCO (no "bossy English": "you must…" es legítimo en el doc de identidad),
     con `(?:\\w+\\s+){0,n}` entre tokens contra bypass por palabras de
     relleno. Devuelve findings (clase + offset + excerpt) — NO bloquea.
 

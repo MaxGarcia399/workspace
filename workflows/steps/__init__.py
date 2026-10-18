@@ -7,8 +7,18 @@ el mismo contrato:
 
     fn(ctx, paso) → {"ok": bool, "detail": str, "artifacts": dict opcional}
 
-  ctx  = {"repo", "run_id", "workflow", "dry", "params", "artifacts"}
+  ctx  = {"repo", "root", "run_id", "workflow", "dry", "params", "artifacts",
+          "checkpoint"}
   paso = la entrada del spec congelado (dict, read-only por convención).
+
+  repo = el árbol de TRABAJO del run: su worktree (artefacto `worktree_path`)
+         una vez que worktree.acquire lo adquirió; antes, el checkout
+         principal. Ahí prueban suite/prevención/guard (v1.6).
+  root = el checkout principal (donde vive main): ahí crea worktree.acquire y
+         ahí mergea front.integrate. Una llamada directa sin `root` usa `repo`.
+  checkpoint(artefactos) = persiste YA a disco (mitad del paso) lo que debe
+         sobrevivir a un corte del proceso; lo pone el runner (una llamada
+         directa puede no traerlo: el paso lo trata como opcional).
 
 `ctx["dry"]` → NADA real se ejecuta: la función reporta qué haría (misma
 convención que `_suite_green(dry)` de front.py).
@@ -57,13 +67,15 @@ REGISTRY = {
 # el spec = contrato OPACO (aguas abajo no se puede probar nada).
 PRODUCES = {
     "suite.green":              ("suite_rc", "suite_timeout_s"),
-    "worktree.acquire":         ("worktree_path", "branch", "adopted"),
+    "worktree.acquire":         ("worktree_path", "branch", "adopted",
+                                 "branch_base"),
     "worktree.verify_acquired": (),
     "worktree.release":         ("worktree_release",),
     "integrity.check":          ("integrity_flagged", "integrity_reasons"),
     "evidence.artifact_exists": (),
     "evidence.step_event":      (),
-    "front.integrate":          ("integrate_rc", "integrate_noop"),
+    "front.integrate":          ("integrate_rc", "integrate_noop",
+                                 "integrate_tip"),
     "triage.route":             ("triage",),
     "triage.verify_routed":     (),
     "triage.depth_plan":        ("depth_plan",),

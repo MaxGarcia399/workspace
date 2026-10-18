@@ -21,13 +21,23 @@ import os
 import sys
 
 POSIX_KNOWN = (
-    "~/.local/bin",            # claude (instalador nativo), pipx
-    "~/.npm-global/bin",       # npm prefix de usuario
+    "~/.local/bin",            # claude (instalador nativo), pipx, openclaw (wrapper), hermes
+    "~/.npm-global/bin",       # npm prefix de usuario (también openclaw.ai/install.sh)
     "~/.bun/bin",
     "~/.volta/bin",
     "~/.antigravity/bin",
+    "~/.opencode/bin",         # opencode (instalador oficial opencode.ai/install)
     "/opt/homebrew/bin",       # brew en Apple Silicon
     "/usr/local/bin",
+)
+#: Windows: donde los instaladores OFICIALES dejan el binario. No todos lo
+#: agregan al PATH persistido (Antigravity, 2026-10: %LOCALAPPDATA%\agy\bin
+#: queda fuera) y el motor salía «no instalado» estando instalado.
+WINDOWS_KNOWN = (
+    r"%LOCALAPPDATA%\agy\bin",       # Antigravity (agy)
+    r"%LOCALAPPDATA%\hermes\bin",    # Hermes
+    r"%USERPROFILE%\.local\bin",     # Claude Code (instalador nativo)
+    r"%APPDATA%\npm",                # npm -g (codex, opencode, openclaw)
 )
 
 
@@ -63,7 +73,8 @@ def candidates(platform=None):
     instalación conocidos en POSIX)."""
     platform = platform or sys.platform
     if platform.startswith("win"):
-        return _windows_persisted_path()
+        known = [os.path.expandvars(p) for p in WINDOWS_KNOWN]
+        return _windows_persisted_path() + [p for p in known if "%" not in p]
     return [os.path.normpath(os.path.expanduser(p)) for p in POSIX_KNOWN]
 
 

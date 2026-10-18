@@ -14,5 +14,5 @@
 
 **Regla del Skill Loop (inmutable):** antes de cualquier tarea no trivial, revisar este índice;
 si la categoría aplica → `Read skills/README.md` → cargar la skill → seguirla → registrar uso
-(`python3 <WORKSPACE>/usage.py <skill_dir> use`). Toda respuesta con tool calls termina con el
-bloque 🧠 (`CLAUDE.md §6`).
+(su `.usage.json`, editado sin comandos: ver README). Toda respuesta con tool calls termina con el
+bloque 🧠 (`BRAIN.md §6`).

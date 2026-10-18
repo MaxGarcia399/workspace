@@ -218,9 +218,9 @@ def _resolved_brains(ctx):
 # registrados no se exige ninguno (instalación recién nacida / cliente).
 ENGINE_BINARIES = {"claude-code": "claude"}   # motores sin BINARY declarado
 ENGINE_INSTALL_HINTS = {
-    "claude-code": "instala Claude Code (npm install -g @anthropic-ai/"
-                   "claude-code) e inicia sesión con la suscripción",
-    "codex": "instala Codex CLI (npm install -g @openai/codex) e inicia sesión",
+    "claude-code": "instala Claude Code desde Motores › instalar (instalador oficial) "
+                   "e inicia sesión con la suscripción",
+    "codex": "instala Codex CLI desde Motores › instalar (instalador oficial) e inicia sesión",
     "gemini": "instala Gemini CLI (npm install -g @google/gemini-cli) "
               "e inicia sesión",
 }
@@ -291,8 +291,47 @@ def phase_prereqs(ctx, fix):
             continue
         exe = shutil.which(binary)
         if exe:
-            _, v, _ = _run([binary, "--version"], timeout=15)
+            # `exe` (la ruta de which), no el nombre: en Windows los CLIs de npm
+            # son `.cmd` y subprocess no los encuentra por nombre → la versión
+            # salía vacía y la deriva no se podía revisar.
+            _, v, _ = _run([exe, "--version"], timeout=15)
             out.append(f(OK, _t("doctor.phase_prereqs.11", "{binary} CLI (motor {eng})", binary=binary, eng=eng), v or exe))
+            # Deriva de versión (engine_versions): un cliente nuevo instala la
+            # ÚLTIMA versión, no la que verificamos — se avisa, no se falla.
+            try:
+                import engine_versions
+                st, have, rango = engine_versions.drift(mod, v)
+            except Exception:
+                st = "unknown"
+            if st == "broken":
+                b = engine_versions.broken(mod, v) or {}
+                out.append(f(FAIL, _t("doctor.engine_version.broken",
+                                      "{binary} {have}: versión con un bug conocido en este "
+                                      "sistema", binary=binary, have=have),
+                             b.get("why") or _t("doctor.used_by", "lo usan: {who}",
+                                                who=', '.join(who)),
+                             b.get("hint") or ""))
+            elif st == "unsupported":
+                out.append(f(FAIL, _t("doctor.engine_version.unsupported",
+                                      "{binary} {have}: versión que Workspace no puede usar "
+                                      "(necesita {rango})", binary=binary, have=have, rango=rango),
+                             _t("doctor.used_by", "lo usan: {who}", who=', '.join(who)),
+                             str(getattr(mod, "UPGRADE_HINT", "") or
+                                 _t("doctor.engine_version.hint", "actualiza el motor"))))
+            elif st in ("newer", "older"):
+                # Informativo, no aviso (política «la más nueva por defecto»):
+                # una versión más nueva es lo normal; solo un bug comprobado frena.
+                # Sin «→ acción» para una más nueva: es lo normal y no debe sonar a
+                # alarma. A una más vieja sí se le sugiere actualizar.
+                out.append(f(OK, _t("doctor.engine_version." + st,
+                                      "{binary} {have}: versión más nueva que las verificadas con "
+                                      "Workspace (verificadas: {rango})", binary=binary, have=have, rango=rango),
+                             _t("doctor.used_by", "lo usan: {who}", who=', '.join(who)),
+                             "" if st == "newer" else _t(
+                                 "doctor.engine_version.hint",
+                                 "si algo del motor falla (sesión, agentes, historial), actualiza "
+                                 "Workspace (`workspace update`) o arma un diagnóstico con "
+                                 "`workspace doctor --bundle`")))
         else:
             out.append(f(FAIL, _t("doctor.phase_prereqs.12", "{binary} CLI no está en PATH (motor '{eng}')", binary=binary, eng=eng),
                          _t("doctor.used_by", "lo usan: {who}", who=', '.join(who)),
@@ -677,8 +716,9 @@ def phase_brains(ctx, fix):
                 out.append(f(FIXED, f"{name} → {sug['found']}",
                              _t("doctor.phase_brains.15", "reubicado (antes {v}) · escrito en {dest}", v=res.path or _t('doctor.no_path', '(sin ruta)'), dest=dest)))
                 continue
-        # FIX: usar el detector del instalador (Obsidian, spots comunes, prompt)
-        brain, persist = install.find_brain(name, a["cfg"])
+        # FIX: usar el detector del instalador (Obsidian, spots comunes) SIN
+        # preguntar: el doctor corre solo (también al final de `workspace update`)
+        brain, persist = install.find_brain(name, a["cfg"], ask=False)
         if brain and os.path.isdir(brain):
             a["brain"] = brain
             if persist:
@@ -843,6 +883,33 @@ def _stale_runner_paths(settings):
     return sorted(dead), sorted(other)
 
 
+def _runner_shape(block):
+    """{evento nativo: [(matcher, token, timeout)]} de los comandos del runner
+    de un bloque `hooks`. Es lo que el contrato (install.build_hooks) decide:
+    qué evento, con qué matcher y con qué cota. Deja fuera el intérprete y la
+    ruta del runner (los revisa _stale_runner_paths) y los hooks propios del
+    usuario: correr el doctor con otro Python no es «drift»."""
+    out = {}
+    for native, groups in (block.items() if isinstance(block, dict) else ()):
+        for g in groups if isinstance(groups, list) else ():
+            hooks = g.get("hooks") if isinstance(g, dict) else None
+            for h in hooks if isinstance(hooks, list) else ():
+                cmd = (h.get("command") or "") if isinstance(h, dict) else ""
+                if "workspace_hook.py" not in cmd or not cmd.split():
+                    continue
+                out.setdefault(native, []).append(
+                    (g.get("matcher"), cmd.rsplit(None, 1)[-1], h.get("timeout")))
+    return {k: sorted(v, key=repr) for k, v in out.items()}
+
+
+def _hooks_drift(settings, cfg, brain):
+    """True si el cableado del runner no es el que hoy escribiría
+    install.build_hooks (FUENTE ÚNICA): p. ej. los tiempos de una versión
+    anterior (B05: SessionEnd a 45 s cuando el contrato suma 65)."""
+    return (_runner_shape((settings or {}).get("hooks"))
+            != _runner_shape(install.build_hooks(cfg, brain)))
+
+
 def phase_hooks(ctx, fix):
     out = []
     if not _resolved_brains(ctx):
@@ -862,7 +929,8 @@ def phase_hooks(ctx, fix):
         py_bad = _stale_interpreters(settings) if IS_WIN else []
         # cualquier SO: runner/intérprete en una ruta muerta o de otra copia
         dead, other = _stale_runner_paths(settings)
-        broken = (crit or minor or not sline_ok or py_bad or dead or other
+        drift = not (crit or minor) and _hooks_drift(settings, a["cfg"], brain)
+        broken = (crit or minor or drift or not sline_ok or py_bad or dead or other
                   or not os.path.exists(sp))
         # R3-F1 (read-guard): _read_json colapsa 'corrupto' y 'no existe' a {}.
         # Un settings TRUNCADO (crash a media escritura) se veía como vacío y el
@@ -874,14 +942,15 @@ def phase_hooks(ctx, fix):
                          _t("doctor.phase_hooks.4", "el doctor NO lo reescribe: pisarlo descartaría permissions/env/mcpServers en silencio"),
                          _t("doctor.phase_hooks.5", "revisa/respalda {sp} y bórralo o restáuralo; luego corre `python3 install.py`", sp=sp)))
         elif not broken:
-            detail = ("skill_review + transcript_backup + memory_flush + session_start/end"
+            detail = ("skill_review + transcript_backup + memoria_cierre + memory_flush + session_start/end"
                       if setup["session_journal"]
-                      else _t("doctor.phase_hooks.6", "skill_review + transcript_backup + memory_flush · setup ligero — sin journaling (por diseño)"))
+                      else _t("doctor.phase_hooks.6", "skill_review + transcript_backup + memoria_cierre + memory_flush · setup ligero — sin marcador ni limpieza de sesión (por diseño)"))
             out.append(f(OK, _t("doctor.phase_hooks.18", "[{name}] hooks cableados", name=name), detail))
         elif not fix:
             falta = ", ".join(crit + minor +
                               ([_t("doctor.phase_hooks.24", "apuntan a una ruta que ya no existe: {v}", v=dead[0])] if dead else []) +
                               ([_t("doctor.phase_hooks.25", "apuntan a otra copia de Workspace: {v}", v=other[0])] if other else []) +
+                              ([_t("doctor.phase_hooks.26", "tiempos o eventos de otra versión")] if drift else []) +
                               ([] if sline_ok else [_t("doctor.phase_hooks.22", "statusLine (ruta vieja)")]) +
                               ([_t("doctor.phase_hooks.23", "intérprete horneado roto/frágil: {v}", v=py_bad[0])] if py_bad else [])) \
                     or _t("doctor.phase_hooks.19", "settings.local.json no existe")
@@ -981,9 +1050,84 @@ def phase_mcps(ctx, fix):
 # ══════════════════════════════════════════════════════════════════════════
 #  FASE 6 · Launchers (workspace / zenith / atlas) — reusa install.py
 # ══════════════════════════════════════════════════════════════════════════
+def _choque(hit):
+    """Qué ocupa el nombre (install.launcher_conflict), en palabras."""
+    if hit == install.RESERVED:
+        return _t("doctor.phase_launchers.25", "es el comando de Workspace o de un motor")
+    if hit == install.POWERSHELL:
+        return _t("doctor.phase_launchers.31", "es un comando de PowerShell")
+    return _t("doctor.phase_launchers.26", "ya es otro programa: {p}", p=hit)
+
+
+def _sin_comando(names, out, fix):
+    """Quita (y avisa) los agentes cuyo nombre choca con otro programa
+    (install.launcher_conflict): el instalador no les pone comando —lo
+    taparía—, así que no son un «falta» que reparar sino un aviso con salida.
+    Sin esto el doctor diría «reinstalado» en cada corrida sin lograrlo. Si una
+    versión anterior SÍ le puso comando y hoy tapa a un motor o a PowerShell,
+    reparar lo retira (install.retire_launcher) — también el de un agente con
+    nombre de motor que ya no está registrado (quitarlo no borra su comando)."""
+    keep = []
+    for n in names:
+        hit = install.launcher_conflict(n)
+        if not hit:
+            keep.append(n)
+            continue
+        if install.stale_launcher(n):
+            _retirar(n, hit, out, fix)
+            continue
+        out.append(f(WARN, _t("doctor.phase_launchers.24", "`{n}`: nombre de comando ocupado", n=n),
+                     _choque(hit), _t("doctor.phase_launchers.27", "Workspace no le pone comando: "
+                                      "ábrelo desde `workspace` o renombra el agente")))
+    for n in install.ENGINE_CLIS:             # huérfanos (solo si son NUESTROS)
+        if n not in names and install.stale_launcher(n):
+            _retirar(n, install.RESERVED, out, fix)
+    return keep
+
+
+def _retirar(n, hit, out, fix):
+    """El comando viejo NUESTRO de `n` tapa a un motor o a PowerShell: revisar
+    = FAIL; reparar = se retira y se VERIFICA antes de decir «retirado»."""
+    if fix:
+        install.retire_launcher(n)
+    if fix and not install.stale_launcher(n):
+        out.append(f(FIXED, _t("doctor.phase_launchers.28", "comando viejo `{n}` retirado", n=n),
+                     _choque(hit), _t("doctor.phase_launchers.27", "Workspace no le pone "
+                                      "comando: ábrelo desde `workspace` o renombra el agente")))
+    else:
+        out.append(f(FAIL, _t("doctor.phase_launchers.29", "el comando `{n}` de un agente "
+                              "tapa a otro programa", n=n), _choque(hit),
+                     _t("doctor.phase_launchers.30", "corre `workspace doctor`: lo retira "
+                        "(el agente se abre desde `workspace`)")))
+
+
+def _no_instalados(fallos):
+    """FAIL con los comandos que la reparación NO pudo instalar (un archivo de
+    otro programa ocupa su lugar y se conserva) — nunca «reparado» sin serlo."""
+    return f(FAIL, _t("doctor.phase_launchers.32", "comandos que no se pudieron instalar"),
+             ", ".join("%s (%s)" % (n, p) for n, p in fallos),
+             _t("doctor.phase_launchers.33", "un archivo de otro programa ocupa su lugar y se "
+                "conserva — revísalo, o renombra el agente"))
+
+
+def _names_with_brain(ctx):
+    """Nombres y alias de los agentes cuyo cerebro existe (tras la fase 4).
+    Un agente sin cerebro no recibe comando — el instalador también lo salta:
+    reinstalarlo a ciegas dejaba un comando que no abre nada (B10)."""
+    names = set()
+    for a in ctx["agents"]:
+        if a.get("brain") and os.path.isdir(a["brain"]):
+            names.add(a["name"])
+            names.update((a.get("entry") or {}).get("aliases", []))
+    return names
+
+
 def phase_launchers(ctx, fix):
     out = []
-    names = ctx["agent_names"]
+    # los avisos de nombre ocupado (y retirar lo viejo nuestro) valen para
+    # todos; instalar/revisar comandos, solo para agentes con cerebro
+    con_cerebro = _names_with_brain(ctx)
+    names = [n for n in _sin_comando(ctx["agent_names"], out, fix) if n in con_cerebro]
     if IS_WIN:
         ps1 = os.path.join(HOME, ".claude", "workspace-cmds.ps1")
         cur = ""
@@ -1012,16 +1156,35 @@ def phase_launchers(ctx, fix):
         want = install.win_python()
         fragile = sorted(p for p in baked if os.path.exists(p) and install._store_versioned(p)
                          and os.path.normcase(p) != os.path.normcase(want))
-        if not missing and prof_ok and not stale and not fragile and not dup:
+        # ExecutionPolicy: con Restricted (default de Windows) PowerShell NO carga el
+        # $PROFILE — los comandos y el greeter pueden estar perfectos y aun así cada
+        # terminal muestra 'UnauthorizedAccess' y el menú no abre solo. `workspace
+        # update` repara vía este doctor: el chequeo vive AQUÍ, no solo en install.
+        ep = install.execution_policy_findings()
+        ep_fix = [x for x in ep if x[2] == "set"]
+        if not missing and prof_ok and not stale and not fragile and not dup and not ep_fix:
             out.append(f(OK, _t("doctor.phase_launchers.15", "comandos PowerShell instalados"), ps1))
         elif fix:
-            install.launchers_windows(names)
+            fallos = install.launchers_windows(names) or []   # incluye ensure_execution_policy_windows
             out.append(f(FIXED, _t("doctor.phase_launchers.16", "comandos PowerShell reescritos"),
                          _t("doctor.phase_launchers.1", "{v} · abre una PowerShell nueva", v=', '.join(['workspace'] + list(names)))))
+            if fallos:                            # .cmd ajeno conservado: no quedó
+                out.append(_no_instalados(fallos))
+            # verificar, no suponer: si la policy sigue bloqueando, decirlo — por
+            # cada PowerShell que SIGUE bloqueado, no el primero de antes
+            sigue = [x for x in install.execution_policy_findings() if x[2] == "set"] if ep_fix else []
+            for _exe, label, _accion, pol in sigue:
+                out.append(f(FAIL, _t("doctor.phase_launchers.18", "PowerShell no puede cargar tu $PROFILE"),
+                             _t("doctor.phase_launchers.19", "{label} · ExecutionPolicy = {v}: el menú no se abre solo y cada terminal muestra un error", label=label, v=pol),
+                             _t("doctor.phase_launchers.23", "no pude ajustarla sola; córrelo tú (sin admin):  Set-ExecutionPolicy -Scope CurrentUser RemoteSigned")))
         elif missing or not prof_ok:
             out.append(f(FAIL, _t("doctor.phase_launchers.2", "launchers de Windows incompletos"),
                          _t("doctor.phase_launchers.3", "faltan: {v}", v=', '.join(missing) or 'dot-source en $PROFILE'),
                          _t("doctor.phase_launchers.4", "corre `workspace doctor` o `python install.py`")))
+        elif ep_fix:
+            out.append(f(FAIL, _t("doctor.phase_launchers.18", "PowerShell no puede cargar tu $PROFILE"),
+                         _t("doctor.phase_launchers.19", "{label} · ExecutionPolicy = {v}: el menú no se abre solo y cada terminal muestra un error", label=ep_fix[0][1], v=ep_fix[0][3]),
+                         _t("doctor.phase_launchers.20", "corre `workspace doctor`: la ajusta solo para tu usuario (RemoteSigned, sin admin)")))
         else:
             det = []
             if stale:
@@ -1032,28 +1195,50 @@ def phase_launchers(ctx, fix):
                 det.append(_t("doctor.phase_launchers.7", "workspace-cmds.ps1 dot-sourceado más de una vez en $PROFILE"))
             out.append(f(WARN, _t("doctor.phase_launchers.8", "launchers de Windows por endurecer"), " · ".join(det),
                          _t("doctor.phase_launchers.9", "corre `workspace doctor` — reescribe launchers con el intérprete estable ({want}) y deduplica el $PROFILE", want=want)))
+        # GPO restrictiva / AllSigned puesto a propósito: el doctor NO los cambia (no
+        # puede, o no debe); los nombra para que se sepa por qué el menú no abre solo.
+        for _exe, label, action, pol in ep:
+            if action == "set":
+                continue                          # reparable: ya lo cubrió el bloque de arriba
+            accion = (_t("doctor.phase_launchers.21", "la fija tu organización (GPO): pídele a TI que la ponga en RemoteSigned")
+                      if action == "blocked" else
+                      _t("doctor.phase_launchers.22", "la pusiste en AllSigned a propósito; para que el menú abra solo:  Set-ExecutionPolicy -Scope CurrentUser RemoteSigned"))
+            out.append(f(WARN, _t("doctor.phase_launchers.18", "PowerShell no puede cargar tu $PROFILE"),
+                         _t("doctor.phase_launchers.19", "{label} · ExecutionPolicy = {v}: el menú no se abre solo y cada terminal muestra un error", label=label, v=pol),
+                         accion))
         return out
     # Unix
     bindir = os.path.join(HOME, ".local", "bin")
     _hub = os.path.join(ROOT, "front.py")
     targets = [("workspace", _hub)] + \
               [(n, os.path.join(ROOT, "dispatch.py")) for n in names if n != "workspace"]
-    broken = []
-    for name, script in targets:
+    def _sano(name, script):
         p = os.path.join(bindir, name)
         body = ""
         try:
             body = open(p, encoding="utf-8").read()
         except Exception:
             pass
-        if body and script in body and os.access(p, os.X_OK):
-            out.append(f(OK, f"comando `{name}`", p))
+        return bool(body and script in body and os.access(p, os.X_OK))
+
+    broken = []
+    for name, script in targets:
+        if _sano(name, script):
+            out.append(f(OK, f"comando `{name}`", os.path.join(bindir, name)))
         else:
             broken.append(name)
     if broken:
         if fix:
             install.install_launchers(names)
-            out.append(f(FIXED, _t("doctor.phase_launchers.17", "launchers reinstalados"), ", ".join(broken)))
+            # se VERIFICA: un archivo ajeno en su lugar se conserva y no se
+            # reporta como reparado
+            scripts = dict(targets)
+            hechos = [n for n in broken if _sano(n, scripts[n])]
+            if hechos:
+                out.append(f(FIXED, _t("doctor.phase_launchers.17", "launchers reinstalados"), ", ".join(hechos)))
+            fallos = [(n, os.path.join(bindir, n)) for n in broken if n not in hechos]
+            if fallos:
+                out.append(_no_instalados(fallos))
         else:
             out.append(f(FAIL, _t("doctor.phase_launchers.10", "launchers faltantes o apuntando a otra ruta"),
                          ", ".join(broken), _t("doctor.phase_launchers.11", "corre `workspace doctor` o `python3 install.py`")))
@@ -1166,6 +1351,41 @@ def _scan_brand_legacy(brain):
     return hits
 
 
+def _brand_dashboards(name, brain, cfg, fix):
+    """El menú de pestañas que el agente USA (su scripts.dashboard), si vive en
+    el cerebro y es de una versión anterior (slug viejo: las pestañas con nombre
+    no latino no reciben su memoria en Claude Code). --check: avisa. --fix: lo
+    regenera desde la plantilla (agent_brand.refresh_brand_dashboards — la misma
+    que la migración 202610161200, con respaldo). Editado a mano: solo se
+    señala. Las copias sueltas que nadie ejecuta no se miran."""
+    out = []
+    try:
+        import agent_brand
+        mid = "202610161200_dashboards_pestanas_no_latinas"
+        dash = dispatch.expand_scripts(cfg or {}, brain).get("dashboard", "")
+        res = agent_brand.refresh_brand_dashboards(
+            brain, dash, dry_run=not fix,
+            backup_dir=os.path.join(_paths.state_dir(), "backups", mid))
+    except Exception:
+        return out
+    por = [rel for rel, e in res if e == "por actualizar"]
+    hechos = [rel for rel, e in res if e == "actualizado"]
+    otros = ["%s (%s)" % (rel, e) for rel, e in res
+             if e not in ("por actualizar", "actualizado")]
+    if por:
+        out.append(f(WARN, _t("doctor.phase_legacy_residue.25", "[%s] menú de pestañas de una versión anterior: las pestañas con nombre no latino no reciben su memoria") % name,
+                     ", ".join(por),
+                     _t("doctor.phase_legacy_residue.26", "workspace doctor --fix lo regenera desde la plantilla (con respaldo)")))
+    if hechos:
+        out.append(f(FIXED, _t("doctor.phase_legacy_residue.27", "[%s] menú de pestañas regenerado desde la plantilla (respaldo guardado)") % name,
+                     ", ".join(hechos)))
+    if otros:
+        out.append(f(WARN, _t("doctor.phase_legacy_residue.28", "[%s] menú de pestañas de una versión anterior editado a mano: no se regenera") % name,
+                     ", ".join(otros),
+                     _t("doctor.phase_legacy_residue.29", "el arranque igual le da su memoria a cada pestaña; para ponerlo al día, compáralo con templates/agent/workspace/brand/agent-dashboard.py")))
+    return out
+
+
 def phase_legacy_residue(ctx, fix):
     out = []
     # (0) instalación anterior (launchers/perfil/hooks/estado/harness viejo):
@@ -1211,6 +1431,7 @@ def phase_legacy_residue(ctx, fix):
         out.append(f(OK, _t("doctor.phase_legacy_residue.22", "agents.local.json no evaluable"),
                      _t("doctor.phase_legacy_residue.7", "%s: %s — señal omitida (fail-soft)") % (type(e).__name__, e)))
     # (a)/(c) por cerebro resuelto
+    cfgs = {a["name"]: a.get("cfg") or {} for a in ctx.get("agents", [])}
     for name, brain in _resolved_brains(ctx):
         hits = _scan_brand_legacy(brain)
         if hits:
@@ -1218,6 +1439,7 @@ def phase_legacy_residue(ctx, fix):
                          "brand/: " + ", ".join(hits),
                          _t("doctor.phase_legacy_residue.9", "regenera desde templates/agent/workspace/brand/ (usan WORKSPACE_ROOT y degradan con gracia); sustituye ")
                          + "/".join(_LEGACY_DEAD_REFS)))
+        out += _brand_dashboards(name, brain, cfgs.get(name), fix)
         sub = legacy.BRAIN_SUBDIR + "/"
         old_dir = os.path.join(brain, legacy.BRAIN_SUBDIR)
         if os.path.isdir(old_dir):
@@ -1246,6 +1468,193 @@ def phase_legacy_residue(ctx, fix):
     return out
 
 
+def phase_brain_format(ctx, fix):
+    """SOLO LECTURA (también con --fix): nombres que un motor crea o lee por su
+    cuenta (SOUL.md, HEARTBEAT.md, MEMORY.md, HERMES.md…) sueltos en la raíz
+    de un cerebro. Regla de estructura: todos los motores comparten las mismas
+    carpetas y lo propio de un motor va en `motores/<motor>/`. Nunca mueve ni
+    borra: informa y sugiere. No cambia el código de salida (WARN)."""
+    out = []
+    try:
+        import brain_identity
+    except Exception as e:
+        return [f(OK, _t("doctor.phase_brain_format.na", "formato del cerebro no evaluable"),
+                  "%s: %s" % (type(e).__name__, e))]
+    for name, brain in _resolved_brains(ctx):
+        hits = brain_identity.reserved_in_root(brain)
+        if hits:
+            out.append(f(WARN,
+                         _t("doctor.phase_brain_format.1",
+                            "[{name}] archivos con nombre de un motor en la raíz del cerebro (solo informativo)",
+                            name=name),
+                         ", ".join("%s (%s)" % (n, m) for n, m in hits),
+                         _t("doctor.phase_brain_format.2",
+                            "no afecta al funcionamiento: Workspace no los toca. Si los usa ese motor, "
+                            "su lugar es motores/<motor>/; si son tuyos, puedes dejarlos o renombrarlos")))
+    if not out:
+        out.append(f(OK, _t("doctor.phase_brain_format.ok",
+                            "ningún archivo de motor suelto en la raíz de los cerebros"), ""))
+    return out
+
+
+def phase_brain_identity(ctx, fix):
+    """Formato de cerebro v2: la identidad vive en BRAIN.md y CLAUDE.md es un
+    puntero con `@BRAIN.md`. Es la TERCERA puerta de la migración
+    202610151600 (las otras: `workspace update` y cargar un agente): cubre los
+    cerebros que llegaron después (instalación nueva, sync) o que se saltaron
+    por un motivo pasajero. Sin --fix solo revisa; con --fix aplica
+    brain_format.ensure_brain_format (respaldo, idempotente, nunca borra; un
+    cerebro raro se deja como está y se explica). También detecta que Claude
+    Code haya reescrito CLAUDE.md (/init, /memory, #) y perdido `@BRAIN.md`, y
+    marca FAIL (sin tocar nada, ni con --fix) si CLAUDE.md apunta a BRAIN.md y
+    BRAIN.md falta o es otro puntero: el agente arrancaría sin su identidad."""
+    out = []
+    try:
+        import brain_format
+    except Exception as e:
+        return [f(OK, _t("doctor.phase_brain_identity.na", "formato v2 no evaluable"),
+                  "%s: %s" % (type(e).__name__, e))]
+    sdir = _paths.state_dir()
+    for name, brain in _resolved_brains(ctx):
+        if fix:
+            r = brain_format.ensure_brain_format(brain, state_dir=sdir, name=name)
+            if r["state"] in (brain_format.MIGRATED, brain_format.COMPLETED):
+                out.append(f(FIXED, _t("doctor.phase_brain_identity.moved",
+                                       "[{name}] identidad movida a BRAIN.md (respaldo guardado)",
+                                       name=name), ", ".join(r["changed"])))
+                continue
+            if r["state"] == brain_format.OK and r["changed"]:
+                out.append(f(FIXED, _t("doctor.phase_brain_identity.synced",
+                                       "[{name}] formato v2 al día", name=name),
+                             ", ".join(r["changed"])))
+                continue
+            if r["state"] in (brain_format.CONFLICT, brain_format.ERROR):
+                out.append(f(WARN, _t("doctor.phase_brain_identity.left",
+                                      "[{name}] formato del cerebro sin cambiar", name=name),
+                             r["reason"],
+                             _t("doctor.phase_brain_identity.left_hint",
+                                "el agente sigue funcionando; revisa ese archivo a mano")))
+                continue
+        for level, msg in brain_format.check(brain, state_dir=sdir):
+            if level == "error":
+                # sin identidad (BRAIN.md falta o es otro puntero): el agente
+                # arrancaría sin ella y --fix NO lo arregla (no inventa una)
+                out.append(f(FAIL, "[%s] %s" % (name, msg), "",
+                             _t("doctor.phase_brain_identity.error_hint",
+                                "si usas Obsidian Sync, espera a que termine de sincronizar y vuelve "
+                                "a correr `workspace doctor`; si no, vuelve a poner la identidad en "
+                                "BRAIN.md (desde el respaldo indicado, si lo hay). No copies CLAUDE.md "
+                                "encima: es solo el puntero")))
+            elif level == "warn":
+                out.append(f(WARN, "[%s] %s" % (name, msg), "",
+                             _t("doctor.phase_brain_identity.fix_hint",
+                                "corre `workspace doctor --fix` (respaldo previo, nunca borra)")))
+    # Memoria v1 (tercera puerta de 202610170100): los textos de memoria de la
+    # plantilla vieja. Después de la identidad: si CLAUDE.md cambiara antes,
+    # brain_format lo vería «recién modificado» y no lo movería.
+    try:
+        import memoria_textos
+    except Exception:
+        memoria_textos = None
+    for name, brain in (_resolved_brains(ctx) if memoria_textos else []):
+        try:
+            if fix:
+                hechos = memoria_textos.actualizar(brain, state_dir=sdir, name=name)
+                if hechos:
+                    out.append(f(FIXED, _t("doctor.phase_brain_identity.memoria_fixed",
+                                           "[{name}] textos de memoria al día (respaldo guardado)",
+                                           name=name), ", ".join(r.replace(os.sep, "/") for r in hechos)))
+            else:
+                pend = memoria_textos.trabajos(brain)
+                if pend:
+                    out.append(f(WARN, _t("doctor.phase_brain_identity.memoria_old",
+                                          "[{name}] textos de memoria de la versión anterior",
+                                          name=name),
+                                 ", ".join(r.replace(os.sep, "/") for r, _ in pend),
+                                 _t("doctor.phase_brain_identity.fix_hint",
+                                    "corre `workspace doctor --fix` (respaldo previo, nunca borra)")))
+        except Exception as e:
+            out.append(f(WARN, _t("doctor.phase_brain_identity.memoria_error",
+                                  "[{name}] textos de memoria sin cambiar", name=name),
+                         "%s: %s" % (type(e).__name__, e),
+                         _t("doctor.phase_brain_identity.left_hint",
+                            "el agente sigue funcionando; revisa ese archivo a mano")))
+    # Sin destilador (otra puerta de 202610162300): un cerebro que la migración
+    # no pudo archivar (solo lectura, disco externo, iCloud sin conexión) se
+    # salta allá sin trabar la cola y se reintenta aquí.
+    try:
+        import migrate as _migrate
+        sd = _migrate.modulo("202610162300_sin_destilado")
+    except Exception:
+        sd = None
+    for name, brain in (_resolved_brains(ctx) if sd else []):
+        try:
+            if not sd.pendiente(brain):
+                continue
+            if fix:
+                n = sd.archivar(brain, sdir, name)
+                out.append(f(FIXED, _t("doctor.phase_brain_identity.destilado_fixed",
+                                       "[{name}] sobras del destilador archivadas (respaldo guardado)",
+                                       name=name), "%d → STATE/memoria-archivo/ · skills/_archive/" % n))
+            else:
+                out.append(f(WARN, _t("doctor.phase_brain_identity.destilado_old",
+                                      "[{name}] sobras del destilador sin archivar", name=name),
+                             "STATE/DESTILADO.md · skills/_propuestas/",
+                             _t("doctor.phase_brain_identity.fix_hint",
+                                "corre `workspace doctor --fix` (respaldo previo, nunca borra)")))
+        except Exception as e:
+            out.append(f(WARN, _t("doctor.phase_brain_identity.destilado_error",
+                                  "[{name}] sobras del destilador sin archivar", name=name),
+                         "%s: %s" % (type(e).__name__, e),
+                         _t("doctor.phase_brain_identity.left_hint",
+                            "el agente sigue funcionando; revisa ese archivo a mano")))
+    # Sin aprobación humana (tercera puerta de 202610181200): textos de la
+    # plantilla vieja que pedían a una persona en skills, memoria o identidad,
+    # y las sobras de skills/_propuestas/. Un cerebro que la migración no pudo
+    # tocar, o que llegó después, se arregla aquí.
+    try:
+        import sin_aprobacion
+    except Exception:
+        sin_aprobacion = None
+    for name, brain in (_resolved_brains(ctx) if sin_aprobacion else []):
+        try:
+            if fix:
+                hechos = sin_aprobacion.actualizar(brain, state_dir=sdir, name=name)
+                if hechos:
+                    out.append(f(FIXED, _t("doctor.phase_brain_identity.aprobacion_fixed",
+                                           "[{name}] ya nada espera aprobación (respaldo guardado)",
+                                           name=name), ", ".join(hechos)))
+            pend = sin_aprobacion.trabajos(brain)
+            # lo ilegible no se reescribe nunca (regla 2): se dice, también con --fix
+            ilegibles = [p for p in pend if p.endswith(sin_aprobacion.ILEGIBLE)]
+            pend = [p for p in pend if p not in ilegibles]
+            if pend and not fix:
+                out.append(f(WARN, _t("doctor.phase_brain_identity.aprobacion_old",
+                                      "[{name}] textos de la versión anterior que piden aprobación",
+                                      name=name),
+                             ", ".join(pend),
+                             _t("doctor.phase_brain_identity.fix_hint",
+                                "corre `workspace doctor --fix` (respaldo previo, nunca borra)")))
+            if ilegibles:
+                out.append(f(WARN, _t("doctor.phase_brain_identity.aprobacion_ilegible",
+                                      "[{name}] textos que Workspace no puede leer (no se tocaron)",
+                                      name=name),
+                             ", ".join(ilegibles),
+                             _t("doctor.phase_brain_identity.utf8_hint",
+                                "si todavía piden aprobación, guárdalos como UTF-8 y corre "
+                                "`workspace doctor --fix`; Workspace no reescribe lo que no entiende")))
+        except Exception as e:
+            out.append(f(WARN, _t("doctor.phase_brain_identity.aprobacion_error",
+                                  "[{name}] textos de aprobación sin cambiar", name=name),
+                         "%s: %s" % (type(e).__name__, e),
+                         _t("doctor.phase_brain_identity.left_hint",
+                            "el agente sigue funcionando; revisa ese archivo a mano")))
+    if not out:
+        out.append(f(OK, _t("doctor.phase_brain_identity.ok",
+                            "identidad de los agentes al día (formato v2 o viejo respetado)"), ""))
+    return out
+
+
 PHASES = [
     ("1 · Prerrequisitos (git · python · CLI del motor)", phase_prereqs),
     ("1b · Rutas en la nube (OneDrive · solo detección)", phase_redirected_paths),
@@ -1253,6 +1662,8 @@ PHASES = [
     ("3 · Al día con origin", phase_updated),
     ("3b · Versión y ajustes de actualización", phase_update_state),
     ("4 · Cerebros de tus agentes · sesiones (resume)", phase_brains),
+    ("4b · Formato del cerebro (archivos de motores en la raíz)", phase_brain_format),
+    ("4c · Formato del cerebro: identidad en BRAIN.md", phase_brain_identity),
     ("5 · Hooks de cada agente", phase_hooks),
     ("5c · MCPs (solo si los usas)", phase_mcps),
     ("5d · Restos de la instalación anterior", phase_legacy_residue),

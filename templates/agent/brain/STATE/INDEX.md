@@ -1,7 +1,7 @@
 # Índice — qué hay y dónde (contrato de retrieval)
 
 <!-- Tope: 100 líneas. 1 línea por entidad/proyecto/decisión VIVA → path.
-     Lo mantiene el consolidador (cron, nightly) + humano en sesión.
+     Lo mantiene el agente en su sesión, a la vista (ningún proceso aparte lo escribe).
      Si rebasa 100 líneas: CONSOLIDAR (fusionar/archivar entradas muertas),
      nunca ampliar. Entradas cerradas/muertas → mover a sección Archivo o
      borrar la línea (el contenido NO se borra — sigue en su capa, alcanzable

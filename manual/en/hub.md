@@ -41,6 +41,8 @@ The sections under **Menu**. Open them from Menu › or by searching:
 | Calendar | your agenda, full-screen and editable |
 | Tone | your agents' personality dials |
 | Engines | each engine's status, what it can do and its connections |
+| Users | who uses each agent: «that's me on this PC», rename, merge two users who are the same person (e.g. the Mac one and the Windows one) and create a new one. Each user has a fixed ID, so renaming never confuses another machine; nothing is deleted |
+| Documentation | everything Workspace does, in 13 chapters (opening a tab, closing, what travels, what goes online, what it never does…): each with a map, the real data on this PC for the chosen agent, the file or command that proves it (Enter opens it) and the setting that turns it off |
 
 ## The digits
 

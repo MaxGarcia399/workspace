@@ -36,8 +36,11 @@ bottom right of the hub. To retry anyway: `workspace update --force`.
 
 ## What is left alone
 
-An update **only changes Workspace's code**. Your agents, their brains, your settings,
-shortcuts and themes live outside that folder and are kept.
+Your agents, their brains, your settings, shortcuts and themes live outside the Workspace
+folder and are kept. When a version needs to adjust something **inside your brains** (for
+example, 0.4.0 moves your agents' identity to `BRAIN.md` and archives the old memory proposals
+tray), it does it on its own, **copies everything to a backup first** and deletes nothing; what
+you wrote yourself is left alone. Each version tells you in its release notes.
 
 Workspace updates "fast-forward only": if you changed files inside the Workspace folder, it
 **won't overwrite them**; the update stops and tells you.
@@ -77,8 +80,8 @@ workspace update --rollback
 ```
 
 In the hub it is the **go back to vX** option in Updates (it only shows up when there is one).
-It shows which version you go back to and asks for confirmation. **Only the code changes**:
-your agents, brains and settings stay as they are. The new version stays paused until we
+It shows which version you go back to and asks for confirmation. The previous version's
+code comes back; your agents, brains and settings are not touched. The new version stays paused until we
 publish a newer one. Adjustments the new version already applied are designed so the previous
 one keeps working with them.
 

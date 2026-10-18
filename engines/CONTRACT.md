@@ -5,17 +5,20 @@ WORKSPACE es vendor-neutral: el motor es la capa **enchufable**. La lista real d
 **`engines/*.py`** (sin `_` inicial — `dispatch.available_engines()`); lo que cada uno puede hacer
 lo declara su `CAPABILITIES` y lo evalúa por OS `capabilities.py`. Hoy:
 
-| Motor | Archivo | CLI oficial | Para quién |
-|---|---|---|---|
-| `claude-code` | `claude_code.py` | `claude` (Anthropic) | el más integrado: hooks reales, contexto inyectado, sesiones de Workspace, status en vivo |
-| `codex` | `codex.py` | `codex` (OpenAI) | envuelto: contexto por `AGENTS.md` puntero, sesiones de Workspace, sandbox nativo por flag |
-| `antigravity` | `antigravity.py` | `agy` (Google) | envuelto: contexto por `GEMINI.md` generado, sesiones de Workspace, sin headless |
-| `gemini` | `gemini.py` | — | **alias de compatibilidad**: re-exporta `antigravity` (bindings viejos `"engine": "gemini"`); `harnesses.installed()` lo oculta |
-| `stub` | `stub.py` | ninguno | eco sin LLM — prueba viva del cambio de motor; no se ofrece al usuario |
+| Motor | Archivo | CLI oficial | Perfil propio | Para quién |
+|---|---|---|---|---|
+| `claude-code` | `claude_code.py` | `claude` (Anthropic) | no | el más integrado: hooks reales, contexto inyectado, sesiones de Workspace, status en vivo |
+| `codex` | `codex.py` | `codex` (OpenAI) | no | envuelto: contexto por `AGENTS.md` puntero, sesiones de Workspace, sandbox nativo por flag |
+| `antigravity` | `antigravity.py` | `agy` (Google) | no | envuelto: contexto por `GEMINI.md` generado, sesiones de Workspace, sin headless |
+| `opencode` | `opencode.py` | `opencode` (código abierto, agnóstico de modelo) | no | envuelto: contexto por `AGENTS.md` puntero, pestaña ↔ `--session ses_ws…` asignado por Workspace, transcript por `opencode session export`, headless `opencode run`; el modelo lo fija el socio en su config |
+| `openclaw` | `openclaw.py` | `openclaw` (código abierto, gateway de agente personal) | `--profile workspace` | envuelto en su modo terminal local, con `skipBootstrap` (no crea archivos en el cerebro); mismo `AGENTS.md` puntero; pestaña ↔ clave `agent:<id>:ws-…`; transcript JSONL por sesión; el modelo lo fija el socio |
+| `hermes` | `hermes.py` | `hermes` (Nous Research, código abierto) | `--profile workspace` | envuelto en su REPL clásico, en su perfil con `SOUL.md` neutral, memoria de Hermes apagada y hook de tono por turno; mismo `AGENTS.md` puntero; pestaña ↔ id de sesión de Hermes atado post-hoc (sin robar la de otra pestaña) y `--resume <id>`; transcript por `hermes sessions export`; headless `hermes --oneshot` (sesión `source=tool`); el modelo lo fija el socio en ese perfil |
+| `gemini` | `gemini.py` | — | — | **alias de compatibilidad**: re-exporta `antigravity` (bindings viejos `"engine": "gemini"`); `harnesses.installed()` lo oculta |
+| `stub` | `stub.py` | ninguno | — | eco sin LLM — prueba viva del cambio de motor; no se ofrece al usuario |
 
-Los motores **ofrecidos** al usuario (onboarding, selectores) son `claude-code`, `codex` y
-`antigravity` (`onboarding_tui.SOPORTADOS`, `harnesses._PREFERRED_ORDER`). Qué funciona con cada
-uno en cada sistema operativo: `manual/es/compatibilidad.md` (derivada de `capabilities.py`).
+Los motores **ofrecidos** al usuario (onboarding, selectores) son `claude-code`, `codex`,
+`antigravity`, `opencode`, `openclaw` y `hermes` (`onboarding_tui.SOPORTADOS`, `harnesses._PREFERRED_ORDER`). Qué funciona
+con cada uno en cada sistema operativo: `manual/es/compatibilidad.md` (derivada de `capabilities.py`).
 
 > **Histórico:** existió un motor `ollama` (loop OpenAI-compat propio, corridas E-2/E-3); se
 > extrajo de `main` a la rama `feat/multi-engine` (commit `b7b321f`) y **no viaja**. Las
@@ -31,6 +34,11 @@ uno en cada sistema operativo: `manual/es/compatibilidad.md` (derivada de `capab
 > incluido); portabilidad de hooks/tools entre motores: `engines/PORTABILITY.md`.
 
 ## Cómo se enchufa un motor (cero edición del dispatcher)
+
+> ⚠ Estos 3 pasos solo hacen que el motor **cargue**. Para que quede **como los demás**
+> (pestañas, captura al cierre, revisión de skills, login en Motores, onboarding, instalación,
+> manual) hay ~15 puntos más fuera de `engines/`: sigue **`runbooks/agregar-motor.md`**
+> (checklist + errores reales de la integración de opencode, 2026-10-15).
 
 1. Crea `engines/<nombre>.py` (copia `engines/_template.py`).
 2. Implementa `launch()` (y opcionalmente `pick()` / `META`).
@@ -66,7 +74,7 @@ de fallbacks — jamás contestarle desde un motor/modelo que no pidió. La elec
 | `CAPABILITIES = {...}` | no | Matriz de capacidades del harness (ver abajo). Omitida ⇒ defaults conservadores. |
 | `status() -> dict` | no | Estado honesto (`{"ready": bool, …}`) para doctor / `harnesses.describe(probe=True)`. Inspección barata, jamás lanza al agente. |
 | `run_turn(prompt, …) -> (ok, texto)` | no | UN turno headless real (lo reusan headless/eval/smokes). |
-| `inject_context(cfg) -> dict` | no | Materializa la IDENTIDAD del agente (cerebro) en el formato que SU harness entiende, SIN duplicarla — el cerebro es la única fuente de verdad. claude-code: nativo (lee `CLAUDE.md` solo; no necesita la función). codex: genera `AGENTS.md` **puntero** marcado `WORKSPACE:GENERATED` en la raíz del cerebro, re-sincronizado en cada launch (un AGENTS.md propio del socio jamás se toca). Doc de identidad: `identity_doc` del agent.json (default `CLAUDE.md`). Falla-suave: `{'ok','action','path','detail'}`. |
+| `inject_context(cfg) -> dict` | no | Materializa la IDENTIDAD del agente (cerebro) en el formato que SU harness entiende, SIN duplicarla — el cerebro es la única fuente de verdad. claude-code: nativo (lee `CLAUDE.md` solo; en cerebros v2 es un puntero que importa `@BRAIN.md`). codex: genera `AGENTS.md` **puntero** marcado `WORKSPACE:GENERATED` en la raíz del cerebro, re-sincronizado en cada launch (un AGENTS.md propio del socio jamás se toca). Doc de identidad: resolver único `brain_identity` (`identity_doc` del agent.json → `BRAIN.md` → `CLAUDE.md`). Falla-suave: `{'ok','action','path','detail'}`. |
 
 ## Harness-OS: registry + matriz de capacidades + binding (hub)
 
@@ -88,7 +96,7 @@ REGISTRO sobre los engines:
 | clave | valores | qué dice |
 |---|---|---|
 | `launch` | `native` / `wrapper` / `repl` | path propio · TUI oficial envuelto en el ciclo neutral · loop propio |
-| `inject_context` | `hooks` / `project-doc` / `print` / `none` | inyección vía hook-system · doc de proyecto PUNTERO (p.ej. AGENTS.md→CLAUDE.md) · imprimir al socio · nada |
+| `inject_context` | `hooks` / `project-doc` / `print` / `none` | inyección vía hook-system · doc de proyecto PUNTERO (p.ej. AGENTS.md→BRAIN.md) · imprimir al socio · nada |
 | `mcp` | `native` / `True` / `False` | ¿soporta MCP servers? |
 | `hooks` | `native` / `wrapper` / `False` | avisos de sesión: hook-system del motor cableado · solo inicio/cierre emitidos por el wrapper neutral (codex, antigravity: sus hooks nativos existen pero no se activan — doble disparo) · nada |
 | `sessions` | `workspace` / `vendor` / `none` | quién gestiona sesiones |

@@ -16,10 +16,19 @@ Invariantes (MAPA.md, no se rompen):
      empezado en vN termina en vN aunque el archivo cambie después.
   4. IDEMPOTENCIA (v1.1): "resumible" solo es verdad si re-correr un paso
      EFECTIVO es no-op seguro. Los pasos det de la biblioteca que tocan el
-     mundo (worktree.acquire, front.integrate) SON idempotentes (adoptan /
-     no-op si su efecto ya existe). Un paso que NO pueda serlo se declara
-     `"idempotent": false` en el spec: el runner entonces NO lo re-corre
-     solo en resume (escala al socio) y rechaza dárselo a `on_fail: retry`.
+     mundo (worktree.acquire, front.integrate) SON idempotentes (acquire
+     adopta lo ya creado; integrate re-corrido con la rama ya en main no
+     mergea nada y vuelve a correr las suites). Un paso que NO pueda serlo
+     se declara `"idempotent": false` en el spec: el runner entonces NO lo
+     re-corre solo en resume (escala al socio) y rechaza dárselo a
+     `on_fail: retry`.
+
+Repo de trabajo (v1.6): `ctx["repo"]` de cada paso es el worktree del run
+en cuanto worktree.acquire lo deja (`worktree_path`, también al retomar);
+antes, ROOT. `ctx["root"]` es siempre el checkout principal (ROOT): ahí se
+crean los worktrees y ahí front.integrate mergea la rama DEL RUN a main.
+`ctx["checkpoint"](artefactos)` persiste a disco a mitad de un paso lo que
+debe sobrevivir a un corte (la evidencia de integrate, antes del merge).
 
 Contrato de paso (entrada del spec):
   {"id", "kind": det|agent|human, "run" (det: nombre en steps.REGISTRY),
@@ -1080,6 +1089,31 @@ def _classify_exc(e):
                               NotImplementedError))
 
 
+def _work_repo(state):
+    """Árbol de TRABAJO del run (v1.6): el worktree que adquirió el propio run
+    (artefacto `worktree_path` de worktree.acquire) o ROOT si aún no tiene.
+    Es el `ctx["repo"]` de los pasos: suite, prevención, guard y agentes
+    prueban la rama del run, jamás el checkout principal. Si el worktree
+    desapareció, los pasos fallan ahí — nunca se vuelve a ROOT en silencio."""
+    p = (state.get("artifacts") or {}).get("worktree_path")
+    return p if isinstance(p, str) and p.strip() else ROOT
+
+
+def _checkpoint(state, ctx, arts):
+    """`ctx["checkpoint"](artefactos)` (v1.6): persiste YA, a mitad de un
+    paso, artefactos que no pueden esperar a su cierre — la evidencia que un
+    paso guarda ANTES de un efecto irreversible (front.integrate, antes del
+    merge) sobrevive a un corte del proceso y el resume la ve. Mismo merge
+    que `_settle` + escritura atómica; si no se puede escribir, levanta (el
+    paso no sigue a ciegas). En dry no hace nada (→ False)."""
+    if ctx.get("dry") or not isinstance(arts, dict) or not arts:
+        return False
+    state["artifacts"].update(arts)
+    ctx["repo"] = _work_repo(state)
+    _save_run(state)
+    return True
+
+
 def _agent_brief(state, ctx, sp, st):
     """READ del contrato read-execute-commit: arma el brief CERRADO que el
     driver recibe — solo lo que el paso declara leer (`reads:`), el artefacto
@@ -1110,6 +1144,7 @@ def _settle(state, ctx, sp, st, res):
     if res["artifacts"]:
         st["artifacts"] = res["artifacts"]
         state["artifacts"].update(res["artifacts"])
+        ctx["repo"] = _work_repo(state)      # v1.6: worktree recién adquirido
     sok = True
     schema = sp.get("output_schema")
     if schema is not None and res["ok"] and not ctx["dry"]:
@@ -1297,11 +1332,14 @@ def _advance_loop(state, driver=None):
     su IDENTIDAD (dict de datos) sí se persiste en state["driver"] para que
     `resume` pueda rehidratarlo (v1.1)."""
     frozen = state["spec"]["steps"]
-    ctx = {"repo": ROOT, "run_id": state["run_id"],
+    # v1.6: `repo` = árbol de trabajo del run (su worktree en cuanto existe —
+    # también al retomar); `root` = checkout principal (acquire/integrate).
+    ctx = {"repo": _work_repo(state), "root": ROOT, "run_id": state["run_id"],
            "workflow": state["workflow"], "dry": bool(state["dry"]),
            "params": state.get("params") or {},
            "artifacts": state["artifacts"],
            "driver": driver if driver is not None else _driverlib.get_default()}
+    ctx["checkpoint"] = lambda arts: _checkpoint(state, ctx, arts)
     if ctx["driver"] is not None and not ctx["dry"]:
         # identidad del driver (datos, jamás el callable) — la lee resume
         state["driver"] = _driverlib.identity_of(ctx["driver"])

@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """WORKSPACE · headless — contrato pluggable de invocación LLM one-shot.
 
-La destilación (dream.py) y demás bookkeeping del harness necesitan un LLM
-"texto adentro → texto afuera", SIN sesión interactiva. Históricamente eso
-estaba cableado a UN solo CLI (`claude -p`, duplicado en dream.py y
-eval_runner.py). Este módulo lo extrae a un contrato con backends
-registrables — la pieza F2 del plan model-agnostic: independencia del LLM
-que destila, complementaria a la independencia de DATOS
+Algunas funciones del harness necesitan un LLM "texto adentro → texto
+afuera", SIN sesión interactiva (evals, el copiloto de Proyectos, la
+personalización al crear un agente, workflows, herramientas de desarrollo).
+Históricamente eso estaba cableado a UN solo CLI (`claude -p`). Desde
+2026-10-16 NINGÚN proceso automático del cliente (cierre, memoria, revisión de
+skills) usa este contrato: solo funciones que el socio dispara a la vista. Este módulo lo extrae a un contrato con backends
+registrables — la pieza F2 del plan model-agnostic: independencia del LLM,
+complementaria a la independencia de DATOS
 (`neutral_transcript.py`).
 
 CONTRATO:
@@ -15,27 +17,27 @@ CONTRATO:
                  tools="none", timeout=300, exe_override=None) -> (ok, out)
 
   · `tools="none"` (DEFAULT) = el LLM NO tiene tools: texto puro, no toca
-    filesystem ni red por su cuenta. Es el modo del flujo de destilación
-    (el transcript es contenido NO confiable — ver dream.py, guard N6).
-  · `cwd` = directorio de trabajo del subproceso (dream pasa su staging;
-    JAMÁS el cerebro). None = heredar el del caller.
-  · `exe_override` = binario alterno (los knobs WORKSPACE_DREAM_CMD /
-    WORKSPACE_EVAL_CMD de siempre pasan por aquí).
+    filesystem ni red por su cuenta (el contenido que entra puede ser NO
+    confiable — guard N6).
+  · `cwd` = directorio de trabajo del subproceso (un staging neutro; JAMÁS el
+    cerebro). None = heredar el del caller.
+  · `exe_override` = binario alterno (el knob WORKSPACE_EVAL_CMD de siempre
+    pasa por aquí).
 
 INVARIANTE DE SEGURIDAD (pedido por Argus — es LEY, no preferencia):
   un backend que NO puede deshabilitar tools se RECHAZA cuando
   `tools="none"` (levanta HeadlessSecurityError, error de configuración,
   no transitorio). Sin esto, "cambiar de backend" degradaría en silencio
-  la garantía de que el destilador corre sin manos: un prompt-injection
-  en un transcript podría ejecutar tools. Sin bypass por env DEL
-  INVARIANTE; `exe_override` y los knobs WORKSPACE_DREAM_CMD/WORKSPACE_EVAL_CMD
-  que pasan por él son knobs de test con poder total (ejecutan un binario
+  la garantía de que el LLM corre sin manos: un prompt-injection en el
+  texto que recibe podría ejecutar tools. Sin bypass por env DEL
+  INVARIANTE; `exe_override` y el knob WORKSPACE_EVAL_CMD que pasa por él
+  son knobs de test con poder total (ejecutan un binario
   arbitrario) — riesgo pre-existente, aceptado bajo el modelo Y1
   single-user.
 
 BACKENDS (registro por nombre, mismo naming que engines/):
 
-  claude-code   REAL, verificado — el histórico dream._invoke_claude
+  claude-code   REAL, verificado — `claude -p` texto puro,
                 ENDURECIDO (Argus): `--allowedTools ""` solo era un
                 merge-allowlist sobre el settings.json del usuario (sus
                 allow-rules de Bash/MCP seguían aplicando), NO un disable
@@ -60,7 +62,7 @@ BACKENDS (registro por nombre, mismo naming que engines/):
   enchufar más (openrouter, ollama, …) sin tocar a los consumidores.
 
 Cero dependencias (stdlib, Python 3.9+). Mac y Windows. Amputable (C10):
-dream.py falla-suave si este módulo no está.
+sus consumidores fallan suave si este módulo no está.
 """
 import os
 import shutil
@@ -116,7 +118,7 @@ class HeadlessSecurityError(HeadlessError):
 # ── backend: claude-code (real, verificado) ────────────────────────────────
 def _invoke_claude_code(prompt, *, model, timeout, cwd, tools, exe_override,
                         wrapper=None, env_extra=None, kill_group=False):
-    """`claude -p` texto puro — el histórico dream._invoke_claude con el
+    """`claude -p` texto puro, con el
     disable de tools ENDURECIDO (Argus). `--allowedTools ""` a secas NO
     deshabilita nada: es un merge-allowlist sobre las reglas del
     settings.json del usuario, así que sus allow-rules (Bash(...), MCP)
@@ -184,7 +186,8 @@ def _invoke_claude_code(prompt, *, model, timeout, cwd, tools, exe_override,
             cmd += ["--disallowedTools", pat]
     if wrapper:                       # sandbox-exec u otro prefijo del SO
         cmd = list(wrapper) + cmd
-    env = dict(os.environ)
+    import secret_store
+    env = secret_store.engine_env()   # el motor no hereda la bóveda
     env["WORKSPACE_REVIEW_RUNNING"] = "1"    # anti-recursión (no review del review)
     env["WORKSPACE_NO_AUTOUPDATE"] = "1"
     if env_extra:                     # p.ej. TMPDIR dentro del clon (write-scoped)
@@ -276,7 +279,8 @@ def _invoke_codex(prompt, *, model, timeout, cwd, tools, exe_override,
     cmd += [prompt]
     if wrapper:                       # sandbox del SO (agent-real), como claude-code
         cmd = list(wrapper) + cmd
-    env = dict(os.environ)
+    import secret_store
+    env = secret_store.engine_env()   # el motor no hereda la bóveda
     env["WORKSPACE_REVIEW_RUNNING"] = "1"
     env["WORKSPACE_NO_AUTOUPDATE"] = "1"
     try:
@@ -300,6 +304,62 @@ def _invoke_codex(prompt, *, model, timeout, cwd, tools, exe_override,
             os.remove(outfile)
         except OSError:
             pass
+
+
+def _invoke_opencode(prompt, *, model, timeout, cwd, tools, exe_override,
+                     wrapper=None):
+    """`opencode run --format json` vía engines/opencode.run_turn (VERIFICADO
+    con el binario real 2.0.29). can_disable_tools=False: opencode no tiene un
+    knob verificado para apagar sus herramientas → el invariante lo excluye de
+    tools="none". El modelo NO se fija salvo override explícito (el harness
+    no fuerza modelo). `wrapper` (sandbox del SO) se antepone como en codex."""
+    try:
+        from engines import opencode as oc
+    except Exception as e:
+        return False, "engines/opencode.py no importable: %s" % e
+
+    def runner(cmd, cwd=None, env=None, timeout=None):
+        env = dict(env or os.environ)
+        env["WORKSPACE_REVIEW_RUNNING"] = "1"
+        return subprocess.run((list(wrapper) if wrapper else []) + list(cmd),
+                              cwd=cwd, env=env, timeout=timeout,
+                              capture_output=True, stdin=subprocess.DEVNULL)
+    return oc.run_turn(prompt, model=model, cwd=cwd, timeout=timeout,
+                       exe_override=exe_override, runner=runner)
+
+
+def _invoke_openclaw(prompt, *, model, timeout, cwd, tools, exe_override,
+                     wrapper=None):
+    """`openclaw --profile workspace agent --local --agent main --json` vía
+    engines/openclaw.run_turn. rc≠0 en fallo VERIFICADO (2026.5.12); la forma
+    del JSON de éxito es A-VERIFICAR (sin modelo real no se observó) →
+    verified=False. can_disable_tools=False: no hay knob verificado. El
+    modelo NO se fija salvo override explícito."""
+    if wrapper:
+        return False, "openclaw: sandbox del SO (wrapper) aún no soportado"
+    try:
+        from engines import openclaw as oc
+    except Exception as e:
+        return False, "engines/openclaw.py no importable: %s" % e
+    return oc.run_turn(prompt, model=model, cwd=cwd, timeout=timeout,
+                       exe_override=exe_override)
+
+
+def _invoke_hermes(prompt, *, model, timeout, cwd, tools, exe_override,
+                   wrapper=None):
+    """`hermes --profile workspace --oneshot` vía engines/hermes.run_turn
+    (v0.18.2). VERIFICADO con OpenRouter (modelo gratis, perfil desechable):
+    éxito = reporte de --usage-file con completed=true y failed=false; el
+    fallo lo marca el mismo reporte. can_disable_tools=False: no hay knob
+    verificado. El modelo NO se fija salvo override explícito."""
+    if wrapper:
+        return False, "hermes: sandbox del SO (wrapper) aún no soportado"
+    try:
+        from engines import hermes as hm
+    except Exception as e:
+        return False, "engines/hermes.py no importable: %s" % e
+    return hm.run_turn(prompt, model=model, cwd=cwd, timeout=timeout,
+                       exe_override=exe_override)
 
 
 # ── backend: stub (sin LLM — switching demostrable + doble de pruebas) ────
@@ -373,6 +433,19 @@ register_backend("codex", _invoke_codex,
                  can_disable_tools=False, verified=False,
                  note="A-VERIFICAR: sin knob confirmado de tools-off; "
                       "sandbox read-only ≠ sin tools")
+register_backend("opencode", _invoke_opencode,
+                 can_disable_tools=False, verified=True,
+                 note="opencode run --format json (2.0.29); sin knob verificado "
+                      "de tools-off; modelo = el de la config del socio")
+register_backend("openclaw", _invoke_openclaw,
+                 can_disable_tools=False, verified=True,
+                 note="agent --local --json (2026.5.12, VERIFICADO con OpenRouter: "
+                      "{payloads:[{text}], meta}); modelo = el de la config del socio")
+register_backend("hermes", _invoke_hermes,
+                 can_disable_tools=False, verified=True,
+                 note="hermes --profile workspace --oneshot (v0.18.2, VERIFICADO con "
+                      "OpenRouter: éxito/fallo por el reporte de --usage-file); sesión "
+                      "oculta (source tool); modelo = el del perfil de Workspace")
 register_backend("stub", _invoke_stub,
                  can_disable_tools=True, verified=True,
                  note="sin LLM; WORKSPACE_HEADLESS_STUB_OUTPUT/_FILE")

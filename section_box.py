@@ -139,7 +139,8 @@ def frame(Kp, w, h, word, title, body, chips, msg="", cursor_line=None,
     a la vista (listas; puede ser una función, que se evalúa DESPUÉS de armar
     el body), o `scroll` = primera fila visible (textos largos,
     como el cuadro de `i`); se marca con ▲▼. Devuelve también, en
-    frame.last_max_scroll, el máximo desplazamiento posible.
+    frame.last_max_scroll, el máximo desplazamiento posible, y en
+    frame.last_start, la primera fila que quedó a la vista.
 
     `stable_rows` = el alto MÁXIMO que puede tener el body (p. ej. con el
     texto más largo de una opción). La posición de la caja se calcula con ese
@@ -200,6 +201,7 @@ def frame(Kp, w, h, word, title, body, chips, msg="", cursor_line=None,
     else:
         cur = (cursor_line + 1) if cursor_line is not None else 0
         start, up, down = window(cuerpo, cur, ih)
+    frame.last_start = start
     vista = cuerpo[start:start + ih]
     if up and vista:
         vista[0] = HL.pad(vista[0], pw - 5) + "%s▲%s" % (Kp["DIM"], Kp["R"])

@@ -400,6 +400,7 @@
   .lbl-sub{color:var(--muted);font-weight:400;font-size:10.5px}
   textarea.res{min-height:52px;max-height:150px;resize:vertical;
     font-family:var(--mono);font-size:11.5px;line-height:1.5}
+  textarea.res[readonly]{opacity:.5;cursor:progress}   /* aún cargando: sin dueño */
   .filelist{list-style:none;margin:0 0 7px;padding:0;display:flex;
     flex-direction:column;gap:3px}
   .filelist:empty{display:none}
@@ -1463,13 +1464,32 @@
 
   const dt=$('#dt'), dn=$('#dn'), dres=$('#dres');
   const inPane=()=>{const a=document.activeElement;return a&&(a===dt||a===dn)};
+  /* DUEÑO del texto de Título/Notas: el (proyecto, nodo) cuyo valor se PINTÓ en
+     el campo. El autosave guarda en ese dueño, nunca en `sel` (ver debouncedSave). */
+  const owner=new Map();
+  function paintField(el,field){
+    const n=sel&&N(sel); if(!n)return;
+    el.value=n[field]||''; owner.set(el,{pid:cur,nid:n.id});
+  }
+  /* Un campo sin texto pendiente muestra SIEMPRE el nodo elegido, aunque tenga
+     el cursor. Solo una edición a medias de otro nodo se respeta: termina en su
+     nodo al salir del campo (blur). */
+  function refreshField(el,field){
+    const o=owner.get(el);
+    if(document.activeElement===el&&o){
+      if(o.pid===cur&&o.nid===sel)return;
+      const p=projects.find(x=>x.id===o.pid), n=p&&p.nodes.find(x=>x.id===o.nid);
+      if(n&&el.value!==(n[field]||''))return;
+    }
+    paintField(el,field);
+  }
   function renderDetail(){
     const n=sel&&N(sel);
     $('#dvoid').hidden=!!n;
     $('#dform').hidden=!n;
     if(!n)return;
-    if(document.activeElement!==dt)dt.value=n.t;
-    if(document.activeElement!==dn)dn.value=n.notes||'';
+    refreshField(dt,'t');
+    refreshField(dn,'notes');
     document.querySelectorAll('#dst .mbtn').forEach(b=>b.classList.toggle('on',b.dataset.s===n.st));
     $('#ddel').disabled=!!n.root;
     $('#dlink').disabled=!!n.root;
@@ -1485,22 +1505,32 @@
     add('Creado',(n.created||'').slice(0,10));
     add('Actualizado',(n.updated||'').replace('T',' ').slice(0,16));
   }
-  /* autosave: se escribe al dejar de teclear (no en cada tecla) */
+  /* autosave: se escribe al dejar de teclear (no en cada tecla).
+     Se guarda en el DUEÑO del texto, no en `sel`: al hacer clic en otro nodo, el
+     pointerdown cambia `sel` ANTES de que el navegador quite el foco, y el blur
+     copiaba el texto del nodo anterior ENCIMA del nuevo (o lo tiraba si el clic
+     era en el fondo del lienzo). */
   function debouncedSave(el,field){
     let t=null;
     const flush=async()=>{
-      const p=P(), id=sel, n=id&&N(id); if(!p||!n)return;
+      const o=owner.get(el), p=o&&projects.find(x=>x.id===o.pid),
+            n=p&&p.nodes.find(x=>x.id===o.nid); if(!n)return;
       let v=el.value;
       if(field==='t'){v=v.trim()||'Sin título'}
       if(v===(n[field]||''))return;
-      const body={project_id:p.id,node_id:id}; body[field]=v;
+      const body={project_id:p.id,node_id:n.id}; body[field]=v;
       const d=await post('/api/proyectos/node/update',body);
       if(!d.ok)return fail(d,'No se pudo guardar');
       repl(d.project);
       renderList(); renderTop(); renderNodes(); renderLinks();
     };
     el.addEventListener('input',()=>{clearTimeout(t);t=setTimeout(flush,600)});
-    el.addEventListener('blur',()=>{clearTimeout(t);flush()});
+    el.addEventListener('blur',()=>{
+      clearTimeout(t); flush();
+      /* la selección cambió con el foco puesto: lo del dueño ya va en camino,
+         ahora el campo muestra el nodo nuevo */
+      const o=owner.get(el); if(o&&(o.pid!==cur||o.nid!==sel))paintField(el,field);
+    });
   }
   debouncedSave(dt,'t');
   debouncedSave(dn,'notes');
@@ -1519,7 +1549,7 @@
      aparte por (nodo × agente × día) y se persiste en sesiones/ del harness. */
   let sessionTurns=[], sessionDays=[], sessionDay=null;   /* sessionDay null = hoy */
   let sessAgents=new Set();                                /* agentes con hilo en el nodo */
-  let files=[], handoff='';
+  let files=[], handoff='', hNode=null;                    /* hNode: {pid,nid} de `handoff` (null = cargando) */
   let ckChat='', ckNode='';                                /* de-dup de cargas async */
 
   /* El chat SIEMPRE cuelga de un nodo: el seleccionado, o la raíz si no hay uno
@@ -1604,19 +1634,24 @@
     renderDayBar(); renderChat();
   }
 
-  /* carga lo del NODO (qué agentes tienen hilo, archivos, handoff). De-dup. */
+  /* carga lo del NODO (qué agentes tienen hilo, archivos, handoff). De-dup.
+     Si mientras cargaba se eligió otro nodo, la respuesta se DESCARTA: si no,
+     el handoff de un nodo aparecía (y se guardaba) en el otro. */
   async function syncNode(force){
     const p=P(), nid=curNid();
     const key=(p?p.id:'')+'|'+(nid||'');
     if(!force && key===ckNode)return; ckNode=key;
-    sessAgents=new Set(); files=[]; handoff='';
+    sessAgents=new Set(); files=[]; handoff=''; hNode=null;
+    releaseHandoff();
     if(p&&nid){
       const la=await get('/api/proyectos/session/list?project_id='+q(p.id)+'&node_id='+q(nid));
-      sessAgents=new Set((la&&la.agents)||[]);
       const rf=await get('/api/proyectos/files?project_id='+q(p.id)+'&node_id='+q(nid));
-      files=(rf&&rf.files)||[];
       const rh=await get('/api/proyectos/resumen?project_id='+q(p.id)+'&node_id='+q(nid));
+      if(key!==ckNode)return;
+      sessAgents=new Set((la&&la.agents)||[]);
+      files=(rf&&rf.files)||[];
       handoff=(rh&&typeof rh.text==='string')?rh.text:'';
+      hNode={pid:p.id,nid:nid};
     }
     renderTabs(); renderFiles(); renderHandoff();
   }
@@ -1725,18 +1760,51 @@
     syncNode(true);
   });
 
-  /* ── handoff (resumen.md) del nodo ── */
-  function renderHandoff(){ if(document.activeElement!==dres)dres.value=handoff||'' }
+  /* ── handoff (resumen.md) del nodo ──
+     Igual que Título/Notas: el texto de #dres es del nodo cuyo handoff se PINTÓ
+     en él (`hOwner`), no del nodo actual. Al hacer clic en otro nodo, syncNode
+     vacía `handoff` y cambia de nodo ANTES del blur; guardar contra curNid()
+     copiaba el handoff anterior ENCIMA del nuevo (o del de la raíz, si el clic
+     era en el fondo). `base` = lo que tiene el server (guard «sin cambios»). */
+  let hOwner=null;
+  /* SIN dueño (aún no llega ningún handoff, p. ej. al abrir con la selección
+     restaurada) el campo es de solo lectura: lo tecleado no tendría a dónde ir
+     y el primer pintado lo borraría sin avisar. */
+  dres.readOnly=true;
+  function paintHandoff(){
+    dres.value=handoff||'';
+    hOwner=hNode?{pid:hNode.pid,nid:hNode.nid,base:handoff||''}:null;
+    dres.readOnly=!hOwner;
+  }
+  const hKey=o=>o?o.pid+'|'+o.nid:'';       /* mismo formato que ckNode (el nodo actual) */
+  function blankHandoff(){ hOwner=null; dres.value=''; dres.readOnly=true; }
+  /* La selección pasó a otro nodo (syncNode): el campo deja de ser del anterior
+     YA y queda vacío, de solo lectura, hasta que llegue el handoff del nuevo —
+     nunca acepta texto para un nodo que no es el elegido. Solo una edición a
+     medias se respeta: termina en su nodo al salir del campo (ver blur). */
+  function releaseHandoff(){
+    if(!hOwner||hKey(hOwner)===ckNode)return;
+    if(document.activeElement===dres&&dres.value!==hOwner.base)return;
+    blankHandoff();
+  }
+  /* con foco no se pisa lo tecleado; sin dueño no se pudo teclear nada */
+  function renderHandoff(){ if(document.activeElement!==dres||!hOwner)paintHandoff() }
   let hresT=null;
   async function saveHandoff(){
-    const p=P(), nid=curNid(); if(!p||!nid)return;
-    const v=dres.value; if(v===(handoff||''))return;
-    const d=await post('/api/proyectos/resumen/set',{project_id:p.id,node_id:nid,text:v});
+    const o=hOwner; if(!o)return;
+    const v=dres.value; if(v===o.base)return;
+    const d=await post('/api/proyectos/resumen/set',{project_id:o.pid,node_id:o.nid,text:v});
     if(!d.ok){toast('No se pudo guardar el handoff');return}
-    handoff=v;
+    o.base=v;
+    if(hNode&&hNode.pid===o.pid&&hNode.nid===o.nid)handoff=v;
   }
   dres.addEventListener('input',()=>{clearTimeout(hresT);hresT=setTimeout(saveHandoff,700)});
-  dres.addEventListener('blur',()=>{clearTimeout(hresT);saveHandoff()});
+  dres.addEventListener('blur',()=>{
+    clearTimeout(hresT); saveHandoff();
+    /* terminó la edición de un nodo que ya no es el elegido: el campo pasa al
+       nuevo, o queda vacío y de solo lectura si su handoff aún no llega */
+    if(hOwner&&hKey(hOwner)!==ckNode){ if(hNode)paintHandoff(); else blankHandoff(); }
+  });
 
   const cin=$('#cin');
   cin.addEventListener('input',()=>{

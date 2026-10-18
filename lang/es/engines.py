@@ -37,7 +37,7 @@ STRINGS = {'engines.agent': 'Agente: {name} · a cambia · u asigna motor',
  'engines.capture.unknown': 'Sin verificar',
  'engines.capture.unsupported': 'No compatible',
  'engines.capture_explain': 'Capturar el transcript al cerrar conserva el historial. El recibo '
-                            'prueba una copia, no que se haya destilado ni consolidado. Un cierre '
+                            'prueba una copia, no que se haya consolidado. Un cierre '
                             'abrupto puede impedir la captura.',
  'engines.checking': 'Comprobando login…',
  'engines.checkpoint': 'Checkpoint compartido',
@@ -51,7 +51,6 @@ STRINGS = {'engines.agent': 'Agente: {name} · a cambia · u asigna motor',
  'engines.connection.official_cli': 'CLI oficial',
  'engines.connection.openai_compatible': 'API compatible con OpenAI',
  'engines.connection.unknown': 'Desconocida',
- 'engines.consolidated': 'Consolidación: {state}',
  'engines.continuity.title': 'DE LA SESIÓN A LA MEMORIA',
  'engines.cost': 'Costo: {value}',
  'engines.cost.free': 'Sin cobro por API declarado',
@@ -61,15 +60,12 @@ STRINGS = {'engines.agent': 'Agente: {name} · a cambia · u asigna motor',
  'engines.date': 'Fecha: {date}',
  'engines.declared': 'Capacidad declarada por el adapter instalado; no es una prueba de '
                      'funcionamiento de esta sesión.',
- 'engines.distill': 'Destilación y consolidación',
- 'engines.distilled': 'Destilación: {state}',
  'engines.empty': 'No hay adapters de motores disponibles.',
  'engines.empty_providers': 'No hay perfiles de proveedores.',
  'engines.endpoint': 'Endpoint: {value}',
  'engines.env_names': 'Variables requeridas: {names}',
  'engines.flow.capture': 'Conversación → copia del transcript · conservar el historial',
  'engines.flow.checkpoint': 'Agente → checkpoint compartido · objetivo y siguiente paso',
- 'engines.flow.distill': 'Transcript → destilado → memoria consolidada · procesos separados',
  'engines.flow.retrieve': 'Checkpoint + identidad → motor elegido · retomar el trabajo',
  'engines.guide': 'Guía oficial',
  'engines.hint.agent': 'agente',
@@ -246,12 +242,12 @@ STRINGS.update({
     "motores.inst.note.git_win": "Git for Windows es opcional (habilita la "
                                  "herramienta Bash).",
     "motores.inst.note.node22": "requiere Node.js 22+; sin sudo",
-    "motores.inst.note.codex_win": "la doc oficial no publica instalador "
-                                   "nativo para Windows; npm requiere Node.js "
-                                   "instalado.",
+    "motores.inst.note.codex_win": "instalador oficial de OpenAI para Windows; "
+                                   "alternativa: npm install -g @openai/codex "
+                                   "(requiere Node.js).",
     "motores.inst.not_in_path": "el instalador terminó bien pero `{b}` no está "
-                                "en el PATH de esta terminal — usa Recargar (r) "
-                                "o abre una terminal nueva",
+                                "en el PATH de esta terminal — elige «ya lo "
+                                "instalé: recargar» o abre una terminal nueva",
     "motores.inst.missing": "falta {m} para correr el instalador",
     "motores.inst.failed": "el instalador terminó con código {rc} — revisa la "
                            "salida arriba (red, permisos o proxy) y la guía "

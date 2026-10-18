@@ -1,16 +1,16 @@
 # Memoria de {{AGENT_DISPLAY}} — curada, largo plazo
 
-Mi memoria destilada (no cronológica — para eso está `STATE/log-recent.md`). Cada sesión arranco
-fresh; **este archivo ES mi memoria.** Visible para los tres socios — info que no debe compartirse
+Mi memoria de largo plazo (no cronológica — para eso está `STATE/log-recent.md`). Cada sesión arranco
+fresh; **este archivo ES mi memoria.** Visible para todos los socios — info que no debe compartirse
 no va aquí.
 
 <!-- core blocks (N13 — convención MemGPT/Letta aterrizada a archivos):
 bloques `## [bloque] Título` con límite SUAVE en chars; secciones con la misma
-etiqueta se suman. Medir: `python3 ~/Desktop/WORKSPACE/memory_blocks.py --brain .`
-u `workspace doctor` (fase 8 — solo avisa, jamás edita). Excedente → ARCHIVAR
-(decay, nunca borrar) a `STATE/memoria-archivo/<bloque>-YYYY-MM.md`; lo hace un
-humano o consolidación CON gate — ningún pipeline escribe este archivo
-(el Dreaming N1 escribe STATE/DESTILADO.md; promover de ahí = humano).
+etiqueta se suman. Medir: cuento los caracteres de cada bloque al leer este archivo (sin
+comandos; nada lo edita por mí). Excedente → ARCHIVAR
+(decay, nunca borrar) a `STATE/memoria-archivo/<bloque>-YYYY-MM.md`; lo hace el
+agente en su sesión. Workspace solo escribe la última sección («Aprendido en las sesiones»):
+ahí suben, sin IA, las notas `dato`/`preferencia` que guardo con `workspace memoria nota`.
 core-block-limits: persona=1500 equipo=1200 proyectos=2000 infra=1500 preferencias=1000
 tier1-target: ~2.5k tokens en total (presupuesto de boot del template)
 -->
@@ -41,3 +41,6 @@ tier1-target: ~2.5k tokens en total (presupuesto de boot del template)
 ## [preferencias] Convenciones aprendidas
 
 - *(vacío al nacer — se puebla por uso real, no con datos de ejemplo)*
+
+## Aprendido en las sesiones (Workspace)
+<!-- Workspace agrega aquí los datos y preferencias que el agente guarda con «workspace memoria nota»; lo más viejo pasa a STATE/memoria-archivo/. -->

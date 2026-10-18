@@ -6,8 +6,10 @@ cuando creas un agente. No hace falta tocarla para usar Workspace.
 ```
 templates/agent/
 ├── brain/              ← se copia como "<NOMBRE> - BRAIN/": el cerebro del agente
-│   ├── CLAUDE.md       entrada del agente (Codex la lee por un AGENTS.md que apunta aquí;
-│   │                   Antigravity, por un GEMINI.md generado)
+│   ├── BRAIN.md        identidad: entrada del agente (formato v2). CLAUDE.md es un puntero
+│   │                   generado que la importa (`@BRAIN.md`); los demás motores llegan por
+│   │                   AGENTS.md / GEMINI.md generados al lanzar.
+│   ├── motores/        espacio previsto para archivos propios de un motor (vacío)
 │   ├── BOOT/           alma, identidad, reglas y mapa del cerebro
 │   ├── STATE/          memoria, pendientes, sesiones e inbox
 │   ├── skills/         catálogo + skills para crear, mejorar y curar skills + investigación

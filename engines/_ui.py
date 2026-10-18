@@ -164,6 +164,10 @@ def export_tab_env(cfg, wid, name):
     try:
         os.environ["WORKSPACE_WS"] = name
         os.environ["WORKSPACE_WID"] = wid
+        if cfg.get("_engine"):
+            # memoria v1: cada nota dice de qué motor viene
+            import engines
+            engines.mark_session_engine(os.environ, cfg["_engine"])
         se, we = _cc.session_env_names(cfg)   # SSOT: default derivado del nombre
         os.environ[se] = name
         os.environ[we] = wid

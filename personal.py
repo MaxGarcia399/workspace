@@ -8,8 +8,13 @@ cerebro ni se sincroniza: es de ESTA máquina.
 
 Mismo trato que board.json / calendar.json del dashboard de dev:
   · escritura ATÓMICA (tmp con pid + token único + os.replace),
-  · FALLA-SUAVE absoluta (ausente/corrupto/ilegible → vacío, jamás levanta —
-    el hub no se puede romper por esto),
+  · FALLA-SUAVE absoluta al leer (ausente/ilegible → vacío, jamás levanta —
+    el hub no se puede romper por esto), pero una lectura fallida NUNCA se
+    vuelve borrado: solo se escribe sobre lo que se leyó bajo el lock; un
+    evento malformado se salta solo y se conserva tal cual; un archivo
+    ilegible se aparta intacto (`.corrupt-<fecha>`, avisado mientras siga
+    sin revisar) en vez de escribirle encima; las imágenes solo se borran
+    cuando el borrado duro o la papelera vencida ya quedaron guardados,
   · validación de fecha/hora REAL (nada de 2026-13-40),
   · papelera: «borrar» conserva el evento por 15 días; después expira y
     se purga en la próxima escritura. --hard es borrado explícito inmediato.
@@ -89,11 +94,13 @@ def _mutation(fn):
         try:
             os.makedirs(os.path.dirname(os.path.abspath(path())), exist_ok=True)
             with file_lock(path(), timeout=5):
-                _LOCK_STATE.depth = 1
+                # base = lo que leyó load() bajo ESTE lock: save() solo escribe
+                # si el archivo sigue siendo exactamente eso
+                _LOCK_STATE.depth, _LOCK_STATE.base = 1, None
                 try:
                     return fn(*args, **kwargs)
                 finally:
-                    _LOCK_STATE.depth = 0
+                    _LOCK_STATE.depth, _LOCK_STATE.base = 0, None
         except (OSError, LockTimeout):
             return None
     return wrapped
@@ -169,26 +176,19 @@ def resolve_images(event, only_existing=True):
 
 
 def _purge_assets(ev_id):
-    """Borra el dir de assets de un evento (falla-suave). Lo llama el borrado
-    duro y la poda de la papelera vencida."""
+    """Borra el dir de assets de un evento (falla-suave). Lo llaman el borrado
+    duro y la papelera vencida (save). Un id que no es un nombre simple (vacío,
+    «..», con separadores: archivo editado a mano) no se toca — jamás se borra
+    fuera del dir de ESE evento.
+
+    No hay «poda de huérfanos»: barrer lo que no está en la lista en memoria
+    borraba TODAS las imágenes tras una lectura fallida de la agenda."""
     import shutil
+    ev_id = str(ev_id or "")
+    if ev_id in ("", ".", "..") or os.path.basename(ev_id) != ev_id:
+        return
     try:
         shutil.rmtree(assets_dir(ev_id), ignore_errors=True)
-    except Exception:
-        pass
-
-
-def _prune_orphan_assets(data):
-    """Borra dirs de assets cuyo evento ya no existe (borrado duro o papelera
-    vencida). Autosanador y barato (pocos dirs). Falla-suave absoluto."""
-    try:
-        root = _assets_root()
-        if not os.path.isdir(root):
-            return
-        live = {str(e.get("id")) for e in data.get("eventos") or ()}
-        for name in os.listdir(root):
-            if name not in live and os.path.isdir(os.path.join(root, name)):
-                _purge_assets(name)
     except Exception:
         pass
 
@@ -256,13 +256,15 @@ def remove_image(ev_id, field, img_id):
     imgs[field] = keep
     ev["images"] = imgs
     ev["updated"] = _now_iso()
+    if not save(store):
+        return False                    # sin guardar no se borra el archivo
     try:
         fp = resolve_image(ev_id, gone.get("file"))
         if os.path.isfile(fp):
             os.unlink(fp)
     except Exception:
         pass
-    return save(store)
+    return True
 
 
 def dispatch_task(event):
@@ -283,49 +285,167 @@ def dispatch_task(event):
     return e
 
 
+# ── avisos para el socio ────────────────────────────────────────────────────
+#: Lo que el socio debe saber de SU agenda: que está dañada (y dónde quedó la
+#: copia intacta) o que un evento no se pudo leer. load()/save() lo dejan; el
+#: calendario lo pinta en su línea de mensaje y el CLI en stderr (tomar_aviso).
+#: Atado a la ruta del store; un estado que persiste se avisa UNA vez.
+_AVISO = {"ruta": None, "texto": "", "vistos": set()}
+
+
+def _avisar(clave, es, una_vez=False, **kw):
+    """Deja un aviso pendiente. `una_vez`: un estado que persiste (agenda
+    ilegible, evento raro) no regaña en cada lectura. Jamás levanta."""
+    try:
+        ruta = path()
+        texto = _t(clave, es, archivo=os.path.basename(ruta), **kw)
+        if not (una_vez and (ruta, texto) in _AVISO["vistos"]):
+            _AVISO.update(ruta=ruta, texto=texto)
+    except Exception:
+        pass
+
+
+def tomar_aviso():
+    """El aviso pendiente de ESTA agenda ("" si no hay); se entrega una vez."""
+    ruta, texto = path(), _AVISO["texto"]
+    _AVISO["texto"] = ""
+    if not texto or _AVISO["ruta"] != ruta:
+        return ""
+    _AVISO["vistos"].add((ruta, texto))
+    return texto
+
+
+def copias_apartadas():
+    """Las copias `<agenda>.corrupt-*` que siguen junto a la agenda (la más
+    reciente al final). Que exista = sigue SIN REVISAR: quien la revisa
+    recupera lo que haga falta y la borra o la renombra."""
+    try:
+        base = os.path.basename(path()) + ".corrupt-"
+        d = os.path.dirname(os.path.abspath(path()))
+        return sorted(f for f in os.listdir(d) if f.startswith(base))
+    except Exception:
+        return []
+
+
+def aviso_copias():
+    """Aviso PERSISTENTE —sale del disco, no de la memoria—: mientras haya una
+    copia apartada sin revisar, el calendario y el CLI la mencionan (si no,
+    para el socio es como si la agenda se hubiera borrado). "" si no hay."""
+    copias = copias_apartadas()
+    if not copias:
+        return ""
+    return _t("personal.aviso.copias",
+              "copia sin revisar de tu agenda dañada: {copia} — un agente "
+              "puede recuperarla", copia=copias[-1])
+
+
 # ── lectura / escritura ─────────────────────────────────────────────────────
 def _empty():
     return {"schema": SCHEMA, "eventos": []}
 
 
-def load():
-    """El store completo. Ausente/corrupto/ilegible → vacío. Jamás levanta."""
+def _leer_crudo():
+    """El archivo TAL CUAL está en disco → (estado, data, bytes). Estados:
+    "ausente" (no existe) · "ok" (un dict con lista de eventos) · "ilegible"
+    (JSON roto, bytes que no son texto o algo que no es una agenda) · "error"
+    (existe pero no se pudo abrir: permisos, es un dir…). Jamás levanta."""
     try:
-        with open(path(), "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if not isinstance(data, dict):
-            return _empty()
+        with open(path(), "rb") as f:
+            raw = f.read()
+    except FileNotFoundError:
+        return "ausente", None, None
+    except Exception:
+        return "error", None, None
+    try:
+        # utf-8-sig: el BOM que deja el Bloc de notas de Windows no es daño
+        data = json.loads(raw.decode("utf-8-sig"))
+    except Exception:
+        return "ilegible", None, raw
+    if not isinstance(data, dict) or not isinstance(data.get("eventos", []), list):
+        return "ilegible", None, raw
+    return "ok", data, raw
+
+
+def _apartar_ilegible():
+    """Mueve la agenda ilegible a `<ruta>.corrupt-<fecha>` sin pisar ninguna
+    copia previa. Devuelve la ruta de la copia, o None si no se pudo (entonces
+    nadie escribe encima). Solo con el lock tomado: la llama save()."""
+    try:
+        base = "%s.corrupt-%s" % (path(), datetime.now().strftime("%Y%m%d-%H%M%S"))
+        dest, n = base, 1
+        while os.path.lexists(dest):
+            n += 1
+            dest = "%s-%d" % (base, n)
+        os.replace(path(), dest)
+        return dest
+    except Exception:
+        return None
+
+
+def _norm_event(e):
+    """Un evento del archivo normalizado al schema, o None si no se puede leer
+    (no es dict, fecha irreal, título vacío o que no es texto…). Jamás levanta:
+    un evento raro se salta SOLO, nunca tumba la agenda entera."""
+    try:
+        if not (isinstance(e, dict) and _valid_date(e.get("date"))
+                and isinstance(e.get("title"), str) and e["title"].strip()):
+            return None
+        return {
+            "id": str(e.get("id") or uuid.uuid4().hex[:8]),
+            "date": str(e["date"])[:10],
+            "time": _valid_time(e.get("time")),
+            "title": str(e["title"])[:120].strip(),
+            "cat": (e.get("cat") if e.get("cat") in CATEGORIES
+                    else "otro"),
+            "notes": str(e.get("notes") or "")[:NOTES_MAX],
+            "prompt": str(e.get("prompt") or "")[:PROMPT_MAX],
+            "task_status": task_status(e),
+            "claimed_by": str(e.get("claimed_by") or ""),
+            "claim_token": str(e.get("claim_token") or ""),
+            "claimed_at": str(e.get("claimed_at") or ""),
+            "result": str(e.get("result") or "")[:NOTES_MAX],
+            # migración suave: eventos viejos sin estos campos
+            # se leen como pendientes sin prioridad — nada se
+            # pierde ni cambia de significado
+            "done": bool(e.get("done")),
+            "prio": ("alta" if e.get("prio") in
+                     ("alta", "high", "!") else ""),
+            "archived": bool(e.get("archived")),
+            "created": str(e.get("created") or ""),
+            "deleted_at": str(e.get("deleted_at") or ""),
+            # schema 2: imágenes por campo; viejos → vacío
+            "images": _norm_images(e.get("images"))}
+    except Exception:
+        return None
+
+
+def load():
+    """El store completo. Jamás levanta. Ausente → vacío. Ilegible → vacío y
+    aviso (save() no lo pisa: lo aparta). Un evento malformado se SALTA solo
+    —los demás se leen— y se conserva tal cual en el archivo."""
+    try:
+        estado, data, raw = _leer_crudo()
+        if getattr(_LOCK_STATE, "depth", 0):
+            _LOCK_STATE.base = (estado, raw)    # de esta lectura parte save()
         out = _empty()
-        evs = data.get("eventos")
-        if isinstance(evs, list):
-            for e in evs:
-                if isinstance(e, dict) and _valid_date(e.get("date")) \
-                        and (e.get("title") or "").strip():
-                    out["eventos"].append({
-                        "id": str(e.get("id") or uuid.uuid4().hex[:8]),
-                        "date": str(e["date"])[:10],
-                        "time": _valid_time(e.get("time")),
-                        "title": str(e["title"])[:120].strip(),
-                        "cat": (e.get("cat") if e.get("cat") in CATEGORIES
-                                else "otro"),
-                        "notes": str(e.get("notes") or "")[:NOTES_MAX],
-                        "prompt": str(e.get("prompt") or "")[:PROMPT_MAX],
-                        "task_status": task_status(e),
-                        "claimed_by": str(e.get("claimed_by") or ""),
-                        "claim_token": str(e.get("claim_token") or ""),
-                        "claimed_at": str(e.get("claimed_at") or ""),
-                        "result": str(e.get("result") or "")[:NOTES_MAX],
-                        # migración suave: eventos viejos sin estos campos
-                        # se leen como pendientes sin prioridad — nada se
-                        # pierde ni cambia de significado
-                        "done": bool(e.get("done")),
-                        "prio": ("alta" if e.get("prio") in
-                                 ("alta", "high", "!") else ""),
-                        "archived": bool(e.get("archived")),
-                        "created": str(e.get("created") or ""),
-                        "deleted_at": str(e.get("deleted_at") or ""),
-                        # schema 2: imágenes por campo; viejos → vacío
-                        "images": _norm_images(e.get("images"))})
+        if estado == "ok":
+            evs = data.get("eventos") or []
+            out["eventos"] = [e for e in map(_norm_event, evs) if e is not None]
+            if len(evs) > len(out["eventos"]):
+                _avisar("personal.aviso.saltados",
+                        "{n} evento(s) ilegible(s) en la agenda: se conservan "
+                        "tal cual en {archivo}", una_vez=True,
+                        n=len(evs) - len(out["eventos"]))
+        elif estado == "ilegible":
+            # «no pude leer», no «dañada»: puede ser pasajero (alguien la está
+            # escribiendo); solo save() la da por dañada, verificado bajo lock
+            _avisar("personal.aviso.ilegible",
+                    "no pude leer la agenda ({archivo}): no la toco; si sigue "
+                    "así, al guardar la aparto intacta como copia", una_vez=True)
+        elif estado == "error":
+            _avisar("personal.aviso.no_abre",
+                    "no pude abrir la agenda ({archivo}): no escribo encima",
+                    una_vez=True)
         return out
     except Exception:
         return _empty()
@@ -333,26 +453,75 @@ def load():
 
 @_mutation
 def save(data):
-    """Escritura ATÓMICA (tmp + os.replace). True si quedó en disco."""
+    """Escritura ATÓMICA (tmp + os.replace). True si quedó en disco.
+
+    Una lectura fallida jamás se vuelve borrado:
+      · solo escribe sobre el archivo que leyó load() bajo ESTE lock; si ya
+        no es ese (una lectura pasajera que falló, un cambio externo a mitad)
+        no escribe (False + aviso) y el socio reintenta;
+      · la agenda en disco no se puede abrir → no escribe (False + aviso);
+      · es JSON ilegible → se APARTA intacta como `.corrupt-<fecha>` (aviso)
+        y se escribe la nueva; si no se puede apartar, no escribe;
+      · los eventos que load() saltó por malformados se conservan TAL CUAL;
+      · imágenes: solo se borran las de eventos cuya papelera vence aquí."""
+    tmp = None
     try:
+        estado, crudo, raw = _leer_crudo()
+        base = getattr(_LOCK_STATE, "base", None)
+        if base is not None and base != (estado, raw):
+            _avisar("personal.aviso.cambio",
+                    "la agenda cambió mientras la leía ({archivo}): no escribí "
+                    "encima; vuelve a intentarlo")
+            return False
+        conservar = []
+        if estado == "error":
+            _avisar("personal.aviso.no_abre",
+                    "no pude abrir la agenda ({archivo}): no escribo encima")
+            return False
+        if estado == "ilegible":
+            copia = _apartar_ilegible()
+            if not copia:
+                _avisar("personal.aviso.no_aparta",
+                        "agenda dañada y no pude apartarla ({archivo}): no "
+                        "escribo encima")
+                return False
+            _avisar("personal.aviso.apartada",
+                    "agenda dañada: quedó intacta como {copia}; sigues con "
+                    "una limpia", copia=os.path.basename(copia))
+        elif estado == "ok":
+            conservar = [e for e in crudo.get("eventos") or ()
+                         if _norm_event(e) is None
+                         and e not in data.get("eventos", [])]
         data = dict(data)
         now = datetime.now().astimezone()
-        data["eventos"] = [dict(e) for e in data.get("eventos", [])
-                           if not _trash_expired(e, now)]
-        for e in data["eventos"]:
+        vivos, vencidos = [], []
+        for e in data.get("eventos", []):
+            if _trash_expired(e, now):
+                vencidos.append(e)
+            else:
+                vivos.append(dict(e))
+        for e in vivos:
             if e.get("archived") and not e.get("deleted_at"):
                 e["deleted_at"] = now.isoformat()
+        data["eventos"] = vivos + conservar
         d = os.path.dirname(os.path.abspath(path()))
         if not os.path.isdir(d):
             os.makedirs(d, exist_ok=True)
         dest = path()
         tmp = "%s.tmp-%d-%s" % (dest, os.getpid(), uuid.uuid4().hex[:8])
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        # en binario: los bytes en disco son EXACTAMENTE estos (la base nueva)
+        contenido = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+        with open(tmp, "wb") as f:
+            f.write(contenido)
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp, dest)
-        _prune_orphan_assets(data)      # limpia assets de eventos ya inexistentes
+        _LOCK_STATE.base = ("ok", contenido)
+        # imágenes de la papelera vencida AQUÍ (un id que sigue vivo no se toca)
+        ids = {str(e.get("id")) for e in data["eventos"] if isinstance(e, dict)}
+        for e in vencidos:
+            if str(e.get("id")) not in ids:
+                _purge_assets(e.get("id"))
         return True
     except Exception:
         try:
@@ -553,7 +722,6 @@ def remove_event(ev_id, hard=False):
         if e.get("id") == ev_id:
             hit = True
             if hard:
-                _purge_assets(ev_id)       # borrado duro = sus imágenes también
                 continue
             e = dict(e, archived=True,
                      deleted_at=e.get("deleted_at") or datetime.now().astimezone().isoformat())
@@ -561,7 +729,11 @@ def remove_event(ev_id, hard=False):
     if not hit:
         return False
     data["eventos"] = keep
-    return save(data)
+    if not save(data):
+        return False
+    if hard:
+        _purge_assets(ev_id)    # borrado duro = sus imágenes también, ya guardado
+    return True
 
 
 def _trash_expired(event, now=None):
@@ -664,8 +836,9 @@ def finish_task(ev_id, token, status="done", result=""):
     return False
 
 
-def _task_cli(argv):
-    """Machine-readable task queue; no agent is launched by these commands."""
+def _task_parser():
+    """(parser, subparsers) de `workspace agenda tareas`. Solo ARMA el parser
+    (no toca la agenda): lo usan _task_cli y la ayuda anidada (cli_help)."""
     import argparse
     parser = argparse.ArgumentParser(prog="workspace agenda tareas")
     sub = parser.add_subparsers(dest="action")
@@ -683,6 +856,51 @@ def _task_cli(argv):
         item.add_argument("id")
         item.add_argument("--token", required=True)
         item.add_argument("--result", default="")
+    return parser, sub
+
+
+# Subcomandos de `workspace agenda` (alias incluidos): los rutea cmd_agenda y
+# los usa cli_help para la ayuda anidada.
+_SUB_TASKS = ("tasks", "tareas")
+_SUB_ADD = ("add", "nuevo", "+")
+_SUB_DONE = ("done", "hecho", "x")
+_SUB_RM = ("rm", "del", "quitar", "borrar")
+
+# Uso de add / done / rm (solo texto): lo imprime cmd_agenda cuando faltan
+# datos y `workspace agenda <sub> --help` (cli_help).
+_USOS = {
+    "add": ("personal.agenda.usage_add",
+            'uso: workspace agenda add YYYY-MM-DD "título" '
+            '[--time HH:MM] [--cat reunion|hito|recordatorio|cumple|otro]'),
+    "done": ("personal.agenda.usage_done", "uso: workspace agenda done <id>"),
+    "rm": ("personal.agenda.usage_rm", "uso: workspace agenda rm <id> [--hard]"),
+}
+
+
+def _uso(sub):
+    key, es = _USOS[sub]
+    return _t(key, es)
+
+
+def cli_help(argv):
+    """Ayuda (SOLO texto, no toca la agenda) de `workspace agenda <argv…>
+    --help`: la de `tareas [acción]` (su parser, igual que antes) o el uso de
+    add / done / rm. None si ese subcomando no trae ayuda propia (front
+    muestra entonces la ficha del catálogo)."""
+    sub = argv[0] if argv else ""
+    if sub in _SUB_TASKS:
+        parser, acciones = _task_parser()
+        act = next((a for a in argv[1:] if not a.startswith("-")), None)
+        return (acciones.choices.get(act) or parser).format_help()
+    for nombre, alias in (("add", _SUB_ADD), ("done", _SUB_DONE), ("rm", _SUB_RM)):
+        if sub in alias:
+            return _uso(nombre) + "\n"
+    return None
+
+
+def _task_cli(argv):
+    """Machine-readable task queue; no agent is launched by these commands."""
+    parser, _ = _task_parser()
     args = parser.parse_args(argv or ["list"])
     if args.action in (None, "list"):
         rows = task_queue(getattr(args, "status", "ready"))
@@ -746,7 +964,7 @@ def _fmt_delta(mins):
 
 
 def cmd_agenda(argv):
-    if argv and argv[0] in ("tasks", "tareas"):
+    if argv and argv[0] in _SUB_TASKS:
         return _task_cli(argv[1:])
     if argv and argv[0] in ("trash", "papelera"):
         for e in trash_events():
@@ -756,7 +974,7 @@ def cmd_agenda(argv):
         return 0 if len(argv) == 2 and restore_event(argv[1]) else 1
     if argv and argv[0] in ("move", "mover"):
         return 0 if len(argv) == 3 and move_event(argv[1], argv[2]) else 1
-    if argv and argv[0] in ("add", "nuevo", "+"):
+    if argv and argv[0] in _SUB_ADD:
         rest = argv[1:]
         time_s, cat, notes, prompt = "", "otro", "", ""
         pos = []
@@ -779,10 +997,7 @@ def cmd_agenda(argv):
                 pos.append(a)
                 i += 1
         if len(pos) < 2:
-            print(_t("personal.agenda.usage_add",
-                     'uso: workspace agenda add YYYY-MM-DD "título" '
-                     '[--time HH:MM] [--cat reunion|hito|recordatorio|cumple|otro]'),
-                  file=sys.stderr)
+            print(_uso("add"), file=sys.stderr)
             return 2
         ev_id = add_event(pos[0], " ".join(pos[1:]), time_s, cat, notes, prompt=prompt)
         if not ev_id:
@@ -793,11 +1008,10 @@ def cmd_agenda(argv):
         print(_t("personal.agenda.added", "agregado") + "  %s  %s %s  %s" % (ev_id, pos[0], time_s,
                                            " ".join(pos[1:])))
         return 0
-    if argv and argv[0] in ("done", "hecho", "x"):
+    if argv and argv[0] in _SUB_DONE:
         ids = [a for a in argv[1:] if not a.startswith("--")]
         if not ids:
-            print(_t("personal.agenda.usage_done", "uso: workspace agenda done <id>"),
-                  file=sys.stderr)
+            print(_uso("done"), file=sys.stderr)
             return 2
         rc = 0
         for i in ids:
@@ -811,12 +1025,11 @@ def cmd_agenda(argv):
                                    else _t("personal.agenda.undone",
                                            "pendiente otra vez")))
         return rc
-    if argv and argv[0] in ("rm", "del", "quitar", "borrar"):
+    if argv and argv[0] in _SUB_RM:
         hard = "--hard" in argv
         ids = [a for a in argv[1:] if not a.startswith("--")]
         if not ids:
-            print(_t("personal.agenda.usage_rm",
-                     "uso: workspace agenda rm <id> [--hard]"), file=sys.stderr)
+            print(_uso("rm"), file=sys.stderr)
             return 2
         ok = all(remove_event(i, hard=hard) for i in ids)
         print(_t("personal.agenda.rm_ok", "listo") if ok
@@ -857,7 +1070,16 @@ def main(argv=None):
         return 0
     cmd, rest = argv[0], argv[1:]
     if cmd in ("agenda", "cal", "calendario"):
-        return cmd_agenda(rest)
+        rc = cmd_agenda(rest)
+        # el aviso de una vez (agenda apartada, evento ilegible…) y el que
+        # persiste mientras haya una copia apartada sin revisar
+        for aviso in (tomar_aviso(), aviso_copias()):
+            if aviso:
+                try:
+                    print("⚠ " + aviso, file=sys.stderr)
+                except Exception:
+                    pass
+        return rc
     print(_t("personal.unknown",
              "personal: comando desconocido '{cmd}' (agenda)", cmd=cmd),
           file=sys.stderr)

@@ -277,8 +277,10 @@ def _brains():
 
 def _looks_like_brain(d):
     j = os.path.join
-    return (os.path.isfile(j(d, "CLAUDE.md")) and (os.path.isdir(j(d, "BOOT"))
-                                                   or os.path.isdir(j(d, "STATE")))) \
+    # Identidad: BRAIN.md (formato v2) o CLAUDE.md (cerebros anteriores).
+    import brain_identity
+    ident = brain_identity.looks_like_brain_root(d)
+    return (ident and (os.path.isdir(j(d, "BOOT")) or os.path.isdir(j(d, "STATE")))) \
         or os.path.isfile(j(d, ".workspace", "agent.json")) \
         or os.path.isfile(j(d, legacy.BRAIN_SUBDIR, "agent.json"))
 
@@ -1139,8 +1141,13 @@ def rollback(backup_dir):
             elif op == "modified":
                 if os.path.isfile(path) and _sha(path) == e["sha256"]:
                     continue                                  # ya restaurado
-                if os.path.isfile(path) and e.get("after_sha256") \
-                        and _sha(path) != e["after_sha256"]:
+                if not e.get("after_sha256"):
+                    # la escritura falló o se cortó antes de anotarse: sin
+                    # constancia de lo que escribió la migración, lo de hoy
+                    # puede ser del usuario → no se pisa
+                    skipped.append((path, "cambió después de migrar — no lo piso"))
+                    continue
+                if os.path.isfile(path) and _sha(path) != e["after_sha256"]:
                     skipped.append((path, "cambió después de migrar — no lo piso"))
                     continue
                 if _sha(src) != e["sha256"]:
@@ -1205,14 +1212,20 @@ def _print_result(res, verb):
         print("  (deshacer: %s --rollback \"%s\")" % (CLI, res["backup"]))
 
 
+def _uso():
+    """Ayuda de `migrar-legado` (solo texto): la imprimen main y
+    `workspace migrar-legado --help` (front._own_help)."""
+    return ("uso: " + CLI + " [--plan|--apply|--retire|--rollback <respaldo>]"
+            " [--yes] [--json]\n  --plan (default) solo muestra; --apply migra/reapunta;"
+            "\n  --retire quita artefactos viejos con respaldo; --rollback restaura;"
+            "\n  --backups lista respaldos.")
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     as_json = "--json" in argv
     if "-h" in argv or "--help" in argv:
-        print("uso: " + CLI + " [--plan|--apply|--retire|--rollback <respaldo>]"
-              " [--yes] [--json]\n  --plan (default) solo muestra; --apply migra/reapunta;"
-              "\n  --retire quita artefactos viejos con respaldo; --rollback restaura;"
-              "\n  --backups lista respaldos.")
+        print(_uso())
         return 0
     if "--backups" in argv:
         for b in list_backups():

@@ -19,39 +19,33 @@ la biblioteca no se infle. Viene de fábrica con el template de agente.
 > skills "paraguas" con secciones que muchas casi-idénticas.
 
 ## Cuándo corre
-**Semanal** (solo si han pasado ≥7 días desde la última curación — stamp en
-`STATE/.skill-curator-last`). On-demand: "cura las skills".
+**Semanal, sola:** cuando pasaron ≥7 días desde la última curación (fecha en
+`STATE/skill-curator-last.md`, que viaja con el cerebro), Workspace me lo pide al abrir la pestaña
+y deja la curación reservada a mi sesión en ese archivo (así otra pestaña u otra máquina no la
+repite). La hago en ese momento, sin preguntar, y al terminar escribo ahí solo la fecha de hoy
+(AAAA-MM-DD). También a pedido: "cura las skills". Nada de esto espera la aprobación de nadie.
 
 ## Parte 0 — Guardas antes de tocar nada (obligatorio, en este orden)
 
-### 0.1 Backup pre-corrida
-Antes de marcar/archivar/fusionar CUALQUIER skill: **commit de snapshot** del estado actual
-(si el cerebro es repo git):
-```bash
-git add skills/ && git commit -m "skill-curator: snapshot pre-curación YYYY-MM-DD"
-```
-- Si no hay nada que commitear, anotar el HEAD actual como punto de rollback y continuar.
-- Si el cerebro NO es repo git (transport obsidian-sync): copiar `skills/` a
-  `STATE/tmp/skills-backup-YYYY-MM-DD/` antes de curar.
-- Sin snapshot/punto de rollback → **no curar**. Reportar y abortar.
+### 0.1 Nada se pierde (sin comandos)
+Nunca borro: archivar es marcar (Parte 1). Antes de fusionar o reescribir una skill, copio su
+`SKILL.md` vigente a `skills/_archive/<categoría>/<skill>-v<versión>/SKILL.md` con mis
+herramientas de archivos (si ya hay una copia igual, no la repito). Sin commits ni comandos.
 
-### 0.2 Provenance — `created_by` decide qué es curable
-
-| `created_by` | Elegibilidad |
-|---|---|
-| un socio/dueño (ej. su identificador) | **INTOCABLE** para curación automática: no stale, no archive, no fusión. A lo sumo, sugerir en el reporte. |
-| `{{AGENT_NAME}}`, otro agente del equipo, `skill-review` (agente/proceso) | curable por Parte 1 y Parte 2 |
-| ausente | tratar como de socio (conservador) + flag en el reporte |
+### 0.2 Todas son curables
+`created_by` es siempre un agente; quien la pidió va en `pedido_por:` (en cerebros viejos, un
+`created_by` de socio cuenta igual). Ninguna espera aprobación: las curo todas con las mismas
+reglas, conservo su `pedido_por` al fusionar y lo reporto en mi línea 🧠.
 
 ### 0.3 Skills protegidas — NUNCA se archivan ni fusionan
-Lista fija (CLAUDE.md y el boot las referencian por nombre): `skill-creator` · `skill-improver` ·
+Lista fija (BRAIN.md y el boot las referencian por nombre): `skill-creator` · `skill-improver` ·
 `skill-curator` · `reload-brain` · `deep-research` · `research-session` · **toda skill con
-`status: stub`** (son semillas, su bajo uso es esperado). Cambios a esta lista: solo un socio,
-editando esta skill.
+`status: stub`** (son semillas, su bajo uso es esperado). La lista se ajusta aquí como cualquier
+mejora (skill-improver).
 
 ### 0.4 Fuera de alcance
-`skills/_propuestas/` (cuarentena — solo un socio aprueba desde ahí) y `skills/_archive/`
-(salvo reactivación de Parte 1) no se curan.
+`skills/_archive/` (salvo reactivación de Parte 1) y, si quedara de versiones anteriores,
+`skills/_propuestas/` no se curan.
 
 ## Parte 1 — Lifecycle (mecánico)
 Recorrer `skills/**/SKILL.md` **elegibles según Parte 0**. El uso se lee **primero del sidecar
@@ -61,12 +55,12 @@ legacy del frontmatter (congelado):
 | Estado | Condición | Acción |
 |---|---|---|
 | **stale** | sin uso registrado ni edición en 30+ días | `status: stale` en frontmatter |
-| **archive** | stale y 90+ días sin uso | mover a `skills/_archive/<categoría>/<skill>/` (NUNCA borrar) |
-| **reactivar** | una archivada se vuelve a usar | regresarla a su categoría, quitar `status: stale` |
+| **archive** | stale y 90+ días sin uso | `status: archivada` + sacarla de `skills/README.md` (la carpeta se queda; NUNCA borrar) |
+| **reactivar** | una archivada se vuelve a usar | quitar `status: stale`/`archivada` y registrarla de nuevo (si está en `skills/_archive/`, copiarla a su categoría) |
 
 - **Nunca borrar** — archivar preserva histórico y permite reactivar.
-- **Uso bajo ≠ inútil** (anti-Goodhart): skills estacionales o de caso-de-borde se señalan, no se
-  ejecutan automático.
+- **Uso bajo ≠ inútil** (anti-Goodhart): una skill estacional o de caso de borde no se archiva por
+  su bajo uso; decido yo con su contenido y lo anoto en el reporte.
 
 ## Parte 2 — Consolidación (con criterio)
 Detectar **clusters de skills hermanas** (mismo verbo/dominio, descripciones solapadas) — solo
@@ -77,10 +71,10 @@ entre elegibles:
 
 ## Salida (siempre)
 - Versionar lo tocado (bump `version`, set `last_improved`).
-- Stamp `STATE/.skill-curator-last` con la fecha.
+- Sello `STATE/skill-curator-last.md` con la fecha (AAAA-MM-DD).
 - **Reconciliar `skills/README.md` + `skills/INDEX-LITE.md`** con el disco (GATE de índice).
-- Reportar en `STATE/log-recent.md`: snapshot/punto de rollback + cuántas stale/archivadas/
-  fusionadas + saltadas por provenance/protección. Si nada: "biblioteca sana, sin cambios".
+- Reportar en `STATE/log-recent.md` y en mi línea 🧠: copias previas + cuántas stale/archivadas/
+  fusionadas + saltadas por protección. Si nada: "biblioteca sana, sin cambios".
 
 ## Preferencias del equipo
 - **(ejemplo)** Conservador con la consolidación: ante duda, dejar separadas

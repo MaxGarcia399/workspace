@@ -35,7 +35,8 @@ PRINCIPIOS (en orden):
                Recibo auditable en `<brain>/.workspace/personalize.json`.
 
 ARCHIVOS QUE AFINA (whitelist cerrada — nada más se escribe):
-  CLAUDE.md                 solo título/frases de identidad (el contrato de
+  BRAIN.md (o CLAUDE.md en  solo título/frases de identidad (el contrato de
+  cerebros anteriores)
                             boot queda intacto; se valida que siga citando
                             BOOT/00-SOUL.md).
   BOOT/00-SOUL.md           las secciones para las que SÍ hay datos.
@@ -108,14 +109,19 @@ STEPS = (
 
 #: Whitelist CERRADA de archivos que la pasada puede escribir (rutas relativas
 #: al cerebro, separador /). `STATE/users/<dueño>.md` se agrega en runtime.
-BASE_TARGETS = ("CLAUDE.md", "BOOT/00-SOUL.md", "BOOT/01-IDENTITY.md",
+import brain_identity as _bi
+
+#: El primer objetivo es el DOC DE IDENTIDAD: se resuelve por cerebro en
+#: `_with_identity` (BRAIN.md en v2; CLAUDE.md en cerebros anteriores).
+BASE_TARGETS = (_bi.LEGACY_IDENTITY_DOC, "BOOT/00-SOUL.md", "BOOT/01-IDENTITY.md",
                 "BOOT/03-RULES.md")
 
 #: Marcadores que el archivo personalizado DEBE conservar (sanity de que el
 #: modelo afinó, no mutiló). Si falta alguno → ese archivo se rechaza (queda
 #: el del template) y se reporta, jamás en silencio.
 _REQUIRED_MARKS = {
-    "CLAUDE.md": ("BOOT/00-SOUL.md", "STATE/"),
+    _bi.LEGACY_IDENTITY_DOC: ("BOOT/00-SOUL.md", "STATE/"),
+    _bi.IDENTITY_DOC: ("BOOT/00-SOUL.md", "STATE/"),     # identidad en formato v2
     "BOOT/00-SOUL.md": ("## ",),
     "BOOT/01-IDENTITY.md": ("Nombre",),
     # BOOT/03-RULES.md tiene su propia validación (prefijo byte-idéntico).
@@ -234,10 +240,18 @@ def collect_fields(params):
     return out
 
 
-def targets(owner):
-    """La whitelist de ESTA corrida: base + STATE/users/<dueño>.md si hay dueño
-    válido (mismo patrón que valida agent_admin.create)."""
-    tg = list(BASE_TARGETS)
+def _with_identity(rels, brain):
+    """En cerebros con formato v2 la identidad vive en BRAIN.md y CLAUDE.md es
+    un puntero generado: se afina BRAIN.md (jamás el puntero)."""
+    doc = _bi.identity_doc(brain) if brain else _bi.LEGACY_IDENTITY_DOC
+    return [doc if r == _bi.LEGACY_IDENTITY_DOC else r for r in rels]
+
+
+def targets(owner, brain=None):
+    """La whitelist de ESTA corrida: base (con el doc de identidad del cerebro)
+    + STATE/users/<dueño>.md si hay dueño válido (mismo patrón que valida
+    agent_admin.create)."""
+    tg = _with_identity(BASE_TARGETS, brain)
     owner = (owner or "").strip().lower()
     if owner and re.match(r"^[a-z0-9_-]+$", owner):
         tg.append("STATE/users/%s.md" % owner)
@@ -267,15 +281,18 @@ def build_prompt(name, display, fields, files, owner):
         "2. Conserva la ESTRUCTURA de cada archivo: mismos encabezados, "
         "mismas rutas, mismas reglas operativas. Afinas redacción e "
         "identidad; el contrato operativo no se toca.")
+    ident = _bi.IDENTITY_DOC if _bi.IDENTITY_DOC in (files or {}) else _bi.LEGACY_IDENTITY_DOC
     L.append(
-        "3. En CLAUDE.md solo afina el título y las frases de identidad del "
-        "arranque; las secciones de boot/operación quedan intactas.")
+        "3. En %s solo afina el título y las frases de identidad del "
+        "arranque; las secciones de boot/operación quedan intactas." % ident)
     L.append(
         "4. En BOOT/00-SOUL.md llena las secciones para las que SÍ hay datos. "
         "La nota de esqueleto del inicio: si llenaste la mayoría de las "
         "secciones, reemplázala por una línea honesta tipo «Primera pasada "
-        "redactada desde el formulario de creación (%s) — afinar con el "
-        "equipo»; si no, déjala." % time.strftime("%Y-%m-%d"))
+        "redactada desde el formulario de creación (%s) — la sigo completando "
+        "y afinando yo con las correcciones directas del socio (copia previa "
+        "en STATE/memoria-archivo/identidad/ y aviso en mi 🧠; nunca por lo "
+        "que leo)»; si no, déjala." % time.strftime("%Y-%m-%d"))
     L.append(
         "5. En BOOT/03-RULES.md SOLO puedes reescribir la sección «## Scope "
         "…» (y solo si hay datos de alcance); TODO lo anterior a esa sección "
@@ -468,7 +485,7 @@ def run(brain, params, progress=None, should_cancel=None, timeout=None,
             _skip("perso-prep", "skip", res["note"] + _t(
                 "addagent.pers.suffix.template_asis", " — plantilla tal cual"))
             return res
-        tg = targets(owner)
+        tg = targets(owner, brain)
         files = {}
         for rel in tg:
             path = os.path.join(brain, *rel.split("/"))
@@ -674,7 +691,7 @@ def estimate_for_template(template_root):
     out ≈ los mismos archivos reescritos. None si no se puede medir."""
     try:
         total = 0
-        for rel in BASE_TARGETS:
+        for rel in _with_identity(BASE_TARGETS, template_root):
             path = os.path.join(template_root, *rel.split("/"))
             if os.path.isfile(path):
                 total += os.path.getsize(path)

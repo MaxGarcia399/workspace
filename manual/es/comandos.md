@@ -181,7 +181,7 @@ Migra o retira la instalación anterior de Workspace, con respaldo.
 
 _también: `migrate-legacy`_
 
-### `workspace desinstalar [--dry-run | --no-backup | --keep-folder]`
+### `workspace desinstalar [--dry-run | --no-backup | --keep-folder | --limpiar-todo]`
 
 Desinstala Workspace de esta máquina (tus cerebros se quedan).
 

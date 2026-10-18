@@ -6,7 +6,7 @@ agent.json/BOOT. Traducción en `lang/en/banner.py`. Ver `lang/README.md`."""
 
 STRINGS = {
     # ── dashboard (agent-dashboard.py): picker/greeter de sesiones ───────────
-    "banner.dash.sessions_count": "{n} sesión(es) · elige una para continuar o crea una nueva",
+    "banner.dash.sessions_count": "{n} sesión(es) · cada una recuerda lo suyo, en cualquier motor · elige una o crea una nueva",
     "banner.dash.resume_q": "¿En qué seguimos?",
     "banner.dash.hint": "↑↓ para elegir · Enter para abrir",
     "banner.dash.sub_continue": "continuar",

@@ -11,7 +11,7 @@ scaffolda el cerebro desde `templates/agent/brain/` (placeholders renderizados)
                    faltante = contrato roto, permanente.
   · verify_brain — quality bar ESTRUCTURAL del cerebro creado (sin LLM): la
                    anatomía mínima de `protocols/agent-creation/02-BRAIN-FORMAT.md`
-                   (BOOT/ completo, CLAUDE.md, .workspace/agent.json, STATE/ con
+                   (BOOT/ completo, identidad, .workspace/agent.json, STATE/ con
                    su capa HOT) + CERO placeholders `{{…}}` sin renderizar
                    (`agent_admin._scan_placeholders` — un placeholder vivo =
                    template crudo, no un agente configurado).
@@ -152,7 +152,8 @@ def validate_definition(ctx, step):
 
 
 # Anatomía MÍNIMA del cerebro (derivada de 02-BRAIN-FORMAT.md — el contrato
-# por ROLES): identidad inmutable (BOOT/), ensamblador (CLAUDE.md), identidad
+# por ROLES): identidad inmutable (BOOT/), ensamblador (BRAIN.md en formato v2,
+# con CLAUDE.md como puntero; CLAUDE.md en cerebros anteriores), identidad
 # portátil (.workspace/agent.json) y la capa HOT de STATE/. El 02 tolera el
 # dialecto TEAM (interno) u OWNER (externo) — cualquiera de los dos cumple.
 _BOOT_REQUIRED = ("00-SOUL.md", "01-IDENTITY.md", "03-RULES.md",
@@ -193,9 +194,24 @@ def verify_brain(ctx, step):
                 "artifacts": {"brain_ok": False, "brain_gaps": gaps}}
 
     gaps = []
-    for rel in ("CLAUDE.md", os.path.join(".workspace", "agent.json")):
+    # CLAUDE.md existe siempre (en formato v2 es el puntero que carga Claude
+    # Code; en cerebros anteriores, la identidad). Si es un puntero, la
+    # identidad real (BRAIN.md) tiene que existir.
+    try:
+        import brain_identity
+        legacy_doc = brain_identity.LEGACY_IDENTITY_DOC
+    except Exception:
+        brain_identity, legacy_doc = None, "CLAUDE.md"
+    for rel in (legacy_doc, os.path.join(".workspace", "agent.json")):
         if not os.path.isfile(os.path.join(brain, rel)):
             gaps.append(rel.replace(os.sep, "/"))
+    try:
+        with open(os.path.join(brain, legacy_doc), encoding="utf-8", errors="replace") as fh:
+            if brain_identity.is_identity_pointer(fh.read(4096)) and \
+                    not os.path.isfile(os.path.join(brain, brain_identity.IDENTITY_DOC)):
+                gaps.append(brain_identity.IDENTITY_DOC)
+    except Exception:
+        pass                  # sin CLAUDE.md ya quedó como hueco arriba
     for fn in _BOOT_REQUIRED:
         if not os.path.isfile(os.path.join(brain, "BOOT", fn)):
             gaps.append("BOOT/" + fn)

@@ -45,8 +45,8 @@ STRINGS = {
     "onboarding.welcome.p1": "Workspace es un hub local para tus agentes de "
                              "IA: cada agente vive en su propio cerebro (una "
                              "carpeta de archivos tuya) y corre sobre un motor "
-                             "CLI que ya tengas instalado — Claude Code, Codex "
-                             "o Antigravity.",
+                             "CLI que ya tengas instalado — Claude Code, Codex, "
+                             "Antigravity, OpenCode, OpenClaw o Hermes.",
     "onboarding.welcome.p2": "Todo pasa en tu máquina: cero dependencias, sin "
                              "cuentas nuevas, y Workspace nunca ve ni guarda "
                              "tus credenciales (el login es de cada CLI).",
@@ -104,8 +104,8 @@ STRINGS = {
                                           "`claude` una vez y sigue el login.",
     "onboarding.motor.claude-code.changes": "Es el motor con más integración "
                                             "en Workspace: hooks reales, "
-                                            "memoria inyectada al agente y "
-                                            "sesiones del harness.",
+                                            "avisos en vivo y su memoria "
+                                            "propia dentro del cerebro.",
     "onboarding.motor.codex.what": "Codex — el CLI de OpenAI (binario "
                                    "`codex`), con tu suscripción de ChatGPT.",
     "onboarding.motor.codex.login": "Entra con `codex login` en tu terminal.",
@@ -117,6 +117,34 @@ STRINGS = {
                                           "Google desde el propio CLI.",
     "onboarding.motor.antigravity.changes": "Workspace lo envuelve igual que a "
                                             "los demás motores.",
+    "onboarding.motor.opencode.what": "OpenCode — CLI de código abierto (binario "
+                                      "`opencode`), agnóstico de modelo.",
+    "onboarding.motor.opencode.login": "Conecta tu proveedor con `opencode auth "
+                                       "login` (OpenRouter, Anthropic, OpenAI u "
+                                       "otros).",
+    "onboarding.motor.opencode.changes": "Workspace lo envuelve; el modelo es el "
+                                         "que elijas en tu config de opencode y "
+                                         "nunca lee tu credencial.",
+    "onboarding.motor.openclaw.what": "OpenClaw — agente personal de código abierto "
+                                      "(binario `openclaw`), en su modo terminal "
+                                      "local.",
+    "onboarding.motor.openclaw.login": "Conecta tu proveedor y elige tu modelo desde "
+                                       "Motores › cuenta y proveedor (abre el setup "
+                                       "oficial de OpenClaw).",
+    "onboarding.motor.openclaw.changes": "Workspace usa un perfil propio de OpenClaw "
+                                         "sobre tu mismo cerebro: no crea archivos "
+                                         "extra, no fija modelo y nunca lee tu "
+                                         "credencial.",
+    "onboarding.motor.hermes.what": "Hermes — agente de código abierto de Nous "
+                                    "Research (binario `hermes`), en su terminal.",
+    "onboarding.motor.hermes.login": "Conecta tu proveedor y elige tu modelo desde "
+                                     "Motores › cuenta y proveedor (abre el setup "
+                                     "oficial de Hermes).",
+    "onboarding.motor.hermes.changes": "Workspace usa un perfil propio de Hermes "
+                                       "(con tu modelo, sin copiar tus llaves; tu "
+                                       "Hermes personal no cambia) con la identidad "
+                                       "de tu agente y sin la memoria propia de "
+                                       "Hermes; nunca lee tu credencial.",
 
     # paso 2: APARIENCIA
     "onboarding.apariencia.title_l": "TEMA Y FONDO",
@@ -180,7 +208,7 @@ STRINGS = {
                                         "harness jamás conecta nada solo.",
     "onboarding.agente.ninguno.label": "terminar sin agente",
     "onboarding.agente.ninguno.desc": "También puedes agregarlo cuando quieras "
-                                      "desde el hub (Menú › «Agregar agente») — "
+                                      "desde el hub (Agentes › «+ agregar agente») — "
                                       "crear, cargar o descubrir siguen ahí, "
                                       "idénticos.",
 
@@ -249,8 +277,8 @@ STRINGS = {
     "onboarding.resumen.fila_agentes": "agentes registrados",
     "onboarding.resumen.fila_onboarding": "este onboarding",
     "onboarding.resumen.adelante_p1": "Enter te deja en el hub: ahí lanzas "
-                                      "agentes y en el Menú tienes Tono, "
-                                      "Agentes y «Agregar agente».",
+                                      "agentes y en el Menú tienes Agentes "
+                                      "(a = agregar), Motores, Usuarios y Tono.",
     "onboarding.resumen.adelante_p2": "Repetir este flujo: "
                                       "`workspace onboarding`.",
     "onboarding.resumen.div_teclas": "las teclas que importan",

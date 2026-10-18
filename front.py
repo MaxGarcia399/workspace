@@ -207,6 +207,15 @@ def menu_entries():
              _t("menu.engines.tag", "estado, capacidades y conexiones")),
             ("__agentes__", _t("menu.agents.label", "Agentes"),
              _t("menu.agents.tag", "cerebro, permisos y skills de cada agente")),
+            # «Usuarios» (2026-10-17): quién usa cada agente, con cédula (ID
+            # fijo); crear, renombrar, unir y «soy yo» solo desde aquí.
+            ("__usuarios__", _t("menu.users.label", "Usuarios"),
+             _t("menu.users.tag", "quién usa cada agente, en todas tus máquinas")),
+            # «Documentación» (2026-10-17): todo lo que hace Workspace, por
+            # capítulos, con el dato real de esta PC y cómo comprobarlo
+            # (docs_tui; el contenido vive en docs_hub).
+            ("__docs__", _t("menu.docs.label", "Documentación"),
+             _t("menu.docs.tag", "todo lo que hace Workspace, sin letra chica")),
             # «Agregar agente» vive DENTRO de Agentes (tecla a; sin agentes,
             # Agentes abre directo el formulario) — decisión del dueño
             # 2026-10-14. El token __add_agent__ sigue ruteando (loopback).
@@ -606,40 +615,205 @@ def launch(name):
     os.execvp(PY, [PY, DISPATCH, name])   # handoff directo: al salir del agente, vuelves al shell
 
 
-def _dev_kill(port, pidfile):
-    """Mata CUALQUIER dashboard de dev en `port` + limpia el pidfile. Idempotente,
-    cross-platform, falla-suave. Lo usan `workspace dev stop` Y el arranque (que
-    siempre reinicia fresco). Mata por puerto (no solo por pidfile) para barrer
-    también servers zombie de corridas viejas."""
+def _listen_pids(port):
+    """PIDs que ESCUCHAN en `port` (el server) — jamás sus CLIENTES. El viejo
+    `lsof -ti tcp:<port>` listaba también a todo proceso CONECTADO al puerto
+    (el navegador, la app del panel) y el kill se los llevaba. POSIX: lsof
+    -sTCP:LISTEN (Linux sin lsof → ss -ltnp). Windows: netstat -ano leído SIN
+    depender del idioma (el estado viene traducido —LISTENING, ESCUCHANDO…—;
+    un socket en escucha es el único con remota 0.0.0.0:0 / [::]:0). Sin
+    herramienta o con error → set(): no se mata nada. Falla-suave."""
+    import re
+    import shutil
     import subprocess
-    if os.name == "nt":
-        pid = ""
-        try:
-            pid = open(pidfile, encoding="utf-8").read().strip()
-        except Exception:
-            pass
-        if pid.isdigit():
-            subprocess.run(["taskkill", "/PID", pid, "/T", "/F"], capture_output=True, text=True, encoding="utf-8", errors="replace")
-        # además, barre lo que escuche en el puerto (zombies sin pidfile)
-        try:
+    sfx = ":%d" % port
+    pids = set()
+    try:
+        if os.name == "nt":
             out = subprocess.run(["netstat", "-ano", "-p", "TCP"], capture_output=True,
-                                 text=True, encoding="utf-8", errors="replace").stdout
-            for line in out.splitlines():
-                if (":%d " % port) in line and "LISTENING" in line:
-                    z = line.split()[-1]
-                    if z.isdigit() and z != pid:
-                        subprocess.run(["taskkill", "/PID", z, "/T", "/F"],
-                                       capture_output=True, text=True,
-                                       encoding="utf-8", errors="replace")
-        except Exception:
-            pass
-    else:
-        # mata TODO lo que escuche en el puerto (cubre zombies de código viejo)
-        subprocess.run("lsof -ti tcp:%d | xargs kill 2>/dev/null" % port, shell=True)
+                                 text=True, encoding="utf-8", errors="replace",
+                                 timeout=20).stdout
+            for f in (ln.split() for ln in (out or "").splitlines()):
+                if (len(f) >= 5 and f[0].upper().startswith("TCP") and f[1].endswith(sfx)
+                        and f[2] in ("0.0.0.0:0", "[::]:0") and f[-1].isdigit()):
+                    pids.add(int(f[-1]))
+            return pids
+        # /usr/sbin no siempre está en el PATH (lanzadores con PATH mínimo)
+        lsof = shutil.which("lsof") or next(
+            (p for p in ("/usr/sbin/lsof", "/usr/bin/lsof") if os.path.isfile(p)), None)
+        if lsof:
+            out = subprocess.run([lsof, "-nP", "-t", "-iTCP" + sfx, "-sTCP:LISTEN"],
+                                 capture_output=True, text=True, encoding="utf-8",
+                                 errors="replace", timeout=20).stdout
+            return {int(x) for x in (out or "").split() if x.isdigit()}
+        ss = shutil.which("ss") or next(
+            (p for p in ("/usr/sbin/ss", "/sbin/ss", "/usr/bin/ss") if os.path.isfile(p)), None)
+        if ss:
+            out = subprocess.run([ss, "-ltnp"], capture_output=True, text=True,
+                                 encoding="utf-8", errors="replace", timeout=20).stdout
+            for ln in (out or "").splitlines():
+                f = ln.split()
+                if len(f) >= 4 and f[3].endswith(sfx):    # columna «local:puerto»
+                    pids.update(int(p) for p in re.findall(r"pid=(\d+)", ln))
+    except Exception:
+        pass
+    return pids
+
+
+# Firma de NUESTROS servers en su línea de comando (dev panel / Proyectos): con
+# ella se reconocen también servers viejos/zombie de otra corrida sin pidfile.
+_FIRMA_DEV = ("dashboard.py", "--dev")
+_FIRMA_PROY = ("proyectos.py",)
+
+
+def _proc_cmdline(pid):
+    """Línea de comando del proceso `pid`, o "" si no se puede leer. Linux:
+    /proc/<pid>/cmdline; Mac (o Linux sin /proc): ps; Windows: CIM vía
+    PowerShell. Falla-suave."""
+    import subprocess
+    pid = int(pid)
+    try:
+        if os.name == "nt":
+            r = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                 "(Get-CimInstance Win32_Process -Filter 'ProcessId=%d').CommandLine" % pid],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=20)
+            return (r.stdout or "").strip()
+        proc = "/proc/%d/cmdline" % pid
+        if os.path.isfile(proc):
+            with open(proc, "rb") as fh:
+                return fh.read().replace(b"\0", b" ").decode("utf-8", "replace").strip()
+        r = subprocess.run(["ps", "-ww", "-p", str(pid), "-o", "args="],
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=20)
+        return (r.stdout or "").strip()
+    except Exception:
+        return ""
+
+
+def _es_firma(cmd, firma):
+    """¿La línea de comando `cmd` corre la `firma`? Cada pieza como palabra o
+    archivo entero (…/dashboard.py, --dev): `mis-proyectos.py` o `--devtools`
+    no cuentan."""
+    import re
+    return bool(cmd) and all(
+        re.search(r"(?:^|[\s/\\\"'])" + re.escape(t) + r"(?:$|[\s\"'])", cmd)
+        for t in firma)
+
+
+def _dev_listeners(port, pidfile, firma):
+    """Quién escucha en `port`: (nuestros, ajenos). NUESTRO = el PID que
+    Workspace registró al arrancar el server (pidfile) o uno cuya línea de
+    comando corre `firma` (barre también servers viejos/zombie). AJENO =
+    cualquier otro programa (Docker, otro server de desarrollo…) o uno cuya
+    línea de comando no se puede leer: JAMÁS se le manda señal. Los clientes
+    conectados ni aparecen (_listen_pids). ajenos = [(pid, comando)]."""
+    reg = None
+    try:
+        with open(pidfile, encoding="utf-8") as fh:
+            s = fh.read().strip()
+        reg = int(s) if s.isdigit() else None
+    except Exception:
+        pass
+    ours, others = [], []
+    for pid in sorted(_listen_pids(port)):
+        if pid <= 0 or pid == os.getpid():
+            continue
+        if pid == reg:
+            ours.append(pid)
+            continue
+        cmd = _proc_cmdline(pid)
+        if _es_firma(cmd, firma):
+            ours.append(pid)
+        else:
+            others.append((pid, cmd))
+    return ours, others
+
+
+def _dev_puerto_ajeno(port, pidfile, firma, comando):
+    """Si OTRO programa (no nuestro server) escucha en `port`, avisa quién es
+    y devuelve True: el llamador no lo toca y sale con código ≠0 (como la app
+    nativa: «puerto ocupado por OTRO proceso»)."""
+    import re
+    _, ajenos = _dev_listeners(port, pidfile, firma)
+    for pid, cmd in ajenos:
+        # solo el nombre del programa (no la línea entera: puede llevar datos)
+        m = re.match(r'\s*"([^"]+)"|\s*(\S+)', cmd or "")
+        prog = re.split(r"[\\/]", (m.group(1) or m.group(2)))[-1] if m else ""
+        print(f"  {B}⚠{R} {DIM}" + _t(
+            "cli.port_busy", "el puerto {port} lo ocupa OTRO programa (PID {pid}{prog}): "
+            "no lo toco. Ciérralo tú o usa `{cmd} --port <otro>`.", port=port,
+            pid=pid, prog=(" · " + prog) if prog else "", cmd=comando) + f"{R}")
+    return bool(ajenos)
+
+
+def _dev_kill(port, pidfile, firma=_FIRMA_DEV):
+    """Detiene NUESTRO server de dev/proyectos que escucha en `port` + limpia
+    el pidfile. Idempotente, cross-platform, falla-suave. Lo usan `workspace
+    dev [restart|stop]` y `workspace proyectos [stop]`. Mata por puerto (no
+    solo por pidfile) para barrer también servers zombie de corridas viejas,
+    pero SOLO a los `nuestros` de _dev_listeners: jamás a los clientes
+    conectados (el navegador, la app del panel) ni a un programa AJENO que
+    ocupe el puerto. El pidfile se borra ANTES de la señal (si la orden sale de
+    una terminal del propio panel, este proceso muere con ella). Devuelve los
+    PIDs a los que mandó la señal."""
+    import signal
+    import subprocess
+    ours, _ = _dev_listeners(port, pidfile, firma)
     try:
         os.remove(pidfile)
     except Exception:
         pass
+    killed = []
+    for pid in ours:
+        try:
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
+                               capture_output=True, text=True,
+                               encoding="utf-8", errors="replace")
+            else:
+                os.kill(pid, signal.SIGTERM)
+            killed.append(pid)
+        except Exception:
+            pass
+    return killed
+
+
+def _dev_live_terms(port, timeout=2.0):
+    """Cuántas terminales VIVAS tiene el dev panel que ya escucha en `port`.
+    Sus shells viven DENTRO del server (dash/dev/terminal.py: hijos PTY del
+    proceso) → reiniciarlo las cierra con lo que corra en ellas (el hub,
+    sesiones de agentes a medio trabajo). Se le pregunta al propio server: `/`
+    trae el token inyectado (loopback, mismo modelo single-user del dashboard;
+    es la misma firma que usa la app nativa) → /api/dev/terminal/list. Server
+    viejo, sin terminales o que no responde → 0 (se reinicia como siempre).
+    Falla-suave: jamás levanta."""
+    import http.client
+    import re
+
+    def get(path, token=None):
+        hdr = {"Host": "127.0.0.1:%d" % port}
+        if token:
+            hdr["X-WORKSPACE-Token"] = token
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
+        try:
+            c.request("GET", path, headers=hdr)
+            r = c.getresponse()
+            return r.status, r.read(16 * 1024 * 1024)
+        finally:
+            c.close()
+
+    try:
+        _, html = get("/")
+        m = re.search(rb'window\.WORKSPACE_TOKEN=("[^"\\]*")', html)
+        if not m:
+            return 0
+        st, body = get("/api/dev/terminal/list", json.loads(m.group(1)))
+        terms = (json.loads(body) or {}).get("terminals") if st == 200 else None
+        return sum(1 for t in (terms or []) if isinstance(t, dict) and t.get("alive"))
+    except Exception:
+        return 0
 
 
 def _dev_desktop_app():
@@ -666,10 +840,16 @@ def cmd_dev(args):
     git-graph + cambio de rama con 1 click, SIN terminal. SUPERFICIE APARTE del
     dashboard normal. Local-only, mismo guard de token. Puerto propio (def 9121).
 
-    SIEMPRE reinicia fresco: si ya hay un server en el puerto (incl. de código
-    viejo), lo mata y arranca con el código ACTUAL — re-correr `workspace dev` tras
-    un cambio SIEMPRE sirve lo nuevo (antes reusaba el viejo: footgun). También
-    barre servers zombie. `workspace dev stop` lo detiene. No va a clientes."""
+    Reinicia fresco: si ya hay un server NUESTRO en el puerto (incl. de código
+    viejo), mata SOLO a ese server (jamás al navegador ni a la app conectados) y
+    arranca con el código ACTUAL — re-correr `workspace dev` tras un cambio sirve
+    lo nuevo (antes reusaba el viejo: footgun). También barre servers zombie.
+    EXCEPCIÓN: si el panel tiene terminales VIVAS lo REUSA y avisa — sus shells
+    viven dentro del server y reiniciarlo las cerraría con lo que corre en ellas
+    (el hub, agentes a medio trabajo). `workspace dev restart` lo reinicia igual
+    (las cierra; pedido desde una de ellas, se relanza desprendido). Si el puerto
+    lo ocupa OTRO programa no se toca: aviso y código 1. `workspace dev stop` lo
+    detiene. No va a clientes."""
     import socket, subprocess, webbrowser, time
     port = 9121                                   # ≠ 9120 del dashboard normal (coexisten)
     if "--port" in args:
@@ -687,45 +867,64 @@ def cmd_dev(args):
             return False
 
     pidfile = os.path.join(_paths.state_dir(), "dashboard-dev.pid")
+    restart = "restart" in args or "--restart" in args
 
     if "stop" in args or "--stop" in args:
+        if _dev_puerto_ajeno(port, pidfile, _FIRMA_DEV, "workspace dev"):
+            return 1
         _dev_kill(port, pidfile)
         print(f"{C}WORKSPACE dev detenido.{R}")
         return 0
 
-    # SIEMPRE arranca fresco con el código actual: mata lo que haya (server viejo /
-    # zombie) y espera a que el puerto se libere antes de relanzar.
+    # Arranca fresco con el código actual: mata SOLO a nuestro server (viejo /
+    # zombie; nunca a sus clientes ni a un programa ajeno) y espera a que el
+    # puerto se libere antes de relanzar. Con terminales VIVAS no se reinicia
+    # salvo `restart` explícito: se reusa (no se cortan).
+    vivas = 0
     if running():
-        print(f"{DIM}  reiniciando el dev panel con el código actual…{R}")
-        _dev_kill(port, pidfile)
-        for _ in range(20):
-            if not running():
+        if _dev_puerto_ajeno(port, pidfile, _FIRMA_DEV, "workspace dev"):
+            return 1
+        vivas = 0 if restart else _dev_live_terms(port)
+        if vivas:
+            print(f"  {B}⚠{R} {DIM}el dev panel ya está abierto con {vivas} terminal(es): "
+                  f"lo reuso tal cual para no cerrarlas. Si actualizaste Workspace o "
+                  f"algo del panel falla, reinícialo con `workspace dev restart` "
+                  f"(cierra esas terminales).{R}")
+        elif restart and os.environ.get("WORKSPACE_IN_DEVPANEL"):
+            return _dev_restart_desprendido(port)
+        else:
+            print(f"{DIM}  reiniciando el dev panel con el código actual…"
+                  + ("  (se cierran sus terminales)" if restart else "") + f"{R}")
+            _dev_kill(port, pidfile)
+            for _ in range(20):
+                if not running():
+                    break
+                time.sleep(0.15)
+
+    if not vivas:
+        logdir = _paths.state_dir()
+        try:
+            os.makedirs(logdir, exist_ok=True)
+            log = open(os.path.join(logdir, "dashboard-dev.log"), "a", encoding="utf-8")
+        except Exception:
+            log = subprocess.DEVNULL
+        kw = {"creationflags": 0x208} if os.name == "nt" else {"start_new_session": True}
+        proc = subprocess.Popen(
+            [PY, os.path.join(ROOT, "dashboard.py"), "--dev", "--no-open", "--port", str(port)],
+            stdout=log, stderr=log, stdin=subprocess.DEVNULL, **kw)
+        try:
+            os.makedirs(os.path.dirname(pidfile), exist_ok=True)
+            open(pidfile, "w", encoding="utf-8").write(str(proc.pid))
+        except Exception:
+            pass
+        for _ in range(25):
+            if running():
                 break
             time.sleep(0.15)
-
-    logdir = _paths.state_dir()
-    try:
-        os.makedirs(logdir, exist_ok=True)
-        log = open(os.path.join(logdir, "dashboard-dev.log"), "a", encoding="utf-8")
-    except Exception:
-        log = subprocess.DEVNULL
-    kw = {"creationflags": 0x208} if os.name == "nt" else {"start_new_session": True}
-    proc = subprocess.Popen(
-        [PY, os.path.join(ROOT, "dashboard.py"), "--dev", "--no-open", "--port", str(port)],
-        stdout=log, stderr=log, stdin=subprocess.DEVNULL, **kw)
-    try:
-        os.makedirs(os.path.dirname(pidfile), exist_ok=True)
-        open(pidfile, "w", encoding="utf-8").write(str(proc.pid))
-    except Exception:
-        pass
-    for _ in range(25):
-        if running():
-            break
-        time.sleep(0.15)
-    # El server ya está fresco (código actual). Preferimos la APP NATIVA (ventana
-    # propia, sin barra de URL); la app detecta este server corriendo y lo REUSA
-    # (no arranca otro ni lo mata al cerrar → el server persiste como con `workspace
-    # dev`). Sin app instalada → navegador, como siempre.
+    # El server ya corre (fresco, o reusado si tenía terminales vivas). Preferimos
+    # la APP NATIVA (ventana propia, sin barra de URL); la app detecta este server
+    # corriendo y lo REUSA (no arranca otro ni lo mata al cerrar → el server persiste
+    # como con `workspace dev`). Sin app instalada → navegador, como siempre.
     app = _dev_desktop_app()
     if app:
         subprocess.run(["open", app])
@@ -734,7 +933,29 @@ def cmd_dev(args):
         webbrowser.open(url)
         surface = f"{DIM}(en el navegador — instala WORKSPACE.app para ventana nativa){R}"
     print(f"{C}WORKSPACE dev{R} (mission control) → {url}  {surface}")
-    print(f"{DIM}  reabrir/refrescar: workspace dev   ·   detener: workspace dev stop{R}")
+    print(f"{DIM}  reabrir: workspace dev   ·   reiniciar: workspace dev restart"
+          f"   ·   detener: workspace dev stop{R}")
+    return 0
+
+
+def _dev_restart_desprendido(port):
+    """`workspace dev restart` pedido desde una terminal del PROPIO panel: al
+    reiniciar el server esa terminal se cierra y mata a este proceso antes de
+    relanzar (el panel quedaba apagado). Se relanza el reinicio DESPRENDIDO
+    (sesión nueva, sin terminal, salida al log del panel) y sigue solo."""
+    import subprocess
+    print(f"{DIM}  reiniciando el dev panel desde una de sus terminales: esta se va "
+          f"a cerrar y el panel vuelve solo en unos segundos.{R}", flush=True)
+    env = dict(os.environ)
+    env.pop("WORKSPACE_IN_DEVPANEL", None)        # el hijo ya no está en el panel
+    try:
+        log = open(os.path.join(_paths.state_dir(), "dashboard-dev.log"), "a",
+                   encoding="utf-8")
+    except Exception:
+        log = subprocess.DEVNULL
+    kw = {"creationflags": 0x208} if os.name == "nt" else {"start_new_session": True}
+    subprocess.Popen([PY, os.path.abspath(__file__), "dev", "restart", "--port", str(port)],
+                     stdin=subprocess.DEVNULL, stdout=log, stderr=log, env=env, **kw)
     return 0
 
 
@@ -746,9 +967,9 @@ def cmd_proyectos(args):
     APP INDEPENDIENTE (la primera de la serie): puerto propio (def 9122), server
     propio (proyectos.py) y datos propios — coexiste con el dashboard (9120) y el
     dev panel (9121) sin pisarlos. Mismo contrato de arranque que `workspace dev`:
-    SIEMPRE reinicia fresco (mata el server viejo/zombie del puerto y relanza con
-    el código actual), pidfile + log per-máquina, `stop` lo detiene. Local-only,
-    guard de token del dashboard."""
+    SIEMPRE reinicia fresco (mata SU server viejo/zombie del puerto —nunca a un
+    programa ajeno: aviso y código 1— y relanza con el código actual), pidfile +
+    log per-máquina, `stop` lo detiene. Local-only, guard de token del dashboard."""
     import socket, subprocess, webbrowser, time
     port = 9122                                   # ≠ 9120 (dashboard) · ≠ 9121 (dev)
     if "--port" in args:
@@ -768,15 +989,19 @@ def cmd_proyectos(args):
     pidfile = os.path.join(_paths.state_dir(), "proyectos.pid")
 
     if "stop" in args or "--stop" in args:
-        _dev_kill(port, pidfile)                  # el killer por puerto+pidfile es genérico
+        if _dev_puerto_ajeno(port, pidfile, _FIRMA_PROY, "workspace proyectos"):
+            return 1                              # otro programa: no se toca
+        _dev_kill(port, pidfile, _FIRMA_PROY)     # el killer por puerto+pidfile es genérico
         print(f"{C}" + _t("cli.proy.stopped", "WORKSPACE proyectos detenido.")
               + f"{R}")
         return 0
 
     if running():                                 # relanzar = servir el código de HOY
+        if _dev_puerto_ajeno(port, pidfile, _FIRMA_PROY, "workspace proyectos"):
+            return 1                              # otro programa: no se toca
         print(f"{DIM}  " + _t("cli.proy.restarting", "reiniciando la app de "
                                "proyectos con el código actual…") + f"{R}")
-        _dev_kill(port, pidfile)
+        _dev_kill(port, pidfile, _FIRMA_PROY)
         for _ in range(20):
             if not running():
                 break
@@ -978,6 +1203,45 @@ def _cmd_update_auto(args):
     return 0
 
 
+def _cmd_update_check(args):
+    """`workspace update --check` — SOLO consulta si hay versión nueva del
+    harness: trae del servidor y compara (updater.update_harness con
+    apply=False, el mismo chequeo del doctor y del modo «solo avisar»). No
+    instala, no jala cerebros y no corre el doctor que repara (antes `--check`
+    instalaba igual y solo el doctor iba en modo revisión). 0; 1 si falta git."""
+    import updater
+    print(f"{C}WORKSPACE update --check{R} {DIM}— "
+          + _t("cli.update.check_head", "solo reviso si hay versión nueva; no "
+               "instalo ni reparo nada.") + f"{R}\n")
+    hres = updater.update_harness(ROOT, mode="manual", force="--force" in args,
+                                  apply=False)
+    if hres.get("reason") == "git_missing":
+        print(f"{B}" + _t("cli.update.no_git", "git no está instalado en esta "
+                          "máquina.") + f"{R} "
+              + _t("cli.update.no_git_hint", "Instálalo y vuelve a correr "
+                   "`workspace update`."))
+        return 1
+    if hres.get("status") != updater.AVAILABLE:
+        _print_harness_update(hres)               # al día · en pausa · no se pudo revisar
+        return 0
+    commits = hres.get("commits") or []
+    v = hres.get("to_version")
+    print(f"  {'WORKSPACE':<22}{B}"
+          + _t("cli.update.check_available", "↓ hay una versión nueva") + f"{R} {DIM}("
+          + (f"v{v} · " if v else "")
+          + _t("cli.update.changes", "{n} cambio(s)", n=len(commits)) + " · "
+          + _t("cli.repo.branch", "rama {branch}", branch=hres.get("branch"))
+          + f"){R}")
+    for sha, subj in commits[:12]:
+        print(f"      {C}{sha}{R}  {subj}")
+    if len(commits) > 12:
+        print(f"      {DIM}" + _t("cli.offer.more", "… y {n} más",
+                                  n=len(commits) - 12) + f"{R}")
+    print(f"\n  {DIM}" + _t("cli.offer.run_update", "· corre `workspace update` "
+                            "para aplicarla.") + f"{R}")
+    return 0
+
+
 def cmd_update(args=None):
     """`workspace update` — deja la máquina del socio al día y verificada, en uno:
       1. Harness: updater.update_harness (candado → anota de dónde sale → avanza
@@ -987,10 +1251,16 @@ def cmd_update(args=None):
       3. workspace doctor (REPARA) al final, en un proceso NUEVO si el harness
          cambió: así el doctor que corre es el de la versión nueva.
     Seguro e idempotente: repo sucio / offline / sin remote → ⚠ y sigue con los demás.
-    `--check` solo diagnostica · `--no-check` salta el doctor · `--force` reintenta
+    `--check` solo consulta si hay versión nueva (no instala ni repara) ·
+    `--no-check` salta el doctor · `--force` reintenta
     una versión fijada · `--rollback` vuelve a la versión anterior al último update ·
-    `--auto [auto|notify|off]` muestra o elige si se actualiza solo."""
+    `--auto [auto|notify|off]` muestra o elige si se actualiza solo.
+    Código de salida: el del doctor; 3 (UPDATE_RC_HARNESS_NOT_UPDATED) si el
+    harness quedó sin actualizar (divergente, fijado, vuelta atrás, ocupado…)
+    y el doctor no dio otro error — también con --no-check."""
     args = list(args or [])
+    if "--check" in args:                         # manda sobre los demás flags
+        return _cmd_update_check(args)
     if "--rollback" in args:
         return _cmd_update_rollback(args)
     if "--auto" in args:
@@ -1007,8 +1277,10 @@ def cmd_update(args=None):
                    "`workspace update`."))
         return 1
     _print_harness_update(hres)
-    skipped = 1 if hres.get("status") in (updater.SKIPPED, updater.BUSY,
-                                           updater.HELD, updater.ROLLED_BACK) else 0
+    # Regla 3: cualquier estado que no sea «actualizado» o «ya al día» es que
+    # el harness NO quedó al día (incluye ROLLBACK_FAILED, que antes se colaba).
+    harness_ok = hres.get("status") in (updater.UPDATED, updater.UPTODATE)
+    skipped = 0 if harness_ok else 1
 
     # cerebros: cada uno con su pull de siempre (son datos del usuario)
     repos = []
@@ -1064,21 +1336,27 @@ def cmd_update(args=None):
                                 n=skipped) + f"{R}")
 
     if "--no-check" in args:
+        if not harness_ok:
+            _print_harness_not_updated()
+            return UPDATE_RC_HARNESS_NOT_UPDATED
+        if hres.get("status") == updater.UPDATED:
+            # sin doctor, pero sin hooks de la versión anterior (B05): el mismo
+            # `repair` que lanza el auto-update, con el código NUEVO
+            try:
+                subprocess.call([sys.executable, os.path.join(ROOT, "front.py"),
+                                 "repair"])
+            except Exception:
+                pass                              # falla-suave: el doctor lo repara
         print(f"\n{C}" + _t("cli.update.done", "✓ Update terminado.") + f"{R} {DIM}"
               + _t("cli.update.no_check", "(doctor omitido por --no-check)")
               + f"{R}")
         return 0
 
-    check_only = "--check" in args
-    if check_only:
-        print(f"\n{DIM}  " + _t("cli.update.verifying", "Verificando la "
-                                "instalación (workspace doctor --check)…") + f"{R}")
-    else:
-        print(f"\n{DIM}  " + _t("cli.update.verifying_fix", "Verificando y "
-                                "reparando la instalación (workspace doctor)…")
-              + f"{R}")
+    print(f"\n{DIM}  " + _t("cli.update.verifying_fix", "Verificando y "
+                            "reparando la instalación (workspace doctor)…")
+          + f"{R}")
     # `--from-update`: el doctor NO vuelve a ofrecer update (evita recursión).
-    dargs = (["--check"] if check_only else []) + ["--from-update"]
+    dargs = ["--from-update"]
     try:
         if hres.get("status") == updater.UPDATED:
             # código nuevo en disco → el doctor NUEVO, en su propio proceso
@@ -1091,7 +1369,25 @@ def cmd_update(args=None):
                    "`workspace doctor` a mano", err=f"{type(e).__name__}: {e}")
               + f"{R}")
         return 1
-    return rc or 0
+    if rc:
+        return rc                                 # el error del doctor manda
+    if not harness_ok:                            # doctor verde ≠ harness al día
+        _print_harness_not_updated()
+        return UPDATE_RC_HARNESS_NOT_UPDATED
+    return 0
+
+
+# `workspace update` sale con este código cuando el harness NO quedó al día
+# (para scripts y agentes que miran el código de salida).
+UPDATE_RC_HARNESS_NOT_UPDATED = 3
+
+
+def _print_harness_not_updated():
+    print(f"\n{B}⚠{R} " + _t("cli.update.harness_not_updated",
+                              "WORKSPACE no se actualizó (motivo ⚠ arriba).")
+          + f" {DIM}" + _t("cli.update.harness_not_updated_rc",
+                           "Código de salida {rc}.", rc=UPDATE_RC_HARNESS_NOT_UPDATED)
+          + f"{R}")
 
 
 def _cmd_update_rollback(args):
@@ -1526,6 +1822,9 @@ def _hub_agents():
     out = []
     for a in snap.for_hub():
         ok = a.launchable
+        # Motor caído ≠ agente bloqueado: se abre igual (dispatch dice cuál
+        # falta y ofrece otro motor) y ←→ le cambia el motor desde aquí.
+        abre = ok or getattr(a, "openable", False)
         out.append({"name": a["name"], "id": a["id"],
                     "display": a["display"],
                     "color": a["color"] or AGENT_COLORS.get(a["name"], "red"),
@@ -1537,7 +1836,7 @@ def _hub_agents():
                     "status": a["status"],
                     "status_label": "" if ok else agent_state.label(a["status"]),
                     "cause": a["cause"], "repair": a["repair"],
-                    "active": ok})
+                    "active": abre})
     for p in snap.planned:
         out.append({"name": p, "display": p.capitalize(), "brain": "",
                     "color": AGENT_COLORS.get(p, "red"), "tagline": "",
@@ -2213,7 +2512,8 @@ def _menu_machinery(tout):
                 try:
                     import agent_state
                     ok, cur, why = agent_state.revalidate(a.get("id") or a["name"], a.get("brain"))
-                    if ok and not cur.launchable:
+                    if ok and not (cur.launchable
+                                   or getattr(cur, "openable", False)):
                         ok, why = False, agent_state.label(cur["status"])
                 except Exception:
                     ok, why = True, ""
@@ -2325,6 +2625,8 @@ def _menu_machinery(tout):
         orig = _t("hub.engine.local_override", "override local") \
             if a.get("engine_src") == "local" \
             else _t("hub.engine.agent_default", "default del agente")
+        if a.get("status_label"):               # motor caído: se dice aquí
+            orig = "%s · %s" % (a["status_label"], orig)
         brain = (a.get("brain") or "").replace(os.path.expanduser("~"), "~") \
             or "—"
         now = _agent_now(a.get("brain")) or {}
@@ -2832,7 +3134,8 @@ def _oldest_supported_python():
 def _release_gate(ref, dist=None):
     """(versión, [problemas]) para publicar `ref` a clientes. Problemas = cosas
     que bloquean: VERSION ausente o no SemVer, sin sección en CHANGELOG.md /
-    CHANGELOG.en.md, el README público (dist/README.md) sin las novedades de
+    CHANGELOG.en.md (o con un borrador «Próxima versión» que quedó sin pasar a
+    la versión), el README público (dist/README.md) sin las novedades de
     ESTA versión en los dos idiomas, o la misma versión ya publicada (tag
     v<ver> en el distro). Lectura pura.
 
@@ -2860,6 +3163,14 @@ def _release_gate(ref, dist=None):
     if not _re.search(r"^## v?%s\b" % _re.escape(ver), log_en, _re.M):
         probs.append("CHANGELOG.en.md no tiene la sección `## %s` — los clientes en "
                      "inglés también leen las novedades." % ver)
+    # Un borrador que quedó («Próxima versión» / «Next version») es código que
+    # SÍ se publica con esta versión pero que sus notas no cuentan (pasó en la
+    # 0.3.4: su sección solo traía el arreglo de Windows).
+    for name, txt in (("CHANGELOG.md", log), ("CHANGELOG.en.md", log_en)):
+        for head in _re.findall(r"^## (.+)$", txt, _re.M):
+            if not _re.match(r"v?\d+\.\d+\.\d+\b", head.strip()):
+                probs.append("%s todavía tiene la sección `## %s`: eso se publica con esta "
+                             "versión — pásalo a `## %s` antes de publicar." % (name, head.strip(), ver))
     readme = show("dist/README.md") or ""
     v = _re.escape(ver)
     for head, lang in ((r"^### What's new in v%s\s*$" % v, "What's new in v%s" % ver),
@@ -3156,17 +3467,18 @@ def _is_dirty(subprocess):
     return bool(r.stdout.strip())
 
 
-def _suite_green(subprocess, dry):
-    """Corre la suite (tests/run.py). Devuelve True si verde. En dry-run NO la
-    corre (solo imprime el comando) y devuelve True para no abortar el dry."""
-    cmd = [sys.executable, os.path.join(ROOT, "tests", "run.py")]
+def _suite_green(subprocess, dry, repo=None):
+    """Corre la suite (tests/run.py) del árbol `repo` (default ROOT). Devuelve
+    True si verde. En dry-run NO la corre (solo imprime el comando) y devuelve
+    True para no abortar el dry."""
+    cmd = [sys.executable, os.path.join(repo or ROOT, "tests", "run.py")]
     print(f"  {DIM}$ {' '.join(cmd)}{R}")
     if dry:
         return True
     return subprocess.call(cmd) == 0
 
 
-def _test_integrity_warn(base, dry):
+def _test_integrity_warn(base, dry, repo=None):
     """Guard anti-trampa de tests (phase-gates B2/D3, automatizados) — SEÑAL
     ask-user, NUNCA bloqueo duro. Detecta cuando el cambio DEBILITA la suite
     (tests borrados sin reemplazo, asserts vaciados a pass/assertTrue(True)/
@@ -3179,12 +3491,14 @@ def _test_integrity_warn(base, dry):
       · señal + tty → banner WARN con los nombres + confirmación explícita;
         el socio decide (s = sigue, N = detiene A SU petición → False).
       · señal + no-interactivo → banner WARN visible y CONTINÚA (True).
+    `repo`: árbol cuyo HEAD se compara (default ROOT) — integrate con rama
+    explícita pasa el worktree de esa rama.
     En dry-run no corre (el dry no ejecuta nada real)."""
     if dry:
         return True
     try:
         from dash.dev import test_integrity
-        res = test_integrity.check(base=base)
+        res = test_integrity.check(base=base, repo=repo)
         if not res or not res.get("flagged"):
             return True
         print(f"\n  {B}⚠ GUARD DE TESTS: este cambio DEBILITA la suite{R} "
@@ -3273,7 +3587,40 @@ def cmd_feature(args):
     return 0
 
 
-def cmd_integrate(args):
+def _integrate_tree(subprocess, branch):
+    """Integrate con rama EXPLÍCITA (la usa el paso `front.integrate` de
+    workflows con la rama de SU run). Devuelve (árbol, None) — dónde probar
+    `branch` antes del merge; None = ROOT, el flujo de siempre — o
+    (None, motivo) si no es seguro seguir:
+      · la rama es la del checkout principal → ROOT (como `integrate` a mano).
+      · si no, ROOT debe estar YA en `main`: integrar jamás cambia de rama el
+        checkout del socio ni mete a main la rama en la que esté parado.
+      · su código se prueba en el worktree donde está checked-out, que debe
+        estar limpio (lo sin commitear no entra al merge y la suite de antes
+        lo daría por bueno)."""
+    if not _git_ref_exists(subprocess, "refs/heads/" + branch):
+        return None, f"WORKSPACE: la rama `{branch}` no existe — nada que integrar."
+    current = _current_branch(subprocess)
+    if current == branch:
+        return None, None
+    if current != "main":
+        return None, (f"WORKSPACE: el checkout principal está en `{current}`, no en "
+                      f"`main`. {DIM}Integrar `{branch}` lo cambiaría de rama: ponlo "
+                      f"en main (`git switch main`) y reintenta.{R}")
+    from dash.dev import _git as devgit, _worktrees
+    tree = devgit._worktree_branches(ROOT).get(branch)
+    if not tree:
+        return None, (f"WORKSPACE: la rama `{branch}` no está en ningún worktree. "
+                      f"{DIM}Sin su árbol no puedo correr su suite antes de "
+                      f"integrarla.{R}")
+    if _worktrees.is_clean(tree) is not True:
+        return None, (f"  {B}⚠ El worktree de `{branch}` tiene cambios sin "
+                      f"commitear{R} {DIM}({tree}) — commitéalos antes de "
+                      f"integrar.{R}")
+    return tree, None
+
+
+def cmd_integrate(args, branch=None):
     """`workspace integrate [--dry-run] [--delete]` — mete la rama ACTUAL a `main`
     (una por una), corriendo la suite antes y después, imprimiendo cada git.
 
@@ -3286,6 +3633,11 @@ def cmd_integrate(args):
       persiste para seguir iterando/pusheando). Pasa `--delete` (alias `--remove`)
       para borrarla con `git branch -d` cuando ya terminaste la feature
       (la `-d` se niega si no está mergeada; no forzamos). Fallo → nunca borra.
+    - `branch` (solo por código: el paso `front.integrate` de workflows) integra
+      ESA rama en vez de la actual: suite de antes y guard en SU worktree, merge
+      en ROOT, que debe estar ya en main (ver `_integrate_tree`). Re-correrlo
+      con la rama ya integrada es seguro: git no mergea nada y las dos suites
+      vuelven a correr.
     Solo del repo de EQUIPO."""
     ok, subprocess = _branch_guard()
     if not ok:
@@ -3293,9 +3645,12 @@ def cmd_integrate(args):
         return 1
     dry = "--dry-run" in args
     delete = "--delete" in args or "--remove" in args
-    feature = _current_branch(subprocess)
+    explicit = (branch or "").strip()
+    feature = explicit or _current_branch(subprocess)
     if feature in ("main", "stable"):
-        print(f"WORKSPACE: estás en `{feature}` — no es una rama de feature. "
+        quien = (f"la rama a integrar es `{feature}`" if explicit
+                 else f"estás en `{feature}`")
+        print(f"WORKSPACE: {quien} — no es una rama de feature. "
               f"{DIM}Ponte en tu rama (`workspace feature …`) e intégrala.{R}")
         return 1
     # Detached HEAD: rev-parse --abbrev-ref devuelve literalmente "HEAD".
@@ -3308,6 +3663,12 @@ def cmd_integrate(args):
     if not feature and not dry:
         print("WORKSPACE: no pude detectar la rama actual."); return 1
     feature = feature or "<rama-actual>"
+    tree = None                     # None = ROOT: la rama es la del checkout
+    if explicit:
+        tree, why = _integrate_tree(subprocess, explicit)
+        if why:
+            print(why)
+            return 1
 
     def run(cmd, cwd=None):
         print(f"  {DIM}$ {' '.join(cmd)}{R}")
@@ -3318,16 +3679,16 @@ def cmd_integrate(args):
               f"trabajo antes de integrar.{R}")
         return 1
 
-    # Suite ANTES: no integres roto.
+    # Suite ANTES: no integres roto (en el árbol de la rama, no en ROOT).
     print(f"  {B}Corriendo la suite antes de integrar…{R}")
-    if not _suite_green(subprocess, dry):
+    if not _suite_green(subprocess, dry, tree):
         print(f"\n  ✗ {B}Suite ROJA — aborto sin tocar main.{R} "
               f"{DIM}Arregla los tests en `{feature}` y reintenta.{R}")
         return 1
 
     # Guard anti-trampa de tests (B2/D3): ¿la rama DEBILITA la suite aunque
     # esté verde? SEÑAL ask-user, fail-open — solo detiene si el socio dice no.
-    if not _test_integrity_warn("main", dry):
+    if not _test_integrity_warn("main", dry, tree):
         return 1
 
     rc = run(["git", "-C", ROOT, "checkout", "main"])
@@ -4172,6 +4533,19 @@ def _wf_driver(vals):
                             model=vals.get("--model"))
 
 
+# Uso completo de `workspace wf` (solo texto): lo imprimen cmd_wf ante un
+# subcomando desconocido y `workspace wf --help` (_own_help).
+_WF_USAGE = ("uso: workspace wf new <nombre> | list | match \"<texto>\" | "
+             "run <spec> [--dry] [--param k=v] "
+             "[--driver real [--backend B] [--model M]] | runs | "
+             "show <run-id> [--watch] | "
+             "watch <run-id> [--interval S] | board [--top N] [--interval S] "
+             "[--follow <run-id>|active] | "
+             "status [<run-id>] | decide <run-id> <paso> approve|reject "
+             "[--note …] | gate <run-id> [--step <paso>] [--open] | "
+             "resume <run-id> [--driver real [--backend B] [--model M]] | stats")
+
+
 def cmd_wf(args):
     """`workspace wf new <nombre> | list | match "<texto>" | run <spec> [--dry]
     [--param k=v]
@@ -4464,14 +4838,7 @@ def cmd_wf(args):
                 print(f"    · {sid}: {row['runs']} corridas · "
                       f"{row['fails']} fallos · {row['attempts']} intentos")
         return 0
-    print("uso: workspace wf new <nombre> | list | match \"<texto>\" | "
-          "run <spec> [--dry] [--param k=v] "
-          "[--driver real] | runs | show <run-id> [--watch] | "
-          "watch <run-id> [--interval S] | board [--top N] [--interval S] "
-          "[--follow <run-id>|active] | "
-          "status [<run-id>] | decide <run-id> <paso> approve|reject "
-          "[--note …] | gate <run-id> [--step <paso>] [--open] | "
-          "resume <run-id> [--driver real] | stats")
+    print(_WF_USAGE)
     return 2
 
 
@@ -4522,9 +4889,14 @@ def cmd_worktree(args):
     sus IGNORADOS intactos (node_modules/.venv), y el próximo `workspace worktree`
     los reusa sin reinstalar deps. Regla de oro intacta: nada sucio se toca.
 
-    `prune` es el fallback MANUAL de la auto-limpieza del harness (el hook
-    SessionEnd libera solo los worktrees del agente que cierra). NUNCA remueve un
-    worktree con cambios sin commitear; `-n`/`--dry-run` muestra qué haría.
+    SESIÓN DUEÑA: el worktree guarda la sesión de agente en la que se creó (env
+    del launcher) y su pestaña; el hook SessionEnd libera los de la sesión que
+    cierra y los huérfanos de sesiones muertas — nunca el de otra pestaña viva
+    del mismo agente. Una pestaña relanzada retoma los suyos al arrancar.
+
+    `prune` es el fallback MANUAL de la auto-limpieza del harness. NUNCA remueve
+    un worktree con cambios sin commitear ni el de una sesión que sigue viva;
+    `-n`/`--dry-run` muestra qué haría.
 
     El registry es per-máquina (no se versiona): ~/.claude/workspace/worktree-owners.json.
     Solo del repo de EQUIPO. Imprime cada git que corre."""
@@ -4575,6 +4947,9 @@ def cmd_worktree(args):
         if res["skipped_dirty"]:
             print(f"  {B}⚠ cambios sin commitear (intactos):{R} "
                   + ", ".join(res["skipped_dirty"]))
+        if res.get("skipped_live"):
+            print(f"  {B}⚠ en uso por una sesión viva (intactos):{R} "
+                  + ", ".join(res["skipped_live"]))
         if res["stale"]:
             print(f"  {DIM}· entradas huérfanas limpiadas del registry:{R} "
                   + ", ".join(res["stale"]))
@@ -4691,6 +5066,12 @@ def cmd_worktree(args):
         print(f"WORKSPACE: ya existe {wt_path}. "
               f"{DIM}Quítalo con `workspace worktree rm {branch}` o usa otra rama.{R}")
         return 1
+    # Sesión dueña = la apertura de agente en la que corre este comando (env del
+    # launcher): su cierre, y solo el suyo, libera el árbol. También su pestaña:
+    # si se relanza, la sesión nueva lo retoma. Fuera de una sesión queda sin
+    # dueña (solo lo barre `prune`).
+    sid, spid = _worktrees.current_session()
+    tab = _worktrees.current_tab() if sid else ""
 
     # ── Pool tibio: ANTES de crear uno nuevo, reusar un árbol libre+limpio ───
     # pool_acquire reclama atómicamente (dos gets concurrentes jamás reciben el
@@ -4719,7 +5100,8 @@ def cmd_worktree(args):
         print(f"  {DIM}$ {' '.join(cmd)}{R}")
         rc = subprocess.call(cmd)
         if rc == 0:
-            _worktrees.register(branch, agent, tree, pool=True)
+            _worktrees.register(branch, agent, tree, pool=True, session=sid,
+                                session_pid=spid, tab=tab)
             print(f"\n  {C}✓ Worktree de `{branch}`{R} en {DIM}{tree}{R} "
                   f"{C}(árbol tibio reusado del pool){R}")
             print(f"  {DIM}dueño: {B}{agent or '?'}{R}{DIM} — deps/ignorados "
@@ -4742,7 +5124,8 @@ def cmd_worktree(args):
               f"{DIM}(¿la rama ya está tomada en otro worktree?).{R}")
         return rc
 
-    _worktrees.register(branch, agent, wt_path, pool=True)
+    _worktrees.register(branch, agent, wt_path, pool=True, session=sid,
+                        session_pid=spid, tab=tab)
     # Enrolado al pool (nace leased): al liberarse se devuelve TIBIO — el
     # próximo `workspace worktree` lo reusa con node_modules/.venv intactos.
     try:
@@ -4769,13 +5152,17 @@ def cmd_uninstall(args):
     return subprocess.call([sys.executable, script] + list(args or []))
 
 
+# Uso de `workspace eval` (solo texto): cmd_eval sin agente y `--help` (_own_help).
+_EVAL_USAGE = "uso: workspace eval <agente> [--limit N] [--json]"
+
+
 def cmd_eval(args):
     """`workspace eval <agente>` — corre el golden set del agente → scorecard
     (mide la calidad antes de lanzar; protocols/agent-creation/03-QUALITY-BAR.md)."""
     import eval_runner, datetime
     name = next((a for a in (args or []) if not a.startswith("-")), "")
     if not name:
-        print("uso: workspace eval <agente> [--limit N] [--json]")
+        print(_EVAL_USAGE)
         return 2
     entry = dispatch.find_agent(name)
     if not entry:
@@ -4970,7 +5357,8 @@ def _mail_setup(user=None, passwd=None, host=None, port=None):
     try:
         # Solo se piden interactivamente los campos REQUERIDOS (user + pass);
         # host/port toman default Gmail salvo que se pasen por flag. Así
-        # `workspace mail --setup --user X --pass Y` es no-interactivo.
+        # `workspace mail --setup --user X --pass Y` es no-interactivo
+        # (compatibilidad; cmd_mail avisa que --pass queda en el historial).
         if not user:
             user = input(_t("mail.setup.ask_user", "  Correo (user) [ej. tucorreo@dominio.com]: ")).strip()
         if not passwd:
@@ -4992,9 +5380,11 @@ def _mail_setup(user=None, passwd=None, host=None, port=None):
 
 
 def _mail_send(creds, sender, recipients, subject, body):
-    """Envía el correo MIME (UTF-8) por STARTTLS. Devuelve (ok, error_msg).
+    """Envía el correo MIME (UTF-8) por STARTTLS verificado (certificado y
+    nombre del servidor). Devuelve (ok, error_msg).
     Errores de auth/conexión se traducen a mensajes claros (no stacktrace)."""
     import smtplib
+    import ssl
     from email.mime.text import MIMEText
     from email.utils import formatdate
 
@@ -5011,7 +5401,17 @@ def _mail_send(creds, sender, recipients, subject, body):
                        f"{DIM}({type(e).__name__}: {e}){R}")
     try:
         server.ehlo()
-        server.starttls()
+        # Sin `context`, smtplib cifra SIN verificar nada (ni certificado ni
+        # nombre): un impostor en la red (Wi-Fi hostil) recibía la App Password.
+        # create_default_context() exige ambos. Si el servidor no ofrece
+        # STARTTLS, smtplib lanza error: la contraseña nunca viaja en claro.
+        try:
+            server.starttls(context=ssl.create_default_context())
+        except OSError as e:   # ssl.SSLError, SMTPException o timeout del saludo
+            return False, (
+                f"{B}{_t('mail.send.tls', '✗ No pude abrir una conexión segura y verificada con {host}: no envié tu contraseña ni el correo.', host=creds['host'])}{R}\n"
+                f"  {DIM}{_t('mail.send.tls_hint', 'Puede ser una red que intercepta la conexión (Wi-Fi pública o de oficina): prueba desde otra red. Si falla en todas, a tu Python le pueden faltar certificados (Mac con Python de python.org: abre «Install Certificates.command»).')}{R}\n"
+                f"  {DIM}({type(e).__name__}: {e}){R}")
         server.ehlo()
         try:
             server.login(creds["user"], creds["pass"])
@@ -5070,10 +5470,18 @@ def cmd_mail(args):
     i = 0
 
     def _val(i, flag):
-        if i + 1 >= len(args):
+        # El valor debe EXISTIR y no ser otra opción. Antes se tomaba el token
+        # siguiente a ciegas: con `--body --dry-run` el cuerpo era «--dry-run»,
+        # el dry-run se perdía y el correo SALÍA de verdad. Cuenta como opción
+        # -n/-h o cualquier cosa con forma de opción larga (--algo, sin
+        # espacios, aunque esté mal escrita); un texto que solo empieza con
+        # guion («- punto 1», «-20% hoy») sí es un valor.
+        nxt = args[i + 1] if i + 1 < len(args) else None
+        if nxt is None or nxt in ("-n", "-h") or (
+                nxt.startswith("--") and not any(ch.isspace() for ch in nxt)):
             raise ValueError(_t("mail.err.needs_value", "{flag} requiere un valor",
                                 flag=flag))
-        return args[i + 1]
+        return nxt
 
     try:
         while i < len(args):
@@ -5109,6 +5517,11 @@ def cmd_mail(args):
         print(f"WORKSPACE: {e}\n")
         print(_mail_usage())
         return 2
+
+    # --pass sigue funcionando (compatibilidad), pero deja la contraseña en el
+    # historial de la terminal: se avisa y se recomienda el prompt oculto.
+    if pass_flag:
+        print(f"  {B}⚠{R} {DIM}{_t('mail.warn.pass_flag', '--pass deja tu App Password en el historial de la terminal. Para guardarla sin que se vea: workspace mail --setup (sin --pass).')}{R}\n")
 
     if setup:
         return _mail_setup(user_flag, pass_flag, host_flag, port_flag)
@@ -5546,6 +5959,15 @@ def cmd_panel(args):
     return panel.run(argv=["panel"] + list(args))
 
 
+_AGENTES_REUBICAR = ("reubicar", "relocate", "reparar")
+
+
+def _agentes_relocate_usage():
+    """Uso de `workspace agentes reubicar` (solo texto): cmd_agentes y --help."""
+    return _t("cli.agentes.relocate_usage", "uso: workspace agentes "
+              "reubicar <agente> <ruta> [--force]")
+
+
 def cmd_agentes(args):
     """`workspace agentes [descubrir|reubicar|estado]` (Z03/U03).
       descubrir [--root <ruta>] [--json]  candidatos + sugerencias de reparación,
@@ -5560,10 +5982,9 @@ def cmd_agentes(args):
     import agentsreg
     if sub in ("descubrir", "discover", "buscar"):
         return agentsreg.main(["discover"] + args[1:])
-    if sub in ("reubicar", "relocate", "reparar"):
+    if sub in _AGENTES_REUBICAR:
         if len(args) < 3:
-            print(_t("cli.agentes.relocate_usage", "uso: workspace agentes "
-                     "reubicar <agente> <ruta> [--force]"))
+            print(_agentes_relocate_usage())
             return 2
         return agentsreg.main(["relocate"] + args[1:])
     import agent_state
@@ -5615,6 +6036,9 @@ _DEV_CMDS = {
     "feature", "integrate", "promote", "release", "publish",
     "worktree", "wt",
     "parity-check", "parity", "paridad",
+    # bus automático: despierta agentes SIN VENTANA por su cuenta → fuera de
+    # la build de cliente (regla del socio 2026-10-16: nada sin ventana en clientes)
+    "bus",
 }
 
 
@@ -5627,6 +6051,90 @@ def _resolve_handler(word):
     except Exception:
         return None
     return _dispatch_table().get(cid) if cid else None
+
+
+# ── `workspace <comando> --help` / `-h` = AYUDA, jamás ejecución: main() la
+#    resuelve ANTES del handler. Antes el flag llegaba tal cual al comando y
+#    casi todos lo ignoraban y CORRÍAN (`update --help` actualizaba y reparaba;
+#    `uninstall --help` sin terminal desinstalaba). ──
+_HELP_FLAGS = ("-h", "--help")
+
+
+def _own_help():
+    """{id: fn(args) que IMPRIME la ayuda propia que ese comando ya traía —
+    también la de un subcomando (`agenda tareas claim --help`) — y devuelve
+    True; falso si para esos args no trae (→ la ficha del catálogo). Solo
+    texto, jamás el handler: no se pierden opciones. Lookup tardío, como
+    _dispatch_table."""
+    def fija(fn):                                 # la misma ayuda con cualquier args
+        return lambda args: fn() or True
+
+    def _tono():
+        import personalidad
+        print(personalidad._uso())
+
+    def _centro():
+        from dash.centro import cli as _centro_cli
+        _centro_cli._help()
+
+    def _migrar_legado():
+        import migrate_legacy
+        print(migrate_legacy._uso())
+
+    def _memoria():                               # memoria v1: memoria.py
+        import memoria
+        memoria._parser().print_help()
+
+    def _agenda(args):                            # tareas [acción] · add · done · rm
+        import personal
+        txt = personal.cli_help(args)
+        if txt:
+            sys.stdout.write(txt)
+        return bool(txt)
+
+    def _agentes(args):                           # reubicar
+        if args and args[0].lower() in _AGENTES_REUBICAR:
+            print(_agentes_relocate_usage())
+            return True
+        return False
+
+    return {"mail": fija(lambda: print(_mail_usage())), "tono": fija(_tono),
+            "centro": fija(_centro), "board": fija(_board_help),
+            "wf": fija(lambda: print(_WF_USAGE)),
+            "eval": fija(lambda: print(_EVAL_USAGE)),
+            "migrar-legado": fija(_migrar_legado), "memoria": fija(_memoria),
+            "agenda": _agenda, "agentes": _agentes}
+
+
+def _wants_help(word, args):
+    """¿`workspace <word> … -h|--help …`? En CUALQUIER posición (conservador:
+    `agenda rm <id> --help` no debe borrar nada). `help` ya es la ayuda
+    general: ese sí corre."""
+    if not any(a in _HELP_FLAGS for a in args):
+        return False
+    try:
+        import comandos
+        return comandos.resolve(word) != "help"
+    except Exception:
+        return True
+
+
+def _command_help(word, args=()):
+    """Imprime la ayuda de `workspace <word> <args…>` y devuelve 0, SIN correr
+    el comando: la ayuda propia del comando o de su subcomando (_own_help)
+    o, si no trae, su ficha del catálogo (comandos.help_text). Falla-suave:
+    si la propia truena → la ficha; sin ficha → el uso general."""
+    import comandos
+    cid = comandos.resolve(word)
+    own = _own_help().get(cid)
+    if own is not None:
+        try:
+            if own(list(args)):
+                return 0
+        except Exception:
+            pass
+    sys.stdout.write(comandos.help_text(cid) or _usage())
+    return 0
 
 
 def _run_onboarding(_args):
@@ -5719,7 +6227,7 @@ def _dispatch_table():
         "voz": lambda a: cmd_voice(a),
         # Delegación autónoma segura (bus automático v1, opt-in).
         "bus": lambda a: cmd_bus(a),
-        "memoria": _run_module("session_continuity"),
+        "memoria": _run_module("memoria"),     # nota/ver/vigente/maleta + checkpoint/status
         # Pane derecho del split (panel.py; lo corre mux.right_pane_cmd()).
         "panel": lambda a: cmd_panel(a),
         # ── DEV/EQUIPO (el gate _DEV_CMDS corta antes en la build de cliente) ──
@@ -5874,14 +6382,27 @@ def _greeter_preview_skip():
 
 
 def main():
-    # Bóveda de secretos per-máquina → env (Regla de Oro): las API keys viven
+    # Bóveda de secretos per-máquina → env (Regla de Oro): los secretos viven
     # en ~/.claude/workspace/secrets.local (gitignoreado, 0600), NUNCA en el
-    # repo/settings. Cargarlas aquí, al arrancar, hace que connectors._resolve_key
-    # y los CLIs lanzados como subproceso las vean vía os.environ. El env real
-    # del sistema gana (setdefault). Falla-suave: sin bóveda, no pasa nada.
+    # repo/settings. Al env del hub sale SOLO la lista blanca de API keys de
+    # provider (secret_store.PROVIDER_KEYS): connectors._resolve_key las ve vía
+    # os.environ; el env real del sistema gana (setdefault). Lo demás (tokens de
+    # Google, URL del calendario) se queda en disco. Los motores NO heredan
+    # nada de la bóveda: dispatch y los lanzadores lo quitan antes de abrir
+    # uno (secret_store.engine_env). scrub_env va antes: quita lo que
+    # exportaba un hub viejo y que sobrevive al re-exec. Falla-suave: sin
+    # bóveda, no pasa nada.
     try:
         import secret_store
+        secret_store.scrub_env()
         secret_store.load_into_env()
+    except Exception:
+        pass
+    # Un motor instalado mientras esta terminal ya estaba abierta (o cuyo
+    # instalador no tocó el PATH, como Antigravity) se ve sin reabrir nada.
+    try:
+        import path_refresh
+        path_refresh.refresh()
     except Exception:
         pass
     # ── Build de CLIENTE: gate de la superficie DEV/EQUIPO ──
@@ -5910,6 +6431,9 @@ def main():
                                 "desconocido '{cmd}'", cmd=sys.argv[1])
                              + "\n\n" + _usage())
             sys.exit(2)
+        # `<comando> --help` / `-h`: su AYUDA y salir 0, SIN llamar al handler.
+        if _wants_help(sys.argv[1], sys.argv[2:]):
+            sys.exit(_command_help(sys.argv[1], sys.argv[2:]))
         sys.exit(handler(sys.argv[2:]))
     # ── Ventana de PREVIEW del dev-panel: hazte a un lado ──
     # El greeter de ~/.zshrc corre ESTE hub (el de main, ruta absoluta del
@@ -5986,6 +6510,10 @@ def main():
                                     "agents_tui"),
                     "__motores__": (_t("menu.engines.label", "Motores").lower(),
                                     "engines_tui"),
+                    "__usuarios__": (_t("menu.users.label", "Usuarios").lower(),
+                                     "usuarios_tui"),
+                    "__docs__": (_t("menu.docs.label", "Documentación").lower(),
+                                 "docs_tui"),
                     # Calendario, Tono y Actualizaciones también REGRESAN al
                     # hub (Esc/q): antes salían al shell (pedido del socio
                     # 2026-10-12: «Esc regresa al hub en todas las secciones»).

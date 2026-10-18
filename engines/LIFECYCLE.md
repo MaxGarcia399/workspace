@@ -22,9 +22,9 @@ Cableado real (settings.local.json de cada cerebro, sembrado por
 
 | Evento N9 | Hook nativo CC | Comportamiento hoy | Depende de |
 |---|---|---|---|
-| `session_start` | `SessionStart` | ① marcador de sesión + early-warning de secretos (`hooks/session_start.py`, gate `session_journal`) · ② **memoria de sesión**: dashboard del agente `--context --brain <brain>` (solo `source` startup/fresco) → additionalContext | dispatch (cfg del agente + `scripts.dashboard`), secret_scan, `WORKSPACE_WS`/`ZENITH_WS` |
-| `session_end` | `SessionEnd` | journal/breadcrumb (`session_end.py`, gate `session_journal`) · skill review headless (`skill_review.py`) · backup de transcript (`transcript_backup.py`) | headless.py (destilación SIN tools — guard N6), markers en `~/.claude/workspace/` |
-| `pre_compact` | `PreCompact` | flush de memoria ANTES de compactar (`memory_flush.py`; kill-switch `WORKSPACE_NO_MEMORY_FLUSH`) | transcript_path del payload, respaldo Y2b |
+| `session_start` | `SessionStart` | ① marcador de sesión + early-warning de secretos (`hooks/session_start.py`, gate `session_journal`) · ② **memoria de la pestaña** (memoria v1): el paquete de `memoria.paquete` (resumen + Vigente + notas + maleta + cómo guardar) en cada arranque, también al retomar y tras compactar; el dashboard del agente `--context` solo en arranque fresco y ya sin bloque de memoria (`WORKSPACE_MEMORIA_PAQUETE=1`) → additionalContext | dispatch (cfg del agente + `scripts.dashboard`), `memoria.py`, secret_scan, `WORKSPACE_WS`/`ZENITH_WS` |
+| `session_end` | `SessionEnd` | limpieza del cierre (`session_end.py`, gate `session_journal`) · revisión de skills pendiente para la próxima sesión, sin lanzar procesos (`skill_review.py`) · backup de transcript (`transcript_backup.py`) · memoria v1 sin IA: maleta, datos/preferencias a MEMORY.md y compactación (`memoria_cierre.py` → `memoria.al_cerrar`) | `memoria.py`, markers en `~/.claude/workspace/` |
+| `pre_compact` | `PreCompact` | flush de memoria ANTES de compactar: respaldo del transcript + maleta de la pestaña (`memory_flush.py`; kill-switch `WORKSPACE_NO_MEMORY_FLUSH`) | transcript_path del payload, respaldo Y2b |
 | `post_tool_write` | `PostToolUse` (matcher `Write\|Edit\|NotebookEdit`) | guidance de seguridad no-bloqueante (`security_guidance.py`) → additionalContext | tool_input del payload |
 | `pre_tool` / `post_tool` | `PreToolUse`/`PostToolUse` (matcher `*`) | telemetría en vivo (`telemetry.py` — solo metadata, jamás tool_input/response) | rastro N10 (`events.record`) |
 | `user_prompt` | `UserPromptSubmit` | — sin listeners en main. En la rama preservada `feat/agent-status`: re-estampar la tarea viva en `<brain>/STATE/now.json` (**status en vivo**) | status/now.json (extraído de main el 2026-06-26, commit 02eabc3) |
@@ -35,7 +35,7 @@ Comportamientos del ecosistema que HOY van por regla manual o rama aparte:
 - **Status en vivo (now.json)** — preservado completo en `feat/agent-status`
   (status.py + hooks/status_update.py + UI). Extraído de main.
 - **Inbox-on-boot del bus** — en `feat/inbox-on-boot` (session_start.py inyecta
-  los `msgs/` pendientes); en main aún es regla manual en el CLAUDE.md del agente.
+  los `msgs/` pendientes); en main aún es regla manual en el doc de identidad del agente (BRAIN.md/CLAUDE.md).
 
 ## 2 · Contrato de ciclo de vida neutral
 
@@ -82,15 +82,16 @@ behaviors=None, raw=None)` → `{"context": str, "ran": [behaviors]}`.
    texto neutral. Siguen amputables borrando el archivo.
 6. **Kill-switches respetados**: `WORKSPACE_NO_STATUS`, `WORKSPACE_NO_MSGS`,
    `WORKSPACE_NO_MEMORY_FLUSH` (en el listener), etc.
-7. **Seguridad**: nada del runner anuncia tools ni toca credenciales; la
-   destilación headless conserva el guard N6 (va por `skill_review.py`).
+7. **Seguridad**: nada del runner anuncia tools ni toca credenciales, y
+   ningún listener lanza un modelo: lo que hay que entender lo hace el agente
+   en su sesión visible.
 
 ### Comportamientos levantados a la capa neutral (1ª pasada)
 
 | Behavior | Qué hace | Estado |
 |---|---|---|
 | `listeners` | fan-out de `events.LISTENERS` (subprocess, gate, merge aditivo) | ✅ levantado (movido desde workspace_hook) |
-| `memory_context` | memoria de sesión: dashboard del agente `--context` en session_start fresco | ✅ levantado |
+| `memory_context` | memoria de la pestaña: `memoria.paquete` en session_start (los motores envueltos la reciben en su archivo de instrucciones vía `sessions_registry.session_doc_block`) + dashboard del agente `--context` en arranque fresco | ✅ levantado |
 | `status` | status en vivo `<brain>/STATE/now.json` (session_start "en sesión" sin pisar tarea vigente · user_prompt re-estampa · end/compact limpian; schema compatible con `feat/agent-status`) | ✅ levantado (neutral); para CC sigue OFF hasta mergear la rama de UI |
 | `inbox_on_boot` | msgs/ pendientes del bus → aviso 📨 en el arranque | ✅ levantado (neutral); para CC sigue OFF (rama `feat/inbox-on-boot`) |
 
@@ -99,7 +100,7 @@ behaviors=None, raw=None)` → `{"context": str, "ran": [behaviors]}`.
 - **memory_flush nativo** — hoy corre como listener subprocess en
   `pre_compact`; levantarlo a función del runner cuando otro motor tenga
   transcript compactable (enganche: `on_pre_compact`).
-- **skill_review / transcript_backup / journal** — ídem, listeners subprocess
+- **skill_review / transcript_backup / memoria_cierre** — ídem, listeners subprocess
   en `session_end`; portables ya vía `behaviors=("listeners",)` en cualquier
   motor cuyo adaptador llame `on_session_end` con `transcript_path` en el
   payload (el ingester neutral ya normaliza formatos — `neutral_transcript.py`).

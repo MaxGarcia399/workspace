@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # ════════════════════════════════════════════════════════════════════════════
 #  WORKSPACE — instalador per-máquina del harness.
-#  Cada socio lo corre UNA vez:   python3 install.py [max|fer|mau] [--dry-run]
+#  Cada socio lo corre UNA vez:   python3 install.py [--socio <nombre>] [--dry-run]
 #  Deja listos:
 #    · `workspace`  → puerta del harness (banner + menú de agentes)
 #    · un comando por agente (`zenith`, …) → abre ese agente directo
@@ -12,7 +12,7 @@
 #  Los scripts viven en los vaults sincronizados (WORKSPACE + cerebros); aquí solo
 #  se escribe lo específico de la máquina. Mac y Windows. Cero dependencias.
 # ════════════════════════════════════════════════════════════════════════════
-import os, re, sys, json, shlex, platform, stat
+import os, re, sys, json, shlex, platform, shutil, stat
 import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 
 WORKSPACE = os.path.dirname(os.path.abspath(__file__))
@@ -47,6 +47,12 @@ def win_python():
     exe = sys.executable or "python"
     if not IS_WIN:
         return exe
+    # Desde un entorno virtual (p. ej. el de una prueba en una carpeta temporal)
+    # se hornea el intérprete BASE: el venv puede desaparecer y llevarse los
+    # comandos del socio con él (2026-10-17).
+    base = getattr(sys, "_base_executable", "") or ""
+    if sys.prefix != getattr(sys, "base_prefix", sys.prefix) and base and os.path.isfile(base):
+        exe = base
     if _store_versioned(exe):
         alias = os.path.join(os.environ.get("LOCALAPPDATA", ""),
                              "Microsoft", "WindowsApps", "python.exe")
@@ -248,8 +254,10 @@ def obsidian_vaults():
     return [v.get("path") for v in (d.get("vaults", {}) or {}).values() if v.get("path")]
 
 
-def find_brain(name, cfg):
-    """Devuelve (ruta, persistir). persistir=True → guardar en paths.local.json."""
+def find_brain(name, cfg, ask=True):
+    """Devuelve (ruta, persistir). persistir=True → guardar en paths.local.json.
+    Solo pregunta la ruta como último recurso si `ask` y hay una terminal de
+    verdad: sin TTY (pipe, CI, el doctor de `workspace update`) nunca espera."""
     # Resolución declarada: el resolver CANÓNICO (Z20), el mismo del launcher —
     # override por máquina > registro por máquina > def committeada (rel. ROOT).
     import brain_resolver
@@ -268,13 +276,22 @@ def find_brain(name, cfg):
             cand = os.path.join(r, target)
             if os.path.isdir(cand):
                 return os.path.abspath(cand), True
+    if not ask or not _stdin_tty():
+        return "", False
     try:                                             # último recurso: preguntar
         ans = os.path.expanduser(input(f"  Pega la ruta de la carpeta '{target or name}': ").strip())
-    except EOFError:
+    except (EOFError, KeyboardInterrupt):
         ans = ""
     if ans and os.path.isdir(ans):
         return os.path.abspath(ans), True
     return "", False
+
+
+def _stdin_tty():
+    try:
+        return bool(sys.stdin) and sys.stdin.isatty()
+    except Exception:
+        return False
 
 
 def _within(path, *roots):
@@ -344,6 +361,51 @@ def write_machine_socio(socio):
         write_text(machine_socio_path(), socio)
 
 
+#: El socio genérico que se pone cuando nadie dijo uno («Crear agente» sin
+#: dueño, o «Cargar» un cerebro sin ningún dato). Sin ninguna sesión es un
+#: marcador, no un dueño: un socio declarado lo reemplaza — así se reparan los
+#: cerebros que el bug de agentes-N2 dejó en «owner».
+GENERIC_SOCIO = "owner"
+
+
+def socio_has_sessions(brain, socio):
+    """True si `STATE/sessions/<socio>/` tiene alguna sesión (un .md que no
+    sea README.md)."""
+    d = os.path.join(brain, "STATE", "sessions", socio)
+    try:
+        return any(n.endswith(".md") and n != "README.md"
+                   and os.path.isfile(os.path.join(d, n)) for n in os.listdir(d))
+    except OSError:
+        return False
+
+
+def brain_socio(brain):
+    """El socio que el cerebro YA declara (`.claude/socio.local`, sin espacios).
+    '' si no declara ninguno: no existe, está vacío o es el «owner» genérico sin
+    ninguna sesión (marcador reemplazable). None si existe pero no se puede
+    leer — ante la duda, tampoco se pisa (agentes-N2)."""
+    p = os.path.join(brain, ".claude", "socio.local")
+    if not os.path.lexists(p):
+        return ""
+    try:
+        with open(p, encoding="utf-8") as fh:
+            s = fh.read().strip()
+    except Exception:
+        return None
+    if s == GENERIC_SOCIO and not socio_has_sessions(brain, s):
+        return ""
+    return s
+
+
+def socio_remedy_cmd():
+    """El comando EXACTO para decirle a esta máquina quién eres: este Python y
+    este install.py con rutas completas (sirve desde cualquier carpeta). En
+    Windows lleva `& ` delante: PowerShell no ejecuta una ruta entre comillas
+    sin él. Solo llena el socio de los cerebros que no tienen uno."""
+    cmd = '"%s" "%s" --socio TU-NOMBRE' % (PY, os.path.join(WORKSPACE, "install.py"))
+    return ("& " + cmd) if IS_WIN else cmd
+
+
 # ── escritura (respeta --dry-run) ──
 def write_text(path, content):
     """Escritura ATÓMICA: tmp en el MISMO dir + os.replace (R3-F1). El viejo
@@ -372,18 +434,37 @@ def write_json(path, obj):
     write_text(path, json.dumps(obj, indent=2, ensure_ascii=False))
 
 
-def ensure_gitignore(brain, lines):
+def _gitignore_state(brain, lines):
+    """(ruta, contenido actual, líneas que faltan). Un .gitignore ilegible
+    LANZA (UnicodeDecodeError/OSError): quien llama decide, nunca se pisa."""
     gi = os.path.join(brain, ".gitignore")
     cur = open(gi, encoding="utf-8").read() if os.path.exists(gi) else ""
-    add = [ln for ln in lines if ln not in cur]
+    return gi, cur, [ln for ln in lines if ln not in cur]
+
+
+def gitignore_missing(brain, lines):
+    """Líneas de `lines` que el .gitignore del cerebro aún no trae (la misma
+    regla que aplica ensure_gitignore; la usa la migración de cerebros)."""
+    return _gitignore_state(brain, lines)[2]
+
+
+def ensure_gitignore(brain, lines):
+    gi, cur, add = _gitignore_state(brain, lines)
     if not add or DRY:
         if add:
             dry(f"agregaría a {gi}: {', '.join(add)}")
         return
-    with open(gi, "a", encoding="utf-8") as f:
+    # mismo fin de línea que el archivo (en Windows el modo texto metía CRLF en
+    # un .gitignore LF que viaja por sync a Mac); uno nuevo, LF
+    try:
+        with open(gi, "rb") as fh:
+            eol = "\r\n" if b"\r\n" in fh.read() else "\n"
+    except OSError:
+        eol = "\n"
+    with open(gi, "a", encoding="utf-8", newline="") as f:
         if cur and not cur.endswith("\n"):
-            f.write("\n")
-        f.write("\n".join(add) + "\n")
+            f.write(eol)
+        f.write(eol.join(add) + eol)
 
 
 # ── bloque `hooks` de un cerebro (lo comparte el doctor: escribe SOLO esto) ──
@@ -418,7 +499,12 @@ GITIGNORE_LINES = [".claude/settings.local.json", ".claude/socio.local",
                    ".claude/zenith-workspaces.json",
                    # N12: el sidecar .usage.json SÍ se versiona (conteo de
                    # equipo); su lock N8 es estado per-máquina → fuera de git
-                   "skills/**/.usage.json.lock*"]
+                   "skills/**/.usage.json.lock*",
+                   # revisión de skills (2026-10-16): la vista de la sesión
+                   # que el agente revisa al abrir — per-máquina, fuera de git
+                   ".claude/skill-review/",
+                   # memoria v1: candados y bandeja de notas — per-máquina
+                   ".claude/locks/", ".claude/memoria-entrada/"]
 
 
 def build_hooks(cfg, brain):
@@ -747,7 +833,16 @@ def configure_brain(name, cfg, brain, socio, apply_autonomy=False):
 
     write_json(spath, settings)
     ensure_gitignore(brain, GITIGNORE_LINES)
-    if socio:       # solo con --socio explícito (ver ask_socio)
+    # solo con --socio explícito (ver ask_socio). El socio que el cerebro YA
+    # declara manda (agentes-N2): --socio fija el de la MÁQUINA y solo llena el
+    # de cerebros sin uno — pisarlo escondía sus sesiones (p. ej. el agente de
+    # otra persona). El mismo socio se reescribe igual que siempre (inocuo) y
+    # el «owner» genérico sin sesiones se reemplaza (ver brain_socio).
+    prev = brain_socio(brain) if socio else ""
+    if socio and prev not in ("", socio):
+        say(f"{DIM}[{name}] el cerebro ya tiene su propio socio — se respeta "
+            f"(--socio solo fija el de esta máquina){R}")
+    elif socio:
         write_text(os.path.join(brain, ".claude", "socio.local"), socio)
         # carpetas de sesión + migración
         for d in (os.path.join(brain, "STATE", "sessions", socio),
@@ -814,6 +909,14 @@ def install_theme(brain, name):
     if theme_render is not None and theme_render.is_handmade(dst, HOME):
         ok(f"tema '{name}' editado a mano — se conserva (~/.claude/themes/{name}.json)")
         return name
+    # Lo AJENO no se pisa jamás: un tema TUYO que se llama igual que el agente
+    # (no lo generamos ni es copia de una fuente nuestra) se queda como está y
+    # el agente usa el tema por defecto de Claude.
+    if (theme_render.is_foreign(dst, HOME, [content] + theme_render.legacy_sources(
+            name, brain, HOME)) if theme_render is not None else os.path.lexists(dst)):
+        say(f"⚠ ya hay un tema '{name}' en ~/.claude/themes que no es de WORKSPACE "
+            f"— se conserva (el agente usa el tema por defecto)")
+        return ""
     write_text(dst, content)
     if theme_render is not None and not DRY:
         theme_render.mark_generated([(dst, content)], HOME)
@@ -900,10 +1003,245 @@ def global_writes_blocked(what="launchers"):
 
 
 # ── launchers ──
+#: Marca de los lanzadores de Workspace (2ª línea del script en ~/.local/bin).
+#: Lo que NO la lleva es de otro programa y el instalador jamás lo reemplaza: un
+#: agente llamado `claude` pisaba el symlink del instalador nativo de Claude Code
+#: (y `hermes` el del motor). La de la instalación anterior también es nuestra.
+LAUNCHER_MARK = "# WORKSPACE · comando"
+_LAUNCHER_MARKS = (LAUNCHER_MARK, "# %s · comando" % legacy.NAME)
+#: Los shims .cmd de Windows (win_cmd_shims) nunca llevaron marca: se reconocen
+#: por su forma exacta — `@echo off` + python sobre front.py/dispatch.py.
+_CMD_SHIM_RE = re.compile(r'@echo off\r?\n"[^"\r\n]+" "[^"\r\n]*[\\/](?:front|dispatch)\.py"'
+                          r'[^\r\n]*%\*\s*\Z')
+#: launcher_conflict(): el nombre es el comando del hub o el CLI de un motor.
+RESERVED = "reservado"
+#: launcher_conflict() en Windows: el nombre es un comando de PowerShell.
+POWERSHELL = "powershell"
+#: PowerShell da prioridad a una FUNCIÓN sobre sus cmdlets y sus funciones: la
+#: `function <nombre>` de un agente taparía Get-Date o, peor, `prompt` (se llama
+#: en cada renglón). shutil.which no los ve: no son archivos. Lista EXACTA de
+#: los cmdlets y funciones que traen PowerShell 5.1 y 7 en sus módulos base
+#: (sin consultar a PowerShell: sería lento). Un nombre que solo se PARECE
+#: (test-bot, resume-coach) no está: no tapa nada y conserva su comando. Los
+#: alias (ls, cd…) no cuentan: PowerShell los resuelve antes que una función.
+_PS_COMMANDS = frozenset((
+    # funciones de la sesión
+    "clear-host get-verb help importsystemmodules mkdir more oss pause prompt "
+    "psconsolehostreadline tabexpansion2 "
+    # Microsoft.PowerShell.Core
+    "add-history clear-history connect-pssession debug-job "
+    "disable-experimentalfeature disable-psremoting disable-pssessionconfiguration "
+    "disconnect-pssession enable-experimentalfeature enable-psremoting "
+    "enable-pssessionconfiguration enter-pshostprocess enter-pssession "
+    "exit-pshostprocess exit-pssession export-modulemember foreach-object "
+    "get-command get-experimentalfeature get-help get-history get-job get-module "
+    "get-pshostprocessinfo get-pssession get-pssessioncapability "
+    "get-pssessionconfiguration get-pssubsystem import-module invoke-command "
+    "invoke-history new-module new-modulemanifest new-psrolecapabilityfile "
+    "new-pssession new-pssessionconfigurationfile new-pssessionoption "
+    "new-pstransportoption out-default out-host out-null receive-job "
+    "receive-pssession register-argumentcompleter register-pssessionconfiguration "
+    "remove-job remove-module remove-pssession resume-job save-help set-psdebug "
+    "set-pssessionconfiguration set-strictmode start-job stop-job suspend-job "
+    "test-modulemanifest test-pssessionconfigurationfile "
+    "unregister-pssessionconfiguration update-help wait-job where-object "
+    # Microsoft.PowerShell.Utility
+    "add-member add-type clear-variable compare-object convert-string "
+    "convertfrom-csv convertfrom-json convertfrom-markdown convertfrom-sddlstring "
+    "convertfrom-string convertfrom-stringdata convertto-csv convertto-html "
+    "convertto-json convertto-xml debug-runspace disable-psbreakpoint "
+    "disable-runspacedebug enable-psbreakpoint enable-runspacedebug export-alias "
+    "export-clixml export-csv export-formatdata export-pssession format-custom "
+    "format-hex format-list format-table format-wide get-alias get-culture "
+    "get-date get-error get-event get-eventsubscriber get-filehash get-formatdata "
+    "get-host get-markdownoption get-member get-psbreakpoint get-pscallstack "
+    "get-random get-runspace get-runspacedebug get-securerandom get-tracesource "
+    "get-typedata get-uiculture get-unique get-uptime get-variable group-object "
+    "import-alias import-clixml import-csv import-localizeddata "
+    "import-powershelldatafile import-pssession invoke-expression "
+    "invoke-restmethod invoke-webrequest join-string measure-command "
+    "measure-object new-alias new-event new-guid new-object new-temporaryfile "
+    "new-timespan new-variable out-file out-gridview out-printer out-string "
+    "read-host register-engineevent register-objectevent remove-alias "
+    "remove-event remove-psbreakpoint remove-typedata remove-variable "
+    "select-object select-string select-xml send-mailmessage set-alias set-date "
+    "set-markdownoption set-psbreakpoint set-tracesource set-variable show-command "
+    "show-markdown sort-object start-sleep tee-object test-json trace-command "
+    "unblock-file unregister-event update-formatdata update-list update-typedata "
+    "wait-debugger wait-event write-debug write-error write-host write-information "
+    "write-output write-progress write-verbose write-warning "
+    # Microsoft.PowerShell.Management
+    "add-computer add-content checkpoint-computer clear-content clear-eventlog "
+    "clear-item clear-itemproperty clear-recyclebin complete-transaction "
+    "convert-path copy-item copy-itemproperty debug-process "
+    "disable-computerrestore enable-computerrestore get-childitem get-clipboard "
+    "get-computerinfo get-computerrestorepoint get-content get-controlpanelitem "
+    "get-eventlog get-hotfix get-item get-itemproperty get-itempropertyvalue "
+    "get-location get-process get-psdrive get-psprovider get-service "
+    "get-timezone get-transaction get-wmiobject invoke-item invoke-wmimethod "
+    "join-path limit-eventlog move-item move-itemproperty new-eventlog new-item "
+    "new-itemproperty new-psdrive new-service new-webserviceproxy pop-location "
+    "push-location register-wmievent remove-computer remove-eventlog remove-item "
+    "remove-itemproperty remove-psdrive remove-service remove-wmiobject "
+    "rename-computer rename-item rename-itemproperty "
+    "reset-computermachinepassword resolve-path restart-computer restart-service "
+    "restore-computer resume-service set-clipboard set-content set-item "
+    "set-itemproperty set-location set-service set-timezone set-wmiinstance "
+    "show-controlpanelitem show-eventlog split-path start-process start-service "
+    "start-transaction stop-computer stop-process stop-service suspend-service "
+    "test-computersecurechannel test-connection test-path undo-transaction "
+    "use-transaction wait-process write-eventlog "
+    # Security · Host · Diagnostics · Archive · PSReadLine · CimCmdlets
+    "convertfrom-securestring convertto-securestring get-acl "
+    "get-authenticodesignature get-cmsmessage get-credential get-executionpolicy "
+    "get-pfxcertificate new-filecatalog protect-cmsmessage set-acl "
+    "set-authenticodesignature set-executionpolicy test-filecatalog "
+    "unprotect-cmsmessage start-transcript stop-transcript export-counter "
+    "get-counter get-winevent import-counter new-winevent compress-archive "
+    "expand-archive get-psreadlinekeyhandler get-psreadlineoption "
+    "remove-psreadlinekeyhandler set-psreadlinekeyhandler set-psreadlineoption "
+    "get-cimassociatedinstance get-cimclass get-ciminstance get-cimsession "
+    "invoke-cimmethod new-ciminstance new-cimsession new-cimsessionoption "
+    "register-cimindicationevent remove-ciminstance remove-cimsession "
+    "set-ciminstance "
+    # PowerShellGet · PackageManagement
+    "find-module find-package find-packageprovider find-script get-installedmodule "
+    "get-package get-packageprovider get-packagesource get-psrepository "
+    "import-packageprovider install-module install-package install-packageprovider "
+    "install-script publish-module register-packagesource register-psrepository "
+    "save-module save-package set-packagesource set-psrepository uninstall-module "
+    "uninstall-package unregister-packagesource unregister-psrepository "
+    "update-module").split())
+
+
+def is_workspace_launcher(path):
+    """True si `path` es un lanzador que escribió Workspace (o la instalación
+    anterior). Solo lee el principio del archivo; un symlink jamás es nuestro
+    (el instalador nativo de Claude Code deja uno en ~/.local/bin)."""
+    try:
+        if os.path.islink(path) or not os.path.isfile(path):
+            return False
+        with open(path, "rb") as fh:
+            head = fh.read(4096).decode("utf-8", "replace")
+    except OSError:
+        return False
+    if any(ln.startswith(_LAUNCHER_MARKS) for ln in head.splitlines()[:3]):
+        return True
+    return bool(_CMD_SHIM_RE.match(head))
+
+
+def launcher_conflict(name):
+    """'' si `name` puede ser el comando de un agente (escribir o refrescar su
+    lanzador). Si no, qué lo ocupa: RESERVED (el comando del hub o el CLI de un
+    motor, instalado o no — su instalador lo pondría donde el lanzador lo tapa),
+    POWERSHELL (Windows: un comando de PowerShell, que la función del agente
+    taparía), un archivo AJENO en su lugar de ~/.local/bin, u otro programa del
+    PATH con ese nombre (git, python…) que el lanzador taparía: ~/.local/bin va
+    primero. Un lanzador NUESTRO que ya está en su lugar se puede refrescar."""
+    n = (name or "").strip().lower()
+    if n in ("workspace",) + ENGINE_CLIS:
+        return RESERVED
+    if IS_WIN and n in _PS_COMMANDS:
+        return POWERSHELL
+    own = os.path.join(HOME, ".local", "bin", n + (".cmd" if IS_WIN else ""))
+    if os.path.lexists(own):
+        return "" if is_workspace_launcher(own) else own
+    hit = shutil.which(n)
+    return hit if hit and not is_workspace_launcher(hit) else ""
+
+
+def conflict_text(name, hit):
+    """El choque de launcher_conflict en palabras (instalador y carga)."""
+    if hit == RESERVED:
+        return f"«{name}» es el comando de WORKSPACE o de un motor"
+    if hit == POWERSHELL:
+        return f"«{name}» es un comando de PowerShell"
+    return f"«{name}» ya es otro programa ({hit})"
+
+
+def stale_launcher(name):
+    """Lo que queda del comando que una versión ANTERIOR le puso a `name` y que
+    hoy tapa a un motor o a PowerShell (RESERVED/POWERSHELL): su lanzador
+    NUESTRO en ~/.local/bin (el .cmd en Windows) y, en Windows, su función en
+    workspace-cmds.ps1. [] si no queda nada nuestro. Jamás el hub."""
+    n = (name or "").strip().lower()
+    if n == "workspace" or launcher_conflict(n) not in (RESERVED, POWERSHELL):
+        return []
+    out = []
+    own = os.path.join(HOME, ".local", "bin", n + (".cmd" if IS_WIN else ""))
+    if is_workspace_launcher(own):
+        out.append(own)
+    if IS_WIN:
+        ps1 = os.path.join(HOME, ".claude", "workspace-cmds.ps1")
+        try:
+            with open(ps1, encoding="utf-8") as fh:
+                if any(ln.startswith(f"function {n} ") for ln in fh):
+                    out.append(ps1)
+        except OSError:
+            pass
+    return out
+
+
+def retire_launcher(name):
+    """Retira lo de stale_launcher(name): borra el lanzador viejo (solo si es
+    NUESTRO) y saca su función del archivo de PowerShell de Workspace, para que
+    el motor o el comando de PowerShell vuelvan a responder. El agente sigue
+    abriéndose desde `workspace`. Respeta --dry-run; falla-suave (lo que no se
+    pudo retirar se avisa y queda para el doctor). Devuelve lo retirado."""
+    n = (name or "").strip().lower()
+    hechos = []
+    for p in stale_launcher(n):
+        if DRY:
+            dry(f"retiraría el comando viejo `{n}` ({p})")
+            continue
+        try:
+            if p.endswith(".ps1"):
+                with open(p, encoding="utf-8") as fh:
+                    lineas = fh.read().splitlines()
+                write_text(p, "".join(ln + "\n" for ln in lineas
+                                      if not ln.startswith(f"function {n} ")))
+            else:
+                os.remove(p)
+            hechos.append(p)
+        except OSError as e:
+            say(f"⚠ no pude retirar el comando viejo `{n}` ({p}): {e}")
+    if hechos:
+        ok(f"comando viejo `{n}` retirado: tapaba a otro programa ({', '.join(hechos)})")
+    return hechos
+
+
+def _launcher_names(agent_names):
+    """(nombres que SÍ llevan comando, [(nombre, qué lo ocupa)]). Un agente cuyo
+    nombre choca (launcher_conflict) se queda sin lanzador —se abre desde
+    `workspace`— en vez de tapar ese programa en la terminal. Avisa cada uno y
+    retira el lanzador viejo que una versión anterior le había puesto. También
+    el de un agente que YA NO está registrado con nombre de motor: quitar un
+    agente no borra su comando, y ese seguiría tapando al motor para siempre."""
+    keep, skipped = [], []
+    for name in agent_names:
+        hit = launcher_conflict(name)
+        if hit:
+            skipped.append((name, hit))
+            say(f"⚠ `{name}` queda sin comando en la terminal: {conflict_text(name, hit)} "
+                f"— ábrelo desde `workspace`")
+            retire_launcher(name)
+        else:
+            keep.append(name)
+    for name in ENGINE_CLIS:                  # huérfanos (solo si son NUESTROS)
+        if name not in agent_names:
+            retire_launcher(name)
+    return keep, skipped
+
+
 def launcher_unix(name, script, lead=""):
     path = os.path.join(HOME, ".local", "bin", name)
+    # lo AJENO no se pisa jamás (p. ej. el symlink `claude` del instalador nativo)
+    if os.path.lexists(path) and not is_workspace_launcher(path):
+        say(f"⚠ no instalo el comando `{name}`: {path} ya existe y no es de "
+            f"WORKSPACE — se conserva")
+        return False
     body = f'''#!/bin/bash
-# WORKSPACE · comando `{name}`
+{LAUNCHER_MARK} `{name}`
 PY="{PY}"
 exec "$PY" "{script}" {lead}"$@"
 '''
@@ -911,6 +1249,43 @@ exec "$PY" "{script}" {lead}"$@"
     if not DRY:
         os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
     ok(f"comando `{name}` instalado ({path})")
+    return True
+
+
+def _os_profile_dir():
+    """Carpeta de usuario REAL según Windows (FOLDERID_Profile), sin mirar
+    HOME/USERPROFILE. '' fuera de Windows o si la API falla."""
+    if os.name != "nt":
+        return ""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _GUID(ctypes.Structure):
+            _fields_ = [("a", wintypes.DWORD), ("b", wintypes.WORD), ("c", wintypes.WORD),
+                        ("d", ctypes.c_ubyte * 8)]
+        # FOLDERID_Profile {5E6C858F-0E22-4760-9AFE-EA3317B67173}
+        fid = _GUID(0x5E6C858F, 0x0E22, 0x4760,
+                    (ctypes.c_ubyte * 8)(0x9A, 0xFE, 0xEA, 0x33, 0x17, 0xB6, 0x71, 0x73))
+        out = ctypes.c_wchar_p()
+        if ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(fid), 0, None,
+                                                      ctypes.byref(out)) != 0:
+            return ""
+        try:
+            return out.value or ""
+        finally:
+            ctypes.windll.ole32.CoTaskMemFree(out)
+    except Exception:
+        return ""
+
+
+def _home_de_prueba():
+    """True si HOME no es la carpeta REAL del socio: lo parchó un test, o TODO el
+    proceso arrancó con HOME/USERPROFILE temporales (tests/e2e). Ahí no se le
+    pregunta nada a PowerShell: su $PROFILE y su ExecutionPolicy son los reales."""
+    return (os.path.normcase(HOME) != os.path.normcase(_REAL_HOME)
+            or os.path.normcase(os.path.realpath(HOME))
+            != os.path.normcase(os.path.realpath(_os_profile_dir() or HOME)))
 
 
 def _ps_profile():
@@ -925,7 +1300,13 @@ def _ps_profile():
     # PowerShell del socio la linea `. "<temp>/workspace-cmds.ps1"`. Al borrarse el
     # temporal, CADA pestaña nueva de su terminal arrancaba con un error y sin
     # menu. Paso de verdad el 2026-09-21.
-    if os.path.normcase(HOME) != os.path.normcase(_REAL_HOME):
+    # 2026-10-16: tambien si TODO el proceso arranco con HOME/USERPROFILE
+    # temporales (tests/e2e/escenarios_motores.py): ahi HOME == _REAL_HOME y el
+    # guard de arriba no veia nada, pero PowerShell resuelve $PROFILE por la
+    # carpeta Documentos REAL → la linea `. "<temp>/workspace-cmds.ps1"` quedo
+    # en el perfil real del socio y cada PowerShell nuevo arrancaba con error. Se compara
+    # contra la carpeta de usuario que reporta Windows, que no lee variables.
+    if _home_de_prueba():
         return os.path.join(HOME, "Documents", "WindowsPowerShell",
                             "Microsoft.PowerShell_profile.ps1")
     import subprocess as _sp
@@ -985,6 +1366,137 @@ def _ps_set_block(marker, block, legacy):
     return prof
 
 
+# ── ExecutionPolicy de PowerShell (solo Windows) ─────────────────────────────
+# Windows trae ExecutionPolicy=Restricted → PowerShell NO carga el $PROFILE, y ahí
+# viven el dot-source de workspace-cmds y el greeter (auto-open del menú). Síntoma
+# del cliente: 'UnauthorizedAccess' en CADA terminal y el menú nunca abre (los shims
+# .cmd sí corren: no pasan por el profile). Mac/Linux no tienen esta traba.
+#
+# Dos trampas que esto esquiva (las dos rompían la primera versión del fix):
+#  1. BYPASS HEREDADO. El instalador del cliente corre `powershell -ExecutionPolicy
+#     Bypass -File setup.ps1`; ese Bypass viaja a los procesos hijos en la env var
+#     PSExecutionPolicyPreference. Un PowerShell hijo reporta effective=Bypass ("todo
+#     bien"), pero ese Bypass muere con el instalador: la terminal siguiente vuelve a
+#     Restricted. Por eso el hijo arranca SIN esa var y se decide por los scopes
+#     PERSISTENTES (Process se ignora).
+#  2. DOS MOTORES. Windows PowerShell 5.1 y PowerShell 7 (pwsh) guardan su policy
+#     CurrentUser por separado → se revisa/ajusta cada motor instalado.
+_PS_ENGINES = (("powershell", "Windows PowerShell"), ("pwsh", "PowerShell 7"))
+_EP_ALLOW = {"remotesigned", "unrestricted", "bypass"}   # corren scripts locales sin firma
+
+
+def _ps_eval(exe, cmd):
+    """Corre `cmd` en el motor `exe`; stdout stripped, '' si falla o no está
+    instalado. El hijo arranca SIN PSExecutionPolicyPreference → ve la policy
+    PERSISTENTE (la de una terminal nueva), no un Bypass heredado del instalador.
+    HERMÉTICO: bajo un HOME de test no spawnea nada (mismo guard que _ps_profile,
+    también si el proceso entero arrancó con un HOME temporal — Greptile 2026-10-17)."""
+    if _home_de_prueba():
+        return ""
+    import subprocess as _sp
+    env = {k: v for k, v in os.environ.items()
+           if k.upper() != "PSEXECUTIONPOLICYPREFERENCE"}
+    try:
+        r = _sp.run([exe, "-NoProfile", "-Command", cmd], capture_output=True,
+                    text=True, encoding="utf-8", errors="replace", timeout=15,
+                    env=env)
+    except Exception:
+        return ""
+    return (r.stdout or "").strip() if r.returncode == 0 else ""
+
+
+def _ps_policy_list(exe):
+    """{scope: policy} de `Get-ExecutionPolicy -List` en el motor `exe`. {} si el
+    motor no está instalado (o bajo HOME de test)."""
+    out = _ps_eval(exe, "Get-ExecutionPolicy -List | ForEach-Object "
+                        "{ \"$($_.Scope)=$($_.ExecutionPolicy)\" }")
+    res = {}
+    for line in out.splitlines():
+        if "=" in line:
+            k, v = line.split("=", 1)
+            res[k.strip()] = v.strip()
+    return res
+
+
+def _execution_policy_action(scopes):
+    """PURO (sin I/O → testeable). Decide con los scopes PERSISTENTES; Process se
+    ignora a propósito (es efímero: muere con el proceso que lo puso).
+      ('ok', pol)       ya corre scripts locales → nada que hacer.
+      ('blocked', pol)  una GPO (MachinePolicy/UserPolicy) manda y es restrictiva →
+                        CurrentUser NO puede ganar; necesita TI/admin.
+      ('respect', pol)  AllSigned puesto a propósito → no se debilita en silencio.
+      ('set', pol)      default de fábrica (Restricted/Undefined) → CurrentUser a
+                        RemoteSigned."""
+    def first(*names):
+        for n in names:
+            v = (scopes.get(n) or "").strip().lower()
+            if v and v != "undefined":
+                return v
+        return ""
+    gpo = first("MachinePolicy", "UserPolicy")
+    if gpo:
+        return ("ok", gpo) if gpo in _EP_ALLOW else ("blocked", gpo)
+    pol = first("CurrentUser", "LocalMachine") or "restricted"   # default Windows cliente
+    if pol in _EP_ALLOW:
+        return ("ok", pol)
+    if pol == "allsigned":
+        return ("respect", pol)
+    return ("set", pol)
+
+
+def _set_execution_policy_currentuser(exe, policy="RemoteSigned"):
+    """Set-ExecutionPolicy -Scope CurrentUser (admin-free) en el motor `exe` y lo
+    VERIFICA releyendo ese scope: decide el estado real, no el código de salida."""
+    out = _ps_eval(exe, f"Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy "
+                        f"{policy} -Force -ErrorAction SilentlyContinue; "
+                        f"Get-ExecutionPolicy -Scope CurrentUser")
+    return bool(out) and out.splitlines()[-1].strip().lower() == policy.lower()
+
+
+def execution_policy_findings():
+    """[(exe, label, action, pol)] de cada PowerShell instalado cuya policy NO deja
+    cargar el $PROFILE (action != 'ok'). SOLO LECTURA: lo usan ensure (para actuar)
+    y el doctor (para diagnosticar — el update repara vía el doctor, así que si solo
+    lo viera install, `workspace update` nunca lo arreglaría). [] fuera de Windows,
+    sin PowerShell o bajo HOME de test."""
+    if not IS_WIN:
+        return []
+    out = []
+    for exe, label in _PS_ENGINES:
+        scopes = _ps_policy_list(exe)
+        if not scopes:
+            continue                      # motor no instalado (o HOME de test)
+        action, pol = _execution_policy_action(scopes)
+        if action != "ok":
+            out.append((exe, label, action, pol))
+    return out
+
+
+def ensure_execution_policy_windows():
+    """Deja que el $PROFILE (comandos + greeter) cargue en cada PowerShell instalado:
+    sube SOLO el scope CurrentUser a RemoteSigned (admin-free; el balance que
+    recomienda Microsoft: corre scripts locales, exige firma a los descargados).
+    JAMÁS toca LocalMachine. GPO restrictiva → lo dice (TI). AllSigned puesto a
+    propósito → lo respeta y lo dice. Idempotente, falla-suave."""
+    for exe, label, action, pol in execution_policy_findings():
+        if action == "blocked":
+            say(f"{DIM}{label}: la política de ejecución la fija tu organización "
+                f"(GPO = {pol}) y el menú no puede autoarrancar. Pídele a TI que la "
+                f"ponga en RemoteSigned.{R}")
+        elif action == "respect":
+            say(f"{DIM}{label}: tienes ExecutionPolicy=AllSigned (puesta a propósito); "
+                f"no la cambio. Para que el menú autoarranque:  "
+                f"Set-ExecutionPolicy -Scope CurrentUser RemoteSigned{R}")
+        elif DRY:
+            dry(f"{label}: subiría ExecutionPolicy (CurrentUser) de {pol} a RemoteSigned")
+        elif _set_execution_policy_currentuser(exe):
+            ok(f"{label}: ExecutionPolicy (CurrentUser) {pol} → RemoteSigned — tu "
+               f"$PROFILE ya carga; abre una terminal nueva")
+        else:
+            say(f"{DIM}{label}: no pude ajustar la ExecutionPolicy. Córrelo tú (sin "
+                f"admin):  Set-ExecutionPolicy -Scope CurrentUser RemoteSigned{R}")
+
+
 def win_cmd_shims(agents):
     """B3 · shims `.cmd` en ~/.local/bin (donde ya vive claude.exe, ya en PATH) para
     que `workspace` y `<agente>` funcionen en CUALQUIER shell (cmd.exe, terminal de VS
@@ -1001,24 +1513,82 @@ def win_cmd_shims(agents):
         tail = "".join(f' "{a}"' if (" " in a) else f" {a}" for a in args)
         return f'@echo off\n"{PY}" "{target}"{tail} %*\n'
 
-    write_text(os.path.join(bindir, "workspace.cmd"), shim(front))
-    write_text(os.path.join(bindir, "workspace.cmd"), shim(front))      # alias
+    refused = []
+
+    def put(path, body):
+        # lo AJENO no se pisa jamás (mismo criterio que launcher_unix) y se
+        # devuelve: quien llama no puede dar el comando por instalado
+        if os.path.lexists(path) and not is_workspace_launcher(path):
+            say(f"⚠ no instalo {path}: ya existe y no es de WORKSPACE — se conserva")
+            if path not in refused:
+                refused.append(path)
+            return
+        write_text(path, body)
+
+    put(os.path.join(bindir, "workspace.cmd"), shim(front))
+    put(os.path.join(bindir, "workspace.cmd"), shim(front))      # alias
     for name in agents:
-        write_text(os.path.join(bindir, f"{name}.cmd"), shim(disp, name))
+        put(os.path.join(bindir, f"{name}.cmd"), shim(disp, name))
     ok(f"shims .cmd para cmd.exe/VS Code/PowerShell: {bindir} "
        f"(workspace + workspace + {len(agents)} agente(s))")
+    # memoria v1 (2026-10-17): los agentes guardan memoria con `workspace
+    # memoria nota …` desde SU terminal; la de Claude Code en Windows es Git
+    # Bash, que no ejecuta `.cmd` sin la extensión → shim sh sin extensión.
+    if not DRY:
+        posix = lambda p: p.replace("\\", "/")
+        sh = os.path.join(bindir, "workspace")
+        try:
+            if os.path.lexists(sh) and not is_workspace_launcher(sh):
+                # lo AJENO no se pisa jamás (mismo criterio que put)
+                raise OSError("ya existe y no es de WORKSPACE — se conserva")
+            os.makedirs(bindir, exist_ok=True)
+            with open(sh, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write('#!/bin/sh\n# WORKSPACE · comando workspace para Git Bash\n'
+                         'exec "%s" "%s" "$@"\n' % (posix(PY), posix(front)))
+            ok(f"shim sh para Git Bash: {sh}")
+        except OSError as e:
+            say(f"{DIM}No pude escribir {sh} ({e}); en Git Bash usa workspace.cmd{R}")
+    return refused
+
+
+def _ps_cmds_existentes(p):
+    """Nombres de agente con función en el workspace-cmds.ps1 actual (sin
+    `workspace`), solo si su agente sigue existiendo (registrado o del repo)."""
+    try:
+        with open(p, encoding="utf-8") as fh:
+            nombres = re.findall(r"^function ([a-z0-9][a-z0-9_-]*) \{", fh.read(), re.M)
+    except OSError:
+        return []
+    vivos = set()
+    try:
+        import agentsreg
+        vivos = {a["name"] for a in agentsreg.agents() if os.path.isdir(a.get("brain") or "")}
+    except Exception:
+        pass
+    repo = os.path.join(WORKSPACE, "agents")
+    return [n for n in nombres if n != "workspace"
+            and (n in vivos or os.path.isfile(os.path.join(repo, n, "agent.json")))]
 
 
 def launchers_windows(agents):
+    # El $PROFILE no carga con policy Restricted (default de Windows) → sin esto el
+    # dot-source y el greeter que escribimos abajo darían 'UnauthorizedAccess' y el
+    # menú nunca abriría. Subir CurrentUser a RemoteSigned es la precondición.
+    ensure_execution_policy_windows()
+    agents, skipped = _launcher_names(agents)    # una función PS taparía ese programa
     lines = ["# WORKSPACE · comandos (dot-source desde tu $PROFILE)"]
     front = os.path.join(WORKSPACE, "front.py")
     disp = os.path.join(WORKSPACE, "dispatch.py")
     # `workspace` es el comando; `workspace` queda como ALIAS permanente (memoria
     # muscular del equipo + todo lo que ya lo invoca: greeter viejo, docs, hooks).
     lines.append(f'function workspace {{ & "{PY}" "{front}" @args }}')
-    for name in agents:
-        lines.append(f'function {name} {{ & "{PY}" "{disp}" {name} @args }}')
     p = os.path.join(HOME, ".claude", "workspace-cmds.ps1")
+    # Cargar o crear UN agente llama aquí solo con ese nombre: los comandos de
+    # los demás agentes que ya estaban se conservan (antes se borraban), salvo
+    # los que hoy taparían otro programa (launcher_conflict).
+    existentes = [n for n in _ps_cmds_existentes(p) if not launcher_conflict(n)]
+    for name in list(dict.fromkeys(list(agents) + existentes)):
+        lines.append(f'function {name} {{ & "{PY}" "{disp}" {name} @args }}')
     write_text(p, "\n".join(lines) + "\n")
     ok(f"comandos PowerShell escritos: {p}")
     # auto dot-source en el $PROFILE (idempotente; dedupe de líneas viejas sin marcar)
@@ -1030,7 +1600,9 @@ def launchers_windows(agents):
         say(f"{DIM}Si no, agrega a tu $PROFILE:  . \"{p}\"{R}")
     # B3 · ADEMÁS de las funciones PS: shims `.cmd` en PATH (independientes del
     # $PROFILE y de la execution policy → funcionan en TODA shell).
-    win_cmd_shims(agents)
+    for p in win_cmd_shims(agents) or []:     # .cmd ajeno que se conservó
+        skipped.append((os.path.basename(p)[:-len(".cmd")], p))
+    return skipped
 
 
 PATH_MARK = "# WORKSPACE · PATH (~/.local/bin)"
@@ -1053,17 +1625,26 @@ def ensure_path_zshrc():
 
 
 def install_launchers(agent_names):
+    """`workspace` + un comando por agente. Devuelve [(nombre, qué lo ocupa)]
+    de los comandos que NO quedaron instalados: el agente cuyo nombre choca con
+    otro programa (ver _launcher_names) y el que encontró un archivo ajeno en
+    su lugar — también el del hub (`workspace`)."""
     if global_writes_blocked("shims/launchers"):
-        return
+        return []
     if IS_WIN:
-        launchers_windows(agent_names)
-        return
-    launcher_unix("workspace", os.path.join(WORKSPACE, "front.py"))
-    for name in agent_names:
-        launcher_unix(name, os.path.join(WORKSPACE, "dispatch.py"), lead=f"{name} ")
+        return launchers_windows(agent_names)
     bindir = os.path.join(HOME, ".local", "bin")
+    skipped = []
+    if not launcher_unix("workspace", os.path.join(WORKSPACE, "front.py")):
+        skipped.append(("workspace", os.path.join(bindir, "workspace")))
+    names, otros = _launcher_names(agent_names)
+    skipped += otros
+    for name in names:
+        if not launcher_unix(name, os.path.join(WORKSPACE, "dispatch.py"), lead=f"{name} "):
+            skipped.append((name, os.path.join(bindir, name)))
     if bindir not in os.environ.get("PATH", "").split(os.pathsep):
         ensure_path_zshrc()
+    return skipped
 
 
 # Greeter de Windows (versionado: subir vN cuando cambie el bloque → install/doctor
@@ -1072,15 +1653,27 @@ def install_launchers(agent_names):
 # VS Code, pwsh), no solo Windows Terminal; un $PROFILE cargado por un script/pipe no
 # es UserInteractive y no lanza el menú. Al volver del menú se mandan los OSC 110/111/112
 # para que la terminal no quede teñida por el tema del agente.
-WIN_GREETER_MARK = "# WORKSPACE-greeter v3"
+#: v4 (2026-10-17): UserInteractive es True en CUALQUIER proceso de escritorio,
+#: también en el PowerShell oculto con el que un motor corre un comando
+#: (Antigravity: `powershell -Command …` carga el $PROFILE). Ahí el menú se
+#: quedaba esperando una tecla y cada `workspace memoria nota` tardaba minutos.
+#: Ahora no abre si la entrada o la salida están redirigidas o si PowerShell
+#: vino a correr un comando o un archivo (-Command/-File/-EncodedCommand/-NonInteractive).
+_WIN_GREETER_GUARD = (
+    'if ([Environment]::UserInteractive '
+    '-and -not [Console]::IsInputRedirected -and -not [Console]::IsOutputRedirected '
+    "-and -not ([Environment]::GetCommandLineArgs() | Where-Object { $_ -match "
+    "'^[-/](c|co|com|comm|comma|comman|command|f|fi|fil|file|ec|encodedcommand|noni|noninteractive)$' }) "
+    '-and -not $env:WORKSPACE_GREETER -and -not $env:WORKSPACE_NO_GREETER '
+    '-and (Get-Command workspace -ErrorAction SilentlyContinue)) ')
+WIN_GREETER_MARK = "# WORKSPACE-greeter v4"
 WIN_GREETER_BLOCK = (
-    '# WORKSPACE-greeter v3 — menú al abrir terminal, cualquier consola interactiva '
+    '# WORKSPACE-greeter v4 — menú al abrir terminal, cualquier consola interactiva '
     '(opt-out: $env:WORKSPACE_NO_GREETER=1; el guard WORKSPACE_GREETER se setea solo '
     'mientras corre workspace y se QUITA en finally, para NO heredarlo a terminales '
-    'abiertas desde una sesion de Workspace — si no, su greeter nunca dispararia)\n'
-    'if ([Environment]::UserInteractive '
-    '-and -not $env:WORKSPACE_GREETER -and -not $env:WORKSPACE_NO_GREETER '
-    '-and (Get-Command workspace -ErrorAction SilentlyContinue)) '
+    'abiertas desde una sesion de Workspace — si no, su greeter nunca dispararia; '
+    'no abre en un PowerShell que solo corre un comando)\n'
+    + _WIN_GREETER_GUARD +
     '{ try { $env:WORKSPACE_GREETER="1"; workspace } '
     'finally { Remove-Item Env:WORKSPACE_GREETER -ErrorAction SilentlyContinue }; '
     'Write-Host -NoNewline "$([char]27)]110$([char]7)$([char]27)]111$([char]7)$([char]27)]112$([char]7)" }')
@@ -1103,23 +1696,77 @@ fi
 """
 
 
+def _autostart_wanted(full_now):
+    """¿El greeter que deja install abre el menú? La preferencia GUARDADA
+    (ui.autostart) manda; sin preferencia se conserva lo que ya hay (un
+    greeter que abre el menú sigue abriéndolo) y una instalación nueva sigue
+    el default del ajuste: solo con el comando."""
+    try:
+        import settings
+        v = settings.get_stored("ui.autostart")
+        if isinstance(v, bool):
+            return v
+    except Exception:
+        pass
+    return bool(full_now)
+
+
+def _win_greeter_full(cur):
+    """¿El $PROFILE trae hoy un greeter que abre el menú (no el recordatorio
+    de «autostart OFF»)? Cualquier versión del bloque cuenta."""
+    heads = [ln for ln in (cur or "").splitlines()
+             if "WORKSPACE-greeter" in ln and ln.lstrip().startswith("#")]
+    return bool(heads) and not any("autostart OFF" in ln for ln in heads)
+
+
+def _zsh_greeter_full(cur):
+    """¿El ~/.zshrc trae hoy un greeter que abre el menú (no el recordatorio de
+    «autostart OFF»)? Espejo de _win_greeter_full; cualquier versión cuenta."""
+    heads = [ln for ln in (cur or "").splitlines()
+             if GREETER_MARK in ln and ln.lstrip().startswith("#")]
+    return bool(heads) and not any("autostart OFF" in ln for ln in heads)
+
+
 def install_greeter():
     """Al abrir una terminal, muestra el menú de WORKSPACE (agentes o terminal normal).
-    Idempotente; se desactiva con WORKSPACE_NO_GREETER=1 o borrando el bloque."""
+    Idempotente; se desactiva con WORKSPACE_NO_GREETER=1 o borrando el bloque.
+    Respeta ui.autostart: reinstalar o actualizar jamás vuelve a encender el
+    autoabrir que el usuario apagó (con OFF deja solo el recordatorio)."""
     if IS_WIN:
+        cur = ""
+        try:
+            prof0 = _ps_profile()
+            if prof0 and os.path.exists(prof0):
+                cur = open(prof0, encoding="utf-8", errors="replace").read()
+        except Exception:
+            cur = ""
+        on = _autostart_wanted(_win_greeter_full(cur))
         # reemplaza cualquier versión vieja del bloque (sin guard de interactividad)
-        prof = _ps_set_block(WIN_GREETER_MARK, WIN_GREETER_BLOCK,
+        prof = _ps_set_block(WIN_GREETER_MARK,
+                             WIN_GREETER_BLOCK if on else WIN_GREETER_HINT_BLOCK,
                              legacy=("WORKSPACE-greeter", "WORKSPACE-greeter",
                                      "WORKSPACE_GREETER"))
         if prof:
-            ok(f"greeter al día (Windows): menú al abrir Windows Terminal ({prof})")
+            ok(f"greeter al día (Windows): "
+               f"{'menú al abrir Windows Terminal' if on else 'solo con el comando workspace'}"
+               f" ({prof})")
         return
     rc = os.path.join(HOME, ".zshrc")
     cur = open(rc, encoding="utf-8").read() if os.path.exists(rc) else ""
     if GREETER_MARK in cur:
-        ok("greeter ya configurado (menú al abrir terminal)")
+        # normal u «autostart OFF» (comparten la marca): sin preferencia
+        # guardada se respeta tal cual; si ui.autostart dice otra cosa, se
+        # aplica (igual que en Windows) con el corte quirúrgico de siempre.
+        full = _zsh_greeter_full(cur)
+        on = _autostart_wanted(full)
+        if on != full:
+            set_terminal_autostart(on)          # dice él mismo qué hizo (o por qué no)
+            return
+        ok("greeter ya configurado: " + ("menú al abrir terminal" if full
+                                         else "solo con el comando workspace (ui.autostart off)"))
         return
     legacy = GREETER_MARK_V1 in cur
+    block = GREETER_BLOCK if _autostart_wanted(legacy) else GREETER_HINT_BLOCK
     if DRY:
         dry(f"{'reemplazaría el greeter viejo' if legacy else 'agregaría el greeter'} "
             f"(menú al abrir terminal) en {rc}")
@@ -1145,13 +1792,16 @@ def install_greeter():
             return
         with open(rc, "w", encoding="utf-8") as f:
             NL = chr(10)
-            f.write("".join(out).rstrip(NL) + NL + GREETER_BLOCK)
-        ok("greeter actualizado: el menú WORKSPACE sale al abrir terminal "
-           "(q = terminal normal)")
+            f.write("".join(out).rstrip(NL) + NL + block)
+        ok("greeter actualizado: " + ("el menú WORKSPACE sale al abrir terminal "
+           "(q = terminal normal)" if block is GREETER_BLOCK
+           else "solo con el comando workspace (ui.autostart off)"))
         return
     with open(rc, "a", encoding="utf-8") as f:
-        f.write(GREETER_BLOCK)
-    ok("greeter agregado: el menú WORKSPACE sale al abrir terminal (q = terminal normal)")
+        f.write(block)
+    ok("greeter agregado: " + ("el menú WORKSPACE sale al abrir terminal "
+       "(q = terminal normal)" if block is GREETER_BLOCK
+       else "solo con el comando workspace (ui.autostart off)"))
 
 
 # Variante HINT del greeter (autostart OFF): NO lanza el menú, solo recuerda el
@@ -1172,10 +1822,8 @@ fi
 """
 
 WIN_GREETER_HINT_BLOCK = (
-    '# WORKSPACE-greeter v3 (autostart OFF — solo con el comando workspace)\n'
-    'if ([Environment]::UserInteractive '
-    '-and -not $env:WORKSPACE_GREETER -and -not $env:WORKSPACE_NO_GREETER '
-    '-and (Get-Command workspace -ErrorAction SilentlyContinue)) '
+    '# WORKSPACE-greeter v4 (autostart OFF — solo con el comando workspace)\n'
+    + _WIN_GREETER_GUARD +
     '{ Write-Host "Workspace listo - escribe: workspace" }')
 
 
@@ -1291,7 +1939,7 @@ def install_desktop_app():
 
 
 # CLIs de los motores soportados (claude-code, codex, antigravity, gemini).
-ENGINE_CLIS = ("claude", "codex", "agy", "gemini")
+ENGINE_CLIS = ("claude", "codex", "agy", "gemini", "opencode", "openclaw", "hermes")
 
 
 def check_prereqs():
@@ -1303,8 +1951,8 @@ def check_prereqs():
         miss.append("git (clónalo/instálalo: en Mac, las Command Line Tools)")
     # Motor: cualquiera de los que Workspace soporta (no siempre Claude Code).
     if not any(shutil.which(b) for b in ENGINE_CLIS):
-        miss.append("el CLI del motor que vayas a usar (Claude Code, Codex o "
-                    "Antigravity), con sesión iniciada")
+        miss.append("el CLI del motor que vayas a usar (Claude Code, Codex, "
+                    "Antigravity, OpenCode, OpenClaw o Hermes), con sesión iniciada")
     for m in miss:
         say(f"{C}!{R} falta: {m}")
     if miss:
@@ -1365,7 +2013,7 @@ def _legacy_root_candidates():
 
 def _looks_like_harness(d):
     """Firma de un harness (NO de un cerebro): front.py + dispatch.py en la raíz.
-    Un cerebro tiene BOOT/ + STATE/ + CLAUDE.md y NO estos scripts → nunca se
+    Un cerebro tiene BOOT/ + STATE/ + BRAIN.md (o CLAUDE.md) y NO estos scripts → nunca se
     confunde con uno (misma prueba que uninstall._is_harness)."""
     return all(os.path.isfile(os.path.join(d, f))
                for f in ("front.py", "dispatch.py"))
@@ -1635,7 +2283,7 @@ def main():
     if not _names:
         print(f"  {DIM}El menú sale vacío → 'Agregar agente' (crear o cargar un cerebro).{R}")
     print(f"  {DIM}Requiere: Python 3 y el CLI del motor que vayas a usar (Claude Code, "
-          f"Codex o Antigravity) con sesión iniciada.{R}")
+          f"Codex, Antigravity, OpenCode, OpenClaw o Hermes) con sesión iniciada.{R}")
     if zenith_brain:
         print(f"\n  {DIM}¿Vienes de Cowork? Corre {R}{B}{zenith_brain[0]} migrar{R}{DIM} y luego di "
               f'"listo, procesa mi migración". Guía: assets/brand/MIGRACION.md en tu cerebro{R}')
@@ -1644,5 +2292,50 @@ def main():
     print()
 
 
-if __name__ == "__main__":
+# ── CLI: `--help` jamás instala; un argumento desconocido tampoco ─────────────
+_USO = ("uso: python3 install.py [--socio <nombre>] [--dry-run] [--desktop-app]\n"
+        "                         [--retire-legacy | --no-retire-legacy]\n"
+        "  Instala Workspace en esta máquina: el comando `workspace`, un comando por\n"
+        "  agente, hooks, permisos y tema. Re-correrlo es seguro: solo actualiza.\n"
+        "  --socio <nombre>   quién usa esta máquina (llena los cerebros sin dueño)\n"
+        "  --dry-run          muestra qué haría, sin escribir nada\n"
+        "  --desktop-app      además, la app de escritorio (Mac)\n"
+        "  --retire-legacy    retira la instalación anterior sin preguntar\n"
+        "  --no-retire-legacy no la toca")
+_FLAGS = ("--dry-run", "--desktop-app", "--retire-legacy", "--no-retire-legacy")
+
+
+def _args_desconocidos(argv):
+    """Argumentos que el instalador no conoce ([] si todos valen). `--socio`
+    lleva su valor aparte o con `=`."""
+    malos, i = [], 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--socio" and i + 1 < len(argv):
+            i += 1
+        elif a not in _FLAGS and not a.startswith("--socio="):
+            malos.append(a)
+        i += 1
+    return malos
+
+
+def cli(argv=None):
+    """Entrada de `python3 install.py …`. `--help`/`-h`: el uso y salir 0 SIN
+    escribir nada (antes ignoraba el flag e instalaba completo, también sobre
+    el HOME real de quien solo pedía ayuda). Un argumento desconocido (p. ej. el
+    socio por posición de versiones viejas) sale con error y no instala."""
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if "-h" in argv or "--help" in argv:
+        print(_USO)
+        return 0
+    malos = _args_desconocidos(argv)
+    if malos:
+        sys.stderr.write("install.py: argumento desconocido: %s — no se instaló nada.\n%s\n"
+                         % (" ".join(malos), _USO))
+        return 2
     main()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(cli())

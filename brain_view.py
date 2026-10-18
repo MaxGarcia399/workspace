@@ -31,10 +31,10 @@ def routes():
     """Rutas del mapa (texto live-i18n + color/carpetas estáticos)."""
     return {
         'setup': (_t('addagent.route.setup.head', 'COMPOSICIÓN'), _t('addagent.route.setup.desc', 'Formulario → plantilla → revisión → cerebro'), _t('addagent.route.setup.note', 'Vista previa · nada creado todavía'), 'C', ''),
-        'boot': (_t('addagent.route.boot.head', 'ARRANQUE'), _t('addagent.route.boot.desc', 'CLAUDE.md → BOOT/ → STATE/MEMORY + INDEX + users/'), _t('addagent.route.boot.note', 'wiki y skills completas: sólo cuando hacen falta'), 'C', 'CLAUDE.md BOOT STATE'),
-        'save': (_t('addagent.route.save.head', 'GUARDAR'), _t('addagent.route.save.desc', 'Trabajo significativo → sessions/ + inbox/ → consolidación'), _t('addagent.route.save.note', 'Claude: respaldo al compactar; rastro al cerrar si faltó captura'), 'OK', 'STATE'),
+        'boot': (_t('addagent.route.boot.head', 'ARRANQUE'), _t('addagent.route.boot.desc', 'BRAIN.md → BOOT/ → STATE/ → memoria de la pestaña'), _t('addagent.route.boot.note', 'wiki y skills completas: sólo cuando hacen falta'), 'C', 'BRAIN.md CLAUDE.md BOOT STATE'),
+        'save': (_t('addagent.route.save.head', 'GUARDAR'), _t('addagent.route.save.desc', 'En el momento: workspace memoria nota → ficha de la pestaña'), _t('addagent.route.save.note', 'Al cerrar: maleta para el siguiente motor · sin IA'), 'OK', 'STATE motores'),
         'retrieve': (_t('addagent.route.retrieve.head', 'RECUPERAR'), _t('addagent.route.retrieve.desc', 'INDEX.md → archivo · si falta: FTS5 → archivo · fallback: grep'), _t('addagent.route.retrieve.note', 'Wiki: index.md → [[enlace]] → nota · sólo el detalle necesario'), 'B', 'STATE wiki/'),
-        'organize': (_t('addagent.route.organize.head', 'ORGANIZAR'), _t('addagent.route.organize.desc', 'Capturas → consolidación → MEMORY + INDEX · Dream → DESTILADO'), _t('addagent.route.organize.note', 'Dream propone; promoción humana → MEMORY · sin intervalo universal'), 'B2', 'STATE'),
+        'organize': (_t('addagent.route.organize.head', 'ORGANIZAR'), _t('addagent.route.organize.desc', 'Al cerrar: datos → MEMORY · notas viejas → archivo/'), _t('addagent.route.organize.note', 'El agente guarda · Workspace archiva · nada espera tu revisión'), 'B2', 'STATE'),
     }
 
 
@@ -56,19 +56,21 @@ def projection(values, base, proposed, personalized, owner=''):
     return {'name':v('visible', v('nombre', _t('addagent.proj.default_name', 'Tu agente'))), 'preview':True,
             'identity':_t('addagent.proj.identity_ai', 'IA: propuesta de redacción') if personalized else _t('addagent.proj.identity_tpl', 'plantilla + semillas del formulario'),
             'branches':[
-                ('CLAUDE.md', [(_t('addagent.proj.claude.read_order', 'Orden de lectura'), _t('addagent.proj.claude.read_flow', 'BOOT → memoria → índices'))]),
+                ('BRAIN.md', [(_t('addagent.proj.claude.read_order', 'Orden de lectura'), _t('addagent.proj.claude.read_flow', 'BOOT → memoria → índices'))]),
                 ('BOOT/', [('00-SOUL.md', v('tono')+' · '+v('estilo')),
                            ('01-IDENTITY.md', v('rol')+' · '+v('proposito')),
                            ('03-RULES.md', v('limites')),
                            ('04-BRAIN-MAP.md', 'HOT → WARM → COLD')]),
                 ('STATE/', [('MEMORY.md + INDEX.md', _t('addagent.proj.state.memidx', 'memoria + rutas')),
-                            (user_path if profile else 'users/', _t('addagent.proj.state.profile', 'perfil: ')+v('dueño_quien') if profile else _t('addagent.proj.state.no_profile', 'sin perfil sembrado')),
-                            (_t('addagent.proj.state.session_path', 'sessions/<socio>/<pestaña>.md'), _t('addagent.proj.state.session_note', 'se crea al usar una pestaña')),
-                            ('inbox/ + DESTILADO.md', _t('addagent.proj.state.inbox_note', 'capturas + candidatos; promoción revisada'))]),
+                            (user_path if profile else 'users/', _t('addagent.proj.state.profile', 'perfil: ')+v('dueño_quien') if profile else _t('addagent.proj.state.no_profile', 'perfil con cédula: lo crea Workspace')),
+                            (_t('addagent.proj.state.session_path', 'sessions/<socio>/<pestaña>.md'), _t('addagent.proj.state.session_note', 'memoria de cada pestaña · se crea al usarla')),
+                            (_t('addagent.proj.state.handoff_path', 'sessions/<socio>/maleta/ · archivo/'), _t('addagent.proj.state.handoff_note', 'lo último de cada motor · notas viejas, sin borrar')),
+                            ('inbox/', _t('addagent.proj.state.inbox_note', 'avisos y pendientes; solo se agrega'))]),
                 ('wiki/', [(_t('addagent.proj.wiki.idx', 'index.md → [[notas]]'), _t('addagent.proj.wiki.note', 'conocimiento bajo demanda'))]),
                 ('skills/', [(_t('addagent.proj.skills.idx', 'INDEX-LITE.md → categoría/SKILL.md'), _t('addagent.proj.skills.counts', '%d base + %d propuestas') % (base,proposed) + (_t('addagent.proj.skills.pending', ' · revisión pendiente') if proposed else '')),
-                             ('_propuestas/', _t('addagent.proj.skills.prop', 'imports → oficiales/ o externas/'))]),
+                             ('oficiales/ · externas/', _t('addagent.proj.skills.prop', 'skills importadas de repos'))]),
                 ('adapters/', [('claude-code.md', _t('addagent.proj.adapters.note', 'contrato del runtime; motor elegido aparte'))]),
+                ('motores/', [('claude-code/memoria/', _t('addagent.proj.motores.note', 'memoria propia de Claude Code; viaja con el cerebro'))]),
                 ('.workspace/', [('agent.json', _t('addagent.proj.workspace.note', 'identidad + recibo de importación'))]),
                 ('.claude/', [('hooks + socio.local', _t('addagent.proj.claudedir.note', 'configuración del motor'))])],
             'base':base,'proposed':proposed}
@@ -84,13 +86,17 @@ def inspect(brain, max_files=4000):
     if root.is_symlink() or not root.is_dir():
         raise ValueError(_t('addagent.inspect.not_folder', 'El cerebro debe ser una carpeta real'))
     branches=[]; count=0
-    for label in ('CLAUDE.md','BOOT','STATE','wiki','skills','adapters','.workspace','.claude'):
+    import brain_identity as _bi
+    for label in (_bi.IDENTITY_DOC,_bi.LEGACY_IDENTITY_DOC,'BOOT','STATE','wiki','skills','adapters','motores','.workspace','.claude'):
         path=root/label
         if path.is_symlink() or not path.exists():
             continue
         leaves=[]
         if path.is_file():
-            leaves=[(_t('addagent.inspect.entry', 'Entrada'), _t('addagent.inspect.entry_note', 'orden de lectura'))]
+            note=_t('addagent.inspect.entry_note', 'orden de lectura')
+            if label==_bi.LEGACY_IDENTITY_DOC and (root/_bi.IDENTITY_DOC).is_file():
+                note=_t('addagent.inspect.pointer_note', 'puntero a BRAIN.md')
+            leaves=[(_t('addagent.inspect.entry', 'Entrada'), note)]
         else:
             # scandir avoids following symlinked folders; bounded traversal.
             stack=[path]
@@ -150,8 +156,8 @@ def render(model, api, K, canvas_type, width, height, route='setup'):
     box(origin,max(0,mid-1),root_w,model['name'],K['C'])
     canvas.put(origin+root_w-1,mid,'├',K['C'])
     canvas.put(trunk,mid,'┤',K['B2'])
-    targets={'save':('sessions/','inbox/'), 'retrieve':('INDEX','index.md'),
-             'organize':('MEMORY','INDEX','inbox/','DESTILADO'),
+    targets={'save':('sessions/','claude-code/'), 'retrieve':('INDEX','index.md'),
+             'organize':('MEMORY','archivo/'),
              'boot':('00-','01-','03-','04-','MEMORY','INDEX','users/')}
     for i,(folder,files) in enumerate(shown):
         y=i*3; is_active=route=='setup' or folder.split('/')[0] in ROUTES[route][4].split() or folder in ROUTES[route][4].split()
@@ -173,7 +179,7 @@ def render(model, api, K, canvas_type, width, height, route='setup'):
             line(tx-1,y+offset,tx-1,y+offset+len(leaves)-1,col)
         for j,(file,summary) in enumerate(leaves):
             yy=y+j+(3-len(leaves))//2
-            active=is_active and (route=='setup' or folder=='CLAUDE.md' or any(t in file for t in targets.get(route,())))
+            active=is_active and (route=='setup' or folder in ('BRAIN.md','CLAUDE.md') or any(t in file for t in targets.get(route,())))
             ink=col if active else K['DK']
             label=file
             canvas.put(tx-1,yy,'─' if len(leaves)==1 else '┌' if j==0 else '└' if j==len(leaves)-1 else '├',ink)

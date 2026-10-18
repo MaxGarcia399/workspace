@@ -5,7 +5,7 @@ comes from agent.json/BOOT and is never in this catalog."""
 
 STRINGS = {
     # ── dashboard (agent-dashboard.py): session picker/greeter ───────────────
-    "banner.dash.sessions_count": "{n} session(s) · pick one to continue or create a new one",
+    "banner.dash.sessions_count": "{n} session(s) · each one remembers its own, on any engine · pick one or create a new one",
     "banner.dash.resume_q": "Where do we pick up?",
     "banner.dash.hint": "↑↓ to choose · Enter to open",
     "banner.dash.sub_continue": "continue",

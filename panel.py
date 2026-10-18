@@ -1457,15 +1457,24 @@ def render(ctx, w, h, active):
 # Loop interactivo (repinta en sitio + lee teclas con timeout). Injectable.
 # ═══════════════════════════════════════════════════════════════════════════
 def _paint(lines, prev_n, out):
-    """Repinta EN SITIO (cursor-arriba, \\r\\033[K por línea). Igual que el board."""
-    if prev_n:
-        out.write("\033[%dA" % prev_n)
-    for ln in lines:
-        out.write("\r\033[K" + ln + "\n")
-    extra = prev_n - len(lines)
-    if extra > 0:
-        out.write("\r\033[K\n" * extra)
-        out.write("\033[%dA" % extra)
+    """Repinta EN SITIO desde el ORIGEN del pane (\\033[H, posición ABSOLUTA:
+    el panel vive solo en su pantalla alterna) con \\r\\033[K por línea,
+    unidas con \\r\\n y SIN salto tras la ÚLTIMA. Bug viejo: el frame mide h
+    filas (el pane entero) y el '\\n' tras la última hacía scroll de 1 fila en
+    CADA repintado → la fila de identidad nunca se veía y todo quedaba 1 fila
+    arriba de donde lo espera el hit-map (un click abría la sesión de ARRIBA y
+    cortaba el chat; las tabs no respondían). La última línea lleva \\033[J
+    ANTES del texto: limpia su fila y lo que sobre de un frame previo más alto
+    (al final borraría la última columna de una línea que llena el ancho).
+    `prev_n` queda en la firma (los llamadores lo pasan) pero ya no hace falta."""
+    if not lines:
+        out.write("\033[H\033[J")
+        out.flush()
+        return 0
+    last = len(lines) - 1
+    out.write("\033[H" + "\r\n".join(
+        ("\r\033[J" if i == last else "\r\033[K") + ln
+        for i, ln in enumerate(lines)))
     out.flush()
     return len(lines)
 

@@ -52,6 +52,7 @@ import math
 import json
 import skill_source_preferences
 import agent_create_ui
+import brain_identity as _bi
 
 import io
 import os
@@ -111,11 +112,11 @@ GRUPOS_F = (("identidad", ("nombre", "visible")),
 FIELDS = {
     "nombre": ("nombre", "",
                "El slug del agente: minúsculas, dígitos, - o _. Es su "
-               "comando (`hermes` en la terminal) y el nombre de su cerebro.",
+               "comando (`alfa` en la terminal) y el nombre de su cerebro.",
                "ej.  alfa · beta · gamma"),
     "visible": ("visible", "",
                 "Cómo se muestra en el hub y sus banners. Vacío = el nombre "
-                "capitalizado.", "ej.  Hermes"),
+                "capitalizado.", "ej.  Alfa"),
     "rol": ("rol", "",
             "Su rol en una frase — el tagline bajo su nombre en el hub y "
             "el banner.",
@@ -213,16 +214,18 @@ MENU_OPTS = (
 # El MAPA se deriva del TEMPLATE REAL (agent_admin.BRAIN_TEMPLATE) — los
 # conteos son medidos, no inventados. Estas son solo las explicaciones.
 _CONCEPTOS = {
-    "CLAUDE.md": "punto de entrada: el orden en que arranca",
+    _bi.IDENTITY_DOC: "identidad: punto de entrada y orden de arranque",
+    _bi.LEGACY_IDENTITY_DOC: "puntero para Claude Code (lleva a BRAIN.md)",
     "BOOT/": "quién ES — alma · identidad · equipo · reglas · mapa",
-    "STATE/": "memoria viva — MEMORY · INDEX · sesiones · inbox",
+    "STATE/": "memoria viva — MEMORY · INDEX · users · la memoria de cada pestaña",
+    "motores/": "espacio de cada motor (claude-code/memoria/)",
     "wiki/": "conocimiento on-demand (index + [[wikilinks]])",
     "skills/": "procedimientos reutilizables, por categoría",
     "adapters/": "cómo opera en cada runtime (claude-code, …)",
     ".workspace/": "agent.json — identidad portátil que lee el harness",
     ".claude/": "runtime: hooks · statusline · socio.local",
 }
-_MAPA_ORDEN = ("CLAUDE.md", "BOOT/", "STATE/", "wiki/", "skills/",
+_MAPA_ORDEN = (_bi.IDENTITY_DOC, _bi.LEGACY_IDENTITY_DOC, "BOOT/", "STATE/", "wiki/", "skills/",
                "adapters/")
 _MAPA_CACHE = None
 
@@ -313,6 +316,28 @@ def _divisor(K, txt, w, tono=-1):
                                       K["R"]), w)
 
 
+#: El chequeo de comando recorre el PATH (en Windows, × PATHEXT) y la pantalla
+#: se redibuja sola varias veces por segundo: se memoriza unos segundos por
+#: (nombre, PATH, HOME, idioma). El PATH no cambia mientras tecleas y create()
+#: lo vuelve a mirar al crear.
+_CHOQUES = {}
+
+
+def _choque_comando(v):
+    try:
+        idioma = i18n.lang() if i18n is not None else ""
+    except Exception:
+        idioma = ""
+    clave = (v, os.environ.get("PATH", ""), os.path.expanduser("~"), idioma)
+    ahora = time.monotonic()
+    memo = _CHOQUES.get(clave)
+    if memo is None or ahora - memo[0] > 5:
+        if len(_CHOQUES) > 64:
+            _CHOQUES.clear()
+        memo = _CHOQUES[clave] = (ahora, agent_admin.command_conflict(v))
+    return memo[1]
+
+
 def _valida_nombre(v):
     """(estado, texto) del nombre EN VIVO: '' → neutro · ok → disponible ·
     bad → por qué no."""
@@ -326,6 +351,11 @@ def _valida_nombre(v):
             return ("bad", _t("addagent.ui.name.taken", "ya existe un agente «%s» — elige otro") % v)
     except Exception:
         pass
+    # el nombre es su COMANDO: si ya es otro programa (claude, hermes, git,
+    # workspace…) su lanzador lo taparía en la terminal → no se ofrece
+    choque = _choque_comando(v)
+    if choque:
+        return ("bad", choque)
     try:
         if os.path.exists(agent_admin.default_brain_dest(v)):
             return ("bad", _t("addagent.ui.name.folder_exists", "la carpeta ~/Desktop/%s - BRAIN ya existe")
@@ -1152,7 +1182,7 @@ def _b_done(S, K, iw):
         out.append(_divisor(K, _t("addagent.ui.done.nextsteps", "próximos pasos"), iw, tono=2))
         for ln in (_t("addagent.ui.done.next.1", "ábrelo: vuelve al hub y elígelo en la lista"),
                    _t("addagent.ui.done.next.2", "o escribe  %s  en una terminal nueva") % job["name"],
-                   _t("addagent.ui.done.next.3", "afina su voz en BOOT/00-SOUL.md · skills en skills/")):
+                   _t("addagent.ui.done.next.3", "su voz (BOOT/00-SOUL.md) la completa él con lo que le dijiste y tus correcciones · skills en skills/")):
             out.append(HL.clip(" %s·%s %s%s%s" % (K["DK"], K["R"], K["DIM"],
                                                   ln, K["R"]), iw))
     else:
@@ -1182,8 +1212,24 @@ def _b_done(S, K, iw):
 
 
 # ── vista STALE: una creación quedó interrumpida (proceso murió) ────────────
+def _stale_eval(S):
+    """Veredicto de agent_create_job.assess() sobre la creación interrumpida
+    (se revisa el disco UNA vez, no en cada repintado)."""
+    if not S.get("stale_eval"):
+        S["stale_eval"] = agent_create_job.assess(S.get("stale"))
+    return S["stale_eval"]
+
+
+def _stale_borrable(S):
+    """¿Hay algo que limpiar? Solo restos demostrables o un aviso sin carpeta;
+    un agente ya creado o una carpeta en uso NO se tocan."""
+    return _stale_eval(S).get("estado") in ("restos", "sin_carpeta")
+
+
 def _b_stale(S, K, iw):
     snap = S.get("stale") or {}
+    ev = _stale_eval(S)
+    estado = ev.get("estado")
     out = [HL.clip(" %s%s%s"
                    % (K["B"] + K["BO"], _t("addagent.ui.stale.title", "⚠ una creación quedó INTERRUMPIDA"), K["R"]), iw), ""]
     out.append(HL.clip((" %s" + _t("addagent.ui.stale.agent", "agente:") + "%s %s%s%s")
@@ -1192,12 +1238,26 @@ def _b_stale(S, K, iw):
     out.append(HL.clip((" %s" + _t("addagent.ui.stale.folder", "carpeta:") + "%s %s%s%s")
                        % (K["DIM"], K["R"], K["GREY"], snap.get("dest", "?"),
                           K["R"]), iw))
-    existe = os.path.isdir(snap.get("dest") or "")
+    # lo que assess() VIO en disco — no una suposición por existir la carpeta
+    txt, col = {
+        "restos": (_t("addagent.ui.stale.leftovers_yes", "sí — carpeta a medias de esta creación"), K["B"]),
+        "sin_carpeta": (_t("addagent.ui.stale.leftovers_no", "no — no quedó carpeta"), K["OK"]),
+        "creado": (_t("addagent.ui.stale.created", "no — el agente SÍ quedó creado y registrado"), K["OK"]),
+    }.get(estado, (_t("addagent.ui.stale.in_use", "existe, pero no la toco (ver motivo)"), K["B"]))
     out.append(HL.clip((" %s" + _t("addagent.ui.stale.leftovers", "restos en disco:") + "%s %s%s%s")
-                       % (K["DIM"], K["R"],
-                          K["B"] if existe else K["OK"],
-                          _t("addagent.ui.stale.leftovers_yes", "sí — la carpeta existe a medias") if existe
-                          else _t("addagent.ui.stale.leftovers_no", "no — no quedó carpeta"), K["R"]), iw))
+                       % (K["DIM"], K["R"], col, txt, K["R"]), iw))
+    extra = None
+    if estado == "en_uso":
+        extra = (_t("addagent.ui.stale.why", "motivo:"), ev.get("motivo"))
+    elif estado == "creado" and ev.get("pendiente"):
+        extra = (_t("addagent.ui.stale.unfinished", "sin terminar:"),
+                 " · ".join(ev["pendiente"]))
+    if extra and extra[1]:              # el motivo ENTERO (trae el archivo)
+        sangria = HL.vis(extra[0])
+        for i, fila in enumerate(_wrap(extra[1], max(8, iw - sangria - 3))[:3]):
+            out.append(HL.clip(" %s%s%s %s%s%s"
+                               % (K["DIM"], extra[0] if i == 0 else " " * sangria,
+                                  K["R"], K["GREY"], fila, K["R"]), iw))
     out.append("")
     out.append(_divisor(K, _t("addagent.ui.stale.howfar", "hasta dónde llegó"), iw))
     for s in (snap.get("steps") or [])[:8]:
@@ -1207,12 +1267,20 @@ def _b_stale(S, K, iw):
                                            s.get("label", ""), K["R"]), iw))
     out.append("")
     out.append(_divisor(K, _t("addagent.ui.stale.whattodo", "qué hacer"), iw, tono=3))
-    out.append(HL.clip((" %sl%s %s" + _t("addagent.ui.stale.clean", "limpiar los restos (borra carpeta y registro)") + "%s")
-                       % (K["C"] + K["BO"], K["R"], K["DIM"], K["R"]), iw))
-    out.append(HL.clip((" %sr%s %s" + _t("addagent.ui.stale.clean_retry", "limpiar y REINTENTAR la creación") + "%s")
-                       % (K["C"] + K["BO"], K["R"], K["DIM"], K["R"]), iw))
-    out.append(HL.clip((" %sEnter/q%s %s" + _t("addagent.ui.stale.later", "decidir después (se vuelve a avisar)") + "%s")
-                       % (K["C"] + K["BO"], K["R"], K["DIM"], K["R"]), iw))
+    if estado == "restos":
+        opciones = (("l", _t("addagent.ui.stale.clean", "mover los restos a la papelera (recuperable)")),
+                    ("r", _t("addagent.ui.stale.clean_retry", "a la papelera y REINTENTAR la creación")),
+                    ("Enter/q", _t("addagent.ui.stale.later", "decidir después (se vuelve a avisar)")))
+    elif estado == "sin_carpeta":
+        opciones = (("l", _t("addagent.ui.stale.dismiss_nofolder", "quitar el aviso (no hay nada que borrar)")),
+                    ("r", _t("addagent.ui.stale.retry", "REINTENTAR la creación")),
+                    ("Enter/q", _t("addagent.ui.stale.later", "decidir después (se vuelve a avisar)")))
+    else:                               # creado / en_uso: no se ofrece borrar
+        opciones = (("Enter", _t("addagent.ui.stale.ack", "entendido — quitar el aviso (no se borra nada)")),
+                    ("q", _t("addagent.ui.stale.later", "decidir después (se vuelve a avisar)")))
+    for tecla, que in opciones:
+        out.append(HL.clip(" %s%s%s %s%s%s"
+                           % (K["C"] + K["BO"], tecla, K["R"], K["DIM"], que, K["R"]), iw))
     return out
 
 
@@ -1228,7 +1296,7 @@ def _b_cargar(S, K, iw):
     out.append(HL.clip(" %s%s%s %s%s%s%s%s%s█%s" % (
         K["C"] + K["BO"], K["PTR"], K["R"], K["DK"], pre, K["R"],
         K["WH"], shown, K["C"] + K["BO"], K["R"]), iw))
-    out.append(HL.clip(("   %s" + _t("addagent.ui.load.path_hint", "~ y espacios valen · ej. ~/Desktop/HERMES - BRAIN") + "%s") % (K["DK"], K["R"]), iw))
+    out.append(HL.clip(("   %s" + _t("addagent.ui.load.path_hint", "~ y espacios valen · ej. ~/Desktop/ALFA - BRAIN") + "%s") % (K["DK"], K["R"]), iw))
     out.append("")
     out.append(_divisor(K, _t("addagent.ui.load.loaded_here", "cargados en esta máquina"), iw))
     ags = agentsreg.agents()
@@ -1562,20 +1630,25 @@ def _b_listo(S, K, iw):
         out.append("")
         out.append(_divisor(K, _t("addagent.ui.listo.warns", "avisos — nada se tragó"), iw))
         for wtxt in warns[:3]:
-            lineas = _wrap(wtxt, max(8, iw - 4))[:2]
+            # hasta 6 renglones: un aviso que trae su comando (el de --socio,
+            # con rutas completas) no se corta antes de mostrarlo entero
+            lineas = _wrap(wtxt, max(8, iw - 4))[:6]
             out.append(HL.clip(" %s⚠%s %s%s%s" % (K["B"], K["R"], K["DIM"],
                                                   lineas[0], K["R"]), iw))
             for sub in lineas[1:]:
                 out.append(HL.clip("   %s%s%s" % (K["DIM"], sub, K["R"]),
                                    iw))
-        out.append(HL.clip(" %s%s%s" % (K["DIM"], _t("addagent.ui.listo.doctor", "→ `workspace doctor` completa lo que falte"), K["R"]), iw))
+        # el doctor no declara el socio: si todos los avisos traen ya su
+        # comando --socio, mandar al doctor contradiría el remedio
+        if any("--socio" not in w for w in warns):
+            out.append(HL.clip(" %s%s%s" % (K["DIM"], _t("addagent.ui.listo.doctor", "→ `workspace doctor` completa lo que falte"), K["R"]), iw))
     if d.get("bulk") is None:
         out.append("")
         out.append(_divisor(K, _t("addagent.ui.done.nextsteps", "próximos pasos"), iw, tono=2))
         for ln in (_t("addagent.ui.done.next.1", "ábrelo: vuelve al hub y elígelo en la lista"),
                    _t("addagent.ui.done.next.2", "o escribe  %s  en una terminal nueva")
                    % d.get("name", ""),
-                   _t("addagent.ui.done.next.3", "afina su voz en BOOT/00-SOUL.md · skills en skills/")):
+                   _t("addagent.ui.done.next.3", "su voz (BOOT/00-SOUL.md) la completa él con lo que le dijiste y tus correcciones · skills en skills/")):
             out.append(HL.clip(" %s·%s %s%s%s" % (K["DK"], K["R"], K["DIM"],
                                                   ln, K["R"]), iw))
     return out
@@ -1701,8 +1774,9 @@ _BOX_W = {"menu": 52, "crear": 64, "plan": 60, "brain": 78, "run": 60, "lrun": 6
           "skills": 64}
 
 
-def _chips_vista(v):
-    """Pie corto por vista: elegir/escribir · la acción · la ayuda · salir."""
+def _chips_vista(v, S=None):
+    """Pie corto por vista: elegir/escribir · la acción · la ayuda · salir.
+    `S` solo cuenta en «stale»: sin nada que borrar, no se ofrece limpiar."""
     import section_frame as SF
     T = SF.t
     ayuda = (("?" if v in _TYPING else "i"),
@@ -1730,9 +1804,12 @@ def _chips_vista(v):
                  ("Esc", T("addagent.chip.bg", "sigue en 2º plano", "keeps going"))),
         "done": (("↓", T("addagent.chip.review", "revisión de skills", "skill review")),
                  ("Enter", T("addagent.chip.continue", "continúa", "continue"))),
-        "stale": (("l", T("addagent.chip.clean", "limpia", "clean")),
-                  ("r", T("addagent.chip.retry", "limpia y reintenta", "clean and retry")),
-                  ("Enter", T("addagent.chip.later", "después", "later"))),
+        "stale": ((("l", T("addagent.chip.clean", "limpia", "clean")),
+                   ("r", T("addagent.chip.retry", "limpia y reintenta", "clean and retry")),
+                   ("Enter", T("addagent.chip.later", "después", "later")))
+                  if v != "stale" or S is None or _stale_borrable(S) else
+                  (("Enter", T("addagent.chip.ack", "entendido", "got it")),
+                   ("q", T("addagent.chip.later", "después", "later")))),
         "listo": (("Enter", T("addagent.chip.back", "vuelve", "back")),),
     }
     return tabla.get(v, (elige, ("Enter", T("addagent.chip.apply", "aplica", "apply")),
@@ -1761,7 +1838,7 @@ def _plan_fila(S, key):
         "sources": (T("addagent.plan.l.sources", "fuentes y repos propios"), "abre", ""),
         "autonomy": (T("addagent.plan.l.brain_free", "su cerebro sin preguntar"), "switch",
                      bool(S.get(kf, True))),
-        "review": (T("addagent.plan.l.review", "revisión de skills al cerrar"), "switch", bool(S.get(kr))),
+        "review": (T("addagent.plan.l.review", "revisión de skills"), "switch", bool(S.get(kr))),
         "process": (T("addagent.plan.l.process", "cómo se revisan las skills"), "leer", ""),
         "cost": (T("addagent.plan.l.cost", "consumo y límites"), "leer", ""),
         "brain": (T("addagent.plan.l.brain", "mapa del cerebro"), "leer", ""),
@@ -1903,7 +1980,7 @@ def _plan_info_blocks(S, K):
                 (_t("addagent.plan.v.chosen", "%d elegidas") % len(S.get("skill_selected", [])))
                 if S.get("source_skills") else no),
                (_t("addagent.plan.l.brain_free", "su cerebro sin preguntar"), si if S.get(kf, True) else no),
-               (_t("addagent.plan.l.review", "revisión de skills al cerrar"), si if S.get(kr) else no),
+               (_t("addagent.plan.l.review", "revisión de skills"), si if S.get(kr) else no),
                (_t("addagent.plan.l.personalize", "personalización con IA"), si if S.get("personalize") else no)]
 
     def _consumo(iw):
@@ -2130,7 +2207,7 @@ def render(S, w, h):
             msg = agent_create_ui._generation_label(S, sys.modules[__name__])
         except Exception:
             msg = ""
-    return SB.frame(K, w, h, palabra, t_main, lineas, _chips_vista(v),
+    return SB.frame(K, w, h, palabra, t_main, lineas, _chips_vista(v, S),
                     msg=msg, cursor_line=cursor, box_w=bw)
 
 
@@ -2150,7 +2227,7 @@ def _info_tecla(S, key):
 
 
 def _lanza_skills(S, force=False):
-    if not S.get("source_skills", True):
+    if not S.get("source_skills", False):     # apagado por defecto: sin red
         return
     params = _params_de_form(S)
     fingerprint = agent_skill_sources.profile(params) + json.dumps(params.get("skill_source_config"), sort_keys=True) + params.get("community_query", "")
@@ -2226,7 +2303,7 @@ def _params_de_form(S):
     texto libre viajan COMPLETOS (con sus saltos de línea) en `intake` —
     create() los guarda en .workspace/agent.json y siembra users/<dueño>.md.
     La semilla del SOUL y el scope se aplanan a UNA línea aquí: van a
-    contextos inline del template (CLAUDE.md / IDENTITY) donde un \\n crudo
+    contextos inline del template (BRAIN.md / BOOT) donde un \\n crudo
     rompería el markdown."""
     g = lambda k: (S["vals"].get(k, "").strip() or FIELDS[k][1])  # noqa: E731
 
@@ -2399,17 +2476,32 @@ def _accion(S, key):
     # ── stale: creación interrumpida detectada ──
     if v == "stale":
         snap = S.get("stale")
-        if key in ("l", "L"):
-            _ok, det = agent_create_job.cleanup(snap)
-            S["stale"], S["view"] = None, "menu"
-            S["msg"] = _t("addagent.ui.msg.leftovers_cleaned", "restos limpiados: %s") % det
-        elif key in ("r", "R"):
-            agent_create_job.cleanup(snap)
+        if not _stale_borrable(S):
+            # el agente YA quedó creado, o la carpeta no son restos
+            # demostrables: NADA que borrar — Enter solo quita el aviso
+            if key in ("\r", "\n"):
+                agent_create_job.dismiss(snap)
+                S["stale"], S["stale_eval"], S["view"] = None, None, "menu"
+                S["msg"] = _t("addagent.ui.msg.stale_dismissed", "aviso quitado — no se borró nada")
+            elif key in ("l", "L", "r", "R"):
+                S["msg"] = _t("addagent.job.cleanup.kept", "no borro nada: %s") % _stale_eval(S).get("motivo", "")
+            elif key in ("q", "Q", "\x1b"):
+                S["view"] = "menu"           # el snapshot queda — se re-avisa
+            return True
+        if key in ("l", "L", "r", "R"):
+            ok, det = agent_create_job.cleanup(snap)
+            if not ok:                       # no se movió nada: el aviso se
+                S["stale_eval"] = None       # queda, con lo que HOY hay en disco
+                S["msg"] = det
+                return True
             params = dict((snap or {}).get("params") or {})
             params.setdefault("name", (snap or {}).get("name", ""))
-            if params.get("name"):
+            S["stale"], S["stale_eval"] = None, None
+            if key in ("l", "L"):
+                S["view"] = "menu"
+                S["msg"] = _t("addagent.ui.msg.leftovers_cleaned", "restos limpiados: %s") % det
+            elif params.get("name"):
                 _crear_ya(S, params)
-                S["stale"] = None
             else:
                 S["view"], S["msg"] = "menu", _t("addagent.ui.msg.cant_retry", "no pude reintentar (sin datos)")
         elif key in ("q", "Q", "\x1b", "\r", "\n"):
@@ -2721,11 +2813,13 @@ def _estado_inicial():
          "vals": {k: "" for k in ORDEN_F},
          "ruta": "", "found": [], "estados": {}, "buscado": False,
          "done": {}, "job": None, "harn": None, "engine_id": None,
-         "stale": None, "insp": None, "ljob": None, "lret": "menu",
+         "stale": None, "stale_eval": None, "insp": None, "ljob": None, "lret": "menu",
          "scan": None, "defs": {}, "personalize": False, "pbk": {},
          # las dos preguntas (defaults: libre solo en su cerebro · sin revisión)
          "brain_free": True, "skill_review": False,
-         "saldo": None, "source_skills": True, "sourcing": None,
+         # «obtener skills» APAGADO por defecto: encenderlo consulta GitHub
+         # y skills.sh; sin pedirlo, crear un agente no sale a la red.
+         "saldo": None, "source_skills": False, "sourcing": None,
          "skill_selected": set(), "skill_cursor": 0,
          "source_config": skill_source_preferences.load(), "option_cursor": 0, "community_query": ""}
     # RESUMIBLE: ¿hay una creación viva (este proceso) o interrumpida (otro

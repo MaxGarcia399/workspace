@@ -56,7 +56,8 @@ version: 1.0.0
 category: <categoría>
 tags: [<tag1>, <tag2>]
 created: <YYYY-MM-DD>
-created_by: <{{AGENT_NAME}} | socio>
+created_by: {{AGENT_NAME}}
+pedido_por: <socio que la pidió — omitir si nadie la pidió>
 last_improved: <YYYY-MM-DD>
 used_count: 0
 ---
@@ -88,10 +89,8 @@ Usar cuando: [condición]. NO usar si: [exclusión].
 > creación sin esto.**
 
 En `skills/README.md`: agregar fila en la categoría correcta + reconciliar el `**Total: N skills**`
-contando de verdad:
-```bash
-find skills -mindepth 2 -name SKILL.md -not -path "*/_propuestas/*" -not -path "*/_archive/*" | wc -l
-```
+contando de verdad, con mis herramientas de archivos (sin comandos): `skills/*/*/SKILL.md`, sin las
+carpetas que empiezan con `_` ni las skills con `status: archivada`.
 Si cambió el conteo o nació una categoría: reflejarlo también en `skills/INDEX-LITE.md` (tier 1).
 
 ### 4. Notificar

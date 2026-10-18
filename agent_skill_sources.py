@@ -390,8 +390,11 @@ def _catalogs(brain):
     rows = []
     if any(p.is_symlink() for p in root.rglob("*")):
         raise ValueError(_t("addagent.src.err.catalog_symlinks", "catálogo con symlinks: no se leen ni regeneran índices"))
+    from skill_meta import archivada
     for p in sorted(root.glob("*/*/SKILL.md")):
         if any(x.startswith("_") for x in p.relative_to(root).parts):
+            continue
+        if archivada(p.parent):          # archivada en su lugar: fuera del catálogo vivo
             continue
         try:
             meta = _metadata(p.read_text(encoding="utf-8"))

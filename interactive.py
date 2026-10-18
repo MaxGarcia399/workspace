@@ -53,7 +53,8 @@ SEGURIDAD (misma postura que connectors, sin debilitar nada):
   · Credenciales: mismas leyes de connectors — `vet_provider` se EJECUTA al
     construir el adaptador (suscripción directa = rechazo, sin bypass); keys
     solo por NOMBRE de env-var, resueltas al llamar; auth "none" ⇒ jamás
-    viaja Authorization; errores pasan por redacción (la key nunca al log).
+    viaja Authorization; errores pasan por redacción (la key nunca al log);
+    las redirecciones JAMÁS se siguen (connectors._urlopen).
   · Este módulo NO toca el default del harness: claude-code sigue siendo el
     motor primario; todo esto es opt-in por nombre de provider.
 
@@ -205,9 +206,13 @@ def make_openai_compatible_turn(provider):
             url, data=json.dumps(payload).encode("utf-8"),
             headers=hdrs, method="POST")
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            # misma vía HTTP que el path headless: JAMÁS sigue un 3xx
+            with connectors._urlopen(req, timeout=timeout) as resp:
                 raw = resp.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as e:
+            redir = connectors._redirect_error(name, e, key)
+            if redir:                  # 3xx: no se sigue (la key no sale)
+                return False, redir
             try:
                 # redactar ANTES de truncar (un corte a media key fugaría
                 # el prefijo parcial al log)
@@ -468,6 +473,44 @@ INTERACTIVE_CLIS = {
                  "arranque → AGENTS.md generado (invisible). Sesión cruda → "
                  "parse_codex al cerrar"),
     },
+    "opencode": {
+        "binary": "opencode",
+        "argv": ["opencode"],
+        "verified": False,
+        "hooks": "wrapper",
+        "note": ("`opencode` a secas abre el TUI interactivo (default del CLI "
+                 "2.0.29). HEADLESS verificado (`opencode run --format json` → "
+                 "OPENCODE_OK/PONG, OpenRouter); la corrida E2E del TUI sigue "
+                 "A-VERIFICAR. engines/opencode.py NO fija modelo (lo elige el "
+                 "socio en su config nativa). Contexto → AGENTS.md generado "
+                 "(marca WORKSPACE:GENERATED, compartida con codex). Sesión "
+                 "cruda → snapshot SQLite del opencode.db (sin decodificar aún)"),
+    },
+    "openclaw": {
+        "binary": "openclaw",
+        "argv": ["openclaw", "--profile", "workspace", "tui"],
+        "verified": False,
+        "hooks": "wrapper",
+        "note": ("TUI de OpenClaw conectado al GATEWAY del perfil PROPIO de Workspace "
+                 "(engines/openclaw.py arma --session agent:<id>:ws-… y --message; "
+                 "openclaw_gateway.py enciende y apaga el gateway). Desde "
+                 "2026.9 `tui --local` exige ser el único dueño del perfil: con "
+                 "gateway, varias pestañas a la vez (VERIFICADO 2026.9.33, Windows). "
+                 "NO fija modelo. Contexto → el mismo AGENTS.md puntero; "
+                 "skipBootstrap=true en el perfil."),
+    },
+    "hermes": {
+        "binary": "hermes",
+        "argv": ["hermes"],
+        "verified": False,
+        "hooks": "wrapper",
+        "note": ("REPL clásico de Hermes v0.18.2, EN LÍNEA, en el perfil PROPIO de "
+                 "Workspace (engines/hermes.py agrega --profile workspace y --resume "
+                 "<id> de la pestaña). VERIFICADO sin modelo real: "
+                 "la sesión queda con cwd = cerebro, --resume continúa el mismo "
+                 "id, Hermes no escribe en el cerebro. NO fija modelo. Contexto → "
+                 "el mismo AGENTS.md puntero. Sesión → export oficial al cerrar."),
+    },
     "gemini": {
         "binary": "gemini",
         "argv": ["gemini"],
@@ -497,8 +540,177 @@ def interactive_cli_status(cli):
     return st
 
 
+class _SessionSignal(Exception):
+    """SIGHUP/SIGTERM durante la sesión envuelta, convertido en excepción
+    para que el cierre (captura + session_end) corra igual."""
+
+
+def _guard_signals():
+    """Mientras el CLI oficial corre (POSIX; en Windows lo que no exista se
+    salta). Sin esto, cerrar la pestaña/ventana (SIGHUP) o que el hub mate
+    la sesión (SIGTERM) terminaba el wrapper SIN su `finally`: sin captura
+    de continuidad, sin session_end y con now.json pegado en «en sesión»
+    (incidente opencode 2026-10-15; afectaba igual a codex y antigravity).
+      · SIGINT → handler no-op: Ctrl+C es del CLI, no del wrapper (como
+        os.system). Handler Python, no SIG_IGN: el hijo NO lo hereda.
+      · SIGHUP/SIGTERM → _SessionSignal → cierre ordenado.
+    Devuelve los handlers previos para restaurarlos."""
+    import signal
+
+    def _raise(signum, frame):
+        raise _SessionSignal(signum)
+
+    prev = {}
+    # SIGBREAK (Windows, Ctrl+Break) = el mismo cierre ordenado que SIGTERM.
+    for name, handler in (("SIGINT", lambda s, f: None),
+                          ("SIGHUP", _raise), ("SIGTERM", _raise), ("SIGBREAK", _raise)):
+        sig = getattr(signal, name, None)
+        if sig is None:
+            continue
+        try:
+            prev[sig] = signal.signal(sig, handler)
+        except (ValueError, OSError):        # fuera del hilo principal
+            pass
+    return prev
+
+
+#: Segundos que el motor tiene para cerrar su sesión cuando el envoltorio le
+#: reenvía el SIGHUP/SIGTERM, antes de forzarlo. Acotado: el cierre del
+#: envoltorio (captura, session_end) va después, y el hub espera al cambiar
+#: de pestaña.
+_MOTOR_GRACE = 3.0
+
+
+def call_motor(cmd, env=None, cwd=None, grace=None):
+    """subprocess.call para el motor interactivo (el runner de siempre).
+
+    POSIX: si al envoltorio le llega SIGHUP (cerrar la ventana de Terminal) o
+    SIGTERM (el hub cambia de pestaña) mientras el motor corre, el
+    _SessionSignal salía de subprocess.call, que hace p.kill(): SIGKILL al
+    motor al instante, sin dejarle cerrar su sesión (E2E en Mac,
+    2026-10-17). Aquí se le REENVÍA la señal (y SIGCONT), se le dan `grace` s
+    para salir solo y solo entonces se fuerza; el _SessionSignal sigue su
+    camino (cierre ordenado del envoltorio). Mientras tanto, más SIGHUP/SIGTERM
+    se ignoran: el llamador restaura los manejadores al terminar su cierre.
+
+    Windows: exactamente subprocess.call. Ahí la X llega como CTRL_CLOSE_EVENT
+    a cada proceso de la consola (_console_guard)."""
+    if os.name == "nt":
+        return subprocess.call(cmd, env=env, cwd=cwd)
+    with subprocess.Popen(cmd, env=env, cwd=cwd) as p:
+        try:
+            return p.wait()
+        except _SessionSignal as sig:
+            _stop_motor(p, sig, _MOTOR_GRACE if grace is None else grace)
+            raise
+        except BaseException:          # lo mismo que subprocess.call
+            p.kill()
+            raise
+
+
+def _stop_motor(p, sig, grace):
+    import signal
+    for s in (signal.SIGHUP, signal.SIGTERM):
+        try:
+            signal.signal(s, signal.SIG_IGN)
+        except (ValueError, OSError):  # fuera del hilo principal
+            pass
+    signum = int(sig.args[0]) if sig.args else signal.SIGTERM
+    for s in (signum, signal.SIGCONT):
+        try:
+            p.send_signal(s)           # no hace nada si ya terminó (pid no reciclado)
+        except OSError:
+            pass
+    try:
+        p.wait(timeout=grace)
+    except subprocess.TimeoutExpired:
+        p.kill()
+
+
+def _shield_cleanup(prev):
+    """Durante la limpieza: más señales no la abortan a medias (2º Ctrl+C,
+    el HUP del cierre de ventana que llega tarde)."""
+    import signal
+    for sig in prev:
+        try:
+            signal.signal(sig, signal.SIG_IGN)
+        except (ValueError, OSError):
+            pass
+
+
+def _restore_signals(prev):
+    import signal
+    for sig, h in prev.items():
+        try:
+            signal.signal(sig, h if h is not None else signal.SIG_DFL)
+        except (ValueError, OSError):
+            pass
+
+
+def _quiet_dead_tty():
+    """Tras un SIGHUP la terminal ya no existe: escribir en ella levanta
+    EIO y tumbaría la limpieza. La salida restante va a devnull."""
+    try:
+        devnull = open(os.devnull, "w", encoding="utf-8")
+        sys.stdout = devnull
+        sys.stderr = devnull
+    except Exception:
+        pass
+
+
+#: Lo que dejó el último cierre (captura incluida) para el adaptador que
+#: llamó: p. ej. OpenClaw suelta una clave que nunca llegó a existir.
+LAST_CLOSE = {}
+
+#: Segundos que el manejador de la X le da al cierre normal. Windows mata el
+#: proceso ~5 s después de entregar CTRL_CLOSE (MEDIDO 2026-10-16, Windows 11).
+_CLOSE_GRACE = 4.0
+_GUARD = {}
+
+
+def _console_guard(run_id, cli, brain):
+    """Windows: cerrar la ventana (o la pestaña de Windows Terminal) entrega
+    CTRL_CLOSE_EVENT; sin manejador, el proceso moría sin su `finally` (la
+    falla 1 del panorama de contexto: ≈80 % de las sesiones reales sin
+    cierre). Con este manejador: lo mínimo al instante (pending_runs.
+    interrupted: recibo «interrupted», bloque de la pestaña y now.json) y unos
+    segundos para que el cierre normal (captura, session_end, atado) termine;
+    lo que no alcance lo termina pending_runs.reconcile() al reabrir.
+    → Event que se enciende si llegó la X (None si no aplica)."""
+    if os.name != "nt" or os.environ.get("WORKSPACE_NO_CONSOLE_GUARD"):
+        return None
+    try:
+        import ctypes
+        import threading
+        from ctypes import wintypes
+        import pending_runs
+        flag = threading.Event()
+
+        def handler(ctrl):
+            if ctrl not in (2, 5, 6):      # CTRL_CLOSE / CTRL_LOGOFF / CTRL_SHUTDOWN
+                return False               # Ctrl+C y Ctrl+Break: lo de siempre
+            _GUARD["at"] = time.time()
+            flag.set()
+            _quiet_dead_tty()              # la consola ya no existe: print → OSError
+            try:
+                pending_runs.interrupted(run_id, engine=cli, brain=brain)
+            except Exception:
+                pass
+            pending_runs.wait_done(_CLOSE_GRACE)
+            return True
+
+        cb = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.DWORD)(handler)
+        if not ctypes.windll.kernel32.SetConsoleCtrlHandler(cb, True):
+            return None
+        _GUARD["cb"] = cb                  # el callback vive lo que viva el proceso
+        return flag
+    except Exception:
+        return None
+
+
 def run_official_cli_interactive(cli, brain=None, argv=None, behaviors=None,
-                                 exe_override=None, runner=None, context_sink=None):
+                                 exe_override=None, runner=None, context_sink=None,
+                                 pending=None, console_guard=None):
     """Lanza un CLI oficial en modo INTERACTIVO envuelto en el ciclo de vida
     neutral: on_session_start → el binario corre con la tty → on_session_end
     al salir. Devuelve el returncode. El contexto de arranque va al
@@ -511,7 +723,12 @@ def run_official_cli_interactive(cli, brain=None, argv=None, behaviors=None,
     corre un CLI real ahí). `exe_override`/`runner` son knobs de test.
 
     claude-code se RECHAZA: su path real es dispatch + hooks nativos; un
-    wrapper encima haría double-fire de listeners."""
+    wrapper encima haría double-fire de listeners.
+
+    Red de seguridad (pending_runs, 2026-10-16): la corrida se anota ANTES de
+    abrir (`pending` = lo que el adaptador necesita para atar después) y, en
+    Windows, la X tiene manejador. El adaptador llama pending_runs.done() al
+    terminar su atado y limpieza."""
     info = INTERACTIVE_CLIS.get(cli)
     if info is None:
         raise InteractiveError("CLI oficial desconocido: %r (tabla: %s)"
@@ -540,23 +757,61 @@ def run_official_cli_interactive(cli, brain=None, argv=None, behaviors=None,
     elif ctx.strip():
         # única vía honesta hacia un TUI ajeno: mostrárselo al socio.
         print("[WORKSPACE · contexto de arranque]\n%s\n" % ctx.strip())
-    env = dict(os.environ)
+    try:                             # el motor no hereda lo que cargó la bóveda
+        import secret_store
+        env = secret_store.engine_env()
+    except Exception:
+        env = dict(os.environ)
     if brain:
         env["WORKSPACE_BRAIN"] = str(brain)
+    import engines                   # memoria v1: `workspace memoria nota` sabe el motor
+    engines.mark_session_engine(env, cli)
     cmd = [exe] + list(argv if argv is not None else info["argv"][1:])
+    import pending_runs
+    pending_runs.begin(run_id, cli, brain, started, extra=pending)
+    # console_guard None = solo en la corrida real (sin runner de prueba); codex
+    # pasa True porque su runner real (codex_status.run) envuelve al CLI.
+    want_guard = (runner is None) if console_guard is None else bool(console_guard)
+    closed_by_x = _console_guard(run_id, cli, brain) if want_guard else None
+    prev = _guard_signals()
+    ended_by = None
+    rc = None
+    LAST_CLOSE.clear()
     try:
-        run = runner or subprocess.call
-        rc = run(cmd, env=env, cwd=str(brain) if brain else None)
-    finally:
-        end_payload = dict(payload, source="exit")
+        run = runner or call_motor
         try:
-            import session_continuity
-            end_payload = session_continuity.close_payload(
-                str(brain or os.getcwd()), cli, started, payload, run_id)
-        except Exception as exc:
-            print("WORKSPACE: captura de continuidad pendiente (%s)" % exc,
-                  file=sys.stderr)
-        neutral_hooks.on_session_end(end_payload, **kw)
+            rc = run(cmd, env=env, cwd=str(brain) if brain else None)
+        except _SessionSignal as sig:
+            ended_by = int(sig.args[0]) if sig.args else 0
+            rc = 128 + ended_by
+    finally:
+        _shield_cleanup(prev)
+        try:
+            import signal as _signal
+            if ended_by is not None and ended_by == getattr(_signal, "SIGHUP", -1):
+                _quiet_dead_tty()
+            if closed_by_x is not None and closed_by_x.is_set():
+                _quiet_dead_tty()
+            end_payload = dict(payload, source="exit")
+            if ended_by is not None:
+                end_payload["end_signal"] = ended_by
+            try:
+                import session_continuity
+                end_payload = session_continuity.close_payload(
+                    str(brain or os.getcwd()), cli, started, payload, run_id)
+                if ended_by is not None:
+                    end_payload["end_signal"] = ended_by
+            except Exception as exc:
+                print("WORKSPACE: captura de continuidad pendiente (%s)" % exc,
+                      file=sys.stderr)
+            neutral_hooks.on_session_end(end_payload, **kw)
+            LAST_CLOSE.update(end_payload)
+            if closed_by_x is not None and closed_by_x.is_set():
+                # la X: el adaptador acota su atado a la ventana de ESTA corrida
+                LAST_CLOSE.update(closed_by="x", interrupted_at=_GUARD.get("at"))
+            pending_runs.closed(run_id, end_payload)
+        finally:
+            _restore_signals(prev)
     return rc
 
 

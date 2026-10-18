@@ -10,7 +10,8 @@ duro); WARM = JIT cuando la tarea lo pide; COLD = solo bajo consulta explícita.
 {{AGENT_UPPER}} - BRAIN/
 │
 │  ── HOT (entra al boot SIEMPRE; suma ≤~26k chars ≈ 6.5k tokens) ──
-├── CLAUDE.md              Entry point — boot order + punteros. Tope ≤3k chars.
+├── BRAIN.md               Identidad: entry point — boot order + punteros. Tope ≤3k chars.
+├── CLAUDE.md              Puntero GENERADO para Claude Code (importa BRAIN.md). No editar arriba de su marca de fin.
 ├── BOOT/                  Identidad inmutable. Tope 12k chars/archivo. HOT completo.
 │   ├── 00-SOUL.md         Personalidad, carácter, por qué existo.
 │   ├── 01-IDENTITY.md     Tarjeta básica.
@@ -28,18 +29,22 @@ duro); WARM = JIT cuando la tarea lo pide; COLD = solo bajo consulta explícita.
 ├── STATE/PENDIENTES.md    WARM · trabajo activo. Tope 6.6k chars.
 ├── STATE/MILESTONES.md    WARM · hitos. Leer al discutir fechas. Tope 4k chars.
 ├── STATE/log-recent.md    WARM · bitácora. Leer SOLO si brain-version reporta cambios ≤7d.
-│                          Tope 4k chars; el cron rota lo viejo a STATE/log-archive/.
-├── STATE/DESTILADO.md     WARM · staging humano del Dreaming (candidatos → MEMORY).
+│                          Tope 4k chars; lo viejo lo muevo yo a STATE/log-archive/ (nunca se borra).
 ├── STATE/inbox/           WARM · bus append-only. Leer al arrancar si hay mensajes.
-├── STATE/sessions/<socio>/<slug>.md  WARM la sesión activa (hook inyecta ≤1.2k chars).
+├── STATE/sessions/<socio>/<slug>.md  WARM la pestaña activa: al abrir llega su paquete (resumen +
+│                          Vigente + notas nuevas + maleta). Solo escribo con `workspace memoria`.
+├── STATE/sessions/<socio>/checkpoints/ · maleta/  WARM · resumen de cada pestaña · lo último de
+│                          cada motor (los escribe Workspace; entran al paquete).
 ├── skills/README.md       WARM · catálogo completo. Leer al buscar skill aplicable.
 ├── skills/<cat>/<skill>/SKILL.md  WARM · JIT al detectar tarea aplicable.
 ├── wiki/                  WARM/COLD · conocimiento propio on-demand. NUNCA cargar entero.
-└── adapters/              WARM · cómo opero por runtime.
+├── adapters/              WARM · cómo opero por runtime.
+└── motores/               Espacio propio de cada motor: `motores/claude-code/memoria/` = memoria
+                           automática de Claude Code (la carga él). Ver motores/README.md.
 │
 │  ── COLD (archival; solo bajo consulta explícita o grep/FTS5) ──
 ├── STATE/sessions/<socio>/<slug>.md  COLD las sesiones no-activas.
-├── STATE/sessions/<socio>/<YYYY-MM>/ COLD · destilados mensuales INMUTABLES.
+├── STATE/sessions/<socio>/archivo/   COLD · notas viejas de cada pestaña, por mes (nada se borra).
 ├── STATE/memoria-archivo/ COLD · overflow de MEMORY (decay, never-delete).
 ├── STATE/log-archive/     COLD · rotación de log-recent + changelogs viejos.
 │
@@ -52,16 +57,16 @@ duro); WARM = JIT cuando la tarea lo pide; COLD = solo bajo consulta explícita.
 | Archivo / carpeta | Qué tiene | Capa | Tope |
 |---|---|---|---|
 | `STATE/brain-version.md` | Versión + changelog. **Primero al boot.** | HOT | 2.5k chars |
-| `STATE/MEMORY.md` | Memoria curada largo plazo. Core blocks N13. | HOT | 13.5k chars |
+| `STATE/MEMORY.md` | Memoria curada largo plazo. Core blocks N13 + «Aprendido en las sesiones» (la llena Workspace). | HOT | 13.5k chars |
 | `STATE/INDEX.md` | Índice de retrieval: 1 línea→path. | HOT | 100 líneas |
 | `STATE/users/<socio>.md` | Perfil de trato del socio activo. | HOT | 2k chars c/u |
 | `STATE/PENDIENTES.md` | Trabajo activo. | WARM | 6.6k chars |
 | `STATE/log-recent.md` | Bitácora — solo si cambios ≤7 días. | WARM | 4k chars |
 | `STATE/MILESTONES.md` | Hitos. | WARM | 4k chars |
-| `STATE/DESTILADO.md` | Staging del Dreaming (promover = humano). | WARM | — |
 | `STATE/inbox/` | Bus append-only. Leer al arrancar si hay mensajes. | WARM | — |
-| `STATE/sessions/<socio>/` | Live journals por pestaña. | WARM activa · COLD el resto | — |
-| `STATE/sessions/<socio>/<YYYY-MM>/` | Destilados mensuales inmutables. | COLD | ≤80 líneas c/u |
+| `STATE/sessions/<socio>/` | Una ficha por pestaña: Resumen + Vigente + Historial (`workspace memoria nota`). | WARM activa · COLD el resto | 30 notas u 8 KB (luego compacta) |
+| `STATE/sessions/<socio>/checkpoints/` · `maleta/` | Resumen de cada pestaña · lo último de cada motor. | WARM | — |
+| `STATE/sessions/<socio>/archivo/` | Notas viejas que salen de la ficha al compactar. | COLD | ilimitado |
 | `STATE/memoria-archivo/` | Overflow de MEMORY (decay, never-delete). | COLD | ilimitado |
 | `STATE/log-archive/` | Rotación de bitácoras viejas y changelogs. | COLD | ilimitado |
 | `STATE/boot-lite.md` | Digest BOOT/ (boot_lite.py — gitignored). | DERIVADO | 4k chars |
@@ -72,16 +77,16 @@ duro); WARM = JIT cuando la tarea lo pide; COLD = solo bajo consulta explícita.
 - `skills/README.md` — catálogo completo (WARM): tabla por categoría.
 - Categorías de {{AGENT_DISPLAY}}: **{{SKILL_CATS}}** + `meta/` (el sistema de skills) +
   `investigación/` (el músculo de research).
-- `skills/_propuestas/` — cuarentena del skill loop automático (aprueba un humano).
+- `skills/_archive/` — lo archivado y las copias previas (nada se borra). Ninguna skill espera aprobación.
 
 ## Cómo busco (retrieval por capas)
 
 1. **INDEX.md ya está en contexto** (HOT) → decidir → 1 `Read`. Es el camino rápido.
 2. **Catálogos WARM:** `skills/INDEX-LITE.md`, `STATE/log-recent.md`, `wiki/index.md`.
 3. **grep** sobre el cerebro relevante: `grep -r "término" STATE/` o `wiki/`.
-4. **FTS5 (E3):** `~/.claude/workspace/index/<cerebro>.db` — cubre destilados + wiki +
-   memoria-archivo + inbox-consumido. Regenerable; doctor vigila frescura. **No disponible
-   en E1/E2 — el fallback es siempre grep.**
+4. **FTS5 (E3):** `~/.claude/workspace/index/<cerebro>.db` — cubre las fichas de las pestañas
+   y su `archivo/` + wiki + memoria-archivo + log-archive + inbox-consumido. Regenerable
+   (`--reindex`). **No disponible en E1/E2 — el fallback es siempre grep.**
 5. Si no encuentro: lo digo — no invento.
 
 ## Lo que NO vive aquí (pero leo para trabajar)

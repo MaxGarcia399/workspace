@@ -17,7 +17,7 @@
 1. Cada paso deja un **artefacto** → el pipeline es resumible (se reinicia a mitad sin perder).
 2. Cada paso tiene un **VERIFY determinista** → código que lee la evidencia real, no el claim del agente.
 3. El spec es **datos versionados y congelados** → un run empezado en vN termina en vN (deep-copy dentro del run).
-4. **IDEMPOTENCIA de los pasos efectivos** (v1.1, antes implícita — ahora es LEY): "resumible" solo es verdad si re-correr un paso EFECTIVO fallido es no-op seguro. Los pasos de la biblioteca que tocan el mundo lo cumplen: `worktree.acquire` **adopta** la rama/worktree del run si ya existen (registry vivo → worktree en la rama → rama sin worktree = `add` sin `-b`); `front.integrate` es **no-op verde** si la rama ya está contenida en main (tips distintos). Un paso que NO pueda ser idempotente se declara `"idempotent": false` en el spec: el runner **no lo re-corre solo** en resume (escala al socio; el siguiente resume = aprobar) y `validate_spec` rechaza combinarlo con `on_fail: retry`.
+4. **IDEMPOTENCIA de los pasos efectivos** (v1.1, antes implícita — ahora es LEY): "resumible" solo es verdad si re-correr un paso EFECTIVO fallido es no-op seguro. Los pasos de la biblioteca que tocan el mundo lo cumplen: `worktree.acquire` **adopta** la rama/worktree del run si ya existen (registry vivo → worktree en la rama → rama sin worktree = `add` sin `-b`); `front.integrate` re-corrido con la rama ya contenida en main **vuelve a llamar al comando** (git no mergea nada y las dos suites corren otra vez — v1.6: el verde jamás sale de un no-op). Un paso que NO pueda ser idempotente se declara `"idempotent": false` en el spec: el runner **no lo re-corre solo** en resume (escala al socio; el siguiente resume = aprobar) y `validate_spec` rechaza combinarlo con `on_fail: retry`.
 
 **Taxonomía de errores (v1.1):** un resultado de paso/driver puede declarar `retriable: false` = error **PERMANENTE** (configuración/contrato: reintentar no lo arregla — p. ej. `HeadlessSecurityError`/`UnknownBackend`, que `headless.py` ya distinguía y el runner ahora **respeta**). Permanente ⇒ escalada INMEDIATA al socio sin quemar `max_iter`. Solo lo transitorio se reintenta, con **backoff exponencial + jitter** (`workflows.backoff_delay`, función pura testeada; base 0.5s, cota 30s; el sleep es inyectable — la suite jamás duerme).
 
@@ -87,12 +87,12 @@
 | 3 | iterar | AD-HOC | falta: commit-atómico por iteración · rollback · should_fully_stop · notes.md |
 | 4 | cerrar | AD-HOC | falta: morning-review con evidencia, no claims |
 
-## P4 · destilación-memoria — **el modelo: ya ES la arquitectura**
-fingerprint-skip → sanitizar (sin guard no se destila) → LLM sin tools → parsear markers → persistir gated (staging → DESTILADO.md; nunca toca MEMORY.md, la promoción es humana). Prompts congelados versionados. **Se usa como referencia de estilo; no se toca.**
+## P4 · destilación-memoria — **RETIRADA (2026-10-16)**
+Era: fingerprint-skip → sanitizar → LLM sin tools (sin ventana) → staging en DESTILADO.md → promoción humana. El dueño la retiró: en la máquina del cliente no corre ninguna IA sin ventana y la memoria no espera aprobación humana. La memoria la mantiene el agente en su sesión; lo mecánico, código sin IA. Queda como referencia histórica de estilo (fingerprint, prompts versionados).
 
 ## P5 · doctor — fases idempotentes por agente. Ya es la arquitectura.
 
-## P6 · skill-loop — SessionEnd (vivo) + nightly (frío) + agregador; propuestas siempre gated. Ya explícito.
+## P6 · skill-loop — SessionEnd deja la revisión pendiente (sin lanzar nada) y el agente la hace al abrir la siguiente sesión, a la vista; sin nightly ni aprobación humana (2026-10-16). Ya explícito.
 
 ## P7 · mensajería inter-agente — bus `messages.py` (inbox → atender → done). [DET] el bus; [AD-HOC] la disciplina de atenderlo. Gap AXI (agregados, estado vacío, next-steps).
 
@@ -138,6 +138,11 @@ D0 rumbo sí · D1 verify/push-guard fail-closed pero **log-only primero** · D2
 ---
 
 ## Changelog del runner
+- **v1.6 (2026-10-16) — el run prueba e integra LO SUYO** (revisión general; specs sin cambios — `construir-feature` sigue en v4):
+  1. **Repo de trabajo**: `ctx["repo"]` es el worktree del run en cuanto `worktree.acquire` deja `worktree_path` (también al retomar); antes era ROOT para todo el run y `test`/`gate`/`prevencion` probaban el checkout principal. `ctx["root"]` = checkout principal (ahí crea acquire y mergea integrate).
+  2. **La rama nace de main**: acquire resuelve el sha de main y crea la rama ahí en los dos caminos — el árbol reciclado del pool ya no le hereda el tip del lease anterior. El sha queda como artefacto `branch_base`.
+  3. **integrate con la rama DEL RUN**: `front.cmd_integrate(args, branch=…)` prueba esa rama en su worktree y la mergea en ROOT, que debe estar ya en main (jamás lo cambia de rama ni mete la rama en la que esté parado); después se comprueba que quedó contenida en main. El trabajo a integrar es lo que la rama trae y no tienen ni main ni el main del que nació (`rama ^main ^branch_base`; rama adoptada: `main..rama`) — no cuenta lo que vino DE main ni lo que main descartó mientras el run esperaba (rollback del update, amend, reset, pull --rebase); antes del merge su tip queda como evidencia de ESTE run (`integrate_tip`), a disco en ese momento. Rama ya en main → solo sigue si esa evidencia (el commit exacto que el run llevó a su merge) ya está en main, y re-corre las dos suites (adiós al no-op verde). Un merge ajeno en main jamás cuenta como prueba (otra rama que se puso al día con `git merge main`, o un pull con merge, dejan como padre el tip de una rama vacía). Sin rama del run o sin trabajo ni evidencia → rojo honesto.
+  4. **Checkpoint del runner**: `ctx["checkpoint"](artefactos)` persiste a disco, a mitad de un paso, lo que debe sobrevivir a un corte del proceso (atómico; si no se puede escribir, levanta; inerte en dry). Lo usa integrate para su evidencia antes del merge: un corte durante la suite final ya no deja el run atascado.
 - **v1.5 (2026-07-05) — observabilidad de corridas** (P1-D de la crítica; ADITIVO puro: cero cambios de semántica del runner — solo emisión de eventos + campos nuevos de duración/resumen en el estado; runs y specs viejos corren idéntico, `run_summary` sobre un run viejo simplemente reporta `ms: 0`):
   1. **`wf_run` al rastro N10** (nuevo en el vocabulario de `events.py`, `INTERNAL` en ambos motores): start al arrancar, resume al reanudar, end al cierre de cada pasada (done/failed/rejected/paused_human) con `ms` total y `summary`. Best-effort como `wf_step` — el rastro caído jamás tumba el run.
   2. **Duraciones que viajan**: `ms` de ejecución por paso (acumulado entre tentativas, monotónico inyectable) persistido en `state["steps"][i]["ms"]` e incluido en cada `wf_step`; `state["ms"]` = duración total de pared del run (desde `created`, incluye pausas).
