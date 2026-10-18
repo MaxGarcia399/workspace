@@ -8,6 +8,16 @@ Cómo leer esto: cada versión tiene su número (`MAYOR.MENOR.PARCHE`). Un
 cambio de PARCHE arregla cosas; uno de MENOR trae funciones nuevas sin romper
 nada; uno de MAYOR avisa con tiempo si algo cambia de forma.
 
+## 0.4.1 — 2026-10-18
+
+**Arreglos**
+- La sección **Usuarios** ya no muestra tres nombres que no son de nadie. Los
+  agentes creados con la 0.2.0 o antes traían tres carpetas de ejemplo vacías
+  y la 0.4.0 las tomaba por usuarios. Al abrir el agente (o la sección),
+  Workspace las quita solo: el perfil que les había creado queda en
+  `STATE/users/_archivo/`, y no toca nada que tenga pestañas, preferencias o
+  memoria, ni a quien usa esa máquina.
+
 ## 0.4.0 — 2026-10-18
 
 **Novedades**

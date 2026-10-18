@@ -8,6 +8,16 @@ How to read this: every version has a number (`MAJOR.MINOR.PATCH`). A PATCH
 change fixes things; a MINOR one brings new features without breaking
 anything; a MAJOR one warns you well in advance if something changes shape.
 
+## 0.4.1 — 2026-10-18
+
+**Fixes**
+- The **Users** section no longer shows three names that belong to no one.
+  Agents created with 0.2.0 or earlier came with three empty example folders,
+  and 0.4.0 took them for users. When you open the agent (or the section),
+  Workspace removes them on its own: the profile it had created for them goes
+  to `STATE/users/_archivo/`, and it never touches anything with tabs,
+  preferences or memory, nor whoever uses that machine.
+
 ## 0.4.0 — 2026-10-18
 
 **What's new**

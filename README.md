@@ -219,6 +219,13 @@ identity to `BRAIN.md`), it does it on its own, copies everything to a backup
 first and deletes nothing; what you wrote yourself is left alone.
 More in [the manual](manual/en/updates.md).
 
+### What's new in v0.4.1
+
+- **A fix.** The **Users** section no longer shows three names that belong to
+  no one: agents created with 0.2.0 or earlier came with three empty example
+  folders, and 0.4.0 took them for users. Workspace removes them on its own
+  when you open the agent; nothing with tabs, preferences or memory is touched.
+
 ### What's new in v0.4.0
 
 - **Each tab remembers the same thing on any engine.** Your agent saves what
@@ -515,6 +522,13 @@ ajustar algo dentro de tus cerebros (la 0.4.0, por ejemplo, pasa la identidad de
 agentes a `BRAIN.md`), lo hace sola, antes copia todo a un respaldo y no borra nada; lo
 que escribiste tú se deja como está.
 Más en [el manual](manual/es/actualizaciones.md).
+
+### Novedades de la v0.4.1
+
+- **Un arreglo.** La sección **Usuarios** ya no muestra tres nombres que no son
+  de nadie: los agentes creados con la 0.2.0 o antes traían tres carpetas de
+  ejemplo vacías y la 0.4.0 las tomaba por usuarios. Workspace las quita solo
+  al abrir el agente; nada que tenga pestañas, preferencias o memoria se toca.
 
 ### Novedades de la v0.4.0
 

@@ -362,6 +362,139 @@ def pestanas(brain, nombre):
         return []
 
 
+# ── las carpetas de ejemplo de la plantilla vieja ───────────────────────────
+# Hasta la 0.2.0 la plantilla de agentes traía STATE/sessions/ con tres
+# carpetas de ejemplo vacías (solo `.gitkeep`). En el cerebro de un cliente no
+# son de nadie, pero asegurar() les daba perfil y la sección Usuarios le
+# mostraba tres nombres ajenos (reporte de un cliente, 2026-10-18). Solo esos
+# tres nombres, y solo si no hay nada de nadie: ni pestañas, ni un perfil que
+# alguien tocó, ni memoria, ni el usuario de esta máquina.
+_PLANTILLA_VIEJA = ("fer", "mau", "max")
+_RELLENO = (".gitkeep", ".ds_store", "thumbs.db", "desktop.ini")
+
+
+def _carpeta(brain, nombre):
+    """'falta' · 'vacia' (ni un archivo; la sincronización no copia los
+    `.gitkeep`) · 'plantilla' (solo `.gitkeep` vacíos y archivos del sistema,
+    como la dejó la plantilla) · 'contenido' (cualquier otra cosa, un enlace o
+    algo que no se pudo leer)."""
+    d = os.path.join(_sess_dir(brain), nombre)
+    if not os.path.lexists(d):
+        return "falta"
+    if os.path.islink(d) or not os.path.isdir(d):
+        return "contenido"
+    errores, gitkeep = [], False
+    for raiz, dirs, files in os.walk(d, onerror=errores.append):
+        if any(os.path.islink(os.path.join(raiz, x)) for x in dirs):
+            return "contenido"
+        for f in files:
+            p = os.path.join(raiz, f)
+            if f.lower() not in _RELLENO or os.path.islink(p):
+                return "contenido"
+            if f.lower() == ".gitkeep":
+                try:
+                    if os.path.getsize(p):
+                        return "contenido"
+                except OSError:
+                    return "contenido"
+                gitkeep = True
+    if errores:
+        return "contenido"
+    return "plantilla" if gitkeep else "vacia"
+
+
+def _quitar_carpeta(brain, nombre):
+    """Borra solo el relleno (`.gitkeep` vacíos, archivos del sistema) y las
+    carpetas que quedan vacías. Si mientras tanto llegó algo, eso no se toca y
+    la carpeta se queda. → True si ya no está."""
+    d = os.path.join(_sess_dir(brain), nombre)
+    for raiz, _dirs, files in os.walk(d, topdown=False):
+        for f in files:
+            p = os.path.join(raiz, f)
+            try:
+                if f.lower() in _RELLENO and not os.path.islink(p) \
+                        and (f.lower() != ".gitkeep" or not os.path.getsize(p)):
+                    os.remove(p)
+            except OSError:
+                pass
+        try:
+            os.rmdir(raiz)
+        except OSError:
+            pass
+    return not os.path.lexists(d)
+
+
+def _rastro(brain, nombre):
+    """¿Hay algo de `nombre` fuera de su carpeta de sesiones? Memoria de
+    Claude Code o su bandeja de STATE/inbox/."""
+    for raiz, _dirs, files in os.walk(os.path.join(brain, "motores", "claude-code", "memoria",
+                                                   nombre)):
+        if files:
+            return True
+    try:
+        bandeja = os.listdir(os.path.join(brain, "STATE", "inbox"))
+    except OSError:
+        bandeja = []
+    patron = re.compile(r"^%s-\d{4}-\d{2}-\d{2}" % re.escape(nombre))
+    return any(patron.match(f) for f in bandeja)
+
+
+def _locales(brain, cs):
+    """El usuario de ESTA máquina (socio.local o WORKSPACE_SOCIO) y su nombre
+    actual si dice uno viejo: lo suyo nunca se toma por relleno."""
+    out = set()
+    for s in (_leer(_socio_local(brain)) or "", os.environ.get("WORKSPACE_SOCIO") or ""):
+        s = re.sub(r"[^a-z0-9_-]", "", s.strip().lower())
+        if s:
+            out.add(s)
+    for c in cs:
+        if out & ({c["nombre"], c["id"]} | set(c["alias"])):
+            out.add(c["nombre"])
+    return out
+
+
+def _de_plantilla(brain, c, locales):
+    """¿El perfil `c` es el que asegurar() le dio a una carpeta de ejemplo de la
+    plantilla vieja y nadie lo usó? Intacto (el texto con que se crea, sin
+    alias, revisión 1, sin campos de más), su carpeta sin nada y ningún rastro.
+    Con fecha de creación (un usuario creado a mano también nace con la
+    carpeta vacía) solo si su carpeta todavía trae los `.gitkeep`."""
+    n = c["nombre"]
+    if n not in _PLANTILLA_VIEJA or n in locales or c["ilegible"] or not c["entendido"]:
+        return False
+    if c["alias"] or c["revision"] > 1 or c["extra"]:
+        return False
+    if (c["cuerpo"] or "").strip() != _PERFIL.format(titulo=n.capitalize()).strip():
+        return False
+    estado = _carpeta(brain, n)
+    if estado == "contenido" or (c["creado"] and estado != "plantilla"):
+        return False
+    return not _rastro(brain, n)
+
+
+def _limpiar_plantilla_vieja(brain, cs, locales):
+    """Quita las carpetas de ejemplo de la plantilla vieja que no son de nadie
+    y archiva el perfil que la 0.4.0 les dio (STATE/users/_archivo/). Primero
+    la carpeta: si llegó algo a medias, todo se queda. Determinista (regla 4).
+    → nombres cuyo perfil se archivó (se veían en la sección)."""
+    archivados = []
+    for n in _PLANTILLA_VIEJA:
+        if n in locales or _rastro(brain, n):
+            continue
+        estado = _carpeta(brain, n)
+        if estado == "contenido":
+            continue
+        perfil = next((c for c in cs if c["nombre"] == n), None)
+        if perfil is not None and not _de_plantilla(brain, perfil, locales):
+            continue
+        if estado != "falta" and not _quitar_carpeta(brain, n):
+            continue
+        if perfil is not None:
+            _archivar_perfil(brain, perfil["ruta"])
+            archivados.append(n)
+    return archivados
+
+
 # ── resolver nombres ────────────────────────────────────────────────────────
 def resolver(brain, quien):
     """Nombre ACTUAL del usuario `quien` (su nombre, un alias viejo o su id).
@@ -558,6 +691,10 @@ def asegurar(brain):
         cs = cedulas(brain)
         if _unir_duplicados(brain, cs, rep):
             cs = cedulas(brain)
+        archivados = _limpiar_plantilla_vieja(brain, cs, _locales(brain, cs))
+        if archivados:
+            rep["plantilla"] = archivados
+            cs = cedulas(brain)
         usados = {c["id"] for c in cs if c["id"]}
         for c in cs:
             if c["ilegible"]:                  # regla 2: se aparta, con su misma cédula
@@ -694,6 +831,10 @@ def al_abrir(brain):
         for nombre in rep.get("sin_tocar") or []:
             partes.append("el perfil de «%s» tiene un formato que no entiendo: no le puse cédula "
                           "ni lo toqué" % nombre)
+        if rep.get("plantilla"):
+            partes.append("quité %s: eran carpetas de ejemplo vacías de la plantilla, no usuarios "
+                          "de este agente (el perfil quedó en STATE/users/_archivo/)"
+                          % ", ".join("«%s»" % n for n in rep["plantilla"]))
         return ("WORKSPACE · usuarios: " + "; ".join(partes) + " (sección Usuarios)") if partes else ""
     except Exception:
         return ""
@@ -968,6 +1109,8 @@ def resumen(brain):
     (un nombre empieza con el otro y comparten pestañas): se ofrece Unir."""
     yo = socio_actual(brain, arreglar=False)
     cs = cedulas(brain)
+    locales = _locales(brain, cs)
+    cs = [c for c in cs if not _de_plantilla(brain, c, locales)]   # aunque asegurar() no corriera
     filas = []
     tabs = {c["nombre"]: set(pestanas(brain, c["nombre"])) for c in cs}
     for c in cs:
