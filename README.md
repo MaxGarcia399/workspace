@@ -54,9 +54,9 @@ agents live inside someone else's product. Workspace takes the opposite bet.
 - **You own the brain.** Each agent's knowledge lives in plain, legible files you
   keep — portable, inspectable, versionable. Not a vector database you can't read.
 - **You choose the engine.** The loop that talks to the model is pluggable. It
-  runs today on **Claude Code, Codex and Antigravity** (each through its own
-  official CLI and your own login); other engines plug in **without reinventing
-  the agent's identity.** Not every engine can do everything yet — the
+  runs today on **six engines — Claude Code, Codex, Antigravity, OpenCode,
+  OpenClaw and Hermes** (each through its own official CLI and your own login);
+  others plug in **without reinventing the agent's identity.** Not every engine can do everything yet — the
   [compatibility matrix](manual/en/compatibility.md) says exactly what works where.
 - **You stay in control.** Credentials are per-machine and never touch the repo.
   The harness fails soft — a broken piece never takes down your session.
@@ -104,6 +104,9 @@ What a fresh install gives you today:
 - **Users** — **Menu › Users** shows who uses each agent across your machines;
   Workspace records who you are on each one (at install, or with «that's me on
   this PC»).
+- **Documentation** — **Menu › Documentation** explains everything Workspace
+  does, chapter by chapter, with a simple map, what is happening on your PC
+  right now and how to check it yourself.
 - **Nothing runs without a window** — no AI process works behind your back: the
   agent saves its memory inside its visible session, and evals against a golden
   set run only when you ask (`workspace eval`, Claude Code).
@@ -182,8 +185,9 @@ The installer is **per-machine**: it drops the `workspace` command, wires the
 hooks, and writes only to your machine's local config — never to the shared repo.
 
 **Requirements:** Python 3.9+, Git, and at least one engine CLI logged in with
-your own account: **Claude Code** (`claude`), **Codex** (`codex`) or
-**Antigravity** (`agy`). Claude Code is the most integrated today. On Windows use
+your own account: **Claude Code** (`claude`), **Codex** (`codex`),
+**Antigravity** (`agy`), **OpenCode** (`opencode`), **OpenClaw** (`openclaw`) or
+**Hermes** (`hermes`). Claude Code is the most integrated today. On Windows use
 `python` (not `python3`). Optional: tmux for the split terminal, macOS for voice
 dictation.
 
@@ -242,7 +246,8 @@ More in [the manual](manual/en/updates.md).
   OpenClaw and Hermes profiles (with your conversations) to a backup instead of
   deleting them, and only removes the terminal commands Workspace added; an
   engine that isn't installed no longer blocks its agent; closing with the X
-  loses nothing; several OpenClaw agents can be open at once.
+  loses nothing; several OpenClaw agents can be open at once; on Windows,
+  uninstalling really deletes the Workspace folder.
 
 ### What's new in v0.3.3
 
@@ -344,9 +349,9 @@ apuesta por lo contrario.
   legibles que conservas — portables, inspeccionables, versionables. No una base
   vectorial que no puedes leer.
 - **Eliges el motor.** El bucle que habla con el modelo es enchufable. Hoy corre
-  sobre **Claude Code, Codex y Antigravity** (cada uno con su CLI oficial y tu
-  propia sesión); otros motores se enchufan **sin reinventar la identidad del
-  agente.** No todos los motores pueden todo todavía — la
+  sobre **seis motores: Claude Code, Codex, Antigravity, OpenCode, OpenClaw y
+  Hermes** (cada uno con su CLI oficial y tu propia sesión); otros se enchufan
+  **sin reinventar la identidad del agente.** No todos los motores pueden todo todavía — la
   [matriz de compatibilidad](manual/es/compatibilidad.md) dice qué funciona dónde.
 - **Mantienes el control.** Las credenciales son por-máquina y jamás tocan el
   repo. El harness falla-suave — una pieza rota nunca tumba tu sesión.
@@ -395,6 +400,9 @@ Lo que te da una instalación nueva hoy:
 - **Usuarios** — **Menú › Usuarios** muestra quién usa cada agente en todas tus
   máquinas; Workspace registra quién eres en cada una (al instalar, o con «soy yo
   en esta PC»).
+- **Documentación** — **Menú › Documentación** explica todo lo que hace
+  Workspace, capítulo por capítulo, con un mapa simple, lo que está pasando ahora
+  en tu PC y cómo comprobarlo tú.
 - **Nada corre sin ventana** — ningún proceso con IA trabaja a tus espaldas: el
   agente guarda su memoria dentro de su sesión visible, y los evals contra un set
   de referencia corren solo cuando tú lo pides (`workspace eval`, Claude Code).
@@ -475,7 +483,8 @@ El instalador es **per-máquina**: deja el comando `workspace`, cablea los hooks
 solo escribe en la config local de tu máquina — nunca en el repo compartido.
 
 **Requisitos:** Python 3.9+, Git, y al menos un CLI de motor con tu propia sesión
-iniciada: **Claude Code** (`claude`), **Codex** (`codex`) o **Antigravity** (`agy`).
+iniciada: **Claude Code** (`claude`), **Codex** (`codex`), **Antigravity** (`agy`),
+**OpenCode** (`opencode`), **OpenClaw** (`openclaw`) o **Hermes** (`hermes`).
 Hoy Claude Code es el más integrado. En Windows usa `python` (no `python3`).
 Opcional: tmux para la terminal partida, macOS para el dictado por voz.
 
@@ -535,7 +544,8 @@ Más en [el manual](manual/es/actualizaciones.md).
   de Workspace en OpenClaw y Hermes (con tus conversaciones) a un respaldo en vez
   de borrarlos, y solo quita los comandos de terminal que puso Workspace; un
   motor que no está instalado ya no bloquea a su agente; cerrar con la X no
-  pierde nada; puedes tener varios agentes de OpenClaw abiertos a la vez.
+  pierde nada; puedes tener varios agentes de OpenClaw abiertos a la vez; en
+  Windows, desinstalar ya borra de verdad la carpeta de Workspace.
 
 ### Novedades de la v0.3.3
 
