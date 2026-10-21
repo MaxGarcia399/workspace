@@ -13,7 +13,7 @@ estructura de carpetas v2:
     <pid>/<nid>/sesiones/              ← vacío
     <pid>/<root>/sesiones/_migrado/<fecha>.md   ← el `chat[]` viejo del proyecto
 
-SEGURO POR CONTRATO (anti-vibe — mismo espíritu que proyectos_import):
+SEGURO POR CONTRATO (anti-vibe):
   · `--dry` (DEFAULT): enseña qué haría y NO escribe NADA (ni backup).
   · `--apply`: antes de tocar disco, BACKUP `proyectos.json` → `proyectos.json.bak.<ts>`.
   · JAMÁS borra ni sobrescribe `proyectos.json` (queda intacto como fuente).

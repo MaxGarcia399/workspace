@@ -839,6 +839,16 @@ def main():
         i += 1
     preselect = preselect or None
 
+    # «Cargando…» al centro mientras se prepara la apertura (actualización,
+    # usuarios, reconciliación…), hasta que el motor pinta su banner o el menú
+    # de pestañas. No tapa nada: lo que se imprima después sale debajo.
+    if _cargar_al_abrir(plan, pick_only, show_banner, passthrough):
+        try:
+            import cargando
+            cargando.mostrar(name)
+        except Exception:
+            pass
+
     if not plan and not pick_only:
         maybe_autoupdate()
 
@@ -953,6 +963,7 @@ def main():
         try:
             import theme
             theme.apply_current()          # SU fondo/tinta (tui.osc) o los de la terminal
+            theme.engine_env()             # y el motor sabe si ese fondo es claro u oscuro
         except Exception:
             pass
         # Y el tema DENTRO del motor (Claude Code: ~/.claude/themes/<n>.json)
@@ -968,6 +979,21 @@ def main():
         _usuarios_al_abrir(brain)
         _reconcile_pending(brain)
     mod.launch(cfg, passthrough, plan=plan, preselect=preselect, show_banner=show_banner)
+
+
+#: Usos de un agente que no abren un chat (listar, migrar, una pregunta suelta,
+#: la ayuda): ahí no se limpia la pantalla con «Cargando…».
+_SIN_CARGA = ("ls", "list", "migrar", "migracion", "-p", "--print", "-h", "--help",
+              "-v", "--version")
+
+
+def _cargar_al_abrir(plan, pick_only, show_banner, passthrough):
+    """¿Se muestra «Cargando…» al arrancar? Solo en una apertura de verdad: sin
+    --plan, sin --pick-only, con banner (las ventanas tmux van sin él) y sin
+    un uso que no abre chat (_SIN_CARGA)."""
+    if plan or pick_only or not show_banner:
+        return False
+    return not any(str(a) in _SIN_CARGA for a in (passthrough or ()))
 
 
 def _usuarios_al_abrir(brain):

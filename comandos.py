@@ -154,11 +154,14 @@ COMMANDS = (
         "Calendar editor: month, add, edit, delete.",
         "Para organizar la semana o el mes.", "To plan the week or the month.",
         aliases=("cal",)),
+    # Oculto desde la 0.5 (paso 1 de 2; la app ya había salido del menú del
+    # hub): sale de la ayuda, de Comandos, del JSON y del manual, pero sigue
+    # ruteando si alguien lo escribe. Se borra en la 0.6.
     cmd("proyectos", "proyectos", "projects", "dia",
         "App «Proyectos»: el mapa de todos tus proyectos con tu agente.",
         "«Proyectos» app: the map of all your projects with your agent.",
         "Para ver en qué va cada proyecto.", "To see where each project stands.",
-        args="[stop]", aliases=("proyecto", "mapa")),
+        args="[stop]", aliases=("proyecto", "mapa"), hidden=True),
     cmd("mail", "correo", "mail", "dia",
         "Envía un correo desde la terminal; con --dry-run lo ves sin enviarlo.",
         "Sends an email from the terminal; --dry-run shows it without sending.",
@@ -166,19 +169,25 @@ COMMANDS = (
         args={"es": "--to <correo> --subject <asunto> [--dry-run]",
               "en": "--to <email> --subject <subject> [--dry-run]"},
         requires_args=True),
+    # Oculto desde la 0.5 (paso 1 de 2): sale de la ayuda, de la pantalla
+    # Comandos, del JSON y del manual, pero sigue ruteando si alguien lo
+    # escribe. En la 0.6 queda solo en desarrollo (fuera de make-dist).
     cmd("wf", "wf", "wf", "trabajo",
         "Flujos de trabajo paso a paso (crear un agente, construir una función…).",
         "Step-by-step workflows (create an agent, build a feature…).",
         "Para tareas largas que conviene hacer por pasos.", "For long tasks best done in steps.",
         args="new | list | run | status | resume | stats",
         aliases=("flujos", "workflows"), hidden_aliases=("workflow",),
-        examples=("list",), requires_args=True),
+        examples=("list",), requires_args=True, hidden=True),
+    # Oculto desde la 0.5 (paso 1 de 2), igual que sus ajustes; el hub ya no
+    # abre partido. Sigue ruteando si alguien lo escribe; el código se quita
+    # en la 0.6.
     cmd("split", "split", "split", "trabajo",
         "Terminal partida: el chat a un lado y el tablero de flujos al otro.",
         "Split terminal: chat on one side, the workflow board on the other.",
         "Cuando corres un flujo y quieres verlo mientras hablas.",
         "When running a workflow and watching it while you chat.",
-        args={"es": "[agente]", "en": "[agent]"}),
+        args={"es": "[agente]", "en": "[agent]"}, hidden=True),
     cmd("eval", "evaluar", "eval", "trabajo",
         "Prueba a un agente contra su set de preguntas de referencia.",
         "Tests an agent against its reference question set.",

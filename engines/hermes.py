@@ -34,9 +34,11 @@ apagada (el perfil lo comparten todos los agentes: lo que guardara de uno se
 le inyectaría a otro) y el hook `pre_llm_call` de tono por turno
 (hooks/hermes_turno.py; Hermes pide aprobarlo una vez en su REPL), las
 herramientas `session_search` y `memory` apagadas (leen todo el perfil: un
-agente leía las conversaciones de otro) y `context_file_max_chars` con espacio
-para la identidad incrustada. Lo demás (modelo, proveedor, skills, cron) es
-vanilla.
+agente leía las conversaciones de otro), `context_file_max_chars` con espacio
+para la identidad incrustada y las skills del cerebro (`skills.external_dirs`
+= `${WORKSPACE_BRAIN}/skills`, sin el recordatorio que creaba skills en el
+perfil compartido). Lo demás (modelo, proveedor, sus skills de fábrica, cron)
+es vanilla.
 
 🔴 MISMA ESTRUCTURA DE CEREBRO PARA TODOS LOS MOTORES: la identidad llega por el
 MISMO `AGENTS.md` puntero que codex/opencode/openclaw (Hermes lee el primero
@@ -233,6 +235,22 @@ _LEAKY_TOOLSETS = ("session_search", "coding")
 #: menor (un valor mayor del socio se respeta).
 CONTEXT_FILE_CHARS = 48_000
 
+#: Skills del CEREBRO en Hermes. La carpeta skills/ del cerebro del agente entra
+#: como directorio externo y se apaga el recordatorio que llevaba a Hermes a
+#: crear skills nuevas en el perfil, que comparten todos los agentes (las de un
+#: agente aparecían en los demás). VERIFICADO en el código de Hermes v0.18.2 y
+#: v0.22.2 (agent/skill_utils.py): `external_dirs` acepta lista o texto y
+#: expande ${VAR} con el entorno de CADA proceso (cada pestaña ve su cerebro;
+#: sin la variable, la ruta no existe y se ignora); su curador no toca esos
+#: directorios (tools/skill_manager_tool.py). `creation_nudge_interval` se lee
+#: con .get() (agent/agent_init.py) y 0 apaga el recordatorio (es lo que el
+#: propio Hermes usa en sus revisiones de fondo). Ninguna de las dos versiones
+#: valida claves desconocidas al cargar: una versión que no conozca alguna la
+#: ignora. Las skills de fábrica del perfil siguen (vanilla) y, si una del
+#: cerebro se llama igual, gana la de fábrica.
+SKILLS_DIR = "${WORKSPACE_BRAIN}/skills"
+SKILLS_NUDGE = 0
+
 #: Hook por turno (tono + dueño de la sesión). Nombre distinto de cualquier
 #: módulo de la raíz (runbook §6).
 _HOOK_EVENT = "pre_llm_call"
@@ -376,8 +394,14 @@ def _hooks_span(lines):
     """(inicio, fin, ¿valor en línea?) de la clave `hooks:` de primer nivel, o
     None. «En línea» = un valor no vacío en la misma línea (`hooks: {…}`):
     YAML válido que no se re-escribe a mano."""
+    return _top_span(lines, "hooks")
+
+
+def _top_span(lines, key):
+    """(inicio, fin, ¿valor en línea?) de la clave `key:` de primer nivel del
+    config.yaml, o None (ver _hooks_span)."""
     for i, ln in enumerate(lines):
-        m = re.match(r"hooks:(.*)$", ln.rstrip("\r\n"))
+        m = re.match(r"%s:(.*)$" % re.escape(key), ln.rstrip("\r\n"))
         if not m:
             continue
         val = m.group(1).strip()
@@ -424,6 +448,223 @@ def _with_hook(text):
             body += "\n"
         return body + _hook_block()
     return "".join(lines[:span[0]]) + _hook_block() + "".join(lines[span[1]:])
+
+
+# ── skills del cerebro: la clave `skills:` del config.yaml del perfil ──────
+# Se edita a mano y en su lugar, como el bloque de hooks: `hermes config set`
+# no crea listas y re-vuelca el YAML. Lo que el socio tenga en `skills:` se
+# conserva (su lista de external_dirs solo gana una entrada); una forma que
+# este lector no entiende no se toca.
+def _yaml_scalar(s):
+    """Escalar YAML de una línea (con o sin comillas, sin el comentario
+    final) → texto, o None si no es un escalar simple (lista, mapa, ancla…)."""
+    s = (s or "").strip()
+    if s[:1] == "'":
+        m = re.match(r"'((?:[^']|'')*)'[ \t]*(#.*)?$", s)
+        return m.group(1).replace("''", "'") if m else None
+    if s[:1] == '"':
+        m = re.match(r'("(?:[^"\\]|\\.)*")[ \t]*(#.*)?$', s)
+        try:
+            v = json.loads(m.group(1)) if m else None
+        except ValueError:
+            return None
+        return v if isinstance(v, str) else None
+    s = re.sub(r"[ \t]+#.*$", "", s).strip()
+    if not s or s[0] in "[]{}&*!|>%@`#,?" or s == "-" or s.startswith("- "):
+        return None
+    return s
+
+
+def _yaml_value(rest):
+    """Lo que hay después de `clave:` sin el comentario final ('' = vacío)."""
+    rest = (rest or "").strip()
+    if rest.startswith("#"):
+        return ""
+    if rest[:1] in ("'", '"', "["):
+        return rest
+    return re.sub(r"[ \t]+#.*$", "", rest).strip()
+
+
+def _flow_items(s):
+    """`[a, "b"]` en una línea → ['a', 'b'], o None si no es una lista simple
+    de escalares (anidada, sin cierre, con algo raro después)."""
+    s = (s or "").strip()
+    if not s.startswith("["):
+        return None
+    items, cur, q, i = [], "", None, 1
+    while i < len(s):
+        c = s[i]
+        if q:
+            cur += c
+            if q == '"' and c == "\\" and i + 1 < len(s):
+                cur += s[i + 1]
+                i += 2
+                continue
+            if c == q:
+                if q == "'" and s[i + 1:i + 2] == "'":
+                    cur += "'"
+                    i += 2
+                    continue
+                q = None
+        elif c in "'\"":
+            q = c
+            cur += c
+        elif c == ",":
+            items.append(cur)
+            cur = ""
+        elif c == "]":
+            after = s[i + 1:].strip()
+            if after and not after.startswith("#"):
+                return None
+            items.append(cur)
+            vals = [_yaml_scalar(x) for x in items if x.strip()]
+            return None if None in vals else vals
+        elif c in "[{":
+            return None
+        else:
+            cur += c
+        i += 1
+    return None
+
+
+def _skills_parse(text):
+    """`skills:` de primer nivel → {state: absent|block|foreign, dirs (lista de
+    external_dirs o None si no está), nudge (creation_nudge_interval como
+    texto o None), y dónde está cada cosa para editar sin tocar lo demás}.
+    Lee la lista sangrada (como la vuelca Hermes), al nivel de la clave, en
+    una línea (`[a, b]`) o un texto suelto (Hermes lo acepta como una sola
+    ruta). «foreign» = una forma que no se edita a mano."""
+    lines = (text or "").splitlines(True)
+    out = {"lines": lines, "state": "absent", "dirs": None, "nudge": None,
+           "span": None, "ci": "  ", "dirs_at": None, "dirs_end": None,
+           "dirs_form": None, "item_lead": None, "nudge_at": None}
+    span = _top_span(lines, "skills")
+    if span is None:
+        return out
+    out["span"] = span
+    if span[2]:
+        return dict(out, state="foreign")
+    s0, s1 = span[0], span[1]
+    ci = None
+    k = s0 + 1
+    while k < s1:
+        raw = lines[k].rstrip("\r\n")
+        st = raw.strip()
+        if not st or st.startswith("#"):
+            k += 1
+            continue
+        lead = raw[:len(raw) - len(raw.lstrip(" \t"))]
+        if ci is None:
+            if not lead or st.startswith("-"):
+                return dict(out, state="foreign")       # `skills:` como lista
+            ci = lead
+        if len(lead) > len(ci) or (lead == ci and st.startswith("-")):
+            k += 1                                       # valor de otra clave
+            continue
+        m = re.match(r"([A-Za-z0-9_.-]+):(.*)$", st)
+        if lead != ci or not m:
+            return dict(out, state="foreign")
+        key, val = m.group(1), _yaml_value(m.group(2))
+        if key == "external_dirs":
+            if out["dirs_at"] is not None:
+                return dict(out, state="foreign")       # clave repetida
+            out["dirs_at"] = k
+            if val in ("", "[]", "null", "~"):
+                items, last, item_lead, j = [], None, None, k + 1
+                while val == "" and j < s1:
+                    r2 = lines[j].rstrip("\r\n")
+                    s2 = r2.strip()
+                    if not s2 or s2.startswith("#"):
+                        j += 1
+                        continue
+                    l2 = r2[:len(r2) - len(r2.lstrip(" \t"))]
+                    if s2[:2] in ("- ", "-\t") and len(l2) >= len(ci):
+                        v = _yaml_scalar(s2[2:])
+                        if v is None:
+                            return dict(out, state="foreign")
+                        items.append(v)
+                        item_lead = item_lead if item_lead is not None else l2
+                        last = j
+                        j += 1
+                        continue
+                    if len(l2) > len(ci):
+                        return dict(out, state="foreign")   # valor en otra línea
+                    break
+                out.update(dirs=items, dirs_form="block" if items else "empty",
+                           dirs_end=(last if items else k) + 1, item_lead=item_lead)
+                k = out["dirs_end"]
+                continue
+            if val.startswith("["):
+                items = _flow_items(val)
+            else:
+                v = _yaml_scalar(val)
+                items = None if v is None else [v]
+            if items is None:
+                return dict(out, state="foreign")
+            out.update(dirs=items, dirs_form="inline", dirs_end=k + 1)
+        elif key == "creation_nudge_interval":
+            if out["nudge_at"] is not None:
+                return dict(out, state="foreign")
+            out.update(nudge_at=k, nudge=_yaml_scalar(val) if val else "")
+        k += 1
+    out.update(state="block", ci=ci or "  ")
+    return out
+
+
+def _skills_ok(text):
+    """¿El config.yaml ya conecta las skills del cerebro y apaga el
+    recordatorio de crear skills en el perfil?"""
+    p = _skills_parse(text)
+    return (p["state"] == "block" and SKILLS_DIR in (p["dirs"] or [])
+            and (p["nudge"] or "").strip() == str(SKILLS_NUDGE))
+
+
+def _yaml_quote(v):
+    """Una entrada de la lista del socio, tal cual si es un escalar simple; si
+    no, entre comillas dobles (JSON es YAML válido)."""
+    v = str(v)
+    if _yaml_scalar(v) == v and ": " not in v and " #" not in v:
+        return v
+    return json.dumps(v, ensure_ascii=False)
+
+
+def _with_skills(text):
+    """config.yaml con las dos claves de skills del cerebro, o None si
+    `skills:` tiene una forma que no se edita a mano. Lo demás, intacto."""
+    p = _skills_parse(text)
+    if p["state"] == "foreign":
+        return None
+    lines = list(p["lines"])
+    if p["state"] == "absent":
+        body = "".join(lines)
+        if body and not body.endswith("\n"):
+            body += "\n"
+        return body + ("skills:\n  external_dirs:\n    - %s\n  creation_nudge_interval: %d\n"
+                       % (SKILLS_DIR, SKILLS_NUDGE))
+    s0, s1 = p["span"][0], p["span"][1]
+    ci = p["ci"]
+    if lines[s1 - 1:s1] and not lines[s1 - 1].endswith("\n"):
+        lines[s1 - 1] += "\n"
+    if _yaml_value(lines[s0].rstrip("\r\n")[len("skills:"):]):
+        lines[s0] = "skills:\n"                      # `skills: {}` / null → bloque
+    ours = "%s  - %s\n" % (ci, SKILLS_DIR)
+    edits = []                                       # (índice, cuántas, líneas nuevas)
+    if p["nudge_at"] is not None and (p["nudge"] or "").strip() != str(SKILLS_NUDGE):
+        edits.append((p["nudge_at"], 1, ["%screation_nudge_interval: %d\n" % (ci, SKILLS_NUDGE)]))
+    if p["dirs_at"] is None:
+        edits.append((s0 + 1, 0, ["%sexternal_dirs:\n" % ci, ours]))
+    elif SKILLS_DIR not in p["dirs"]:
+        if p["dirs_form"] == "block":
+            edits.append((p["dirs_end"], 0, ["%s- %s\n" % (p["item_lead"], SKILLS_DIR)]))
+        else:
+            edits.append((p["dirs_at"], 1, ["%sexternal_dirs:\n" % ci]
+                          + ["%s  - %s\n" % (ci, _yaml_quote(d)) for d in p["dirs"]]
+                          + [ours]))
+    if p["nudge_at"] is None:
+        edits.append((s0 + 1, 0, ["%screation_nudge_interval: %d\n" % (ci, SKILLS_NUDGE)]))
+    for at, n, new in sorted(edits, key=lambda e: e[0], reverse=True):
+        lines[at:at + n] = new
+    return "".join(lines)
 
 
 def _context_chars(text):
@@ -544,7 +785,8 @@ def _quick_ok(d):
             and all(_setting_off(cfg, leaf) for _k, leaf in _BRAIN_SETTINGS)
             and _toolsets_off(cfg)
             and _context_chars(cfg) >= CONTEXT_FILE_CHARS
-            and _hooks_state(cfg) == "ours")
+            and _hooks_state(cfg) == "ours"
+            and _skills_ok(cfg))
 
 
 def _shown_path(exe, runner=None):
@@ -695,6 +937,25 @@ def _ensure_locked(exe, runner):
         # re-vuelca el YAML) o con otra ruta de Workspace: se repone sin
         # aviso (no es un ajuste del socio; la aprobación va por comando).
         _write_atomic(cfgp, _with_hook(text))
+    # Skills del cerebro: al final, después de todo `config set` (re-vuelca el
+    # YAML). La forma en que Hermes la vuelve a escribir se reconoce sola.
+    text = _read_text(cfgp) or ""
+    if not _skills_ok(text):
+        new = _with_skills(text)
+        if new is None:
+            avisos.append(_t("motorbar.hermes.skills_foreign",
+                             "el perfil tiene una sección skills: que no edito: las skills de "
+                             "tu cerebro no se conectan",
+                             "the profile has a skills: section I don't edit: your brain's "
+                             "skills aren't connected"))
+        else:
+            _write_atomic(cfgp, new)
+            if not created:
+                avisos.append(_t("motorbar.hermes.skills",
+                                 "conecté las skills de tu cerebro y Hermes ya no crea skills "
+                                 "en su perfil compartido",
+                                 "connected your brain's skills; Hermes no longer creates "
+                                 "skills in its shared profile"))
     return True, ("Hermes: " + "; ".join(avisos)) if avisos else ""
 
 
@@ -766,9 +1027,12 @@ def _pid_alive(pid):
         return None
 
 
-def run_open(brain, tab=""):
+def run_open(brain, tab="", mem=None):
     """Registra una corrida de Hermes en este cerebro → token (o '' si no se
-    pudo: falla-suave, la captura vuelve al criterio de ventana)."""
+    pudo: falla-suave, la captura vuelve al criterio de ventana). `mem` =
+    {'desde': epoch, 'doc': huella o None}: desde cuándo lo que anote el
+    agente es suyo y la huella de la memoria que quedó en el AGENTS.md (None
+    si no quedó); lo usa el hook por turno (memoria_turno)."""
     token = uuid.uuid4().hex
     now = time.time()
 
@@ -783,8 +1047,12 @@ def run_open(brain, tab=""):
             if r.get("t1") is not None and now - float(r["t1"]) > _RUN_TTL:
                 continue
             keep.append(r)
-        keep.append({"id": token, "brain": os.path.realpath(brain or ""), "tab": tab,
-                     "pid": os.getpid(), "t0": now, "t1": None, "sessions": []})
+        rec = {"id": token, "brain": os.path.realpath(brain or ""), "tab": tab,
+               "pid": os.getpid(), "t0": now, "t1": None, "sessions": []}
+        if isinstance(mem, dict) and tab:
+            rec["mem"] = {"desde": float(mem.get("desde") or now), "doc": mem.get("doc"),
+                          "ses": {}}
+        keep.append(rec)
         runs[:] = keep
     try:
         _runs_update(fn)
@@ -823,6 +1091,119 @@ def run_close(token):
         _runs_update(fn)
     except Exception:
         pass
+
+
+# ── memoria de la pestaña por el hook por turno (sesión retomada) ──────────
+#: Hermes guarda el system prompt al crear la sesión y lo REUSA al retomarla
+#: (agent/conversation_loop.py): el bloque de la pestaña que Workspace pone en
+#: AGENTS.md no le llega a una sesión retomada, y lo que otro motor anotó
+#: después no lo ve. El hook `pre_llm_call` (hooks/hermes_turno.py) manda ese
+#: mismo bloque en el primer turno de una sesión que no lo trae y cuando la
+#: memoria cambió POR FUERA desde la última vez; nunca en todos los turnos:
+#: Hermes guarda el contexto del hook en el mensaje de ese turno
+#: (`api_content`) y lo reenvía en las llamadas siguientes de la sesión.
+#: Tope: el tono y la memoria van juntos y Hermes «derrama» a disco el
+#: contexto de un hook de más de 10 000 caracteres (tools/hook_output_spill.py,
+#: v0.18.2 y v0.22.2); el paquete de memoria ya se recorta a 5 000.
+MEMORIA_TURNO_MAX = 6000
+_MEMORIA_TURNO_CABEZA = ("[Workspace · memoria de la pestaña al día: vale más que la que trae el "
+                         "arranque de esta conversación]")
+
+
+def run_mem_doc(token, doc):
+    """La memoria que quedó en el AGENTS.md cambió (p. ej. el contexto de
+    arranque la sacó): `doc` = su huella, o None si ya no está."""
+    if not token:
+        return
+
+    def fn(runs):
+        for r in runs:
+            if r.get("id") == token and isinstance(r.get("mem"), dict):
+                r["mem"]["doc"] = doc
+    try:
+        _runs_update(fn)
+    except Exception:
+        pass
+
+
+def _huella(brain, tab, desde):
+    """memoria.huella de la pestaña para Hermes, o None si no se pudo leer."""
+    try:
+        import memoria
+        return memoria.huella(brain, tab, motor="hermes", desde=desde)
+    except Exception:
+        return None
+
+
+def _mem_en_doc(inj):
+    """¿El AGENTS.md quedó con el bloque de la pestaña? Una sesión NUEVA lo
+    lee al crearse; una retomada, no."""
+    inj = inj or {}
+    if not inj.get("ok") or inj.get("session_dropped") or inj.get("blocked"):
+        return False
+    if inj.get("action") == "custom":
+        return inj.get("session") == "appended"
+    return inj.get("action") in ("created", "synced", "kept")
+
+
+def _bloque_memoria(brain, tab):
+    """El MISMO bloque de pestaña que va en AGENTS.md (como sesión retomada: la
+    maleta trae solo lo de otro motor), con tope. '' si el escáner de Hermes lo
+    marcaría: tampoco va en AGENTS.md."""
+    import sessions_registry as reg
+    blk = reg.session_doc_block(brain, tab, engine="hermes", resumed=True)
+    if not blk or scan_context(blk):
+        return ""
+    blk = _MEMORIA_TURNO_CABEZA + "\n\n" + blk
+    if len(blk) > MEMORIA_TURNO_MAX:
+        marca = "\n[… memoria recortada: el detalle está en el archivo de la pestaña …]"
+        blk = blk[:MEMORIA_TURNO_MAX - len(marca)].rstrip() + marca
+    return blk
+
+
+def memoria_turno(token, sid, primer_turno=False):
+    """El bloque de memoria de la pestaña para ESTE turno, o ''. Lo pide el hook
+    por turno. Va cuando la sesión `sid` no lo tiene: la primera vez que se ve
+    en esta corrida, salvo que sea nueva (`primer_turno`) y su AGENTS.md ya lo
+    trajo; y cuando la memoria cambió por fuera desde la última vez que se le
+    mandó. Lo que el agente anotó o resumió en esta corrida no cuenta como
+    cambio. La marca (una huella por sesión) vive en el registro de corridas,
+    en el estado de Workspace, fuera del cerebro. Falla-suave: ''."""
+    if not token or not _valid_sid(sid):
+        return ""
+    rec = next((r for r in _runs_load() if r.get("id") == token), None)
+    mem = (rec or {}).get("mem")
+    if not isinstance(mem, dict) or not rec.get("tab") or not rec.get("brain"):
+        return ""
+    import memoria
+    actual = memoria.huella(rec["brain"], rec["tab"], motor="hermes",
+                            desde=mem.get("desde") or rec.get("t0") or 0)
+    if not actual:
+        return ""                            # la pestaña no tiene memoria
+    marcas = mem.get("ses") if isinstance(mem.get("ses"), dict) else {}
+    previa = marcas.get(sid)
+    if previa is None and primer_turno:
+        previa = mem.get("doc")              # sesión nueva: la memoria vino en su AGENTS.md
+    if isinstance(previa, dict) and actual.get("resumen_propio"):
+        actual = dict(actual, resumen=previa.get("resumen"))   # su propio resumen no es novedad
+    partes = memoria.HUELLA_PARTES
+    cambio = not isinstance(previa, dict) or any(actual.get(k) != previa.get(k) for k in partes)
+    texto = _bloque_memoria(rec["brain"], rec["tab"]) if cambio else ""
+    if cambio or sid not in marcas:
+        marca = {k: actual.get(k) for k in partes}
+
+        def fn(runs):
+            for r in runs:
+                if r.get("id") == token and isinstance(r.get("mem"), dict):
+                    ses = r["mem"].get("ses")
+                    ses = dict(ses) if isinstance(ses, dict) else {}
+                    ses[sid] = marca
+                    r["mem"]["ses"] = ses
+        try:
+            _runs_update(fn)
+        except Exception:
+            pass
+    return texto
 
 
 def _owner_view(brain, token):
@@ -1305,6 +1686,10 @@ def run_turn(prompt, *, model=None, cwd=None, timeout=300, exe_override=None,
     env = secret_store.engine_env()   # el motor no hereda la bóveda
     env["HERMES_SESSION_SOURCE"] = "tool"
     env.pop("WORKSPACE_HERMES_RUN", None)        # un turno headless no es de la pestaña
+    # …ni de ningún cerebro: sin la variable, `${WORKSPACE_BRAIN}/skills` no
+    # existe y Hermes no carga las skills del cerebro que haya dejado en el
+    # entorno quien llama (podría ser el de otro agente).
+    env.pop("WORKSPACE_BRAIN", None)
     try:
         if cwd:
             os.makedirs(cwd, exist_ok=True)
@@ -1516,6 +1901,11 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
         print("  del cerebro : SOUL.md neutral, memoria, %s de Hermes apagados, "
               "context_file_max_chars=%d, hook de tono por turno (re-asegurados "
               "al lanzar)" % (" y ".join(_TOOLSETS_OFF), CONTEXT_FILE_CHARS))
+        print(_t("motorbar.hermes.plan_skills",
+                 "  skills      : las de fábrica del perfil + las de tu cerebro (skills/); "
+                 "Hermes no crea skills en el perfil compartido",
+                 "  skills      : the profile's built-in ones + your brain's (skills/); "
+                 "Hermes doesn't create skills in the shared profile"))
         print("  cerebro     : %s  (cwd de la sesión)" % brain)
         print("  identidad   : AGENTS.md puntero → %s + copia generada del núcleo "
               "(%s + BOOT/NN + perfil del socio); Hermes no crea archivos en el "
@@ -1567,6 +1957,7 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
               "— la identidad del agente puede no cargarse." % ", ".join(over))
 
     tab, resume_sid, session_blk = None, "", ""
+    mem_desde, mem_base = time.time(), None
     agent = str(cfg.get("name") or "")
     cfg.setdefault("_engine", "hermes")
     os.environ["WORKSPACE_ENGINE_LABEL"] = LABEL
@@ -1577,6 +1968,8 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
             from engines import claude_code as _cc0
             _cc0.session_preflight(cfg, "hermes")
         tab = _ui.pick_tab(cfg, preselect=preselect)
+        if show_banner:                 # la limpieza de antes del REPL lo quita
+            _ui.cargando(cfg, tab)
         if not tab:
             from engines import claude_code as _cc
             _cc.warn_no_tab(_cc.LAST_PICK_ERROR)
@@ -1587,6 +1980,10 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
             resume_sid = _reg.resume_id(brain, agent, wname, "hermes") or ""
             if not _valid_sid(resume_sid):
                 resume_sid = ""
+            # La huella ANTES de armar el bloque: lo que llegue después cuenta
+            # como cambio y el hook por turno lo manda (memoria_turno).
+            mem_desde = time.time()
+            mem_base = _huella(brain, wname, mem_desde)
             session_blk = _reg.session_doc_block(brain, wname, engine="hermes",
                                                  resumed=bool(resume_sid))
     except Exception as e:
@@ -1610,6 +2007,9 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
             pass
 
     inj = inject_context(cfg, session_context=session_blk)
+    # Una sesión NUEVA lee el AGENTS.md al crearse: si el bloque quedó ahí, el
+    # hook no lo repite en su primer turno (sí si después cambia la memoria).
+    mem_doc = mem_base if (session_blk and _mem_en_doc(inj)) else None
     if not inj.get("ok") and inj.get("detail"):
         print("WORKSPACE: identidad NO inyectada (%s) — Hermes arrancará "
               "genérico." % inj["detail"])
@@ -1646,6 +2046,8 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
             if not merged:
                 return
             r = inject_context(cfg, session_context=merged)
+            if session_blk and not _mem_en_doc(r):
+                run_mem_doc(run, None)         # el arranque la sacó del AGENTS.md
             if r.get("ok") and (r.get("action") != "custom"
                                 or r.get("session") == "appended"):
                 _doc_dirty.append(True)
@@ -1656,8 +2058,10 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
 
     t0 = time.time()
     # Corrida registrada ANTES de abrir: el hook por turno anota en ella las
-    # sesiones de ESTA pestaña (env heredado por Hermes y su hook).
-    run = run_open(brain, tab[1] if tab else "")
+    # sesiones de ESTA pestaña (env heredado por Hermes y su hook) y la memoria
+    # que ya le entregó a cada una.
+    run = run_open(brain, tab[1] if tab else "",
+                   mem={"desde": mem_desde, "doc": mem_doc} if tab else None)
     if run:
         os.environ["WORKSPACE_HERMES_RUN"] = run
     else:

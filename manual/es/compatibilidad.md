@@ -16,10 +16,8 @@ Las tablas de abajo son generales. Lo que vale **en tu equipo**, con lo que tien
   tus agentes.
 - **Dictado por voz:** `workspace voice --check` dice qué falta; `workspace voice --setup`
   lo instala.
-- **Terminal partida:** si la activas y falta tmux (o herdr), al abrir un agente te avisa y
-  abre la sesión sencilla.
 
-Son funciones opcionales: el doctor no las revisa.
+El dictado es opcional: el doctor no lo revisa.
 
 ## Por motor
 
@@ -28,32 +26,41 @@ Vale para macOS, Linux y Windows, salvo donde se indica.
 | Función | Claude Code | Codex | Antigravity | OpenCode | OpenClaw | Hermes |
 |---|---|---|---|---|---|---|
 | Abrir el agente desde el hub | ✅ | ✅ (envuelto) | ✅ (envuelto) | ✅ (envuelto) | ✅ (envuelto, con gateway: varias pestañas) | ✅ (envuelto) |
-| El agente arranca con su memoria | ✅ automático | ✅ vía un `AGENTS.md` que Workspace genera en el cerebro | ✅ vía un `GEMINI.md` que Workspace genera en el cerebro | ✅ vía un `AGENTS.md` que Workspace genera en el cerebro | ✅ vía el mismo `AGENTS.md` (perfil propio de OpenClaw, sin archivos extra) | ✅ vía el mismo `AGENTS.md` (perfil propio de Hermes, identidad neutral); el agente lee su cerebro con tu primer mensaje |
+| El agente arranca con su memoria | ✅ automático | ✅ vía un `AGENTS.md` que Workspace genera en el cerebro | ✅ vía un `GEMINI.md` que Workspace genera en el cerebro | ✅ vía un `AGENTS.md` que Workspace genera en el cerebro | ✅ vía el mismo `AGENTS.md` (perfil propio de OpenClaw, sin archivos extra) y, en cada mensaje, `STATE/MEMORY.md` del cerebro | ✅ vía el mismo `AGENTS.md` (perfil propio de Hermes, identidad neutral); el agente lee su cerebro con tu primer mensaje y, al retomar una pestaña, recibe su memoria al día |
 | Conectores MCP | ✅ | ✅ (configuración del propio Codex) | ✅ | ✅ (configuración del propio OpenCode) | ✅ (configuración del propio OpenClaw) | ✅ (configuración del propio Hermes) |
-| Avisos de sesión (*hooks*: guardar memoria al cerrar, etc.) | ✅ | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace), más tu tono en cada mensaje |
+| Avisos de sesión (*hooks*: guardar memoria al cerrar, etc.) | ✅ | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace), más tu tono en cada mensaje y la memoria de la pestaña al retomar |
 | Retomar sesiones desde las pestañas de Workspace | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Estado en vivo del agente en el hub | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Tareas sin ventana (evals, workflows) | ✅ | ✅ evals con herramientas¹ | ❌ | ✅ evals con herramientas¹ | ✅ solo turnos sueltos¹ | ✅ solo turnos sueltos¹ |
+| Tareas sin ventana (evals) | ✅ | ✅ evals con herramientas¹ | ❌ | ✅ evals con herramientas¹ | ✅ solo turnos sueltos¹ | ✅ solo turnos sueltos¹ |
 
 ✅ funciona · ❌ no disponible · ❔ sin verificar
 
-¹ Los workflows y los evals que corren sin herramientas necesitan un motor que pueda apagar las
-suyas: hoy solo Claude Code. Codex y OpenCode corren los evals que usan herramientas dentro del
-sandbox del sistema. OpenClaw y Hermes todavía no pueden apagar sus herramientas ni correr dentro de
-ese sandbox: Workspace no los usa para evals ni workflows (sí responden turnos sueltos sin ventana).
+¹ Los evals que corren sin herramientas necesitan un motor que pueda apagar las suyas: hoy solo
+Claude Code. Codex y OpenCode corren los evals que usan herramientas dentro del sandbox del
+sistema. OpenClaw y Hermes todavía no pueden apagar sus herramientas ni correr dentro de ese
+sandbox: Workspace no los usa para evals (sí responden turnos sueltos sin ventana).
 
 Si el programa del motor no está instalado (o no está en el PATH), nada de esto funciona con
 él: `workspace doctor` te dice que instales su programa oficial ([Motores](motores.md)).
 
 Codex, Antigravity, OpenCode, OpenClaw y Hermes también traen *hooks* propios, pero Workspace no los activa: los
 avisos de abrir y cerrar ya los emite Workspace alrededor del programa, y activarlos los
-duplicaría. La excepción es uno de Hermes, por mensaje, que añade tu tono (Hermes te pide
-aprobarlo una vez). Por eso con esos motores no hay avisos por herramienta ni estado en vivo. Con
+duplicaría. Las excepciones: uno de Hermes, por mensaje, que añade tu tono y, al retomar una
+pestaña, su memoria (Hermes te pide aprobarlo una vez), y el oficial de OpenClaw que carga la
+memoria del cerebro. Por eso con esos motores no hay avisos por herramienta ni estado en vivo. Con
 OpenCode, OpenClaw y Hermes, el modelo es el que elijas en su propia configuración: Workspace no lo cambia.
 
 Hermes corre en un perfil propio de Workspace (tu Hermes personal no cambia). En ese perfil su
 memoria propia está apagada, porque la comparten todos tus agentes: la memoria de cada agente vive
-en su cerebro. Sus skills y tareas programadas siguen como en tu Hermes.
+en su cerebro y le llega por `AGENTS.md` y, al retomar, por su hook. Usa las skills del cerebro de
+cada agente (`skills/`) además de las suyas de fábrica, y ya no crea skills en el perfil
+compartido. Sus tareas programadas siguen como en tu Hermes.
+
+OpenClaw también corre en un perfil propio. Su memoria propia está apagada y lee la del cerebro
+(`STATE/MEMORY.md`) en cada mensaje con su hook oficial, cuando corre con el gateway (lo normal);
+en el modo de una sola ventana abre sin ella. Su búsqueda por significado queda apagada: para
+indexar tu cerebro mandaría tus notas a un servicio externo. Sus skills son las del cerebro
+(`skills/`).
 
 ## Permisos por motor
 
@@ -106,8 +113,6 @@ Se cambia en **Agentes** (elige el agente y Enter) (ver [Permisos](motores.md#pe
 | Función | macOS | Linux | Windows |
 |---|---|---|---|
 | Dictado por voz (local) | ✅ si instalas whisper.cpp, su modelo y ffmpeg o sox | ❌ por ahora | ❌ por ahora |
-| Terminal partida (chat + tablero) | ✅ con tmux o herdr | ✅ con tmux o herdr | ❌ abre la sesión sencilla |
-| Controles del panel lateral | ✅ dentro de la terminal partida | ✅ dentro de la terminal partida | solo lectura |
 
 ## Límites actuales
 

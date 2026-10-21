@@ -3,8 +3,8 @@
 
 NOTA (F1 herdr): mux.py es el BACKEND TMUX del split. La selección de
 backend (tmux | herdr, setting `ui.split_backend`) vive en multiplexer.py —
-las puertas de entrada (front.launch con ui.split ON y `workspace split`)
-entran por multiplexer.open_split(), que delega aquí cuando el backend
+la puerta de entrada (`workspace split`) entra por
+multiplexer.open_split(), que delega aquí cuando el backend
 efectivo es tmux. Este módulo NO conoce herdr; su flujo (split) queda
 idéntico al de siempre.
 
@@ -26,13 +26,12 @@ Desarchivado de _shelved/mux.py (el hub multi-VENTANA, Nivel 2) y adaptado a
 dos PANES en una sola ventana. OPT-IN: el arranque default (`workspace` → hub,
 `<agente>` → handoff por exec) no cambia en nada.
 
-DOS puertas de entrada, MISMO armado:
-  · `workspace split [agente]`   — el subcomando manual de siempre.
-  · `settings set ui.split on` — el hub (front.launch) enruta por aquí
-    DESPUÉS de que el socio eligió agente en el menú: todo chat lanzado
-    desde el hub abre ya partido. El hub/menú mismos JAMÁS pasan por tmux
-    (corren antes y fuera); con el setting off (default) el hub ni importa
-    este módulo.
+Puerta de entrada (desde la 0.5, una sola; el módulo se quita en la 0.6):
+  · `workspace split [agente]`   — el subcomando manual de siempre, oculto
+    al cliente pero vivo para quien lo escribe.
+  · (hasta la 0.4) `settings set ui.split on` hacía que el hub
+    (front.launch) enrutara por aquí todo chat. Desde la 0.5 el hub ya no
+    consulta ese ajuste: abre el chat normal y nunca importa este módulo.
 
 El pane derecho es una SUPERFICIE EXTENSIBLE: qué corre ahí lo decide un
 solo punto (right_pane_cmd) — hoy la pipeline, mañana un panel de control

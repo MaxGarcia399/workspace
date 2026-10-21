@@ -22,4 +22,6 @@ STRINGS = {
         "  No pude guardarlo ({err}); se abre igual con {engine} esta vez.",
     "dispatch.engine.this_time":
         "  Solo esta vez: {name} sigue con {engine} como su motor.",
+    # cargando.py: al centro mientras se prepara la apertura de un agente
+    "dispatch.cargando": "Cargando…",
 }

@@ -26,9 +26,12 @@ Qué hace en un cerebro:
      versión de la plantilla (migrations/data/sin_aprobacion_lines.json, que
      gen_sin_aprobacion_lines.py genera del historial; los marcadores {{X}} son
      comodín, como en legacy_template_lines.json). Lo que el dueño editó no se
-     toca: para esos cerebros el paquete de arranque avisa al agente
-     (memoria.AVISO_APROBACION, con COMPUERTAS de aquí). Los registros
-     históricos (log-recent, brain-version, MILESTONES) nunca se tocan.
+     toca. Si en un bloque editado queda una línea vieja de la plantilla,
+     idéntica, el paquete de arranque avisa al agente que ESA instrucción de
+     Workspace ya no aplica (memoria.AVISO_APROBACION, con
+     textos_viejos_con_compuertas de aquí); las reglas del dueño se respetan
+     y no lo disparan. Los registros históricos (log-recent, brain-version,
+     MILESTONES) nunca se tocan.
   2. Sobras de skills/_propuestas/. Su README (la «cuarentena») y `_mejoras/`
      pasan a skills/_archive/ con nombre por CONTENIDO
      (`propuestas-README-<huella>.md`, `propuestas-mejoras-<huella>/`); las
@@ -363,14 +366,78 @@ def pendiente(brain, root=ROOT):
 
 
 def textos_con_compuertas(brain):
-    """[rutas relativas] de los textos del cerebro que todavía piden a una
-    persona (COMPUERTAS): la migración solo reemplaza lo idéntico a la
-    plantilla; esto encuentra lo que el dueño editó. Solo lectura, tolerante."""
+    """[rutas relativas] de los textos del cerebro que todavía mencionan una
+    compuerta (COMPUERTAS), sean de la plantilla o del dueño. Solo lectura,
+    tolerante. Lo usan las verificaciones; el aviso del paquete de arranque
+    mira solo las líneas viejas de la plantilla (textos_viejos_con_compuertas)."""
     out = []
     for rel in TEXTOS:
         crudo = _leer_bytes(os.path.join(brain, *rel.split("/")))
         if crudo and COMPUERTAS.search(crudo[:_MAX_LECTURA].decode("utf-8", "replace")):
             out.append(rel)
+    return out
+
+
+_VIEJAS = {}
+
+
+def lineas_viejas(root=ROOT):
+    """{archivo: [regex de una línea]} de las líneas VIEJAS de la plantilla de
+    Workspace (las `old` de la tabla) que pedían a una persona (COMPUERTAS).
+    Los marcadores {{X}} son comodín (brain_format.patron_linea, como en la
+    migración); el resto se compara entero y literal. La historia no cuenta."""
+    clave = os.path.abspath(root)
+    if clave in _VIEJAS:
+        return _VIEJAS[clave]
+    import brain_format
+    try:
+        with open(os.path.join(root, DATA), encoding="utf-8") as fh:
+            archivos = json.load(fh).get("files") or {}
+    except (OSError, ValueError):
+        archivos = {}
+    out = {}
+    for rel, filas in sorted(archivos.items()):
+        if rel in HISTORIA or not isinstance(filas, list):
+            continue
+        filas = [f for f in filas if isinstance(f, dict)]
+        nuevas = {l for f in filas for l in (f.get("new") or []) if isinstance(l, str)}
+        vistas, rxs = set(), []
+        for f in filas:
+            for l in f.get("old") or []:
+                if isinstance(l, str) and l not in vistas and l not in nuevas \
+                        and COMPUERTAS.search(l):
+                    vistas.add(l)
+                    rxs.append(brain_format.patron_linea(l)[0])
+        if rxs:
+            out[rel] = rxs
+    _VIEJAS[clave] = out
+    return out
+
+
+def textos_viejos_con_compuertas(brain, root=ROOT):
+    """[rutas relativas] de los textos del cerebro que todavía traen, EXACTA,
+    una línea vieja de la plantilla de Workspace que pedía a una persona
+    (lineas_viejas): la migración no la cambió porque el dueño editó algo de su
+    bloque. Solo esto dispara el aviso del paquete de arranque
+    (memoria.AVISO_APROBACION). Lo que escribió el dueño, aunque hable de
+    aprobar o de preguntar, es una regla suya: no lo dispara. Solo lectura,
+    tolerante."""
+    out = []
+    destinos = []
+    for rel, rxs in sorted(lineas_viejas(root).items()):
+        destinos.append((rel, rxs))
+        if rel == IDENTIDAD:
+            destinos.append((LEGADO, rxs))
+    for rel, rxs in destinos:
+        crudo = _leer_bytes(os.path.join(brain, *rel.split("/")))
+        if not crudo or (rel == LEGADO and _es_puntero(crudo)):
+            continue
+        texto = crudo[:_MAX_LECTURA].decode("utf-8", "replace").lstrip("﻿")
+        for ln in texto.split("\n"):
+            ln = ln[:-1] if ln.endswith("\r") else ln
+            if any(rx.match(ln) for rx in rxs):
+                out.append(rel)
+                break
     return out
 
 

@@ -54,4 +54,23 @@ STRINGS = {
                                  "doesn't copy your keys). Without one, Hermes opens its own "
                                  "wizard instead of your agent: connect it in Engines › Hermes › "
                                  "account and provider (provider and model).",
+    'motorbar.hermes.skills': "connected your brain's skills; Hermes no longer creates skills in "
+                              "its shared profile",
+    'motorbar.hermes.skills_foreign': "the profile has a skills: section I don't edit: your "
+                                      "brain's skills aren't connected",
+    'motorbar.hermes.plan_skills': "  skills      : the profile's built-in ones + your brain's "
+                                   "(skills/); Hermes doesn't create skills in the shared profile",
+    'motorbar.openclaw.memory_failed': "couldn't turn on loading the long-term memory "
+                                       "(STATE/MEMORY.md): OpenClaw opens without it",
+    'motorbar.openclaw.memory_restored': "turned loading STATE/MEMORY.md back on "
+                                         "(bootstrap-extra-files hook): it's your brain's "
+                                         "long-term memory",
+    'motorbar.openclaw.memory_added': "added STATE/MEMORY.md to your bootstrap-extra-files hook "
+                                      "paths (yours are kept)",
+    'motorbar.openclaw.no_agent': "a windowless OpenClaw turn needs to know which agent it "
+                                  "belongs to: it never uses OpenClaw's built-in «main» agent, "
+                                  "which answers with another identity",
+    'motorbar.openclaw.plan_memory': "  memory      : your brain's STATE/MEMORY.md on every turn "
+                                     "(official bootstrap-extra-files hook, with the gateway); "
+                                     "its semantic search, off",
 }

@@ -1468,20 +1468,66 @@ def phase_legacy_residue(ctx, fix):
     return out
 
 
+def _openclaw_memoria_suelta(name, brain, agente):
+    """MEMORY.md / memory/ sueltos en un cerebro que usa OpenClaw: OpenClaw los
+    carga en cada turno como si fueran la memoria del agente, y no lo son. Se
+    ofrece apartarlos a motores/openclaw/ (una oferta de migrate, con «no
+    gracias»); el doctor no mueve ni borra nada. None si no aplica."""
+    try:
+        from engines import openclaw as oc
+        sueltos = oc.memoria_suelta(brain)
+        # el motor del ctx si lo trae; si no, used_by lo resuelve por el nombre
+        eng = (_engine_of(agente) if isinstance(agente, dict)
+               and (agente.get("cfg") or agente.get("entry")) else "")
+        if not sueltos or not oc.used_by(brain, name=name, engine=eng):
+            return None
+        import migrate
+        mid = oc.MEMORIA_SUELTA_OFERTA
+        estado = migrate._stamp_status(mid)
+        acciones = migrate.offer_actions(mid)
+    except Exception:
+        return None
+    lista = ", ".join(n + ("/" if os.path.isdir(os.path.join(brain, n)) else "") for n in sueltos)
+    if estado == "declined":
+        return f(OK, _t("doctor.phase_brain_format.oc_kept",
+                        "[{name}] {files} sigue en la raíz del cerebro: elegiste dejarlo (OpenClaw "
+                        "lo carga en cada turno)", name=name, files=lista), "",
+                 _t("doctor.phase_brain_format.oc_reconsider",
+                    "si cambias de opinión: workspace migrate --offer {id}", id=mid))
+    label = _t("doctor.phase_brain_format.oc",
+               "[{name}] {files} suelto en la raíz del cerebro: OpenClaw lo carga en cada turno "
+               "como si fuera la memoria del agente, y no lo es (la del agente es STATE/MEMORY.md)",
+               name=name, files=lista)
+    if not estado:
+        return f(WARN, label, _t("doctor.phase_brain_format.oc_offer",
+                                 "se ofrece apartarlo a motores/openclaw/ (se mueve, no se borra)"),
+                 acciones)
+    return f(WARN, label, "", _t("doctor.phase_brain_format.oc_manual",
+                                 "muévelo a la carpeta motores/openclaw/ del cerebro (Workspace "
+                                 "no borra nada)"))
+
+
 def phase_brain_format(ctx, fix):
     """SOLO LECTURA (también con --fix): nombres que un motor crea o lee por su
     cuenta (SOUL.md, HEARTBEAT.md, MEMORY.md, HERMES.md…) sueltos en la raíz
     de un cerebro. Regla de estructura: todos los motores comparten las mismas
     carpetas y lo propio de un motor va en `motores/<motor>/`. Nunca mueve ni
-    borra: informa y sugiere. No cambia el código de salida (WARN)."""
+    borra: informa y sugiere. No cambia el código de salida (WARN). Un
+    MEMORY.md o memory/ suelto en un cerebro que usa OpenClaw SÍ afecta
+    (OpenClaw lo carga en cada turno): se dice así y se ofrece apartarlo."""
     out = []
     try:
         import brain_identity
     except Exception as e:
         return [f(OK, _t("doctor.phase_brain_format.na", "formato del cerebro no evaluable"),
                   "%s: %s" % (type(e).__name__, e))]
+    agentes = {a.get("name"): a for a in ctx.get("agents") or [] if isinstance(a, dict)}
     for name, brain in _resolved_brains(ctx):
         hits = brain_identity.reserved_in_root(brain)
+        mem = _openclaw_memoria_suelta(name, brain, agentes.get(name)) if hits else None
+        if mem:
+            out.append(mem)
+            hits = [h for h in hits if h[0].rstrip("/") not in ("MEMORY.md", "memory")]
         if hits:
             out.append(f(WARN,
                          _t("doctor.phase_brain_format.1",

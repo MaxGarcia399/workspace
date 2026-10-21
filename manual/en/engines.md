@@ -39,24 +39,31 @@ Enter tells you which and what to do, and you can still open the agent). Claude 
 Antigravity don't depend on the version.
 
 The only thing Workspace keeps in place is what it needs from your **brain** to work. With
-OpenClaw: that it doesn't create files of its own in your brain and that your agent's workspace is
-your brain. With Hermes: that it doesn't put its own identity or memory on top of your agent's. It
-checks this every time you open the agent; if you changed it from the setup, it puts it back and
-tells you in one line.
+OpenClaw: that it doesn't create files of its own in your brain, that your agent's workspace is
+your brain and that it reads your brain's memory. With Hermes: that it doesn't put its own
+identity or memory on top of your agent's, and that it uses your brain's skills. It checks this
+every time you open the agent; if you changed it from the setup, it puts it back and tells you in
+one line.
 
 OpenClaw runs with a **Workspace profile of its own** (separate from any OpenClaw you use
 yourself) that works on your same brain without creating extra files. You connect the provider
 once and it serves all your agents. You can have **several OpenClaw agents open at once**: when
 you open the first one, Workspace starts the OpenClaw service in the background (it takes a few
-seconds) and stops it on its own when you close the last one.
+seconds) and stops it on its own when you close the last one. On every message it reads your
+**brain's long-term memory** (`STATE/MEMORY.md`, the same one the other engines use) through its
+official hook; its semantic search stays off, because indexing your brain would send your notes
+to an outside service. When Workspace asks it something without opening a window (for example,
+personalizing an agent), your agent answers, not OpenClaw's built-in agent. If your brain has an
+old `MEMORY.md` or `memory/` folder loose in its root, OpenClaw reads them on every message as if
+they were your agent's memory: `workspace doctor` tells you and offers to move them aside to
+`motores/openclaw/` (it never deletes anything).
 
 Hermes also runs with a **Workspace profile of its own** (`workspace`, in
 `~/.hermes/profiles/workspace`): **your personal Hermes doesn't change** (not its config, identity,
 memory or history). The first time you open an agent with Hermes, Workspace creates that profile
-by copying your config (provider, model and keys); if you sign in to your provider with an account
-(not a key), sign in once in Engines › **account and provider**. **You change the provider and the
-model from Engines** (account and provider opens Hermes' official setup inside that profile).
-Worth knowing:
+with your model but **without copying your keys**: connect your provider once in Engines ›
+**account and provider**. **You change the provider and the model from Engines** (account and
+provider opens Hermes' official picker inside that profile). Worth knowing:
 
 - **The identity is your agent's.** Hermes ships one of its own ("Hermes Agent", by Nous
   Research); in Workspace's profile it's neutral and the identity arrives through the brain's
@@ -67,10 +74,16 @@ Worth knowing:
   new tab to see an identity change.
 - **Hermes' memory is off in that profile**, and so is its past-conversation search: all your
   agents share the profile, and one could read another's conversations. Each agent's memory and
-  history live in its brain. Its skills and scheduled tasks stay as in your Hermes.
+  history live in its brain. When you **resume** a tab, Hermes gets the tab's up-to-date memory
+  with your first message (including what you noted in another engine), and again if someone else
+  changes it while the tab is open; what it notes itself isn't repeated to it.
+- **It uses your brain's skills** (`skills/`) besides its built-in ones, and no longer creates
+  skills in the profile all your agents share. If a skill in your brain has the same name as a
+  built-in one, the built-in one wins. Its scheduled tasks stay as in your Hermes.
 - **Your tone arrives with every message.** The first time, Hermes asks whether you approve
-  Workspace's hook that adds it (and records which tab owns each conversation); answer "y". If you
-  say no, the tone only arrives when the session opens.
+  Workspace's hook that adds it (and that brings the tab's memory when you resume and records
+  which tab owns each conversation); answer "y". If you say no, the tone only arrives when the
+  session opens and a resumed tab doesn't get the new memory.
 - **Hermes can't be sent a startup message.** In a new tab, the agent reads its brain when you
   send the first message.
 - If you open two new tabs of the same agent at once and didn't approve the hook, Workspace doesn't

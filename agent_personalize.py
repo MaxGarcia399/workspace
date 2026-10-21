@@ -556,10 +556,12 @@ def run(brain, params, progress=None, should_cancel=None, timeout=None,
         except Exception:
             tmo = DEFAULT_TIMEOUT
         try:
+            # `agent`: los motores con un agente por agente de Workspace
+            # (OpenClaw) contestan con ESTE, no con el suyo de fábrica.
             ok, out = headless.run_headless(
                 prompt, backend=backend, model=model or
                 p.get("personalize_model"), tools=tools, cwd=brain,
-                timeout=tmo)
+                timeout=tmo, agent=name or None)
         except Exception as e:                   # Security/Unknown/Value — config
             ok, out = False, "%s: %s" % (type(e).__name__, e)
         if not ok:

@@ -387,6 +387,49 @@ def _redlight_hex(v):
         return v
 
 
+def _redlight_bg(h):
+    """El FONDO de la terminal en luz roja. Uno oscuro baja a rojo casi negro
+    (_redlight_hex). Uno CLARO sigue claro, entintado de rojo: bajarlo como
+    los roles lo dejaba en un rojo medio donde ni la tinta oscura del tema
+    (4.3:1) ni una clara se leen, y Claude Code lo tomaba por oscuro."""
+    rl = _redlight_hex(h)
+    try:
+        import theme
+        import theme_render
+        if theme._is_light(h) and not theme._is_light(rl):
+            for pct in (.3, .2, .1):
+                tinte = theme_render.mix(h, rl, pct)
+                if theme._is_light(tinte):
+                    return tinte
+            return h
+    except Exception:
+        pass
+    return rl
+
+
+class OscResuelto(dict):
+    """{bg, fg, cursor} que se PINTA, ya resuelto: fondo propio o elegido
+    aparte, luz roja y una tinta legible sobre ese fondo. theme.apply_colors
+    lo pinta tal cual (no le vuelve a aplicar el fondo aparte)."""
+    RESUELTO = True
+
+
+def _osc_legible(osc, text_role):
+    """El OSC con tinta ≥4.5:1 y cursor ≥3:1 sobre su fondo. Sin tinta (un
+    tema sin tui.osc al que se le pinta un fondo aparte) se usa el rol de
+    texto del tema: antes quedaba la tinta del PERFIL (negra en uno claro)."""
+    import theme_render
+    bg = osc["bg"]
+    fg = osc.get("fg")
+    if not fg:
+        fg = ("#%02x%02x%02x" % _role_rgb(text_role)
+              if _valid_color(text_role) else "#e6e8ee")
+    out = OscResuelto(bg=bg, fg=theme_render.legible(fg, bg, theme_render.TEXT_MIN))
+    if osc.get("cursor"):
+        out["cursor"] = theme_render.legible(osc["cursor"], bg, theme_render.UI_MIN)
+    return out
+
+
 # ── selección del tema (mismo mecanismo que el web) ─────────────────────────
 def _settings_theme():
     """ui.theme del store. Un id GUARDADO que ya no está instalado (tema
@@ -537,8 +580,14 @@ def palette(theme_id=None):
     if key in _memo:
         return _memo[key]
     spec = _merged(_tui_block(tid))
-    # Un tema claro ignora un fondo oscuro elegido aparte (tinta invisible).
-    bg = theme.background_color((spec.get("osc") or {}).get("bg"))
+    # El fondo elegido aparte solo vale del lado del tema y si su tinta se lee
+    # sobre él (theme.background_color con el fondo y la tinta del tema; un
+    # tema sin tui.osc compara con su rol de texto, el que pinta el hub).
+    _osc0 = spec.get("osc") or {}
+    _tinta = _osc0.get("fg")
+    if not _tinta and _valid_color(spec["roles"].get("text")):
+        _tinta = "#%02x%02x%02x" % _role_rgb(spec["roles"]["text"])
+    bg = theme.background_color(_osc0.get("bg"), _tinta)
     mono = (mode == "mono")
     # mono EFECTIVO para las TRANSFORMACIONES cromáticas (brillo/wordmark/luz
     # roja): un tema B/N POR DECLARACIÓN (tui.mono=true) debe quedar en grises
@@ -597,7 +646,17 @@ def palette(theme_id=None):
         spec["off"] = _redlight_hex(spec["off"])
         wcol_vals = [_redlight_hex(v) for v in wcol_vals]
         if spec.get("osc") and spec["osc"].get("bg"):
-            spec["osc"] = dict(spec["osc"], bg=_redlight_hex(spec["osc"]["bg"]))
+            spec["osc"] = dict(spec["osc"], bg=_redlight_bg(spec["osc"]["bg"]))
+
+    # TINTA LEGIBLE (2026-10-20, «textos en negro»): lo que se pinta lleva una
+    # tinta que se lee sobre ESE fondo. Los temas del repo sobre su fondo no
+    # cambian ni un byte; sí un fondo aparte en un tema sin tui.osc (antes sin
+    # tinta) y la luz roja de un tema claro.
+    if spec.get("osc") and spec["osc"].get("bg") and not mono:
+        try:
+            spec["osc"] = _osc_legible(spec["osc"], orig_role_vals.get("text"))
+        except Exception:
+            pass
 
     def s(v):
         return _seq(v, mode)

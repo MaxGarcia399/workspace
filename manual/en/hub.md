@@ -1,7 +1,7 @@
 # The hub and its keys
 
 The **hub** is what you see when you type `workspace`: a box with your agents and, below them,
-three entries — **Menu**, **Personalization** and **Language**. Enter goes in; the box title shows
+the **Memory map** and three entries — **Menu**, **Personalization** and **Language**. Enter goes in; the box title shows
 where you are (WORKSPACE › MENU) and Esc goes back. The box always keeps the same size: you can
 shrink the window until only the box fits.
 
@@ -28,6 +28,14 @@ tests/test_manual_compat.py fails if they change. -->
 
 **← →** switch its engine (`‹ engine ›`, saved on this machine; the next Enter uses it) and
 **Tab** shows one line with its engine, where its brain lives and what it's doing.
+
+## Memory map
+
+The **Memory map ›** row, right below your agents, opens the map of how the agent you were
+pointing at remembers: the real tree of its brain and, step by step, which files it reads and
+which it writes, in order and in colors. ← → or the digits `0` … `7` change the step, ↑ ↓ scrolls
+if it doesn't fit, Tab switches agent, Enter opens what proves it and Esc takes you back to the
+hub. It's the same map as the first row of Documentation.
 
 ## Menu
 

@@ -16,8 +16,8 @@ Checks **only what Workspace needs to work** and **repairs** what it can:
 
 It's the same check that runs at the end of `workspace update`. Phases that are already
 fine are skipped; running it twice breaks or duplicates nothing. It doesn't check optional
-features (voice, split terminal: [Compatibility](compatibility.md)) or how you organize your
-brains, and **having no agents yet is normal**: it isn't a warning.
+features (voice: [Compatibility](compatibility.md)) or how you organize your brains, and
+**having no agents yet is normal**: it isn't a warning.
 
 Look only, changing nothing and without going online:
 

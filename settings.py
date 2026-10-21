@@ -239,8 +239,8 @@ def _hub_pin_ok(key):
     Late-binding sobre _BY_KEY (se llama en runtime, no al import)."""
     try:
         spec = _BY_KEY.get(key)
-        if not spec or spec.get("readonly"):
-            return False
+        if not spec or spec.get("readonly") or spec.get("hidden"):
+            return False               # oculto = no se ancla ni se cicla
         t = spec.get("type")
         if t in ("enum", "bool"):
             pass
@@ -261,7 +261,8 @@ def _hub_pin_ok(key):
 # (cómo/dónde se consume HOY) · scaffold (True = aún sin consumidor real; el
 # flag queda listo para cuando exista) · delegated (el valor efectivo vive en
 # otro mecanismo; get() lo lee de ahí) · readonly (set() → error, editar el
-# mecanismo dueño).
+# mecanismo dueño) · hidden (oculto al cliente: no se ancla al hub ni sale en
+# `settings.py list`; el valor guardado se conserva y get/set siguen igual).
 SETTINGS_SCHEMA = (
     # ── latido (heartbeat — cola de trabajo autónomo) ──
     {"key": "latido.mode", "group": "latido", "label": "Modo del latido",
@@ -368,7 +369,8 @@ SETTINGS_SCHEMA = (
     {"key": "cerebro.boot_profile", "group": "cerebro",
      "label": "Perfil de boot", "type": "enum", "default": "full",
      "choices": ("full", "lite"), "scaffold": True,
-     "help": "full = BOOT/ canónico · lite = digest ≤4k de boot_lite.py (N17).",
+     "help": "full = BOOT/ canónico · lite = digest ≤4k (N17; su generador se quitó "
+             "en la 0.5 porque nada lo usaba).",
      "applies": "futuro: session_start / motor #2 elegirán el perfil."},
     {"key": "cerebro.cleanup_period_days", "group": "cerebro",
      "label": "Retención de transcripts (días)", "type": "int",
@@ -446,7 +448,9 @@ SETTINGS_SCHEMA = (
     {"key": "ui.background", "group": "ui", "label": "Fondo independiente",
      "type": "enum", "default": "tema",
      "choices": ("tema", "negro", "grafito", "azul", "verde", "violeta", "personalizado"),
-     "help": "Cambia solo el fondo; tema recupera el fondo del tema activo.",
+     "help": "Cambia solo el fondo; tema recupera el fondo del tema activo. "
+             "Solo vale del lado del tema (oscuro con oscuro, claro con claro) "
+             "y si la tinta del tema se lee encima; si no, queda el del tema.",
      "applies": "tuitheme.palette() y theme.apply_colors()."},
     {"key": "ui.background_custom", "group": "ui", "label": "Color de fondo propio",
      "type": "str", "default": "#101018",
@@ -521,30 +525,29 @@ SETTINGS_SCHEMA = (
      "applies": "hubtheme.resolve_id() lo lee para servir el skin del dev panel "
                 "(dashboard.py --dev); POST /api/theme lo persiste (dash/dev/"
                 "temas.py). El hub/TUI NO lo usa (usa ui.theme)."},
+    # Terminal partida: oculta al cliente desde la 0.5 (paso 1 de 2; el
+    # código se quita en la 0.6). Los tres ajustes siguen registrados para no
+    # perder el valor guardado, pero `hidden` los saca del hub y de la lista.
     {"key": "ui.split", "group": "ui", "label": "Terminal partida",
-     "type": "bool", "default": False,
-     "help": "Al elegir agente en el hub, el chat abre PARTIDO: chat a la "
-             "izquierda + panel del pipeline en vivo a la derecha (mismo "
-             "armado que `workspace split`; multiplexer según "
-             "ui.split_backend). Apagado = arranque de siempre (default).",
-     "applies": "front.launch → multiplexer.open_split, SOLO después de "
-                "elegir agente (el hub/menú no pasan por el multiplexer). "
-                "Sin multiplexer/TTY, anidado o Windows → arranque normal "
-                "con aviso (mux.fallback)."},
+     "type": "bool", "default": False, "hidden": True,
+     "help": "Retirado en la 0.5: el hub ya no abre el chat partido aunque "
+             "esté prendido (el valor se conserva y se ignora). La terminal "
+             "partida solo se abre escribiendo `workspace split`.",
+     "applies": "Nada desde la 0.5: front.launch ya no lo consulta (antes: "
+                "front.launch → multiplexer.open_split al elegir agente)."},
     {"key": "ui.split_backend", "group": "ui",
      "label": "Backend de la terminal partida",
-     "type": "enum", "default": "auto",
+     "type": "enum", "default": "auto", "hidden": True,
      "choices": ("auto", "tmux", "herdr"),
-     "help": "Con qué multiplexer se arma la pantalla partida (con ui.split "
-             "prendido). auto = herdr si está instalado y responde, si no "
+     "help": "Con qué multiplexer se arma la pantalla partida de `workspace "
+             "split`. auto = herdr si está instalado y responde, si no "
              "tmux. herdr sin herdr disponible → tmux con aviso. env "
              "WORKSPACE_SPLIT_BACKEND gana (probar sin persistir).",
-     "applies": "multiplexer.pick_backend() → front.launch / `workspace "
-                "split`. El hub/menú no cambian (regla #1); con ui.split "
-                "apagado este setting ni se consulta."},
+     "applies": "multiplexer.pick_backend() → `workspace split` (oculto desde "
+                "la 0.5). El hub/menú no lo consultan."},
     {"key": "ui.split_pane", "group": "ui",
      "label": "Contenido del pane derecho",
-     "type": "enum", "default": "panel",
+     "type": "enum", "default": "panel", "hidden": True,
      "choices": ("board", "panel"),
      "help": "Qué corre en el pane derecho del split. panel (default) = el "
              "PANEL con menú (Sesiones / Workflows en vivo / Bus / Config / "
@@ -1353,7 +1356,8 @@ def _cli_list():
                 print("  %s %-22s %-4s %s" % (mark, j["id"],
                                               _fmt_val(j["enabled"]), j["label"]))
             continue
-        rows = [s for s in SETTINGS_SCHEMA if s["group"] == g]
+        rows = [s for s in SETTINGS_SCHEMA if s["group"] == g
+                and not s.get("hidden")]       # oculto: get/set siguen, no se lista
         if not rows:
             continue
         print("\n[%s]" % g)

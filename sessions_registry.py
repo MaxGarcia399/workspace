@@ -595,6 +595,17 @@ def owner(brain, engine, rid, exclude=None):
     return ""
 
 
+def engines_used(brain):
+    """Motores con alguna pestaña de este cerebro atada a una sesión suya en
+    ESTA máquina (set). Solo lee. Falla-suave → set()."""
+    try:
+        tabs = (_local_load().get("map") or {}).get(_brain_key(brain)) or {}
+        return {e for slot in tabs.values() if isinstance(slot, dict)
+                for e, rid in slot.items() if e in ENGINES and rid}
+    except Exception:
+        return set()
+
+
 def forget_engine(engine):
     """Quita el resume-id de `engine` de TODAS las pestañas de esta máquina
     (con respaldo del store). Para cuando el motor perdió sus sesiones (p. ej.

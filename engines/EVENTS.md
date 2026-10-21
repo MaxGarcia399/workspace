@@ -23,7 +23,7 @@ hook-system propio.
 | `pre_prompt` | el prompt/contexto ensamblado está por mandarse al modelo | **middleware** (único evento que puede MUTAR: reescribir/filtrar el payload antes del modelo — el modo middleware de Hermes) | **pendiente motor #2** (ver honestidad abajo) | — |
 | `user_prompt` | el socio mandó un prompt en una sesión interactiva | observer puro (el payload trae el texto; los listeners miran, no mutan — la degradación observer honesta de `UserPromptSubmit`, "otro evento, no `pre_prompt`") | hook `UserPromptSubmit` ⚠ *en este hook, stdout se inyecta al contexto — los listeners NO imprimen nada* | — (disponible; sin listeners) |
 | `headless_ingest` | el harness entrega un transcript a un proceso headless | observer (interno) | **interno** — lo emite el propio WORKSPACE, no el motor. Desde 2026-10-16 ningún flujo del cliente lo emite (la revisión de skills y la memoria corren en la sesión visible); queda para herramientas de desarrollo (`skill_audit`) | — · **guard N6**: todo emisor pasa el contenido por `hooks/untrusted.py` (ver abajo) |
-| `model_fallback` | el failover (E-3, `failover.py`) cambió de modelo, se recuperó tras fallos, o agotó la cadena | observer (interno) | **None** — el failover del motor #1 lo hace el VENDOR por dentro (opaco, honestidad) · en `ollama` es `INTERNAL`: lo emite `failover.py` por transición | — (diagnóstico al rastro N10: `from_model`/`to_model`/`reason`/`strategy`, y campos planos `fallbackStep1..N` al agotarse la cadena) |
+| `model_fallback` | el failover (E-3, `failover.py`; fuera de `main` desde la 0.5) cambió de modelo, se recuperó tras fallos, o agotó la cadena | observer (interno) | **None** — el failover del motor #1 lo hace el VENDOR por dentro (opaco, honestidad) · en `ollama` es `INTERNAL`: lo emitía `failover.py` por transición | — (diagnóstico al rastro N10: `from_model`/`to_model`/`reason`/`strategy`, y campos planos `fallbackStep1..N` al agotarse la cadena) |
 
 ## Observer vs middleware (la distinción de Hermes)
 
@@ -109,8 +109,9 @@ WORKSPACE posee el loop ⇒ no hay hooks de vendor que cablear: el motor **emite
 `INTERNAL` en `events.ENGINE_MAP["ollama"]`. `pre_prompt` deja de estar "pendiente motor #2":
 el motor arma el request y lo ve pasar (el payload al rastro es metadata — modelo, nº de
 mensajes, tokens estimados, pasos de trim — jamás contenido). Desde la corrida E-3 también
-`model_fallback` es `INTERNAL`: `failover.py` lo emite por cada transición de la cadena
-(fallback, recuperación, cadena agotada con `fallbackStep*` planos). Lo aún no mapeado,
+`model_fallback` es `INTERNAL`: `failover.py` lo emitía por cada transición de la cadena
+(fallback, recuperación, cadena agotada con `fallbackStep*` planos); ese módulo salió de
+`main` en la 0.5 (el motor ya había salido antes). Lo aún no mapeado,
 honesto: `post_tool_write` = None (sin tools de escritura) y `pre_compact` = None (el trim
 C14 por request no es compactar la sesión). Invocar los listeners de `hooks/` por subprocess
 derivando de `events.LISTENERS` queda como TODO (documentado en `engines/ollama.py`).

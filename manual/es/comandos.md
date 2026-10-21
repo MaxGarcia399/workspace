@@ -63,14 +63,6 @@ Editor del calendario: mes, altas, cambios y bajas.
 
 _también: `calendar`, `cal`_
 
-### `workspace proyectos [stop]`
-
-App «Proyectos»: el mapa de todos tus proyectos con tu agente.
-
-**Cuándo:** Para ver en qué va cada proyecto.
-
-_también: `projects`, `proyecto`, `mapa`_
-
 ### `workspace correo --to <correo> --subject <asunto> [--dry-run]`
 
 Envía un correo desde la terminal; con --dry-run lo ves sin enviarlo.
@@ -80,24 +72,6 @@ Envía un correo desde la terminal; con --dry-run lo ves sin enviarlo.
 _también: `mail`_
 
 ## trabajo
-
-### `workspace wf new | list | run | status | resume | stats`
-
-Flujos de trabajo paso a paso (crear un agente, construir una función…).
-
-**Cuándo:** Para tareas largas que conviene hacer por pasos.
-
-_también: `flujos`, `workflows`_
-
-**Ejemplos:**
-
-    workspace wf list
-
-### `workspace split [agente]`
-
-Terminal partida: el chat a un lado y el tablero de flujos al otro.
-
-**Cuándo:** Cuando corres un flujo y quieres verlo mientras hablas.
 
 ### `workspace evaluar <agente>`
 

@@ -15,6 +15,8 @@ Qué TRAE:
   · sistema.json       versión (VERSION), commit, rama, cambios locales sí/no,
                        SO, arquitectura, Python, idioma, motor default
   · capacidades.json   matriz de capabilities.py por motor instalado
+  · colores.json       tema del hub, lo que se pinta en la terminal y el tema
+                       que usa cada motor (solo esas claves, nada más)
   · agentes.json       nombre, motor efectivo (y su origen), estado — SIN rutas
   · logs/              cola acotada de los logs de Workspace (state_dir/logs)
   · LEEME.txt          qué contiene, qué se tachó (conteo por tipo) y qué NO va
@@ -300,7 +302,8 @@ def sistema():
                    "implementacion": platform.python_implementation(),
                    "ejecutable": sys.executable},
         "terminal": dict([(k, os.environ.get(k)) for k in
-                          ("TERM", "TERM_PROGRAM", "COLORTERM") if os.environ.get(k)]
+                          ("TERM", "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "COLORTERM",
+                           "COLORFGBG") if os.environ.get(k)]
                          + [("windows_terminal", bool(os.environ.get("WT_SESSION")))]),
         "idioma": (i18n.lang() if i18n else ""),
         "motor_default": motor,
@@ -329,6 +332,101 @@ def agentes():
                     "origen_motor": a.get("engine_source"),
                     "estado": a.get("status"), "oculto": bool(a.get("hidden"))})
     return out
+
+
+_VALOR_RX = re.compile(r"[A-Za-z0-9:_. \-]{1,64}")
+
+
+def _valor(v):
+    """Un valor de tema tal cual si es corto y simple; si no, «(otro)». Nunca
+    sale nada más del archivo de donde se leyó."""
+    if v is None:
+        return None
+    return v if isinstance(v, str) and _VALOR_RX.fullmatch(v) else "(otro)"
+
+
+def _clave_json(path, key):
+    """Solo `key` de un JSON (p. ej. `theme` de un settings.json, que también
+    guarda permisos y variables de entorno). None si no está o no se lee."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:
+        return None
+    return _valor(data.get(key)) if isinstance(data, dict) else None
+
+
+def _clave_toml_tui(path, key):
+    """Solo `[tui] <key>` (o `tui.<key>` en la raíz) de un config.toml de
+    codex, leído por líneas (stdlib 3.9: sin tomllib). None si no está."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            seccion = ""
+            for ln in fh:
+                s = ln.strip()
+                if s.startswith("[") and s.endswith("]"):
+                    seccion = s.replace(" ", "")
+                    continue
+                m = re.match(r'^(?:tui\.)?%s\s*=\s*"([^"]*)"' % re.escape(key), s)
+                if m and (seccion == "[tui]" or (seccion == "" and s.startswith("tui."))):
+                    return _valor(m.group(1))
+    except Exception:
+        return None
+    return None
+
+
+def colores():
+    """«No se ve el texto»: el tema del hub, lo que Workspace pinta en la
+    terminal (fondo/tinta, paleta 0-15, lo que se le dice al motor) y el tema
+    que usa cada motor. De cada archivo de un motor se lee SOLO la clave del
+    tema: `theme` de los settings de Claude Code (y la `base` de su tema
+    custom), `colorScheme` de Antigravity y `tui.theme` de Codex. Jamás
+    ~/.claude.json (guarda la cuenta): si ningún settings fija tema, Claude
+    Code usa el de ahí o «dark»."""
+    import settings
+    import theme
+    import tuitheme
+    home = os.path.expanduser("~")
+    P = tuitheme.palette()
+    osc = dict(P.OSC) if P.OSC else None
+    hub = {"tema": tuitheme.resolve_id(), "modo_color": tuitheme.color_mode(),
+           "fondo_aparte": settings.get("ui.background", "tema"),
+           "luz_roja": bool(settings.enabled("ui.redlight", default=False)),
+           "se_pinta": osc,
+           "paleta_0_15": theme.palette_terminal() or "no se toca",
+           "al_motor": theme.engine_vars((osc or {}).get("bg"))}
+    if hub["fondo_aparte"] == "personalizado":
+        hub["fondo_personalizado"] = _valor(settings.get("ui.background_custom"))
+    usuario = _clave_json(os.path.join(home, ".claude", "settings.json"), "theme")
+    cc = []
+    for name, brain in _cerebros():
+        if not os.path.isdir(brain):
+            continue
+        local = _clave_json(os.path.join(brain, ".claude", "settings.local.json"), "theme")
+        proyecto = _clave_json(os.path.join(brain, ".claude", "settings.json"), "theme")
+        tema, origen = next(((v, o) for v, o in ((local, "cerebro · settings.local.json"),
+                                                 (proyecto, "cerebro · settings.json"),
+                                                 (usuario, "~/.claude/settings.json"))
+                             if v), (None, "ninguno: el de ~/.claude.json o «dark»"))
+        fila = {"agente": name, "tema": tema, "de": origen}
+        if isinstance(tema, str) and tema.startswith("custom:"):
+            p = os.path.join(home, ".claude", "themes", "%s.json" % tema[7:])
+            fila["custom"] = {"existe": os.path.isfile(p), "base": _clave_json(p, "base")}
+            try:
+                import theme_render
+                fila["custom"]["de_workspace"] = theme_render.is_generated(p)
+            except Exception:
+                pass
+        cc.append(fila)
+    agy = os.environ.get("ANTIGRAVITY_CLI_HOME") or os.path.join(
+        home, ".gemini", "antigravity-cli")
+    codex = os.environ.get("CODEX_HOME") or os.path.join(home, ".codex")
+    return {"hub": hub,
+            "claude_code": {"usuario": usuario, "agentes": cc},
+            "antigravity": {"colorScheme": _clave_json(
+                os.path.join(agy, "settings.json"), "colorScheme") or "terminal (default)"},
+            "codex": {"tui.theme": _clave_toml_tui(os.path.join(codex, "config.toml"),
+                                                    "theme")}}
 
 
 def doctor_check():
@@ -395,7 +493,8 @@ def _leeme(red, incluidos, fallos):
     desc = {"doctor-check.txt": "salida de `workspace doctor --check` (solo diagnóstico)",
             "sistema.json": "versión, commit y rama de Workspace; SO, arquitectura, Python",
             "capacidades.json": "qué funciones soporta cada motor en este sistema",
-            "agentes.json": "tus agentes: nombre, motor y estado (sin rutas)"}
+            "agentes.json": "tus agentes: nombre, motor y estado (sin rutas)",
+            "colores.json": "tema del hub, colores de la terminal y el tema de cada motor"}
     for n in incluidos:
         if n.startswith("logs/"):
             continue
@@ -423,7 +522,8 @@ def _leeme(red, incluidos, fallos):
           "WORKSPACE · diagnostic bundle (EN)",
           "Generated by `workspace doctor --bundle`. Contains the read-only doctor",
           "report, version/OS/Python, per-engine capabilities, agent names with",
-          "engine and status (no paths) and bounded log tails. Personal data was",
+          "engine and status (no paths), the hub theme with the terminal colors",
+          "and each engine's theme setting, and bounded log tails. Personal data was",
           "redacted before zipping (home, user, host, emails, tokens, IPs, brain",
           "paths). Never included: conversations, secrets.local, brain contents.", ""]
     return "\n".join(L)
@@ -469,6 +569,7 @@ def build(out_dir=None, doctor_runner=None, redactor=None, now=None):
     add("sistema.json", sistema, True)
     add("capacidades.json", capacidades, True)
     add("agentes.json", agentes, True)
+    add("colores.json", colores, True)
     try:
         for n, txt in logs():
             piezas.append(("logs/" + red.redact(n), red.redact(txt)))

@@ -15,9 +15,9 @@ Revisa **solo lo esencial** para que Workspace funcione y **repara** lo que pued
 - restos de una instalación anterior.
 
 Es lo mismo que corre al final de `workspace update`. Si una fase ya está bien, la salta;
-correrlo dos veces no rompe ni duplica nada. No revisa funciones opcionales (voz, terminal
-partida: [Compatibilidad](compatibilidad.md)) ni cómo organizas tus cerebros, y **no tener
-agentes todavía es normal**: no es un aviso.
+correrlo dos veces no rompe ni duplica nada. No revisa funciones opcionales (la voz:
+[Compatibilidad](compatibilidad.md)) ni cómo organizas tus cerebros, y **no tener agentes
+todavía es normal**: no es un aviso.
 
 Solo mirar, sin cambiar nada y sin salir a internet:
 

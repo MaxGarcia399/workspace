@@ -40,9 +40,6 @@ and npm. If you add a connection, add it here and in ../es/privacidad.md. -->
 | API providers (advanced) | the endpoint you configure (e.g. OpenAI, OpenRouter, Anthropic, Google, or a local one such as Ollama or LM Studio) | only if you set up a provider with your API key |
 | Opening a link | your browser | when you choose to open something (such as an engine's official source) |
 
-**Only inside your machine:** `workspace proyectos` opens, by default, a local web panel on `127.0.0.1`;
-it can't be opened from another computer.
-
 ## What it records locally
 
 To show you what your agents are doing, Workspace keeps **activity** records in

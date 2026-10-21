@@ -1,7 +1,10 @@
 """WORKSPACE · docs_tui — sección DOCUMENTACIÓN: todo lo que hace Workspace.
 
 Mismo lenguaje que Usuarios (una caja centrada, section_box): a la izquierda
-los 13 capítulos, en el orden en que los vives; a la derecha el elegido:
+el mapa completo de la memoria y los 13 capítulos, en el orden en que los
+vives; a la derecha el elegido. El primer renglón (o la tecla m) abre el mapa
+completo en pantalla grande (docs_mapa); la fila «Mapa de la memoria» de la
+portada del hub lo abre directo (run_mapa). Cada capítulo trae:
 
   · un mapa (cajas en fila, brain_view.pipeline) y 3–4 frases cortas;
   · EN ESTA PC   una línea real del agente elegido (solo lectura);
@@ -56,16 +59,23 @@ def _agents():
 
 
 def initial():
-    return {'agents': _agents(), 'agent': 0, 'cap': 0, 'msg': '', 'vivo': {}}
+    """`cap` = -1: el renglón del mapa completo (el primero de la lista);
+    `mapa` = el estado del mapa en pantalla grande, o None."""
+    return {'agents': _agents(), 'agent': 0, 'cap': -1, 'msg': '', 'vivo': {}, 'mapa': None}
 
 
 def ctx(S):
     return S['agents'][S['agent'] % len(S['agents'])] if S['agents'] else {}
 
 
+def es_mapa(S):
+    """¿Está elegido el renglón del mapa completo?"""
+    return S.get('cap', 0) < 0
+
+
 def cap(S):
     caps = D.capitulos()
-    return caps[S['cap'] % len(caps)]
+    return caps[max(0, S['cap']) % len(caps)]
 
 
 def vivo(S, c):
@@ -84,6 +94,7 @@ def _chips(S):
     if len(S['agents']) > 1:
         out.append(('Tab', _t('docs.k.agent', 'otro agente', 'other agent')))
     out += [('Enter', _t('docs.k.open', 'abre', 'opens')),
+            ('m', _t('docs.k.map', 'el mapa', 'the map')),
             ('i', _t('docs.k.info', 'cómo leer esto', 'how to read this')),
             ('q', _t('docs.k.back', 'vuelve', 'back'))]
     return tuple(out)
@@ -168,17 +179,34 @@ def _filas(S, K, c, w):
     return out
 
 
+def _intro_mapa(K, w):
+    """Lo que se ve a la derecha con el renglón del mapa elegido: un mapita,
+    qué trae y la fila que dice cómo abrirlo."""
+    tx = D.mapa_texto(D.MAPA_INTRO)
+    puntos = []
+    for p in tx['puntos']:
+        for n, ln in enumerate(_envolver(p, w - 2)):
+            puntos.append('%s%s%s %s%s%s' % (K['DK'], '·' if n == 0 else ' ', K['R'], K['GREY'], ln, K['R']))
+    etq = _t('docs.row.map', 'ÁBRELO', 'OPEN IT')
+    fila = HL.clip('%s%s%s  %s%s%s' % (K['OK'] + K['BO'], etq, K['R'], K['C'] + K['BO'], tx['abre'], K['R']), w)
+    return tx, _mapa(K, tx, w), puntos, [fila]
+
+
 def _detalle(S, K, w, alto, titulo=True):
     """El capítulo elegido en `alto` filas como mucho: si no cabe, cede el
     mapa y después recorta frases (y lo dice); las tres filas de abajo
     siempre quedan. `titulo`=False cuando la regla de arriba ya lo nombra."""
-    c = cap(S)
-    tx = D.texto(c)
+    if es_mapa(S):
+        tx, mapa, puntos, filas = _intro_mapa(K, w)
+        c = None
+    else:
+        c = cap(S)
+        tx = D.texto(c)
+        mapa = _mapa(K, tx, w)
+        puntos = _puntos(K, c, tx, w)
+        filas = _filas(S, K, c, w)
     cabeza = [HL.clip('%s%s%s' % (K['C'] + K['BO'], tx['titulo'].upper(), K['R']), w), ''] \
         if titulo else []
-    mapa = _mapa(K, tx, w)
-    puntos = _puntos(K, c, tx, w)
-    filas = _filas(S, K, c, w)
     libre = alto - len(cabeza) - len(filas) - 1
     if len(mapa) + 1 + len(puntos) <= libre:
         cuerpo = mapa + [''] + puntos
@@ -194,10 +222,14 @@ def _detalle(S, K, w, alto, titulo=True):
 
 
 def _items(S):
-    out = []
+    out = [(' ◆ %s' % D.mapa_texto(D.MAPA_INTRO)['corto'], '')]
     for n, c in enumerate(D.capitulos(), 1):
         out.append(('%2d %s' % (n, D.texto(c)['corto']), ''))
     return out
+
+
+def _titulo(S):
+    return D.mapa_texto(D.MAPA_INTRO)['titulo'] if es_mapa(S) else D.texto(cap(S))['titulo']
 
 
 def _alto(h):
@@ -217,7 +249,7 @@ def _cuerpo(S, K, iw, h):
                                                  'no agents yet: live data shows up once you '
                                                  'create one'), K['R']), iw), '']
     items = _items(S)
-    sel = S['cap'] % len(items)
+    sel = (S['cap'] + 1) % len(items)
     alto = _alto(h) - len(cab)
     if iw < LIST_W + SB.SPLIT_GAP + _MIN_DER:
         # angosto: la lista arriba (una ventanita) y el capítulo abajo, con
@@ -226,7 +258,7 @@ def _cuerpo(S, K, iw, h):
         arriba = SB.pick_list(K, items, sel, iw, filas_lista, sel_tail='▸')
         det = _detalle(S, K, iw, alto - len(arriba) - 2, titulo=False)
         S['_cur'] = len(cab) + next((k for k, ln in enumerate(arriba) if '▸' in ln), 0)
-        return cab + SB.stack(K, arriba, det, iw, label=D.texto(cap(S))['titulo'], active=True)
+        return cab + SB.stack(K, arriba, det, iw, label=_titulo(S), active=True)
     det = _detalle(S, K, iw - LIST_W - SB.SPLIT_GAP, alto)
     izq = SB.pick_list(K, items, sel, LIST_W, max(len(det), min(len(items), alto)), sel_tail='▸')
     S['_cur'] = len(cab) + next((k for k, ln in enumerate(izq) if '▸' in ln), 0)
@@ -277,7 +309,7 @@ def _estable(S, K, w, h):
     if S.get('_est', (None, 0))[0] != clave:
         actual, cur = S['cap'], S.get('_cur', 0)
         alto = 0
-        for i in range(len(D.capitulos())):
+        for i in range(-1, len(D.capitulos())):
             S['cap'] = i
             alto = max(alto, len(_cuerpo(S, K, iw, h)))
         S['cap'], S['_cur'] = actual, cur
@@ -287,6 +319,12 @@ def _estable(S, K, w, h):
 
 def render(S, w, h):
     K = SF.K()
+    if S.get('mapa') is not None:
+        import docs_mapa
+        S['mapa']['ctx'] = ctx(S)
+        # desde la portada del hub el mapa es su propia sección: MEMORIA
+        palabra = HL.section_word('memoria') if S.get('solo_mapa') else word()
+        return docs_mapa.render(S['mapa'], w, h, palabra)
     if S.get('info'):
         return SB.info_frame(K, w, h, word(), _t('docs.info.title', 'CÓMO LEER ESTA SECCIÓN',
                                                   'HOW TO READ THIS SECTION'),
@@ -324,8 +362,11 @@ def abrir_con_el_sistema(path):
     return 'abierto'
 
 
-def _abrir(S):
-    c = cap(S)
+def _abrir(S, c=None):
+    """Abre lo que demuestra `c` (el capítulo elegido, o una parte del mapa):
+    el archivo o la carpeta con el programa del sistema, o deja el comando
+    listo para copiar. El resultado queda en S['msg']."""
+    c = c or cap(S)
     kind = c['compruebalo'][0]
     if kind == 'comando':
         S['msg'] = _t('docs.m.copy', 'cópialo en tu terminal: {c}', 'copy it into your terminal: {c}',
@@ -355,21 +396,49 @@ def _abrir(S):
     return True
 
 
+def _act_mapa(S, key):
+    """Las teclas con el mapa completo abierto: las suyas (docs_mapa.act);
+    q/Esc vuelve a los capítulos y Enter abre lo que demuestra la parte."""
+    import docs_mapa
+    M = S['mapa']
+    if key == 'tab' and len(S['agents']) > 1:
+        S['agent'] = (S['agent'] + 1) % len(S['agents'])
+        return True
+    r = docs_mapa.act(M, key)
+    if r == 'abrir':
+        _abrir(S, docs_mapa.actual(M))
+        M['msg'], S['msg'] = S['msg'], ''
+    elif r is False:
+        if S.get('solo_mapa'):                     # abierto desde el hub: vuelve al hub
+            return False
+        S['mapa'] = None
+    return True
+
+
 def act(S, key):
     """True = sigue · False = sale (volver al hub)."""
     if key == '\x03':
         return False
+    if S.get('mapa') is not None:
+        return _act_mapa(S, key)
     if SB.info_key(S, key):
         return True
     S['msg'] = ''
     if key in ('q', 'Q', '\x1b'):
         return False
-    n = len(D.capitulos())
+    n = len(D.capitulos()) + 1                    # el renglón del mapa + los capítulos
     if key == 'tab' and len(S['agents']) > 1:
         S['agent'] = (S['agent'] + 1) % len(S['agents'])
     elif key in ('up', 'down'):
-        S['cap'] = (S['cap'] + (-1 if key == 'up' else 1)) % n
+        S['cap'] = (S['cap'] + 1 + (-1 if key == 'up' else 1)) % n - 1
+    elif key in ('m', 'M'):
+        import docs_mapa
+        S['mapa'] = docs_mapa.initial()
     elif key in ('\r', '\n', 'right', ' '):
+        if es_mapa(S):
+            import docs_mapa
+            S['mapa'] = docs_mapa.initial()
+            return True
         return _abrir(S)
     return True
 
@@ -384,7 +453,41 @@ def run():
     except Exception:
         live = sys.stdin.isatty()
     if not live:
+        S['cap'] = 0                               # sin terminal: el capítulo 1
         print('\n'.join(render(S, 110, 44)))
+        return
+    import engines_tui
+    _loop_con(S, engines_tui)
+
+
+def initial_mapa(agente=None):
+    """El estado de run_mapa: el mapa ya abierto, con `agente` (su nombre)
+    elegido si tiene cerebro en esta PC; si no, el primero."""
+    import docs_mapa
+    S = initial()
+    S['solo_mapa'] = True
+    S['mapa'] = docs_mapa.initial()
+    S['mapa']['al_hub'] = True
+    nombres = [str(a.get('name', '')).lower() for a in S['agents']]
+    if agente and str(agente).lower() in nombres:
+        S['agent'] = nombres.index(str(agente).lower())
+    return S
+
+
+@_theme_screen
+def run_mapa(agente=None):
+    """El mapa de la memoria directo, sin los capítulos: la fila «Mapa de la
+    memoria» de la portada del hub (pedido del dueño 2026-10-19: en
+    Documentación quedaba escondido). Abre con el agente que estaba apuntado
+    en el hub; q/Esc regresa al hub."""
+    S = initial_mapa(agente)
+    try:
+        import _console
+        live = _console.interactive()
+    except Exception:
+        live = sys.stdin.isatty()
+    if not live:
+        print('\n'.join(render(S, 150, 50)))
         return
     import engines_tui
     _loop_con(S, engines_tui)

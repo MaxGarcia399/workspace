@@ -6,6 +6,10 @@ Una sola pregunta responde este módulo: "¿con QUÉ multiplexer se arma la
 terminal partida (chat | wf board) y qué pasa si no se puede?". La respuesta
 JAMÁS rompe el arranque:
 
+  Desde la 0.5 el hub ya no consulta `ui.split` (front.launch siempre hace
+  el exec directo) y la ÚNICA puerta es `workspace split`, oculto al
+  cliente. Este módulo se quita en la 0.6.
+
   ui.split OFF (default)  → este módulo ni se importa (front.launch exec
                             directo de siempre; regla #1 intacta).
   ui.split ON             → open_split():
@@ -175,9 +179,10 @@ def pick_backend(plan=False):
 
 
 def open_split(argv):
-    """LA puerta del split (front.launch con ui.split ON y `workspace split`).
-    Elige backend y abre; un backend reventando NO tumba el arranque: cae al
-    exec normal de siempre (la capa de abajo, mux.fallback)."""
+    """LA puerta del split (`workspace split`; hasta la 0.4 también
+    front.launch con ui.split ON). Elige backend y abre; un backend
+    reventando NO tumba el arranque: cae al exec normal de siempre (la capa
+    de abajo, mux.fallback)."""
     backend = None
     plan = mux.parse_args(argv or [])[2]
     try:

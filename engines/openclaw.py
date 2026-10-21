@@ -32,7 +32,10 @@ del OpenClaw personal del socio) con `agents.defaults.skipBootstrap: true`
 (VERIFICADO: con eso el cerebro queda intacto) y su memoria nativa APAGADA
 (memoryFlush, dreaming y el hook session-memory: si no, escribiría MEMORY.md,
 memory/ y DREAMS.md en el cerebro). Un agente OpenClaw por agente de
-Workspace, con workspace = su cerebro.
+Workspace, con workspace = su cerebro. La memoria larga del cerebro
+(STATE/MEMORY.md, la de todos los motores) le llega por su hook oficial
+`bootstrap-extra-files`; su búsqueda por significado (`memorySearch`) queda
+apagada: indexar el cerebro mandaría sus notas a un servicio de embeddings.
 
 Hechos VERIFICADOS con el binario 2026.5.12 (2026-10-15, perfiles desechables,
 sin credenciales reales):
@@ -303,6 +306,47 @@ def available(exe_override=None):
     return bool(_exe(exe_override))
 
 
+# ── memoria propia suelta en la raíz del cerebro ───────────────────────────
+#: OpenClaw carga en CADA turno el MEMORY.md de la raíz de su workspace (= el
+#: cerebro) y escribe ahí su memoria propia (MEMORY.md, memory/). Esa memoria
+#: está apagada en el perfil y el cierre aparta lo que toque cada corrida
+#: (memoria.mover_raiz_openclaw), pero un cerebro que ya usaba OpenClaw puede
+#: tener los de antes: OpenClaw los sigue leyendo como si fueran la memoria del
+#: agente. El doctor lo dice y ofrece apartarlos (esta oferta de migrate).
+MEMORIA_SUELTA = ("MEMORY.md", "memory")
+MEMORIA_SUELTA_OFERTA = "202610200100_openclaw_memoria_suelta"
+
+
+def memoria_suelta(brain):
+    """Lo de MEMORIA_SUELTA que hay en la raíz del cerebro (nombres)."""
+    return [n for n in MEMORIA_SUELTA if brain and os.path.exists(os.path.join(brain, n))]
+
+
+def used_by(brain, name="", engine=""):
+    """¿Este cerebro usa OpenClaw en ESTA máquina? Su motor (el que dice quien
+    pregunta o, por el nombre, el de dispatch: ajuste por máquina > agent.json
+    > registro) o alguna pestaña suya atada a una sesión de OpenClaw. Solo
+    lee; falla-suave → False."""
+    eng = str(engine or "").strip().lower()
+    if not eng and name:
+        try:
+            import dispatch
+            eng = dispatch._settings_agent_engine(name) or ""
+            if not eng:
+                entry = dispatch.find_agent(name) or {}
+                eng = (dispatch.load_agent_cfg(entry) or {}).get("engine") \
+                    or entry.get("engine") or ""
+        except Exception:
+            eng = ""
+    if str(eng).strip().lower() == BINARY:
+        return True
+    try:
+        import sessions_registry
+        return BINARY in sessions_registry.engines_used(brain)
+    except Exception:
+        return False
+
+
 # ── perfil y agente de Workspace dentro de OpenClaw ────────────────────────
 def agent_id(cfg):
     """Id del agente OpenClaw para un agente de Workspace: su nombre saneado
@@ -315,8 +359,9 @@ def agent_id(cfg):
 # REGLA VANILLA (producto): el setup de OpenClaw es del CLIENTE y queda tal
 # como lo diseñó el proveedor (gateway, canales, modelos… los cambia él desde
 # Motores › cuenta y proveedor). Workspace SOLO re-asegura lo que necesita del
-# CEREBRO para funcionar (_BRAIN_SETTINGS) y que el workspace de SU agente sea
-# el cerebro. Nada más.
+# CEREBRO para funcionar (_BRAIN_SETTINGS, y la memoria larga del cerebro por
+# el hook oficial: EXTRA_FILES) y que el workspace de SU agente sea el cerebro.
+# Nada más.
 # Jamás `agents delete`: «prune workspace/state» borraría el cerebro.
 
 #: Config del perfil de Workspace que el CEREBRO necesita (excepción a la regla
@@ -339,6 +384,30 @@ _BRAIN_SETTINGS = (
 )
 _MISSING = object()
 
+#: Memoria larga del CEREBRO en OpenClaw (la misma STATE/MEMORY.md que leen los
+#: demás motores), con su hook oficial `bootstrap-extra-files`: carga esas rutas
+#: como archivos de arranque en cada turno (doc instalada: automation/hooks.md
+#: en 2026.5.12, automation/hooks/bundled-hooks.md en 2026.9.33). Las rutas son
+#: relativas al workspace del agente (= el cerebro) y solo entran nombres de
+#: arranque reconocidos; MEMORY.md lo es. VERIFICADO en el código de 2026.5.12:
+#: los hooks internos los carga el GATEWAY al arrancar (server-startup-post-
+#: attach); el modo local de una sola ventana y un turno sin ventana sin
+#: gateway no los cargan, y en esos casos OpenClaw abre sin esta memoria.
+#: La búsqueda por significado de OpenClaw (`memorySearch`, `extraPaths`) NO se
+#: prende: para indexar el cerebro mandaría sus notas a un servicio externo de
+#: embeddings. Solo se prendería si el socio lo pide (de preferencia, local).
+_EXTRA_FILES_HOOK = "hooks.internal.entries.bootstrap-extra-files"
+EXTRA_FILES = ("STATE/MEMORY.md",)
+
+
+def _t(key, es, en=None, **kw):
+    """i18n falla-suave (catálogo lang/<code>/motorbar.py → ES/EN inline)."""
+    try:
+        import workspace_status
+        return workspace_status.t(key, es, en, **kw)
+    except Exception:
+        return es.format(**kw) if kw else es
+
 
 def _get_path(d, dotted):
     cur = d
@@ -352,7 +421,38 @@ def _get_path(d, dotted):
 def _brain_settings_ok(d):
     """¿El archivo del perfil ya trae TODOS los ajustes del cerebro?"""
     return isinstance(d, dict) and all(_get_path(d, p) is want
-                                       for p, want, _why in _BRAIN_SETTINGS)
+                                       for p, want, _why in _BRAIN_SETTINGS) \
+        and _extra_files_ok(d)
+
+
+def _str_list(v):
+    """Lista de textos de la config (una lista, o un texto suelto), o None."""
+    if isinstance(v, str) and v.strip():
+        return [v.strip()]
+    if isinstance(v, list) and all(isinstance(x, str) for x in v):
+        return [x for x in v if x.strip()]
+    return None
+
+
+def _extra_files_ok(d):
+    """¿El hook bootstrap-extra-files está prendido y carga STATE/MEMORY.md?"""
+    paths = _str_list(_get_path(d, _EXTRA_FILES_HOOK + ".paths")) or []
+    return (_get_path(d, _EXTRA_FILES_HOOK + ".enabled") is True
+            and all(p in paths for p in EXTRA_FILES))
+
+
+def _extra_files_want(entry):
+    """La lista `paths` que el hook debe tener: la del socio + la memoria del
+    cerebro. El hook usa `paths` y, si está vacía, `patterns` o `files` (son
+    alternativas, no se suman): las rutas del socio que vivían en esas pasan
+    a `paths` para que no dejen de cargarse."""
+    entry = entry if isinstance(entry, dict) else {}
+    base = []
+    for k in ("paths", "patterns", "files"):
+        base = _str_list(entry.get(k)) or []
+        if base:
+            break
+    return base + [p for p in EXTRA_FILES if p not in base], base
 
 def _profile_config():
     """Config del perfil de Workspace leída DIRECTO del archivo
@@ -439,9 +539,63 @@ def ensure_profile(exe=None, runner=None):
                 short = path.rsplit(".", 2)[-2] if path.endswith(".enabled") else path.rsplit(".", 1)[-1]
                 avisos.append("restauré %s=%s (Workspace lo necesita para %s)"
                               % (short, "true" if want else "false", why))
+        aviso = _ensure_extra_files(exe, d, runner)
+        if aviso:
+            avisos.append(aviso)
         return True, ("OpenClaw: " + "; ".join(avisos)) if avisos else ""
     except Exception as e:
         return False, "%s: %s" % (type(e).__name__, e)
+
+
+def _ensure_extra_files(exe, d, runner=None):
+    """Prende el hook oficial bootstrap-extra-files con la memoria del cerebro
+    (EXTRA_FILES); lo que el socio tenga en su lista se conserva. Un solo
+    `config set --batch-file` (el oficial, como el del gateway). '' o una línea
+    de aviso. No es de seguridad: si no se puede, OpenClaw abre igual, sin esa
+    memoria."""
+    if isinstance(d, dict):
+        entry = _get_path(d, _EXTRA_FILES_HOOK)
+    else:
+        rc, out = _cfg_get(exe, _EXTRA_FILES_HOOK, runner)
+        entry = _json_out(out) if rc == 0 else {}
+    entry = entry if isinstance(entry, dict) else {}
+    want, base = _extra_files_want(entry)
+    ops = []
+    if entry.get("enabled") is not True:
+        ops.append({"path": _EXTRA_FILES_HOOK + ".enabled", "value": True})
+    if _str_list(entry.get("paths")) != want:
+        ops.append({"path": _EXTRA_FILES_HOOK + ".paths", "value": want})
+    if not ops:
+        return ""
+    fd, tmp = tempfile.mkstemp(prefix="ws-openclaw-mem-", suffix=".json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(ops, fh)
+        r = _run(_base(exe) + ["config", "set", "--batch-file", tmp], runner=runner, timeout=60)
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    if getattr(r, "returncode", 1) != 0:
+        return _t("motorbar.openclaw.memory_failed",
+                  "no pude prender la carga de la memoria larga (STATE/MEMORY.md): "
+                  "OpenClaw abre sin ella",
+                  "couldn't turn on loading the long-term memory (STATE/MEMORY.md): "
+                  "OpenClaw opens without it")
+    if entry.get("enabled") is False:
+        return _t("motorbar.openclaw.memory_restored",
+                  "volví a prender la carga de STATE/MEMORY.md (hook bootstrap-extra-files): "
+                  "es la memoria larga de tu cerebro",
+                  "turned loading STATE/MEMORY.md back on (bootstrap-extra-files hook): "
+                  "it's your brain's long-term memory")
+    if base and any(p not in base for p in EXTRA_FILES):
+        return _t("motorbar.openclaw.memory_added",
+                  "agregué STATE/MEMORY.md a tus rutas del hook bootstrap-extra-files (las "
+                  "tuyas se conservan)",
+                  "added STATE/MEMORY.md to your bootstrap-extra-files hook paths (yours "
+                  "are kept)")
+    return ""
 
 
 def ensure_agent(cfg, exe=None, runner=None):
@@ -653,6 +807,71 @@ def _reply_text(data):
     return ""
 
 
+def _parece_cerebro(path):
+    return any(os.path.isfile(os.path.join(path, *p))
+               for p in (("BRAIN.md",), ("CLAUDE.md",), (".workspace", "agent.json")))
+
+
+def headless_agent(agent="", cwd=None):
+    """El agente de Workspace dueño de un turno sin ventana → {'name', '_brain'}
+    o None. Por nombre (el que pasa quien llama o WORKSPACE_AGENT_NAME, el de
+    la sesión que corre), con su cerebro del registro o, si aún no está
+    registrado (p. ej. al personalizarlo recién creado), `cwd` cuando es un
+    cerebro; sin nombre, el agente registrado cuyo cerebro es `cwd`."""
+    name = str(agent or os.environ.get("WORKSPACE_AGENT_NAME") or "").strip()
+    real = os.path.realpath(cwd) if cwd and os.path.isdir(str(cwd)) else ""
+    brain = ""
+    if name:
+        try:
+            import brain_resolver
+            res = brain_resolver.resolve_agent(name)
+            if res and res.get("exists"):
+                brain = res.get("path") or ""
+        except Exception:
+            brain = ""
+        if not brain and real and _parece_cerebro(real):
+            brain = real
+    elif real:
+        try:
+            import agentsreg
+            for a in agentsreg.agents():
+                if os.path.realpath(a["brain"]) == real:
+                    name, brain = a["name"], a["brain"]
+                    break
+        except Exception:
+            pass
+    if not name or not brain or not os.path.isdir(brain):
+        return None
+    return {"name": name, "_brain": brain}
+
+
+def prepare_agent(cfg, exe=None, runner=None):
+    """Perfil + agente de OpenClaw de este agente de Workspace, como el arranque
+    (camino rápido si el archivo del perfil ya dice que todo está bien): un
+    turno sin ventana también corre con el cerebro protegido (skipBootstrap,
+    memoria nativa apagada) y con SU agente. (ok, id del agente | motivo)."""
+    exe = exe or _exe()
+    if not exe:
+        return False, "openclaw no está en PATH"
+    if _quick_ok(cfg, _profile_config()):
+        return True, agent_id(cfg)
+    ok, why = ensure_profile(exe, runner=runner)
+    if not ok:
+        return False, why
+    ok, why = ensure_agent(cfg, exe, runner=runner)
+    if not ok:
+        return False, why
+    return True, agent_id(cfg)
+
+
+def no_agent_msg():
+    return _t("motorbar.openclaw.no_agent",
+              "OpenClaw sin ventana necesita saber de qué agente es el turno: jamás usa su "
+              "agente «main» de fábrica, que contesta con otra identidad",
+              "a windowless OpenClaw turn needs to know which agent it belongs to: it never "
+              "uses OpenClaw's built-in «main» agent, which answers with another identity")
+
+
 def run_turn(prompt, *, model=None, cwd=None, timeout=300, agent=None,
              session_id=None, session_key=None, exe_override=None, runner=None):
     """UN turno HEADLESS: `openclaw --profile <perfil> agent --agent <id> -m
@@ -661,10 +880,15 @@ def run_turn(prompt, *, model=None, cwd=None, timeout=300, agent=None,
     `result.payloads`); sin gateway, `--local` como antes. El turno se anota
     como cliente para que el guardián no apague el gateway a medio turno.
     Devuelve (ok, texto). Sin `model` no se pasa `--model` (manda la config
-    del socio)."""
+    del socio). `agent` = el id de OpenClaw del agente de Workspace
+    (agent_id/prepare_agent); sin él, o con el «main» de fábrica, no hay
+    turno: contestaría otra identidad."""
     exe = _exe(exe_override)
     if not exe:
         return False, "openclaw no está en PATH"
+    aid = str(agent or "").strip()
+    if not aid or aid == "main":
+        return False, no_agent_msg()
     import openclaw_gateway as G
     prof = _profile()
     port = gateway_port()
@@ -672,7 +896,7 @@ def run_turn(prompt, *, model=None, cwd=None, timeout=300, agent=None,
 
     def _cmd(local):
         cmd = _base(exe) + ["agent"] + (["--local"] if local else []) + [
-            "--agent", agent or "main", "-m", prompt or "", "--json"]
+            "--agent", aid, "-m", prompt or "", "--json"]
         if session_id:
             cmd += ["--session-id", str(session_id)]
         if session_key:                  # la clave de una pestaña: agent:<id>:ws-…
@@ -865,6 +1089,11 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
               "skipBootstrap=true y memoria nativa apagada: OpenClaw no crea "
               "archivos en el cerebro"
               % _identity_doc(cfg))
+        print(_t("motorbar.openclaw.plan_memory",
+                 "  memoria     : STATE/MEMORY.md de tu cerebro en cada turno (hook oficial "
+                 "bootstrap-extra-files, con el gateway); su búsqueda por significado, apagada",
+                 "  memory      : your brain's STATE/MEMORY.md on every turn (official "
+                 "bootstrap-extra-files hook, with the gateway); its semantic search, off"))
         print("  pestañas    : picker compartido — cada pestaña con su clave "
               "`agent:%s:ws-…` (OpenClaw la continúa al reabrir)" % aid)
         print("  cierre      : transcript de la sesión (agents/%s/sessions/<id>.jsonl) "
@@ -962,6 +1191,8 @@ def _run_tab(cfg, passthrough, *, exe, aid, brain, preselect, show_banner, gw_po
             from engines import claude_code as _cc0
             _cc0.session_preflight(cfg, "openclaw")
         tab = _ui.pick_tab(cfg, preselect=preselect)
+        if show_banner:                 # la limpieza de antes de la TUI lo quita
+            _ui.cargando(cfg, tab)
         if not tab:
             from engines import claude_code as _cc
             _cc.warn_no_tab(_cc.LAST_PICK_ERROR)

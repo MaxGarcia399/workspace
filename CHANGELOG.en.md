@@ -8,6 +8,96 @@ How to read this: every version has a number (`MAJOR.MINOR.PATCH`). A PATCH
 change fixes things; a MINOR one brings new features without breaking
 anything; a MAJOR one warns you well in advance if something changes shape.
 
+## 0.5.0 — 2026-10-21
+
+**What's new**
+- **«Loading…» when you open an agent.** While Workspace prepares it, before
+  the tab menu, you see «Loading…» in the middle of the screen with the
+  agent's name, instead of a still screen. In Hermes and OpenClaw it also
+  shows after you pick the tab, while the tab is prepared and, in OpenClaw,
+  while its gateway starts. It hides no notice: if Workspace has something to
+  tell you, it shows up below.
+- **The memory map**, on the hub's front page: the «Memory map» row, right
+  below your agents, opens it with the agent you were pointing at (Esc takes
+  you back to the hub). It's also in Documentation (the first row, or the `m`
+  key). It's the chosen agent's real brain tree, as in «Add agent», with what
+  lives outside it (this PC and its engine's conversation). Each tab (the
+  whole path, open, work, close, resume, each person, the engines and what it
+  learns) lights up the files it touches, in order and in colors: what is
+  read, what is written and what belongs to each person, with your real user,
+  tab and engine session. ← → or the numbers change step; ↑↓ scrolls when it
+  does not fit; Tab switches agent; Enter opens what proves it.
+- **Hermes and OpenClaw use the same memory and skills as the other engines.**
+  Their built-in memory stays off (so no agent reads another's
+  conversations); what changes is that they now get your brain's properly:
+  - **Hermes, when you resume a tab**, gets the tab's up-to-date memory with
+    your first message, including what you noted in another engine, and again
+    if someone else changes it while it's open. Before, it kept the memory it
+    had when the conversation started. It uses the same hook as the tone, so
+    it needs you to have approved it.
+  - **Hermes uses your brain's skills** and no longer creates skills in its
+    profile, which all your agents share (one agent's showed up in the others).
+  - **OpenClaw reads your brain's long-term memory** (`STATE/MEMORY.md`) on
+    every message, through its official hook. Its semantic search stays off:
+    indexing your brain would send your notes to an outside service.
+  - **What Workspace asks OpenClaw without opening a window** (for example,
+    personalizing an agent) is answered by your agent, not by OpenClaw's
+    built-in agent.
+
+**Fewer things in sight (they are removed in 0.6)**
+- **Workflows** (`workspace wf`), the **Proyectos** app (`workspace projects`)
+  and the **split terminal** (`workspace split`) no longer show up in the
+  help, the Commands screen, the manual or Documentation. If you type the
+  command, it still works as before.
+- The split terminal no longer opens from the hub even if you had it on:
+  your agent opens in the normal window, with the same tabs and
+  conversations. Its settings leave Personalization.
+- In 0.6 their code is removed: Proyectos and the split terminal go away,
+  and Workflows stays only for people who develop Workspace. Your data
+  stays: your projects (`~/.claude/workspace/proyectos/`), your workflow
+  runs (`~/.claude/workspace/workflows/`) and your settings remain on your
+  machine; nothing is deleted.
+
+**Fixes**
+- Documentation no longer says that only Claude Code gets your tone with every
+  message (Hermes does too) or that the handoff keeps the files touched in every
+  engine (only in Claude Code and Codex).
+- `workspace doctor` no longer says that a `MEMORY.md` (or a `memory/` folder)
+  loose in the brain root "does not affect" anything when the agent uses
+  OpenClaw: OpenClaw reads it on every message as if it were the agent's
+  memory. It offers to move it aside to `motores/openclaw/` (`workspace migrate
+  --offer …`, or "no thanks" with `--decline`); it never deletes anything.
+- The manual no longer says that Hermes' profile is created by copying your
+  keys: it's created with your model and without your keys, and you connect the
+  provider once in Engines › account and provider.
+- A rule you wrote yourself that asks for approval or confirmation (for
+  example, «If in doubt, I ask before deleting») no longer makes your agent
+  hear, when it opens, that «approvals were retired». That notice only shows
+  up if your brain still has, word for word, an old Workspace template
+  instruction about approving skills or memory, and it tells the agent your
+  rules are respected.
+- **No text gets lost against the theme background in your agents' chat**
+  (some text was almost black on the dark background):
+  - Claude Code paints all of its text with the hub theme (tool results,
+    "User rejected…" and markers were dark grey), readable in Terminal.app
+    too.
+  - Hermes, OpenClaw and Claude Code on its automatic theme know whether the
+    background Workspace painted is dark or light: with a light terminal
+    profile they wrote black on the dark background.
+  - In iTerm2 3.5 or newer, the macOS 26 Terminal, Windows Terminal, VS Code
+    (Mac and Linux), WezTerm, Ghostty and kitty, the terminal's 16 colors (the
+    ones Codex and commands use) come from the theme. Other terminals are left
+    alone. Closing the hub gives the terminal its colors back; if you opened
+    an agent, it keeps them until you close the tab, as it already did with
+    the background.
+  - A light custom background with a dark theme (or the other way round) no
+    longer leaves the text unreadable: the theme keeps its own background. A
+    separate background on a theme without its own background now paints the
+    text too, and red light on a light theme keeps the background light,
+    tinted red.
+  - `workspace doctor --bundle` includes your terminal and the theme each
+    engine uses, without any key.
+
 ## 0.4.1 — 2026-10-18
 
 **Fixes**

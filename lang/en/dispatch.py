@@ -22,4 +22,6 @@ STRINGS = {
         "  Couldn't save it ({err}); opening with {engine} this time anyway.",
     "dispatch.engine.this_time":
         "  Just this time: {name} keeps {engine} as its engine.",
+    # cargando.py: centered while an agent's opening is being prepared
+    "dispatch.cargando": "Loading…",
 }

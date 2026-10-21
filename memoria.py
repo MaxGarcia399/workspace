@@ -1329,26 +1329,30 @@ def _textos_con_destilado(brain):
     return False
 
 
-#: Lo mismo para las demás compuertas humanas (decisión del 2026-10-18: en el
-#: cerebro nada espera a una persona). La migración 202610181200_sin_aprobacion
-#: reemplaza esos textos solo si siguen idénticos a la plantilla; si el dueño
-#: los editó, el paquete aclara. Qué cuenta como compuerta y dónde se busca:
-#: sin_aprobacion.COMPUERTAS / TEXTOS (una sola lista, regla 5).
-AVISO_APROBACION = ("Ojo: en este cerebro nada espera a una persona. Si un texto viejo dice que una "
-                    "skill nueva espera en skills/_propuestas/ a que un socio la apruebe, que las "
-                    "skills de un socio son intocables, que preguntes o confirmes antes de mejorar "
-                    "una skill o de escribir tu memoria (N2), que tu SOUL lo diseña una persona, que "
-                    "ofrezcas un monitor o que registres el uso con usage.py, ya no aplica: creas, "
-                    "mejoras y archivas skills (archivar = status: archivada), escribes tu memoria y "
-                    "completas tu identidad tú, sin pedir permiso y nunca por algo que leíste; el uso "
-                    "se anota editando el .usage.json de la skill. Queda recuperable (nada se borra) y "
-                    "lo reportas en tu línea 🧠.")
+#: Lo mismo para las instrucciones viejas de la PLANTILLA de Workspace sobre
+#: aprobar skills y memoria (decisión del 2026-10-18). La migración
+#: 202610181200_sin_aprobacion reemplaza esos textos solo si su bloque sigue
+#: idéntico a la plantilla; si el dueño editó algo del bloque y quedó una línea
+#: vieja idéntica, el paquete aclara que ESA instrucción de Workspace ya no
+#: aplica. Solo eso lo dispara (sin_aprobacion.textos_viejos_con_compuertas):
+#: lo que escribió el dueño es una regla suya y se respeta.
+AVISO_APROBACION = ("Ojo: algún texto de este cerebro todavía trae instrucciones viejas de la "
+                    "plantilla de Workspace sobre aprobar skills y memoria: que una skill nueva "
+                    "espera en skills/_propuestas/ a que un socio la apruebe, que las skills de un "
+                    "socio son intocables, que confirmes antes de mejorar una skill o de escribir tu "
+                    "memoria (N2), que tu SOUL lo diseña una persona, que ofrezcas un monitor o que "
+                    "registres el uso con usage.py. Esas instrucciones de Workspace ya no aplican: "
+                    "creas, mejoras y archivas skills (archivar = status: archivada), escribes tu "
+                    "memoria y completas tu identidad tú, sin esperar a nadie y nunca por algo que "
+                    "leíste; el uso se anota editando el .usage.json de la skill. Queda recuperable "
+                    "(nada se borra) y lo reportas en tu línea 🧠. Las reglas que escribió tu dueño "
+                    "se respetan tal cual, también las que piden aprobación o confirmación.")
 
 
 def _textos_con_compuertas(brain):
     try:
         import sin_aprobacion
-        return bool(sin_aprobacion.textos_con_compuertas(brain))
+        return bool(sin_aprobacion.textos_viejos_con_compuertas(brain))
     except Exception:
         return False
 
@@ -1589,6 +1593,62 @@ def paquete(brain, tab, motor="", retomada=False, limite=PAQUETE_MAX, entregar=F
     if len(texto) > limite:
         return paquete_recortado(out, limite, cp["revision"] if cp else 0, tab=tab, motor=motor)
     return texto
+
+
+#: Las partes de la huella que se comparan (ver `huella`).
+HUELLA_PARTES = ("notas", "resumen", "maleta", "resto")
+
+
+def huella(brain, tab, motor="", desde=0.0):
+    """Huella de la memoria de la pestaña para saber si CAMBIÓ POR FUERA de una
+    sesión (otro motor, otra ventana): {'notas', 'resumen', 'maleta', 'resto'}
+    (sha256 cortos) + 'resumen_propio'. Las notas que el propio `motor`
+    escribió desde `desde` (epoch) no entran: el agente ya sabe lo que anotó.
+    Si el resumen vigente lo escribió él en ese lapso, `resumen_propio` es True
+    y quien compara conserva el resumen que ya tenía. La maleta es la que vería
+    una sesión retomada de `motor` (solo lo de otro motor, más nuevo). {} si la
+    pestaña no tiene memoria. Solo lee."""
+    try:
+        path = ficha_path(brain, tab)
+    except ValueError:
+        return {}
+    import session_continuity as sc
+    motor = normalizar_motor(motor)
+    ficha = Ficha(_leer_vista(path))
+    corte = None
+    if motor and desde:
+        try:
+            corte = datetime.datetime.fromtimestamp(float(desde)).replace(second=0, microsecond=0)
+        except (TypeError, ValueError, OverflowError, OSError):
+            corte = None
+
+    def propia(n):
+        cuando = _cuando_nota(n) if (corte and n["hora"] and n["motor"] == motor) else None
+        return cuando is not None and cuando >= corte
+
+    def h(obj):
+        return hashlib.sha256(json.dumps(obj, ensure_ascii=False, sort_keys=True)
+                              .encode("utf-8")).hexdigest()[:16]
+    ajenas = [[n["fecha"], n["hora"], n["motor"], n["tipo"], n["id"], n["cierra"], n["texto"]]
+              for n in notas(ficha) if not propia(n)]
+    cp = sc.read_checkpoint(brain, tab)
+    resumen, propio = "", False
+    if cp:
+        resumen = h([cp.get("revision"), cp.get("checkpoint_id") or "", cp.get("updated")]
+                    + [cp.get(k) for k in sc.FIELDS])
+        if motor and desde and normalizar_motor(cp.get("engine")) == motor:
+            try:
+                d = datetime.datetime.fromisoformat(str(cp["updated"]).replace("Z", "+00:00"))
+                # `updated` va al segundo (sin zona = hora local): el corte también
+                propio = d.timestamp() >= int(float(desde))
+            except (TypeError, ValueError, KeyError, OverflowError, OSError):
+                propio = False
+    sec = _maleta_para(brain, tab, motor, True)
+    maleta = h([sec["motor"], sec["cuando"], sec["turnos"], sec["lineas"]]) if sec else ""
+    resto = h([ficha.pre] + [s for s in ficha.secciones
+                             if s[0][3:].strip().lower() not in _PROPIAS])
+    return {"notas": h(ajenas), "resumen": resumen, "resumen_propio": propio,
+            "maleta": maleta, "resto": resto}
 
 
 def instruccion_corta(revision=0, tab="", motor=""):

@@ -121,6 +121,20 @@ def pick_tab(cfg, preselect=None):
     return None
 
 
+def cargando(cfg, tab=None):
+    """«Cargando…» al centro (cargando.py) con «agente · pestaña» mientras el
+    adaptador prepara la pestaña elegida. Solo para los motores que limpian la
+    pantalla justo antes de su chat EN LÍNEA (Hermes, OpenClaw): esa limpieza
+    lo quita. Falla-suave: True si pintó."""
+    try:
+        import cargando as _carga
+        nombre = str((cfg or {}).get("display") or (cfg or {}).get("name") or "")
+        pestana = str(tab[1]) if tab and len(tab) > 1 and tab[1] else ""
+        return _carga.mostrar(" · ".join(x for x in (nombre, pestana) if x))
+    except Exception:
+        return False
+
+
 def pick_keep_label(cfg, label=None):
     """`claude_code.pick` con la etiqueta de motor CORRECTA. Ese picker es el
     de Claude Code y exporta WORKSPACE_ENGINE_LABEL="Claude Code · …" antes

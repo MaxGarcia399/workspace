@@ -192,7 +192,9 @@ ENGINE_MAP = {
                                      # INTERNAL ya cubre el momento del request;
                                      # se emite cuando un consumidor lo pida)
         "headless_ingest": INTERNAL,
-        "model_fallback": INTERNAL,  # E-3: lo emite failover.py por transición
+        "model_fallback": INTERNAL,  # E-3: lo emitía failover.py por transición
+                                     # (fuera de main desde la 0.5; el motor ya
+                                     # había salido antes)
         "pre_tool": None,            # sin tools en E-2 (ver post_tool_write)
         "post_tool": None,
         "wf_step": INTERNAL,         # lo emite el harness, no el motor

@@ -40,24 +40,31 @@ te dice cuál y qué hacer, y aun así puedes abrir el agente). Claude Code, Cod
 dependen de la versión.
 
 Lo único que Workspace mantiene es lo que necesita de tu **cerebro** para funcionar. Con OpenClaw:
-que no cree archivos propios en tu cerebro y que el workspace de tu agente sea tu cerebro. Con
-Hermes: que no le ponga su propia identidad ni su propia memoria encima de la de tu agente. Lo
-revisa cada vez que abres el agente; si lo cambiaste desde el setup, lo regresa y te avisa en una
-línea.
+que no cree archivos propios en tu cerebro, que el workspace de tu agente sea tu cerebro y que lea
+la memoria de tu cerebro. Con Hermes: que no le ponga su propia identidad ni su propia memoria
+encima de la de tu agente, y que use las skills de tu cerebro. Lo revisa cada vez que abres el
+agente; si lo cambiaste desde el setup, lo regresa y te avisa en una línea.
 
 OpenClaw corre con un **perfil propio de Workspace** (aparte del OpenClaw que uses por tu
 cuenta) que trabaja sobre tu mismo cerebro sin crear archivos extra. Conectas el proveedor una
 vez y sirve para todos tus agentes. Puedes tener **varios agentes de OpenClaw abiertos a la
 vez**: al abrir el primero, Workspace enciende en segundo plano el servicio de OpenClaw (tarda
-unos segundos) y lo apaga solo cuando cierras el último.
+unos segundos) y lo apaga solo cuando cierras el último. En cada mensaje lee la **memoria larga
+de tu cerebro** (`STATE/MEMORY.md`, la misma de los demás motores) con su hook oficial; su
+búsqueda por significado queda apagada, porque para indexar tu cerebro mandaría tus notas a un
+servicio externo. Cuando Workspace le pide algo sin abrir ventana (por ejemplo, personalizar un
+agente), contesta tu agente, no el agente de fábrica de OpenClaw. Si tu cerebro tiene de antes un
+`MEMORY.md` o una carpeta `memory/` sueltos en la raíz, OpenClaw los lee en cada mensaje como si
+fueran la memoria de tu agente: `workspace doctor` te lo dice y te ofrece apartarlos a
+`motores/openclaw/` (no borra nada).
 
 Hermes también corre con un **perfil propio de Workspace** (`workspace`, en
 `~/.hermes/profiles/workspace`): **tu Hermes personal no cambia** (ni su configuración, ni su
 identidad, ni su memoria, ni su historial). La primera vez que abres un agente con Hermes,
-Workspace crea ese perfil copiando tu configuración (proveedor, modelo y llaves); si entras a tu
-proveedor con una cuenta (no con una llave), inicia sesión una vez en Motores › **cuenta y
-proveedor**. **El proveedor y el modelo se cambian desde Motores** (cuenta y proveedor abre el
-setup oficial de Hermes dentro de ese perfil). Lo que conviene saber:
+Workspace crea ese perfil con tu modelo pero **sin copiar tus llaves**: conecta tu proveedor una
+vez en Motores › **cuenta y proveedor**. **El proveedor y el modelo se cambian desde Motores**
+(cuenta y proveedor abre el selector oficial de Hermes dentro de ese perfil). Lo que conviene
+saber:
 
 - **La identidad es la de tu agente.** Hermes trae una propia («Hermes Agent», de Nous Research);
   en el perfil de Workspace queda neutral y la identidad llega por el `AGENTS.md` del cerebro, que
@@ -68,11 +75,17 @@ setup oficial de Hermes dentro de ese perfil). Lo que conviene saber:
   cambio de identidad, abre una pestaña nueva.
 - **La memoria de Hermes está apagada en ese perfil**, y también su búsqueda de conversaciones
   pasadas: el perfil lo comparten todos tus agentes y uno podía leer las conversaciones de otro.
-  La memoria y la historia de cada agente viven en su cerebro. Sus skills y tareas programadas
-  siguen como en tu Hermes.
+  La memoria y la historia de cada agente viven en su cerebro. Al **retomar** una pestaña, Hermes
+  recibe con tu primer mensaje la memoria de la pestaña al día (lo que anotaste en otro motor
+  incluido), y otra vez si alguien más la cambia mientras está abierta; lo que anota él mismo no
+  se le repite.
+- **Usa las skills de tu cerebro** (`skills/`) además de las suyas de fábrica, y ya no crea skills
+  en el perfil que comparten todos tus agentes. Si una skill de tu cerebro se llama igual que una
+  de fábrica, gana la de fábrica. Sus tareas programadas siguen como en tu Hermes.
 - **Tu tono llega en cada mensaje.** La primera vez, Hermes te pregunta si apruebas el hook de
-  Workspace que lo añade (y que anota qué pestaña es dueña de cada conversación); responde «y».
-  Si dices que no, el tono solo llega al abrir.
+  Workspace que lo añade (y que lleva la memoria de la pestaña al retomar y anota qué pestaña es
+  dueña de cada conversación); responde «y». Si dices que no, el tono solo llega al abrir y una
+  pestaña retomada no recibe la memoria nueva.
 - **Hermes no permite mandarle un mensaje de arranque.** En una pestaña nueva, el agente lee su
   cerebro cuando le escribes el primer mensaje.
 - Si abres dos pestañas nuevas del mismo agente a la vez y no aprobaste el hook, Workspace no

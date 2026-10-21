@@ -63,14 +63,6 @@ Calendar editor: month, add, edit, delete.
 
 _also: `calendario`, `cal`_
 
-### `workspace projects [stop]`
-
-«Proyectos» app: the map of all your projects with your agent.
-
-**When:** To see where each project stands.
-
-_also: `proyectos`, `proyecto`, `mapa`_
-
 ### `workspace mail --to <email> --subject <subject> [--dry-run]`
 
 Sends an email from the terminal; --dry-run shows it without sending.
@@ -80,24 +72,6 @@ Sends an email from the terminal; --dry-run shows it without sending.
 _also: `correo`_
 
 ## work
-
-### `workspace wf new | list | run | status | resume | stats`
-
-Step-by-step workflows (create an agent, build a feature…).
-
-**When:** For long tasks best done in steps.
-
-_also: `flujos`, `workflows`_
-
-**Examples:**
-
-    workspace wf list
-
-### `workspace split [agent]`
-
-Split terminal: chat on one side, the workflow board on the other.
-
-**When:** When running a workflow and watching it while you chat.
 
 ### `workspace eval <agent>`
 

@@ -40,9 +40,6 @@ brew y npm. Si agregas una conexión, agrégala aquí y en ../en/privacy.md. -->
 | Proveedores por API (avanzado) | el endpoint que configures (p. ej. OpenAI, OpenRouter, Anthropic, Google, o uno local como Ollama o LM Studio) | solo si configuras un proveedor con tu clave de API |
 | Abrir un enlace | tu navegador | cuando eliges abrir algo (como la fuente oficial de un motor) |
 
-**Solo dentro de tu máquina:** `workspace proyectos` abre, de fábrica, un panel web local en `127.0.0.1`;
-no se puede abrir desde otra computadora.
-
 ## Lo que registra localmente
 
 Para mostrarte qué hacen tus agentes, Workspace guarda en `~/.claude/workspace/` registros de

@@ -329,20 +329,32 @@ def _invoke_opencode(prompt, *, model, timeout, cwd, tools, exe_override,
 
 
 def _invoke_openclaw(prompt, *, model, timeout, cwd, tools, exe_override,
-                     wrapper=None):
-    """`openclaw --profile workspace agent --local --agent main --json` vía
-    engines/openclaw.run_turn. rc≠0 en fallo VERIFICADO (2026.5.12); la forma
-    del JSON de éxito es A-VERIFICAR (sin modelo real no se observó) →
-    verified=False. can_disable_tools=False: no hay knob verificado. El
-    modelo NO se fija salvo override explícito."""
+                     wrapper=None, agent=None):
+    """`openclaw --profile workspace agent --agent <id> --json` vía
+    engines/openclaw.run_turn, con el agente de OpenClaw del AGENTE DE
+    WORKSPACE: `agent` (su nombre), el de la sesión que corre o el registrado
+    cuyo cerebro es `cwd`. Se prepara como en el arranque (perfil + agente con
+    workspace = el cerebro). Jamás el «main» de fábrica del perfil, que
+    contestaba con su identidad de fábrica: sin agente no hay turno.
+    can_disable_tools=False: no hay knob verificado. El modelo NO se fija salvo
+    override explícito."""
     if wrapper:
         return False, "openclaw: sandbox del SO (wrapper) aún no soportado"
     try:
         from engines import openclaw as oc
     except Exception as e:
         return False, "engines/openclaw.py no importable: %s" % e
+    exe = oc._exe(exe_override)
+    if not exe:
+        return False, "openclaw no está en PATH"
+    cfg = oc.headless_agent(agent, cwd)
+    if not cfg:
+        return False, "openclaw: " + oc.no_agent_msg()
+    ok, aid = oc.prepare_agent(cfg, exe=exe)
+    if not ok:
+        return False, "openclaw: %s" % aid
     return oc.run_turn(prompt, model=model, cwd=cwd, timeout=timeout,
-                       exe_override=exe_override)
+                       exe_override=exe_override, agent=aid)
 
 
 def _invoke_hermes(prompt, *, model, timeout, cwd, tools, exe_override,
@@ -439,8 +451,9 @@ register_backend("opencode", _invoke_opencode,
                       "de tools-off; modelo = el de la config del socio")
 register_backend("openclaw", _invoke_openclaw,
                  can_disable_tools=False, verified=True,
-                 note="agent --local --json (2026.5.12, VERIFICADO con OpenRouter: "
-                      "{payloads:[{text}], meta}); modelo = el de la config del socio")
+                 note="agent --json (2026.5.12, VERIFICADO con OpenRouter: "
+                      "{payloads:[{text}], meta}); agente = el del agente de Workspace "
+                      "(jamás main); modelo = el de la config del socio")
 register_backend("hermes", _invoke_hermes,
                  can_disable_tools=False, verified=True,
                  note="hermes --profile workspace --oneshot (v0.18.2, VERIFICADO con "
@@ -468,7 +481,7 @@ def _invoke_kwargs(fn):
 def run_headless(prompt, *, backend=DEFAULT_BACKEND, model=None, cwd=None,
                  tools=TOOLS_NONE, timeout=DEFAULT_TIMEOUT,
                  exe_override=None, wrapper=None, env_extra=None,
-                 kill_group=False):
+                 kill_group=False, agent=None):
     """Invoca el LLM headless por el backend pedido. Devuelve (ok, out).
 
     `wrapper` (opcional): argv-prefix del SO que envuelve al subproceso —
@@ -476,6 +489,10 @@ def run_headless(prompt, *, backend=DEFAULT_BACKEND, model=None, cwd=None,
     (F1). Solo lo consumen los backends que ejecutan un binario (claude-code,
     codex); se pasa SOLO cuando no es None, así los backends de red
     (connectors) no ven un kwarg que no aceptan.
+
+    `agent` (opcional): el agente de Workspace (nombre) dueño del turno. Solo
+    lo reciben los backends cuyo motor tiene un agente por agente de Workspace
+    (openclaw: sin él contestaría su «main» de fábrica); los demás no lo ven.
 
     Levanta (errores de CONFIGURACIÓN, no transitorios — el caller no debe
     reintentarlos):
@@ -505,6 +522,8 @@ def run_headless(prompt, *, backend=DEFAULT_BACKEND, model=None, cwd=None,
     if env_extra is not None:         # solo backends exec lo aceptan (claude-code)
         if "env_extra" in accepts:
             extra["env_extra"] = env_extra
+    if agent and "agent" in accepts:  # motores con un agente por agente (openclaw)
+        extra["agent"] = agent
     if kill_group:
         if "kill_group" not in accepts:
             # fail-closed: perder el killpg de un agente que escribe no se

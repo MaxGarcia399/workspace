@@ -250,15 +250,37 @@ def items():
     # y en opts de _menu_machinery (gate: _has_dev_panel()).
     # «Proyectos» salió del MENÚ (pedido del socio 2026-10-02): la app sigue viva
     # vía `workspace proyectos` (cmd_proyectos + ruteo de __proyectos__ intactos)
-    # — solo dejó de ocupar un lugar en el hub. Re-exponerla = re-agregar la
-    # entrada en menu_entries() (gate: _has_proyectos()).
+    # — solo dejó de ocupar un lugar en el hub. Desde la 0.5 tampoco se anuncia
+    # en la ayuda ni en Documentación (comandos.py: hidden); se borra en la 0.6.
     # El MENÚ sale del registro canónico (menu_entries — gates incluidos);
     # el picker estático solo lista SU porción: cal/tono/atajos son pantallas
     # del recinto animado y no entran aquí (decisión previa, intacta).
     _solo_hub = ("__cal__", "__tono__")
+    # Los destinos directos de la portada (el mapa de la memoria) van antes
+    # del menú, como en el lanzador. Falla-suave: sin hublayout, sin ellos.
+    try:
+        import hublayout as _hlg
+        out += [(g["idx"], g["label"], g["tag"], True)
+                for g in _hlg.lanzador_gos()]
+    except Exception:
+        pass
     out += [(tok, lbl, tag, True) for tok, lbl, tag in menu_entries()
             if tok not in _solo_hub]
     return out
+
+
+#: El agente apuntado en el hub al elegir un destino directo de la portada
+#: («Mapa de la memoria»): _lz_activate lo anota y _abre_mapa lo consume
+#: (el token que devuelve el menú solo dice el destino).
+_APUNTADO = {"name": None}
+
+
+def _abre_mapa():
+    """«Mapa de la memoria» (portada del hub): el mapa directo, con el agente
+    que estaba apuntado; q/Esc regresa al hub."""
+    agente, _APUNTADO["name"] = _APUNTADO["name"], None
+    import docs_tui
+    docs_tui.run_mapa(agente)
 
 
 def _row(disp, tag, selected, selectable, w):
@@ -578,38 +600,15 @@ def _numbered(it):
     return next((i for i, x in enumerate(it) if x[0] == "__shell__"), _first_selectable(it))
 
 
-def _split_on():
-    """True si el socio prendió la terminal PARTIDA para el hub
-    (`settings set ui.split on`). DEFAULT: False — el arranque de siempre.
-    Falla-suave absoluta: cualquier duda → False (jamás desviar el handoff
-    por error). El hub/menú de arriba no dependen de esto: el gate se
-    consulta SOLO al lanzar, después de elegir agente."""
-    try:
-        import settings as _settings
-        return bool(_settings.enabled("ui.split", default=False))
-    except Exception:
-        return False
-
-
 def launch(name):
     sys.stdout.write("\033[2J\033[3J\033[H"); sys.stdout.flush()   # limpia + scrollback para el banner del agente
     os.environ["WORKSPACE_FROM_HUB"] = "1"   # Esc en el menú de sesiones regresa aquí
-    # Terminal PARTIDA (opt-in, ui.split — APAGADO por default): SOLO aquí,
-    # DESPUÉS de que el socio eligió agente en el menú, el chat abre con 2
-    # panes (chat | panel del pipeline) vía multiplexer.open_split — la
-    # abstracción elige backend (ui.split_backend: auto|tmux|herdr) y arma
-    # el MISMO split de `workspace split`. El hub/menú de arriba NO pasan por
-    # ningún multiplexer jamás. open_split cae solo al arranque normal ante
-    # cualquier impedimento (sin tmux/herdr, sin TTY, anidado, Windows o
-    # fallo a medio armado), con aviso — nunca rompe el arranque.
-    if _split_on():
-        try:
-            import multiplexer
-            sys.exit(multiplexer.open_split([name]))
-        except SystemExit:
-            raise
-        except Exception:
-            pass   # el modo partido JAMÁS rompe el arranque → camino de siempre
+    # La terminal PARTIDA ya no se abre desde el hub (0.5, paso 1 de 2 antes
+    # de quitar su código en la 0.6). El valor guardado de `ui.split` se
+    # conserva pero no se consulta: quien la tenía prendida abre el chat
+    # normal, con las mismas pestañas y sesiones (el chat del split era este
+    # mismo arranque: dispatch con la pestaña). `workspace split` sigue
+    # funcionando si alguien lo escribe.
     if os.name == "nt":   # Windows: exec no reemplaza el proceso (consola rota) → subprocess (igual que dispatch._exec)
         sys.exit(subprocess.run([PY, DISPATCH, name]).returncode)
     os.execvp(PY, [PY, DISPATCH, name])   # handoff directo: al salir del agente, vuelves al shell
@@ -2365,13 +2364,19 @@ def _menu_machinery(tout):
 
     def _lz_activate():
         """Enter en el lanzador: agente → lanza (rutina de siempre) · `›` →
-        entra al submenú · opción del menú → la abre · pin → lo cicla ·
-        idioma → lo aplica."""
+        entra al submenú · destino directo (el mapa) → su token, con el
+        agente apuntado anotado · opción del menú → la abre · pin → lo
+        cicla · idioma → lo aplica."""
         it = _lz_cur()
         k = it.get("kind")
         if k == "sub":
             _lz_drill(it["idx"])
             return None
+        if k == "go":
+            g = S.get("gsel", 0)
+            _APUNTADO["name"] = (agents[g].get("name")
+                                 if 0 <= g < len(agents) else None)
+            return it["idx"]
         if k not in ("agent", "opt", "pin", "lang"):
             return None
         _lz_point(it)
@@ -6004,7 +6009,12 @@ def cmd_split(args):
     multiplexer.pick_backend (setting ui.split_backend, default auto). Sin
     multiplexer, sin TTY, anidado o en Windows → fallback grácil al arranque
     normal, con aviso. La lógica tmux vive en mux.py; la herdr y la
-    selección, en multiplexer.py."""
+    selección, en multiplexer.py.
+
+    Oculto al cliente desde la 0.5 (fuera de la ayuda, de Comandos y de los
+    ajustes; el hub ya no abre partido): solo entra quien lo escribe, y
+    también sirve para volver a una sesión partida que quedó abierta. El
+    código se quita en la 0.6."""
     import multiplexer
     # `workspace split reap` — limpia sesiones split detached + procesos huérfanos
     # (mismo reaper que corre solo al armar un split). Útil como botón manual.
@@ -6210,14 +6220,17 @@ def _dispatch_table():
         # (personal.py).
         "agenda": lambda a: cmd_personal("agenda", a),
         "calendario": lambda a: cmd_calendario(a),
-        # App «Proyectos» (pantalla completa, puerto propio) — la abre el hub o esto.
+        # App «Proyectos» (pantalla completa, puerto propio). Oculta al cliente
+        # desde la 0.5 (comandos.py); sigue ruteando hasta que se borre en la 0.6.
         "proyectos": lambda a: cmd_proyectos(a),
         # Enviar correo por SMTP (Gmail App Password). Acción HACIA AFUERA: el
         # default seguro es --dry-run; las credenciales viven per-máquina.
         "mail": lambda a: cmd_mail(a),
         # Workflows declarativos (workflows/MAPA.md): specs congelados + runner.
+        # Oculto al cliente desde la 0.5 (comandos.py); sigue ruteando.
         "wf": lambda a: cmd_wf(a),
         # Terminal PARTIDA (opt-in): solo se entra escribiendo `workspace split`.
+        # Oculta al cliente desde la 0.5 (comandos.py); sigue ruteando.
         "split": lambda a: cmd_split(a),
         "eval": lambda a: cmd_eval(a),
         # ── ocultos (rutean, no se anuncian) ──
@@ -6514,6 +6527,10 @@ def main():
                                      "usuarios_tui"),
                     "__docs__": (_t("menu.docs.label", "Documentación").lower(),
                                  "docs_tui"),
+                    # «Mapa de la memoria», en la portada (2026-10-19): el
+                    # mapa directo con el agente apuntado; Esc regresa aquí.
+                    "__mapa__": (_t("hub.lanzador.map",
+                                    "Mapa de la memoria").lower(), _abre_mapa),
                     # Calendario, Tono y Actualizaciones también REGRESAN al
                     # hub (Esc/q): antes salían al shell (pedido del socio
                     # 2026-10-12: «Esc regresa al hub en todas las secciones»).

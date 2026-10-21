@@ -54,4 +54,23 @@ STRINGS = {
                                  '(Workspace no copia tus llaves). Sin él, Hermes abre su propio '
                                  'asistente en vez de tu agente: conéctalo en Motores › Hermes › '
                                  'cuenta y proveedor (el proveedor y el modelo).',
+    'motorbar.hermes.skills': 'conecté las skills de tu cerebro y Hermes ya no crea skills en su '
+                              'perfil compartido',
+    'motorbar.hermes.skills_foreign': 'el perfil tiene una sección skills: que no edito: las '
+                                      'skills de tu cerebro no se conectan',
+    'motorbar.hermes.plan_skills': '  skills      : las de fábrica del perfil + las de tu cerebro '
+                                   '(skills/); Hermes no crea skills en el perfil compartido',
+    'motorbar.openclaw.memory_failed': 'no pude prender la carga de la memoria larga '
+                                       '(STATE/MEMORY.md): OpenClaw abre sin ella',
+    'motorbar.openclaw.memory_restored': 'volví a prender la carga de STATE/MEMORY.md (hook '
+                                         'bootstrap-extra-files): es la memoria larga de tu '
+                                         'cerebro',
+    'motorbar.openclaw.memory_added': 'agregué STATE/MEMORY.md a tus rutas del hook '
+                                      'bootstrap-extra-files (las tuyas se conservan)',
+    'motorbar.openclaw.no_agent': 'OpenClaw sin ventana necesita saber de qué agente es el '
+                                  'turno: jamás usa su agente «main» de fábrica, que contesta '
+                                  'con otra identidad',
+    'motorbar.openclaw.plan_memory': '  memoria     : STATE/MEMORY.md de tu cerebro en cada turno '
+                                     '(hook oficial bootstrap-extra-files, con el gateway); su '
+                                     'búsqueda por significado, apagada',
 }

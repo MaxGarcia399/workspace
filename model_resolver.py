@@ -30,9 +30,11 @@ ESTRICTA ⇒ sin cadena de fallback; default (agent.json) ⇒ fallbacks permitid
 
 FAILOVER_REASONS: taxonomía razón→estrategia como DATOS desde el día 1 (lección
 Hermes: años de if-strings dispersos antes de extraer el clasificador — heredamos
-la lección sin pagar los años). Desde E-3 la consume `failover.py` end-to-end:
-FAILOVER_STRATEGIES (abajo) define CÓMO se ejecuta cada estrategia (reintentos
-acotados, si cae al siguiente de la cadena, qué escalera de cooldown aplica).
+la lección sin pagar los años). FAILOVER_STRATEGIES (abajo) define CÓMO se
+ejecuta cada estrategia (reintentos acotados, si cae al siguiente de la cadena,
+qué escalera de cooldown aplica). El loop que la consumía (`failover.py`, E-3)
+se quitó en la 0.5 porque ningún motor de `main` lo cargaba; queda en el
+historial de git como referencia para el primer motor dueño de su loop.
 
 Cero dependencias (stdlib, Python 3.9+). Cross-platform. Amputable (C10):
 borra este archivo y providers/ deja de cargar — claude-code sigue lanzando igual.
@@ -71,7 +73,7 @@ FAILOVER_REASONS = {
 }
 
 # Cómo se EJECUTA cada estrategia (la otra mitad de la taxonomía — también
-# DATOS; la consume failover.run_with_failover desde E-3):
+# DATOS; hoy sin consumidor en `main`, ver el docstring del módulo):
 #   · retries  — reintentos extra sobre el MISMO modelo (acotado, jamás loop)
 #   · fallback — al agotar reintentos, ¿pasar al siguiente de la cadena?
 #                False en errores que otro modelo NO arregla (red caída,
@@ -79,8 +81,8 @@ FAILOVER_REASONS = {
 #                empeora (abort).
 #   · cooldown — escalera de enfriamiento que se le aplica al modelo fallado
 #                ("" = ninguna). billing ≠ rate_limit: VENTANAS DISTINTAS
-#                (robo de OpenClaw) — las escaleras viven en
-#                failover.COOLDOWN_LADDERS, model-scoped y persistidas.
+#                (robo de OpenClaw) — las escaleras las define el loop
+#                que consuma esta tabla (model-scoped y persistidas).
 FAILOVER_STRATEGIES = {
     "retry":               {"retries": 2, "fallback": False, "cooldown": ""},
     "retry_once":          {"retries": 1, "fallback": True,  "cooldown": ""},

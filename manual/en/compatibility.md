@@ -16,10 +16,8 @@ The tables below are general. What holds **on your computer**, with what you hav
   agents uses is missing.
 - **Voice dictation:** `workspace voice --check` tells you what's missing;
   `workspace voice --setup` installs it.
-- **Split terminal:** if you turn it on and tmux (or herdr) is missing, opening an agent
-  tells you so and opens the plain session.
 
-These are optional features: the doctor doesn't check them.
+Dictation is optional: the doctor doesn't check it.
 
 ## By engine
 
@@ -28,32 +26,40 @@ Applies to macOS, Linux and Windows unless noted.
 | Feature | Claude Code | Codex | Antigravity | OpenCode | OpenClaw | Hermes |
 |---|---|---|---|---|---|---|
 | Open the agent from the hub | ✅ | ✅ (wrapped) | ✅ (wrapped) | ✅ (wrapped) | ✅ (wrapped, with gateway: several tabs) | ✅ (wrapped) |
-| Agent starts with its memory | ✅ automatic | ✅ through an `AGENTS.md` Workspace writes into the brain | ✅ through a `GEMINI.md` Workspace writes into the brain | ✅ through an `AGENTS.md` Workspace writes into the brain | ✅ through the same `AGENTS.md` (OpenClaw profile of its own, no extra files) | ✅ through the same `AGENTS.md` (Hermes profile of its own, neutral identity); the agent reads its brain with your first message |
+| Agent starts with its memory | ✅ automatic | ✅ through an `AGENTS.md` Workspace writes into the brain | ✅ through a `GEMINI.md` Workspace writes into the brain | ✅ through an `AGENTS.md` Workspace writes into the brain | ✅ through the same `AGENTS.md` (OpenClaw profile of its own, no extra files) and, on every message, the brain's `STATE/MEMORY.md` | ✅ through the same `AGENTS.md` (Hermes profile of its own, neutral identity); the agent reads its brain with your first message and, when you resume a tab, gets its up-to-date memory |
 | MCP connectors | ✅ | ✅ (Codex's own config) | ✅ | ✅ (OpenCode's own config) | ✅ (OpenClaw's own config) | ✅ (Hermes' own config) |
-| Session events (*hooks*: save memory on close, etc.) | ✅ | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace), plus your tone with every message |
+| Session events (*hooks*: save memory on close, etc.) | ✅ | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace), plus your tone with every message and the tab's memory when you resume |
 | Resume sessions from Workspace's tabs | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Live agent status in the hub | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Windowless tasks (evals, workflows) | ✅ | ✅ evals with tools¹ | ❌ | ✅ evals with tools¹ | ✅ single turns only¹ | ✅ single turns only¹ |
+| Windowless tasks (evals) | ✅ | ✅ evals with tools¹ | ❌ | ✅ evals with tools¹ | ✅ single turns only¹ | ✅ single turns only¹ |
 
 ✅ works · ❌ not available · ❔ unknown
 
-¹ Workflows, and evals that run without tools, need an engine that can turn its own tools off:
-today only Claude Code. Codex and OpenCode run the evals that use tools inside the OS sandbox.
-OpenClaw and Hermes can't turn their tools off or run inside that sandbox yet: Workspace doesn't use
-them for evals or workflows (they still answer single windowless turns).
+¹ Evals that run without tools need an engine that can turn its own tools off: today only
+Claude Code. Codex and OpenCode run the evals that use tools inside the OS sandbox. OpenClaw and
+Hermes can't turn their tools off or run inside that sandbox yet: Workspace doesn't use them for
+evals (they still answer single windowless turns).
 
 If the engine's program isn't installed (or isn't on the PATH), none of this works with it:
 `workspace doctor` tells you to install its official program ([Engines](engines.md)).
 
 Codex, Antigravity, OpenCode, OpenClaw and Hermes have hooks of their own too, but Workspace doesn't turn them on:
 Workspace already sends the open and close events around the program, and turning them on would
-send them twice. The exception is one Hermes hook, per message, that adds your tone (Hermes asks
-you to approve it once). That's why those engines have no per-tool events or live status. With
+send them twice. The exceptions: one Hermes hook, per message, that adds your tone and, when you
+resume a tab, its memory (Hermes asks you to approve it once), and OpenClaw's official one that
+loads the brain's memory. That's why those engines have no per-tool events or live status. With
 OpenCode, OpenClaw and Hermes, the model is the one you pick in its own config: Workspace doesn't change it.
 
 Hermes runs in a Workspace profile of its own (your personal Hermes doesn't change). In that
 profile its own memory is off, because all your agents share it: each agent's memory lives in its
-brain. Its skills and scheduled tasks stay as in your Hermes.
+brain and reaches it through `AGENTS.md` and, when you resume, through its hook. It uses each
+agent's brain skills (`skills/`) besides its built-in ones, and no longer creates skills in the
+shared profile. Its scheduled tasks stay as in your Hermes.
+
+OpenClaw runs in a profile of its own too. Its own memory is off and it reads the brain's
+(`STATE/MEMORY.md`) on every message through its official hook, when it runs with the gateway (the
+usual case); in single-window mode it opens without it. Its semantic search stays off: indexing
+your brain would send your notes to an outside service. Its skills are the brain's (`skills/`).
 
 ## Permissions by engine
 
@@ -105,8 +111,6 @@ Change it in **Agents** (pick the agent and Enter) (see [Permissions](engines.md
 | Feature | macOS | Linux | Windows |
 |---|---|---|---|
 | Voice dictation (local) | ✅ if you install whisper.cpp, its model and ffmpeg or sox | ❌ for now | ❌ for now |
-| Split terminal (chat + board) | ✅ with tmux or herdr | ✅ with tmux or herdr | ❌ opens the plain session |
-| Side panel controls | ✅ inside the split terminal | ✅ inside the split terminal | read-only |
 
 ## Current limits
 

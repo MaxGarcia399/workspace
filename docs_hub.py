@@ -551,9 +551,9 @@ CAPITULOS = (
                  "Una nota que parece una llave o contraseña se rechaza. En Antigravity, el "
                  "agente escribe sus notas en .claude/memoria-entrada/<pestaña>.md y las guarda "
                  "con un comando fijo.",
-                 "El tono que elegiste va en el arranque (en Claude Code, también en cada "
-                 "mensaje). Si escribe código riesgoso en Claude Code, recibe un aviso que no "
-                 "bloquea."),
+                 "El tono que elegiste va en el arranque (en Claude Code y Hermes, también en "
+                 "cada mensaje). Si escribe código riesgoso en Claude Code, recibe un aviso que "
+                 "no bloquea."),
              "apaga": ""},
          en={"corto": "while you work",
              "titulo": "While you work",
@@ -568,9 +568,9 @@ CAPITULOS = (
                  "A note that looks like a key or password is rejected. In Antigravity, the "
                  "agent writes its notes in .claude/memoria-entrada/<tab>.md and saves them with "
                  "a fixed command.",
-                 "The tone you chose goes in at the start (in Claude Code, with every message "
-                 "too). If it writes risky code in Claude Code, it gets a notice that never "
-                 "blocks."),
+                 "The tone you chose goes in at the start (in Claude Code and Hermes, with every "
+                 "message too). If it writes risky code in Claude Code, it gets a notice that "
+                 "never blocks."),
              "apaga": ""},
          compruebalo=("cerebro", "STATE/sessions/"), ajuste="hooks.security_guidance",
          vivo=_vivo_trabajas),
@@ -583,11 +583,13 @@ CAPITULOS = (
                       "lo que no alcance se termina al reabrir"),
              "puntos": (
                  "Al cerrar, sin IA y en un instante, Workspace arma la maleta: tus últimos "
-                 "mensajes, la última respuesta y los archivos que se tocaron.",
+                 "mensajes, la última respuesta y, en Claude Code y Codex, los archivos que se "
+                 "tocaron.",
                  "Los datos y preferencias de la pestaña suben a STATE/MEMORY.md. Si el diario "
                  "creció mucho, se ordena (capítulo 6).",
                  "En Windows, si cierras la ventana con la X, Workspace usa hasta 4 segundos; lo "
-                 "que falte lo termina la próxima vez que abras el agente.",
+                 "que falte lo termina la próxima vez que abras el agente. Claude Code lo hace "
+                 "con su propio cierre.",
                  "Cada cierre queda anotado en esta PC, también si algo falló."),
              "apaga": "no se apaga: es la memoria"},
          en={"corto": "closing",
@@ -597,11 +599,13 @@ CAPITULOS = (
                       "whatever doesn't fit is finished on reopen"),
              "puntos": (
                  "When you close, without AI and in an instant, Workspace packs the handoff: "
-                 "your last messages, the last answer and the files that were touched.",
+                 "your last messages, the last answer and, in Claude Code and Codex, the files "
+                 "that were touched.",
                  "The tab's facts and preferences move up to STATE/MEMORY.md. If the journal "
                  "grew a lot, it gets tidied (chapter 6).",
                  "On Windows, if you close the window with the X, Workspace uses up to 4 "
-                 "seconds; whatever is left is finished the next time you open the agent.",
+                 "seconds; whatever is left is finished the next time you open the agent. "
+                 "Claude Code does it with its own close.",
                  "Every close is logged on this PC, also when something failed."),
              "apaga": "can't be turned off: it is the memory"},
          compruebalo=("estado", "logs/memoria.log"), ajuste=None, vivo=_vivo_cerrar),
@@ -755,7 +759,7 @@ CAPITULOS = (
                  ("Google Calendar", "si lo conectas: solo lectura", "c"),
                  ("workspace correo", "tu servidor de correo, al enviar", "c"),
                  ("dictado (Mac)", "baja su modelo una vez; luego es local", "c"),
-                 ("en tu PC", "OpenClaw y Proyectos: 127.0.0.1", "ok"),
+                 ("en tu PC", "OpenClaw: 127.0.0.1", "ok"),
                  ("proveedor por API", "solo si configuras uno, con tu llave", "c"),
                  ("tu agente", "su motor habla con su proveedor", "dk"),
                  ("nunca salen", "tu memoria, tus notas, los registros", "ok")),
@@ -775,7 +779,7 @@ CAPITULOS = (
                  ("Google Calendar", "if you connect it: read-only", "c"),
                  ("workspace mail", "your mail server, when sending", "c"),
                  ("dictation (Mac)", "gets its model once; then it's local", "c"),
-                 ("on your PC", "OpenClaw and Proyectos: 127.0.0.1", "ok"),
+                 ("on your PC", "OpenClaw: 127.0.0.1", "ok"),
                  ("API provider", "only if you set one up, with your key", "c"),
                  ("your agent", "its engine talks to its provider", "dk"),
                  ("never leaves", "your memory, your notes, the logs", "ok")),
@@ -795,8 +799,8 @@ CAPITULOS = (
                  "Programador de tareas.",
                  "No guarda las llaves de tus proveedores: cada motor maneja su cuenta. Las de "
                  "Google Calendar se quedan en el hub; los motores no las reciben.",
-                 "Solo usa IA sin ventana si tú lo pides: al personalizar un agente nuevo, con "
-                 "workspace evaluar o en workspace proyectos."),
+                 "Solo usa IA sin ventana si tú lo pides: al personalizar un agente nuevo o con "
+                 "workspace evaluar."),
              "apaga": "no se apaga: así está hecho"},
          en={"corto": "what it never does",
              "titulo": "What Workspace does not do",
@@ -810,8 +814,8 @@ CAPITULOS = (
                  "Scheduler.",
                  "It does not keep your providers' keys: each engine handles its own account. "
                  "Google Calendar's stay in the hub; the engines never get them.",
-                 "It only uses AI without a window when you ask: personalizing a new agent, "
-                 "workspace eval or workspace projects."),
+                 "It only uses AI without a window when you ask: personalizing a new agent or "
+                 "with workspace eval."),
              "apaga": "can't be turned off: that's how it is built"},
          compruebalo=("estado", "events/"), ajuste=None, vivo=_vivo_nohace),
 
@@ -888,6 +892,570 @@ CAPITULOS = (
              "apaga": "can't be turned off: this is where everything else is turned off"},
          compruebalo=("estado", "settings.json"), ajuste=None, vivo=_vivo_ajustes),
 )
+
+
+# ── El mapa de la memoria ───────────────────────────────────────────────────
+# Primer renglón de la sección (y la tecla m): el árbol REAL del cerebro del
+# agente elegido —el agente → sus carpetas → sus archivos, como la vista del
+# cerebro de «Agregar agente»— y, abajo, lo que vive fuera (esta PC y la
+# conversación de su motor). Cada paso (todo el recorrido, abrir, trabajar,
+# cerrar, retomar, personas, motores, aprender) ilumina los archivos que toca,
+# con su orden (①②…), su color (lee · escribe · de cada persona ·
+# compartido) y qué le pasa a cada uno. docs_mapa.py lo pinta.
+#   MAPA_ARBOL / MAPA_FUERA: (id, carpeta, hojas); hoja = (id, ruta, resumen
+#   es, resumen en[, solo para el motor «x»]); una ruta con palabras va como
+#   {"es": …, "en": …} (mapa_plantilla).
+#   MAPA_PASOS: por idioma, titulo, explica y ruta = ((hoja, orden, acción,
+#   qué le pasa[, filtro de motor]), …); filtro = «claude-code», «!claude-code»
+#   (todos menos ese) o «antigravity».
+# Los textos llevan {cerebro} {usuario} {pestana} {motor} {puntero} {como}
+# {conversacion_dir} {conversacion} {retoma} {notas} {recibo} {usuarios}:
+# mapa_rellenar los cambia por lo real del agente elegido (mapa_valores, solo
+# lectura). tests/test_docs_mapa.py falla si una ruta o un comando citado deja
+# de existir o si el dibujo no cabe.
+
+#: Lo propio de cada motor en el mapa (rutas y comandos, sin idioma). La
+#: carpeta de conversaciones de Claude Code se calcula para el cerebro elegido
+#: (session_paths.session_dir).
+MOTOR_RUTAS = {
+    "claude-code": {"puntero": "CLAUDE.md", "conversacion_dir": "~/.claude/projects/<cerebro>/",
+                    "conversacion": "<id>.jsonl", "retoma": "claude --resume <id>",
+                    "notas": "workspace memoria nota"},
+    "codex": {"puntero": "AGENTS.md", "conversacion_dir": "~/.codex/sessions/AAAA/MM/DD/",
+              "conversacion": "rollout-<id>.jsonl", "retoma": "codex resume <id>",
+              "notas": "workspace memoria nota"},
+    "antigravity": {"puntero": "GEMINI.md",
+                    "conversacion_dir": "~/.gemini/antigravity-cli/conversations/",
+                    "conversacion": "<id>.db", "retoma": "agy --conversation <id>",
+                    "notas": "workspace memoria nota --entrada"},
+    "opencode": {"puntero": "AGENTS.md", "conversacion_dir": "opencode export <id>",
+                 "conversacion": "", "retoma": "opencode --session <id>",
+                 "notas": "workspace memoria nota"},
+    "openclaw": {"puntero": "AGENTS.md", "conversacion_dir": "~/.openclaw-workspace/agents/<id>/sessions/",
+                 "conversacion": "<id>.jsonl", "retoma": "openclaw tui --session <id>",
+                 "notas": "workspace memoria nota --tab {pestana} --engine openclaw"},
+    "hermes": {"puntero": "AGENTS.md", "conversacion_dir": "hermes sessions export <id>",
+               "conversacion": "", "retoma": "hermes --resume <id>",
+               "notas": "workspace memoria nota"},
+}
+
+
+_EST = ESTADO_TXT + "/"
+
+#: Las carpetas del cerebro que toca la memoria, en el orden del árbol.
+MAPA_ARBOL = (
+    ("brain", "BRAIN.md", (
+        ("puntero", "{puntero} → BRAIN.md", "la entrada de tu motor", "your engine's entry point"),
+        ("lectura", {"es": "orden de lectura", "en": "reading order"}, "BOOT → STATE → índices",
+         "BOOT → STATE → indexes"))),
+    ("boot", "BOOT/", (
+        ("soul", "00-SOUL.md · 01-IDENTITY.md", "quién es tu agente", "who your agent is"),
+        ("reglas", "03-RULES.md · 04-BRAIN-MAP.md", "sus reglas y su mapa", "its rules and its map"))),
+    ("state", "STATE/", (
+        ("memory", "MEMORY.md", "lo que vale para todas las pestañas", "what holds for every tab"),
+        ("perfil", "users/{usuario}.md", "tu perfil: cédula y trato", "your profile: ID and manner"),
+        ("pestana", "sessions/{usuario}/{pestana}.md", "la memoria de esta pestaña",
+         "this tab's memory"),
+        ("maleta", "sessions/{usuario}/maleta/{pestana}.md", "lo último de cada motor",
+         "the latest from each engine"),
+        ("archivo", "sessions/{usuario}/archivo/", "notas viejas, completas", "old notes, whole"),
+        ("memarch", "memoria-archivo/", "lo viejo de MEMORY.md", "the old part of MEMORY.md"),
+        ("curador", "skill-curator-last.md", "la fecha de la última curación",
+         "the date of the last curation"))),
+    ("skills", "skills/", (
+        ("index", "INDEX-LITE.md", "el catálogo de skills", "the skill catalog"),
+        ("skill", {"es": "<categoría>/<skill>/SKILL.md", "en": "<category>/<skill>/SKILL.md"},
+         "cada skill y su .usage.json",
+         "each skill and its .usage.json"))),
+    ("wiki", "wiki/", (
+        ("wikiidx", {"es": "index.md → [[notas]]", "en": "index.md → [[notes]]"},
+         "conocimiento bajo demanda", "knowledge on demand"),)),
+    ("motores", "motores/", (
+        ("cmem", "claude-code/memoria/{usuario}/", "la memoria propia de Claude Code",
+         "Claude Code's own memory"),)),
+    (".claude", ".claude/", (
+        ("socio", "socio.local = {usuario}", "quién eres en esta PC (no viaja)",
+         "who you are on this PC (stays)"),
+        ("hooks", "settings.local.json", "los hooks de Claude Code", "Claude Code's hooks",
+         "claude-code"),
+        ("entrada", "memoria-entrada/{pestana}.md", "donde Antigravity deja sus notas",
+         "where Antigravity leaves its notes", "antigravity"))),
+)
+
+#: Lo que vive FUERA del cerebro (no viaja): esta PC y el almacén del motor.
+MAPA_FUERA = (
+    ("pc", _EST, (
+        ("sesiones", "sessions-local.json", "con qué sesión sigue cada pestaña",
+         "which session continues each tab"),
+        ("recibo", "{recibo}", "el recibo de cada cierre", "each close's receipt"),
+        ("respaldo", "transcripts-backup/", "respaldo de las conversaciones",
+         "conversation backups"))),
+    ("motor", "{motor}", (
+        ("conv", "{conversacion_dir}{conversacion}", "la conversación de tu motor",
+         "your engine's conversation"),)),
+)
+
+
+def _paso(pid, num, compruebalo, es, en):
+    return {"id": pid, "num": num, "compruebalo": compruebalo, "es": es, "en": en}
+
+
+MAPA_PASOS = (
+    _paso("todo", "◆", ("cerebro", ""),
+          es={"titulo": "todo el recorrido", "corto": "todo",
+              "explica": "Así recuerda tu agente, de principio a fin: al abrir, el motor lee quién "
+                         "es y lo que recuerda (①–⑤) y Workspace le da el resumen de la pestaña (⑥); mientras "
+                         "trabajan, tu agente anota (⑦); al cerrar, Workspace lee la conversación (⑧) "
+                         "y guarda lo último, lo que vale para siempre y lo viejo (⑨–⑪), y en esta PC "
+                         "deja el recibo para retomar (⑫).",
+              "ruta": (
+                  ("puntero", "①", "lee", "{motor} entra por aquí"),
+                  ("cmem", "①", "lee", "Claude Code la carga al arrancar", "claude-code"),
+                  ("lectura", "②", "lee", "le dice qué leer y en qué orden"),
+                  ("soul", "③", "lee", "quién es"),
+                  ("reglas", "③", "lee", "sus reglas"),
+                  ("memory", "④", "lee", "se lee al arrancar"),
+                  ("perfil", "⑤", "lee", "cómo tratarte"),
+                  ("pestana", "⑥", "lee", "Workspace la resume"),
+                  ("maleta", "⑥", "lee", "lo último de otro motor"),
+                  ("hooks", "⑥", "lee", "entrega el resumen", "claude-code"),
+                  ("pestana", "⑦", "escribe", "tu agente anota"),
+                  ("cmem", "⑦", "escribe", "y guarda lo suyo", "claude-code"),
+                  ("conv", "⑧", "lee", "al cerrar, Workspace la lee"),
+                  ("maleta", "⑨", "escribe", "queda lo último"),
+                  ("memory", "⑩", "escribe", "suben datos y gustos"),
+                  ("archivo", "⑪", "escribe", "las notas viejas"),
+                  ("memarch", "⑪", "escribe", "lo viejo, si pasa de 200 líneas"),
+                  ("recibo", "⑫", "escribe", "el recibo del cierre"),
+                  ("sesiones", "⑫", "escribe", "para retomar la próxima vez"))},
+          en={"titulo": "the whole path", "corto": "all",
+              "explica": "This is how your agent remembers, end to end: on open, the engine reads who "
+                         "it is and what it remembers (①–⑤) and Workspace gives it the tab's summary (⑥); while you work, "
+                         "your agent takes notes (⑦); on close, Workspace reads the conversation (⑧) and "
+                         "saves the latest, what holds for good and the old (⑨–⑪), and on this PC it "
+                         "leaves the receipt to resume (⑫).",
+              "ruta": (
+                  ("puntero", "①", "lee", "{motor} comes in here"),
+                  ("cmem", "①", "lee", "Claude Code loads it at start", "claude-code"),
+                  ("lectura", "②", "lee", "tells it what to read and in what order"),
+                  ("soul", "③", "lee", "who it is"),
+                  ("reglas", "③", "lee", "its rules"),
+                  ("memory", "④", "lee", "read at start"),
+                  ("perfil", "⑤", "lee", "how to treat you"),
+                  ("pestana", "⑥", "lee", "Workspace summarizes it"),
+                  ("maleta", "⑥", "lee", "the latest from another engine"),
+                  ("hooks", "⑥", "lee", "delivers the summary", "claude-code"),
+                  ("pestana", "⑦", "escribe", "your agent takes notes"),
+                  ("cmem", "⑦", "escribe", "and keeps its own", "claude-code"),
+                  ("conv", "⑧", "lee", "on close, Workspace reads it"),
+                  ("maleta", "⑨", "escribe", "the latest stays here"),
+                  ("memory", "⑩", "escribe", "facts and preferences move up"),
+                  ("archivo", "⑪", "escribe", "the old notes"),
+                  ("memarch", "⑪", "escribe", "the old part, past 200 lines"),
+                  ("recibo", "⑫", "escribe", "the close receipt"),
+                  ("sesiones", "⑫", "escribe", "to resume next time"))}),
+
+    _paso("abrir", "1", ("comando", "workspace memoria ver --tab {pestana}"),
+          es={"titulo": "abrir", "corto": "abrir",
+              "explica": "Al abrir una pestaña pasan dos cosas: {motor} lee solo su identidad y tu "
+                         "perfil, en el orden que pide BRAIN.md, y Workspace le arma sin IA el "
+                         "resumen de esa pestaña (hasta 5000 caracteres) con lo último que pasó, "
+                         "aunque haya sido en otro motor.",
+              "ruta": (
+                  ("puntero", "①", "lee", "{motor} lo abre al arrancar"),
+                  ("cmem", "①", "lee", "Claude Code la carga al arrancar", "claude-code"),
+                  ("lectura", "②", "lee", "le dice qué leer"),
+                  ("soul", "③", "lee", "quién es"),
+                  ("reglas", "③", "lee", "sus reglas"),
+                  ("memory", "④", "lee", "lo de todos"),
+                  ("perfil", "⑤", "lee", "cómo tratarte"),
+                  ("socio", "⑥", "persona", "Workspace sabe que eres {usuario}"),
+                  ("pestana", "⑦", "lee", "Workspace la resume, sin IA"),
+                  ("maleta", "⑦", "lee", "lo último de otro motor"),
+                  ("hooks", "⑧", "lee", "el hook se lo entrega", "claude-code"),
+                  ("puntero", "⑧", "lee", "y ahí le llega el resumen", "!claude-code"))},
+          en={"titulo": "open", "corto": "open",
+              "explica": "When you open a tab two things happen: {motor} reads its identity and your "
+                         "profile on its own, in the order BRAIN.md asks for, and Workspace builds "
+                         "without AI that tab's summary (up to 5000 characters) with the latest that "
+                         "happened, even if it was in another engine.",
+              "ruta": (
+                  ("puntero", "①", "lee", "{motor} opens it at start"),
+                  ("cmem", "①", "lee", "Claude Code loads it at start", "claude-code"),
+                  ("lectura", "②", "lee", "tells it what to read"),
+                  ("soul", "③", "lee", "who it is"),
+                  ("reglas", "③", "lee", "its rules"),
+                  ("memory", "④", "lee", "everyone's"),
+                  ("perfil", "⑤", "lee", "how to treat you"),
+                  ("socio", "⑥", "persona", "Workspace knows you are {usuario}"),
+                  ("pestana", "⑦", "lee", "Workspace summarizes it, no AI"),
+                  ("maleta", "⑦", "lee", "the latest from another engine"),
+                  ("hooks", "⑧", "lee", "the hook delivers it", "claude-code"),
+                  ("puntero", "⑧", "lee", "and the summary arrives there", "!claude-code"))}),
+
+    _paso("trabajar", "2", ("cerebro", "STATE/sessions/"),
+          es={"titulo": "trabajar", "corto": "trabajar",
+              "explica": "Mientras trabajan, tu agente guarda lo importante en el momento con "
+                         "{notas}: decisiones y pendientes quedan en «Vigente» hasta que se cierran; "
+                         "datos y preferencias, en el historial. Si aprende algo que se repite, lo "
+                         "guarda como skill.",
+              "ruta": (
+                  ("pestana", "①", "escribe", "tu agente anota: decisiones, pendientes, datos"),
+                  ("entrada", "①", "escribe", "Antigravity escribe aquí y un comando lo guarda",
+                   "antigravity"),
+                  ("cmem", "②", "escribe", "Claude Code guarda lo que decide recordar",
+                   "claude-code"),
+                  ("skill", "③", "escribe", "si aprende algo, lo guarda como skill"))},
+          en={"titulo": "work", "corto": "work",
+              "explica": "While you work, your agent saves what matters as it happens with {notas}: "
+                         "decisions and pending items stay in «Open items» until they are closed; facts "
+                         "and preferences, in the history. If it learns something that repeats, it "
+                         "saves it as a skill.",
+              "ruta": (
+                  ("pestana", "①", "escribe", "your agent notes decisions, pending items, facts"),
+                  ("entrada", "①", "escribe", "Antigravity writes here and a command saves it",
+                   "antigravity"),
+                  ("cmem", "②", "escribe", "Claude Code keeps what it decides to remember",
+                   "claude-code"),
+                  ("skill", "③", "escribe", "if it learns something, it saves it as a skill"))}),
+
+    _paso("cerrar", "3", ("cerebro", "STATE/MEMORY.md"),
+          es={"titulo": "cerrar", "corto": "cerrar",
+              "explica": "Al cerrar, también con la X, Workspace lee la conversación que guardó "
+                         "{motor} y, sin IA, deja la maleta para la próxima vez, sube datos y "
+                         "preferencias a lo de todos y archiva lo viejo. En esta PC deja el recibo del "
+                         "cierre, un respaldo y con qué sesión retomar.",
+              "ruta": (
+                  ("conv", "①", "lee", "Workspace la lee, sin IA"),
+                  ("maleta", "②", "escribe", "lo último, para la próxima vez"),
+                  ("memory", "③", "escribe", "suben datos y preferencias"),
+                  ("archivo", "④", "escribe", "si la pestaña creció: notas viejas, completas"),
+                  ("memarch", "④", "escribe", "si MEMORY.md pasa de 200 líneas"),
+                  ("recibo", "⑤", "escribe", "el recibo del cierre, también si falló"),
+                  ("respaldo", "⑤", "escribe", "un respaldo de la conversación"),
+                  ("sesiones", "⑥", "escribe", "con qué sesión retomar"))},
+          en={"titulo": "close", "corto": "close",
+              "explica": "When you close, even with the X, Workspace reads the conversation {motor} "
+                         "kept and, without AI, leaves the handoff for next time, moves facts and "
+                         "preferences up to everyone's and archives the old. On this PC it leaves the "
+                         "close receipt, a backup and which session to resume.",
+              "ruta": (
+                  ("conv", "①", "lee", "Workspace reads it, no AI"),
+                  ("maleta", "②", "escribe", "the latest, for next time"),
+                  ("memory", "③", "escribe", "facts and preferences move up"),
+                  ("archivo", "④", "escribe", "if the tab grew: old notes, whole"),
+                  ("memarch", "④", "escribe", "if MEMORY.md goes over 200 lines"),
+                  ("recibo", "⑤", "escribe", "the close receipt, also if it failed"),
+                  ("respaldo", "⑤", "escribe", "a backup of the conversation"),
+                  ("sesiones", "⑥", "escribe", "which session to resume"))}),
+
+    _paso("retomar", "4", ("estado", ""),
+          es={"titulo": "retomar", "corto": "retomar",
+              "explica": "La próxima vez, en esta PC Workspace sabe con qué sesión de {motor} sigue la "
+                         "pestaña y la retoma. Si abres en otro motor u otra PC, tu agente arranca con "
+                         "la maleta y el resumen de siempre.",
+              "ruta": (
+                  ("sesiones", "①", "lee", "Workspace busca la sesión de «{pestana}»"),
+                  ("conv", "②", "lee", "{motor} la retoma: {retoma}"),
+                  ("maleta", "③", "lee", "en otro motor u otra PC: lo último"),
+                  ("pestana", "③", "lee", "y el resumen de siempre"))},
+          en={"titulo": "resume", "corto": "resume",
+              "explica": "Next time, on this PC Workspace knows which {motor} session continues the tab "
+                         "and resumes it. If you open in another engine or on another PC, your agent "
+                         "starts from the handoff and the usual summary.",
+              "ruta": (
+                  ("sesiones", "①", "lee", "Workspace finds «{pestana}»'s session"),
+                  ("conv", "②", "lee", "{motor} resumes it: {retoma}"),
+                  ("maleta", "③", "lee", "in another engine or PC: the latest"),
+                  ("pestana", "③", "lee", "and the usual summary"))}),
+
+    _paso("personas", "5", ("cerebro", "STATE/users/"),
+          es={"titulo": "cada persona", "corto": "personas",
+              "explica": "Cada PC dice quién la usa. Con eso Workspace carga solo tus pestañas y tu "
+                         "perfil; las de los demás ({usuarios}) están en el mismo cerebro, pero tu "
+                         "agente no las carga. Quién es, la memoria de todos y las skills son "
+                         "compartidas.",
+              "ruta": (
+                  ("socio", "①", "persona", "esta PC es de {usuario}"),
+                  ("perfil", "②", "persona", "tu perfil, junto a los de los demás"),
+                  ("pestana", "③", "persona", "tus pestañas, en tu carpeta"),
+                  ("maleta", "③", "persona", "tu maleta"),
+                  ("cmem", "④", "persona", "tu memoria de Claude Code", "claude-code"),
+                  ("memory", "·", "compartido", "de todos"),
+                  ("soul", "·", "compartido", "el mismo para todos"),
+                  ("index", "·", "compartido", "de todos"))},
+          en={"titulo": "each person", "corto": "people",
+              "explica": "Each PC says who uses it. With that Workspace loads only your tabs and your "
+                         "profile; everyone else's ({usuarios}) are in the same brain, but your agent "
+                         "does not load them. Who it is, everyone's memory and the skills are shared.",
+              "ruta": (
+                  ("socio", "①", "persona", "this PC belongs to {usuario}"),
+                  ("perfil", "②", "persona", "your profile, next to everyone else's"),
+                  ("pestana", "③", "persona", "your tabs, in your folder"),
+                  ("maleta", "③", "persona", "your handoff"),
+                  ("cmem", "④", "persona", "your Claude Code memory", "claude-code"),
+                  ("memory", "·", "compartido", "everyone's"),
+                  ("soul", "·", "compartido", "the same for everyone"),
+                  ("index", "·", "compartido", "everyone's"))}),
+
+    _paso("motores", "6", ("cerebro", ".workspace/agent.json"),
+          es={"titulo": "los motores", "corto": "motores",
+              "explica": "Los seis motores leen el mismo cerebro y la misma memoria; solo cambia por "
+                         "dónde entra el resumen y dónde guarda cada uno su conversación. En el árbol, "
+                         "{motor}; abajo, los seis:",
+              "ruta": (
+                  ("puntero", "①", "lee", "{motor} entra por aquí"),
+                  ("hooks", "②", "lee", "el resumen entra por el hook de inicio", "claude-code"),
+                  ("puntero", "②", "lee", "el resumen va en un bloque mientras está abierta",
+                   "!claude-code"),
+                  ("conv", "③", "lee", "aquí guarda {motor} su conversación"),
+                  ("sesiones", "④", "lee", "retoma: {retoma}"),
+                  ("cmem", "·", "compartido", "solo Claude Code tiene memoria propia aquí",
+                   "claude-code"))},
+          en={"titulo": "the engines", "corto": "engines",
+              "explica": "All six engines read the same brain and the same memory; only where the "
+                         "summary comes in and where each keeps its conversation change. In the tree, "
+                         "{motor}; below, all six:",
+              "ruta": (
+                  ("puntero", "①", "lee", "{motor} comes in here"),
+                  ("hooks", "②", "lee", "the summary comes in through the start hook", "claude-code"),
+                  ("puntero", "②", "lee", "the summary goes in a block while it is open",
+                   "!claude-code"),
+                  ("conv", "③", "lee", "{motor} keeps its conversation here"),
+                  ("sesiones", "④", "lee", "resumes: {retoma}"),
+                  ("cmem", "·", "compartido", "only Claude Code has its own memory here",
+                   "claude-code"))}),
+
+    _paso("aprende", "7", ("cerebro", "skills/"),
+          es={"titulo": "lo que aprende", "corto": "aprende",
+              "explica": "Si algo se repite o le corriges cómo hacerlo, tu agente lo guarda como skill, "
+                         "sin pedir permiso, y te lo cuenta. Una vez por semana las cura: las que no se "
+                         "usan quedan archivadas; nada se borra. También completa quién es con lo que "
+                         "le cuentas.",
+              "ruta": (
+                  ("index", "①", "lee", "antes de una tarea, revisa el catálogo"),
+                  ("skill", "②", "escribe", "crea o mejora, sin pedir permiso"),
+                  ("curador", "③", "lee", "una vez por semana toca curar"),
+                  ("skill", "④", "escribe", "sin uso: status: archivada"),
+                  ("soul", "⑤", "escribe", "completa quién es con lo que le cuentas"))},
+          en={"titulo": "what it learns", "corto": "learns",
+              "explica": "If something repeats or you correct how to do it, your agent saves it as a "
+                         "skill, without asking, and tells you. Once a week it curates them: the unused "
+                         "ones are archived; nothing is deleted. It also completes who it is with what "
+                         "you tell it.",
+              "ruta": (
+                  ("index", "①", "lee", "before a task, it checks the catalog"),
+                  ("skill", "②", "escribe", "creates or improves, without asking"),
+                  ("curador", "③", "lee", "once a week it is time to curate"),
+                  ("skill", "④", "escribe", "unused: status: archivada"),
+                  ("soul", "⑤", "escribe", "completes who it is with what you tell it"))}),
+)
+
+#: El renglón del mapa en la lista de la sección (antes del capítulo 1) y lo
+#: que se ve a la derecha mientras está elegido.
+MAPA_INTRO = {
+    "es": {"corto": "el mapa de la memoria",
+           "titulo": "Cómo recuerda tu agente",
+           "mapa": ((("tu agente", "c"), ("su cerebro|cerebro", "wh"), ("sus archivos|archivos", "ok")),
+                    ("→", "→"),
+                    "el árbol real, paso a paso y en colores"),
+           "puntos": (
+               "El árbol real del cerebro del agente elegido, como en «Agregar agente», con lo que "
+               "vive fuera: esta PC y la conversación de su motor.",
+               "Cada paso ilumina los archivos que toca, en orden (①②…) y en colores: lo que se lee, "
+               "lo que se escribe y lo que es de cada persona. ← → cambia de paso; Tab, de agente."),
+           "abre": "Enter o m: abre el mapa"},
+    "en": {"corto": "the memory map",
+           "titulo": "How your agent remembers",
+           "mapa": ((("your agent", "c"), ("its brain|brain", "wh"), ("its files|files", "ok")),
+                    ("→", "→"),
+                    "the real tree, step by step and in colors"),
+           "puntos": (
+               "The real brain tree of the chosen agent, as in «Add agent», with what lives outside: "
+               "this PC and its engine's conversation.",
+               "Each step lights up the files it touches, in order (①②…) and in colors: what is read, "
+               "what is written and what belongs to each person. ← → changes step; Tab, agent."),
+           "abre": "Enter or m: opens the map"},
+}
+
+#: El paso «los motores» del mapa: cómo vive la memoria cada uno de los seis,
+#: en el orden de MOTORES. Columnas («largo|corto»; la tabla usa la corta): abre
+#: (cómo recibe el paquete) · notas (cómo guarda) · cierra (de dónde lee
+#: Workspace su conversación al cerrar) · retoma; `detalle` = la explicación.
+def _motor(mid, nombre, es, en):
+    return {"id": mid, "nombre": nombre, "compruebalo": ("cerebro", ""), "es": es, "en": en}
+
+
+MAPA_MOTORES = (
+    _motor("claude-code", "Claude Code",
+           es={"abre": "su hook de inicio", "notas": "workspace memoria nota",
+               "cierra": "su conversación (.jsonl)", "retoma": "--resume <id>",
+               "detalle": "Lee CLAUDE.md, que apunta a BRAIN.md, y recibe el paquete por su hook "
+                          "de inicio, también al retomar y al compactar. En cada mensaje recibe "
+                          "tu tono. Al cerrar, Workspace lee su conversación y arma la maleta. "
+                          "Su memoria propia vive en el cerebro, una carpeta por persona."},
+           en={"abre": "its start hook", "notas": "workspace memoria nota",
+               "cierra": "its conversation (.jsonl)", "retoma": "--resume <id>",
+               "detalle": "It reads CLAUDE.md, which points to BRAIN.md, and gets the package "
+                          "through its start hook, also when resuming and compacting. With each "
+                          "message it gets your tone. On close, Workspace reads its "
+                          "conversation and packs the handoff. Its own memory lives in the "
+                          "brain, one folder per person."}),
+    _motor("codex", "Codex",
+           es={"abre": "bloque en AGENTS.md", "notas": "workspace memoria nota",
+               "cierra": "su registro de la sesión|su registro", "retoma": "codex resume <id>",
+               "detalle": "Lee AGENTS.md, que apunta a BRAIN.md. Mientras la pestaña está "
+                          "abierta, Workspace le agrega ahí el paquete y lo quita al cerrar. "
+                          "Guarda notas desde su terminal protegida. Al cerrar, Workspace "
+                          "busca su registro de esa sesión y arma la maleta."},
+           en={"abre": "block in AGENTS.md", "notas": "workspace memoria nota",
+               "cierra": "its session log|its log", "retoma": "codex resume <id>",
+               "detalle": "It reads AGENTS.md, which points to BRAIN.md. While the tab is open, "
+                          "Workspace adds the package there and removes it on close. It saves "
+                          "notes from its protected terminal. On close, Workspace finds the log "
+                          "of that session and packs the handoff."}),
+    _motor("antigravity", "Antigravity",
+           es={"abre": "bloque en GEMINI.md", "notas": "bandeja + comando fijo|bandeja",
+               "cierra": "su conversación guardada|su conversación",
+               "retoma": "--conversation <id>",
+               "detalle": "Workspace le arma GEMINI.md al abrir, con la ruta de tu cerebro y el "
+                          "paquete, y lo deja como estaba al cerrar. Escribe sus notas en "
+                          ".claude/memoria-entrada/<pestaña>.md y las guarda con un comando "
+                          "fijo. Al cerrar, Workspace copia su conversación y arma la maleta."},
+           en={"abre": "block in GEMINI.md", "notas": "tray + fixed command|tray",
+               "cierra": "its saved conversation|its conversation",
+               "retoma": "--conversation <id>",
+               "detalle": "Workspace builds its GEMINI.md on open, with your brain's path and "
+                          "the package, and leaves it as it was on close. It writes its notes "
+                          "in .claude/memoria-entrada/<tab>.md and saves them with a fixed "
+                          "command. On close, Workspace copies its conversation and packs the "
+                          "handoff."}),
+    _motor("opencode", "OpenCode",
+           es={"abre": "bloque en AGENTS.md", "notas": "workspace memoria nota",
+               "cierra": "su exportación oficial|exportación", "retoma": "--session <id>",
+               "detalle": "Lee AGENTS.md con el paquete mientras la pestaña está abierta. "
+                          "Guarda notas con workspace memoria nota. Al cerrar, Workspace "
+                          "exporta la conversación con el comando oficial de OpenCode y arma "
+                          "la maleta."},
+           en={"abre": "block in AGENTS.md", "notas": "workspace memoria nota",
+               "cierra": "its official export|export", "retoma": "--session <id>",
+               "detalle": "It reads AGENTS.md with the package while the tab is open. It saves "
+                          "notes with workspace memoria nota. On close, Workspace exports the "
+                          "conversation with OpenCode's official command and packs the "
+                          "handoff."}),
+    _motor("openclaw", "OpenClaw",
+           es={"abre": "bloque en AGENTS.md", "notas": "nota con su pestaña|nota --tab",
+               "cierra": "su sesión exportada|su sesión", "retoma": "--session <clave>",
+               "detalle": "Usa un perfil propio de Workspace y lee AGENTS.md con el paquete. "
+                          "Como sus comandos corren en un servicio compartido, guarda notas "
+                          "diciendo la pestaña (workspace memoria nota --tab --engine). Su "
+                          "memoria propia está apagada; lo que deje suelto se mueve a "
+                          "motores/openclaw/."},
+           en={"abre": "block in AGENTS.md", "notas": "note with its tab|note --tab",
+               "cierra": "its exported session|its session", "retoma": "--session <key>",
+               "detalle": "It uses Workspace's own profile and reads AGENTS.md with the "
+                          "package. Since its commands run in a shared service, it saves notes "
+                          "naming the tab (workspace memoria nota --tab --engine). Its own "
+                          "memory is off; whatever it leaves loose moves to motores/openclaw/."}),
+    _motor("hermes", "Hermes",
+           es={"abre": "AGENTS.md con copia|AGENTS.md", "notas": "workspace memoria nota",
+               "cierra": "su sesión exportada|su sesión", "retoma": "--resume <id>",
+               "detalle": "Usa un perfil propio de Workspace, con su memoria propia apagada. Su "
+                          "AGENTS.md lleva una copia de la identidad y de tu perfil, y el "
+                          "paquete mientras la pestaña está abierta; si su filtro de seguridad "
+                          "lo frena, arranca sin él. Recibe tu tono en cada mensaje. Al cerrar, "
+                          "Workspace exporta la sesión y arma la maleta."},
+           en={"abre": "AGENTS.md with a copy|AGENTS.md", "notas": "workspace memoria nota",
+               "cierra": "its exported session|its session", "retoma": "--resume <id>",
+               "detalle": "It uses Workspace's own profile, with its own memory off. Its "
+                          "AGENTS.md carries a copy of the identity and of your profile, plus "
+                          "the package while the tab is open; if its safety filter stops it, it "
+                          "starts without it. It gets your tone with each message. On close, "
+                          "Workspace exports the session and packs the handoff."}),
+)
+
+def mapa_texto(parte, lg=None):
+    """El texto de un paso del mapa, de un motor o de MAPA_INTRO en el idioma
+    `lg` (o el activo)."""
+    lg = lg or lang()
+    return parte[lg] if lg in LANGS else parte["es"]
+
+
+def mapa_plantilla(hoja, lg=None):
+    """La ruta de una hoja del árbol en el idioma `lg` (o el activo): casi
+    todas son iguales en los dos; las que llevan palabras, {"es": …, "en": …}."""
+    p = hoja[1]
+    if isinstance(p, dict):
+        return p.get(lg or lang()) or p["es"]
+    return p
+
+
+def mapa_valores(ctx=None, lg=None):
+    """Lo real del agente elegido para el mapa: su carpeta, tu usuario, tu
+    última pestaña, los demás usuarios del cerebro y lo propio de su motor. SOLO
+    LECTURA (jamás crea ni escribe nada) y falla-suave: lo que no se sabe
+    queda como <tú>, <pestaña>…"""
+    import hashlib
+    lg = lg or lang()
+    en = lg == "en"
+    v = {"cerebro": "<your agent>/" if en else "<tu agente>/", "usuario": "<you>" if en else "<tú>",
+         "pestana": "<tab>" if en else "<pestaña>", "motor": "<engine>" if en else "<su motor>",
+         "recibo": "continuity/<…>.json"}
+    v["usuarios"] = "<the others>" if en else "<los demás>"
+    eng = str((ctx or {}).get("engine") or "")
+    rutas = MOTOR_RUTAS.get(eng) or {}
+    v["puntero"] = rutas.get("puntero") or "CLAUDE.md · AGENTS.md · GEMINI.md"
+    v["retoma"] = rutas.get("retoma") or "--resume <id>"
+    v["notas"] = rutas.get("notas") or "workspace memoria nota"
+    v["conversacion_dir"] = rutas.get("conversacion_dir") or ("<its folder>" if en else "<su carpeta>")
+    v["conversacion"] = rutas.get("conversacion") or ""
+    v["motor"] = next((n for i, n, _p in MOTORES if i == eng), v["motor"])
+    m = next((x for x in MAPA_MOTORES if x["id"] == eng), None)
+    v["como"] = str(m[lg]["abre"]).partition("|")[0] if m else (
+        "its start hook or AGENTS.md" if en else "su hook o AGENTS.md")
+    b = _brain(ctx)
+    if not b:
+        return v
+    try:
+        v["cerebro"] = corto(b).rstrip("/\\") + "/"
+        soc = _socio(b)
+        if soc:
+            v["usuario"] = soc
+        tabs = _pestanas(b)
+        if tabs:
+            v["pestana"] = tabs[0][0]
+        try:
+            gente = sorted(f[:-3] for f in os.listdir(os.path.join(b, "STATE", "users"))
+                           if f.endswith(".md") and not f.startswith(("_", ".")) and f.lower() != "readme.md")
+        except OSError:
+            gente = []
+        otros = [g for g in gente if g.lower() != str(v["usuario"]).lower()]
+        v["usuarios"] = " · ".join(otros) if otros else (
+            "nobody else, for now" if en else "nadie más, por ahora")
+        if eng == "claude-code":
+            import session_paths
+            v["conversacion_dir"] = corto(session_paths.session_dir(b)).rstrip("/\\") + "/"
+        if tabs and eng:
+            # la sesión del motor que sigue esta pestaña en esta PC (solo lee)
+            import sessions_registry as reg
+            rid = reg.resume_id(b, str((ctx or {}).get("name") or ""), tabs[0][0], eng)
+            if rid:
+                corto_id = rid if len(rid) <= 12 else rid[:8] + "…"
+                for k in ("conversacion", "retoma", "conversacion_dir"):
+                    v[k] = v[k].replace("<id>", corto_id)
+        clave = hashlib.sha256(os.path.realpath(b).encode()).hexdigest()
+        v["recibo"] = "continuity/%s….json" % clave[:8]
+    except Exception:
+        pass
+    return v
+
+
+_LLAVE = re.compile(r"\{(\w+)\}")
+
+
+def mapa_rellenar(texto, valores):
+    """`{usuario}` → lo real (o se deja tal cual si no hay valor)."""
+    return _LLAVE.sub(lambda m: str(valores.get(m.group(1), m.group(0))), str(texto))
 
 
 # ── API para la pantalla ────────────────────────────────────────────────────

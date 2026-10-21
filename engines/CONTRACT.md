@@ -23,8 +23,9 @@ con cada uno en cada sistema operativo: `manual/es/compatibilidad.md` (derivada 
 > **Histórico:** existió un motor `ollama` (loop OpenAI-compat propio, corridas E-2/E-3); se
 > extrajo de `main` a la rama `feat/multi-engine` (commit `b7b321f`) y **no viaja**. Las
 > secciones de abajo que lo describen quedan como diseño de referencia para el primer motor
-> donde Workspace sea dueño del loop; `failover.py`, `providers/*.json` y `model_resolver.py`
-> sí siguen en `main`.
+> donde Workspace sea dueño del loop; `providers/*.json` y `model_resolver.py` sí siguen en
+> `main`. `failover.py` se quitó en la 0.5 (ningún motor de `main` lo cargaba); queda en el
+> historial de git (commit `b361d0b`).
 
 > Vocabulario completo (engine vs provider vs model) y plan del ciclo: `research/motor2-plan.md`.
 > Desde la corrida E-1 la capa declarativa de providers está **implementada**
@@ -218,7 +219,11 @@ Alcance E-2 (chico a propósito): chat one-shot + REPL + `/leer <ruta>` (comando
 streaming, tool-calling del LLM, listeners de `hooks/` por subprocess, dieta de boot.
 Detalle en el docstring del motor.
 
-## Failover completo (✅ corrida E-3) — `failover.py`
+## Failover completo (corrida E-3) — `failover.py`, hoy fuera de `main`
+
+> Referencia de diseño: el módulo se quitó en la 0.5 porque nadie lo cargaba (vive en el
+> historial de git, commit `b361d0b`). La taxonomía `FAILOVER_REASONS` /
+> `FAILOVER_STRATEGIES` sigue en `model_resolver.py`.
 
 El consumo REAL de `FAILOVER_REASONS`, reusable por cualquier motor genérico (el motor solo
 provee `attempt(model) -> (resultado, razón)` a `failover.run_with_failover`):

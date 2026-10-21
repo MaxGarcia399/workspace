@@ -1,7 +1,7 @@
 # El hub y sus teclas
 
-El **hub** es lo que ves al escribir `workspace`: una caja con tus agentes y, debajo, tres
-entradas — **Menú**, **Personalización** e **Idioma**. Enter entra; el título de la caja dice
+El **hub** es lo que ves al escribir `workspace`: una caja con tus agentes y, debajo, el
+**Mapa de la memoria** y tres entradas — **Menú**, **Personalización** e **Idioma**. Enter entra; el título de la caja dice
 dónde estás (WORKSPACE › MENÚ) y Esc regresa. La caja tiene siempre el mismo tamaño: puedes
 achicar la ventana hasta que solo quepa ella.
 
@@ -28,6 +28,14 @@ La prueba tests/test_manual_compat.py falla si cambian. -->
 
 **← →** cambian su motor (`‹ motor ›`, se guarda en esta máquina; el próximo Enter ya lo usa) y
 **Tab** muestra en una línea su motor, dónde vive su cerebro y qué está haciendo.
+
+## Mapa de la memoria
+
+La fila **Mapa de la memoria ›**, justo debajo de tus agentes, abre el mapa de cómo recuerda el
+agente que tenías apuntado: el árbol real de su cerebro y, paso a paso, qué archivos lee y cuáles
+escribe, en orden y en colores. ← → o las cifras `0` … `7` cambian de paso, ↑ ↓ desplaza si no
+cabe, Tab cambia de agente, Enter abre lo que lo demuestra y Esc te regresa al hub. Es el mismo
+mapa del primer renglón de Documentación.
 
 ## Menú
 

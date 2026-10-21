@@ -6,7 +6,7 @@ perfil; en `pre_llm_call` (una vez por turno, antes de llamar al modelo) un
 stdout `{"context": "..."}` se ANEXA al mensaje del socio de ese turno (nunca
 al system prompt; el mensaje limpio queda igual en su historial). Lo cablea
 engines/hermes.py SOLO en el perfil propio de Workspace, jamás en el perfil
-del socio. Hace dos cosas:
+del socio. Hace tres cosas:
 
   · **Tono**: el mismo recordatorio que el hook de Claude Code
     (`personalidad.linea()`), para que mover un dial se sienta al siguiente
@@ -15,6 +15,11 @@ del socio. Hace dos cosas:
     `session_id` del payload es de ESTA pestaña (env WORKSPACE_HERMES_RUN, que
     exporta el launcher). Así, al cerrar, una pestaña jamás se queda con la
     conversación de otra pestaña abierta en el mismo cerebro.
+  · **Memoria de la pestaña**: Hermes reusa el system prompt guardado al
+    retomar una sesión, así que el bloque de la pestaña de AGENTS.md no le
+    llega. Va aquí en el primer turno de una sesión que no lo trae y cuando la
+    memoria cambió por fuera (otro motor, otra ventana); nunca en todos los
+    turnos (engines/hermes.memoria_turno decide y guarda la marca).
 
 En los turnos headless de Workspace (HERMES_SESSION_SOURCE=tool) no hace nada.
 
@@ -22,7 +27,7 @@ Se llama `hermes_turno` y NO `personalidad`: un script con el mismo nombre que
 un módulo de la raíz se importaba a sí mismo (runbook agregar-motor §6).
 
 FALLA-SUAVE ABSOLUTA: cualquier error → exit 0 sin escribir nada. Con todos
-los diales en neutro no imprime nada (coste cero).
+los diales en neutro y la memoria ya entregada no imprime nada (coste cero).
 
 Cero dependencias (stdlib, Python 3.9+). Mac y Windows.
 """
@@ -51,20 +56,32 @@ def main():
         return 0
     if os.environ.get("HERMES_SESSION_SOURCE", "").strip().lower() == "tool":
         return 0
+    run, sid = os.environ.get("WORKSPACE_HERMES_RUN", ""), str(data.get("session_id") or "")
     try:
-        run, sid = os.environ.get("WORKSPACE_HERMES_RUN", ""), data.get("session_id")
         if run and sid:
             from engines import hermes as _h
-            _h.run_claim(run, str(sid))
+            _h.run_claim(run, sid)
     except Exception:
         pass
+    partes = []
     try:
         import personalidad
         txt = personalidad.linea(personalidad.agente_de(data.get("cwd")) or None)
         if txt:
-            sys.stdout.write(json.dumps({"context": txt}, ensure_ascii=False))
+            partes.append(txt)
     except Exception:
         pass
+    try:
+        if run and sid:
+            from engines import hermes as _h
+            extra = data.get("extra") if isinstance(data.get("extra"), dict) else {}
+            mem = _h.memoria_turno(run, sid, primer_turno=extra.get("is_first_turn") is True)
+            if mem:
+                partes.append(mem)
+    except Exception:
+        pass
+    if partes:
+        sys.stdout.write(json.dumps({"context": "\n\n".join(partes)}, ensure_ascii=False))
     return 0
 
 

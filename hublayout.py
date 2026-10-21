@@ -599,7 +599,14 @@ import unicodedata as _ud
 LZ_ROWS = 12          # filas de lista FIJAS (además de la línea de búsqueda)
 LZ_PAD = 2            # aire por lado dentro de la barra (+1 del borde = 3)
 _LZ_SUBS = ("tools", "latido", "idioma")      # secciones → grupos de front
-_LZ_SELECTABLE = ("agent", "sub", "opt", "pin", "lang")
+_LZ_SELECTABLE = ("agent", "go", "sub", "opt", "pin", "lang")
+#: Destinos DIRECTOS de la raíz, entre el separador y Menú: Enter abre la
+#: pantalla sin pasar por un submenú (front rutea el token). El mapa de la
+#: memoria vive aquí para que se vea al abrir Workspace (pedido del dueño
+#: 2026-10-19: «está muy escondido en Documentación»); sigue también allá.
+#: (token, clave y texto de la etiqueta, clave y texto de su descripción)
+_LZ_GO = (("__mapa__", "hub.lanzador.map", "Mapa de la memoria",
+           "hub.lanzador.map.tag", "cómo recuerda tu agente, paso a paso"),)
 
 
 def lanzador_pins():
@@ -676,9 +683,18 @@ def lanzador_subs():
     return [g for g in _LZ_SUBS if g != "latido" or lanzador_pins()]
 
 
+def lanzador_gos():
+    """Las filas de destino directo de la raíz (`_LZ_GO`), traducidas;
+    `idx` = el token que front.main rutea, `tag` = la descripción que usa
+    el picker estático."""
+    return [{"kind": "go", "idx": tok, "label": _t(clave, es), "dato": "›",
+             "tag": _t(clave_tag, tag)}
+            for tok, clave, es, clave_tag, tag in _LZ_GO]
+
+
 def lanzador_items(data, level=None, q=""):
     """La lista del lanzador para (nivel, búsqueda) → [{kind, idx, label,
-    dato, crumb, off}]. kind ∈ agent/sub/opt/pin/lang (seleccionables) ·
+    dato, crumb, off}]. kind ∈ agent/go/sub/opt/pin/lang (seleccionables) ·
     sep/info/none (solo se pintan). front.py y el renderer usan ESTA función
     — lo que se ve y lo que Enter ejecuta son la misma lista."""
     ags = []
@@ -690,6 +706,7 @@ def lanzador_items(data, level=None, q=""):
                     "off": not a.get("active")})
     subs = [{"kind": "sub", "idx": g, "label": lanzador_sub_label(g),
              "dato": "›"} for g in lanzador_subs()]
+    gos = lanzador_gos()
     qn = _lz_norm(q)
     if level in _LZ_SUBS:
         its = _lz_sub_items(data, level)
@@ -703,8 +720,9 @@ def lanzador_items(data, level=None, q=""):
         if not ags:
             ags = [{"kind": "info", "label": _t(
                 "hub.lanzador.empty", "sin agentes — Menú › Agentes")}]
-        return ags + [{"kind": "sep"}] + subs
+        return ags + [{"kind": "sep"}] + gos + subs
     out = [a for a in ags if qn in _lz_norm(a["label"])]
+    out += [g for g in gos if qn in _lz_norm(g["label"])]
     out += [s for s in subs if qn in _lz_norm(s["label"])]
     for g in lanzador_subs():                    # búsqueda GLOBAL
         for it in _lz_sub_items(data, g):
@@ -718,7 +736,14 @@ def lanzador_items(data, level=None, q=""):
 
 
 def lanzador_first(items):
-    """Índice del primer seleccionable (0 si no hay)."""
+    """Índice del primer seleccionable (0 si no hay). Sin agentes (la fila
+    de aviso arriba) el cursor empieza en Menú, adonde manda el aviso, no
+    en el mapa."""
+    sin_agentes = bool(items) and items[0].get("kind") == "info"
+    for i, it in enumerate(items):
+        if it.get("kind") in _LZ_SELECTABLE and not (
+                sin_agentes and it.get("kind") == "go"):
+            return i
     for i, it in enumerate(items):
         if it.get("kind") in _LZ_SELECTABLE:
             return i

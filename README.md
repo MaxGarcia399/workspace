@@ -95,12 +95,11 @@ What a fresh install gives you today:
   repairs what it can (`--bundle` makes a redacted zip to ask for help). Updates
   are automatic, notify-only or off; a new version is tested on your machine
   before it's used, and `workspace update --rollback` takes you back.
-- **Workflows** — step-by-step procedures (`workspace wf`). The one meant for you
-  today is creating an agent; the others are for developing Workspace itself.
 - **The same memory in every engine** — each tab keeps its memory in the brain:
   the agent saves decisions, pending items and facts as it works, and on close
   Workspace tidies them up with plain code. Whichever engine opens that tab next
-  starts from the same memory.
+  starts from the same memory. The **Memory map**, on the hub's front page, shows
+  it step by step with your agent's real files.
 - **Users** — **Menu › Users** shows who uses each agent across your machines;
   Workspace records who you are on each one (at install, or with «that's me on
   this PC»).
@@ -110,8 +109,7 @@ What a fresh install gives you today:
 - **Nothing runs without a window** — no AI process works behind your back: the
   agent saves its memory inside its visible session, and evals against a golden
   set run only when you ask (`workspace eval`, Claude Code).
-- **Optional extras** — voice dictation (macOS only, `workspace voice --setup`)
-  and a split terminal with a live panel (`workspace split`, needs tmux).
+- **Optional extra** — voice dictation (macOS only, `workspace voice --setup`).
 
 > Status: **early / upcoming.** The core works end to end and is covered by a
 > test suite; polish, the public roadmap, pricing, and audience are still being
@@ -134,7 +132,6 @@ dispatch.py     # <agent> → resolves brain → loads config → starts its eng
 engines/        # pluggable engines + CONTRACT.md (the interface)
 agents/         # empty registry (your agents live in their brains)
 hooks/          # event listeners (session start/end, …)
-workflows/      # declarative multi-step procedures
 migrations/     # adjustments an update applies on your machine
 manual/         # the user manual (English and Spanish)
 install.py      # per-machine installer (writes only to your machine)
@@ -188,8 +185,7 @@ hooks, and writes only to your machine's local config — never to the shared re
 your own account: **Claude Code** (`claude`), **Codex** (`codex`),
 **Antigravity** (`agy`), **OpenCode** (`opencode`), **OpenClaw** (`openclaw`) or
 **Hermes** (`hermes`). Claude Code is the most integrated today. On Windows use
-`python` (not `python3`). Optional: tmux for the split terminal, macOS for voice
-dictation.
+`python` (not `python3`). Optional: macOS for voice dictation.
 
 ### Quickstart
 
@@ -218,6 +214,27 @@ adjust something inside your brains (0.4.0, for example, moves your agents'
 identity to `BRAIN.md`), it does it on its own, copies everything to a backup
 first and deletes nothing; what you wrote yourself is left alone.
 More in [the manual](manual/en/updates.md).
+
+### What's new in v0.5.0
+
+- **No text gets lost against your theme's background.** Your agents' chats
+  had near-black text on dark backgrounds. Claude Code, Hermes and OpenClaw
+  now know the background Workspace paints and write in colors that read on
+  it, in Terminal.app too; in most terminals Codex and commands also take
+  their colors from the theme.
+- **Hermes and OpenClaw use the same memory and skills as the other
+  engines.** Hermes gets the tab's up-to-date memory when you resume it and
+  uses your brain's skills; OpenClaw reads your brain's long-term memory on
+  every message.
+- **The memory map, on the hub's front page.** It shows step by step which of
+  your agent's files are read and written when you open, work, close and
+  resume a tab.
+- **Fewer things in sight.** Workflows and Proyectos no longer show up in the
+  hub, the help or the manual; if you type their commands they still work.
+  Version 0.6 removes their code and your data stays.
+- **«Loading…» while an agent opens.** Instead of a still screen, you see
+  «Loading…» in the middle of the screen while Workspace prepares the agent
+  (and, in Hermes and OpenClaw, the tab you picked). It hides no notice.
 
 ### What's new in v0.4.1
 
@@ -398,12 +415,11 @@ Lo que te da una instalación nueva hoy:
   ayuda). Las actualizaciones son automáticas, solo-avisar o apagadas; una versión
   nueva se prueba en tu máquina antes de usarse y `workspace update --rollback` te
   regresa.
-- **Workflows** — procedimientos paso a paso (`workspace wf`). El que es para ti hoy
-  es crear un agente; los demás son para desarrollar el propio Workspace.
 - **La misma memoria en todos los motores** — cada pestaña guarda su memoria en
   el cerebro: el agente anota decisiones, pendientes y datos mientras trabaja, y
   al cerrar Workspace los ordena con código. El motor que abra esa pestaña
-  después arranca con la misma memoria.
+  después arranca con la misma memoria. El **Mapa de la memoria**, en la portada
+  del hub, lo enseña paso a paso con los archivos reales de tu agente.
 - **Usuarios** — **Menú › Usuarios** muestra quién usa cada agente en todas tus
   máquinas; Workspace registra quién eres en cada una (al instalar, o con «soy yo
   en esta PC»).
@@ -413,8 +429,7 @@ Lo que te da una instalación nueva hoy:
 - **Nada corre sin ventana** — ningún proceso con IA trabaja a tus espaldas: el
   agente guarda su memoria dentro de su sesión visible, y los evals contra un set
   de referencia corren solo cuando tú lo pides (`workspace eval`, Claude Code).
-- **Extras opcionales** — dictado por voz (solo macOS, `workspace voice --setup`)
-  y terminal partida con un panel en vivo (`workspace split`, requiere tmux).
+- **Extra opcional** — dictado por voz (solo macOS, `workspace voice --setup`).
 
 > Estado: **early / upcoming (temprano).** El núcleo funciona end-to-end y está
 > cubierto por una suite de tests; el pulido, el roadmap público, el precio y el
@@ -439,7 +454,6 @@ dispatch.py     # <agente> → resuelve cerebro → carga config → arranca su 
 engines/        # motores enchufables + CONTRACT.md (la interfaz)
 agents/         # registro vacío (tus agentes viven en sus cerebros)
 hooks/          # listeners por evento (inicio/fin de sesión, …)
-workflows/      # procedimientos declarativos de varios pasos
 migrations/     # ajustes que una actualización aplica en tu máquina
 manual/         # el manual de usuario (español e inglés)
 install.py      # instalador per-máquina (solo escribe en tu máquina)
@@ -493,7 +507,7 @@ solo escribe en la config local de tu máquina — nunca en el repo compartido.
 iniciada: **Claude Code** (`claude`), **Codex** (`codex`), **Antigravity** (`agy`),
 **OpenCode** (`opencode`), **OpenClaw** (`openclaw`) o **Hermes** (`hermes`).
 Hoy Claude Code es el más integrado. En Windows usa `python` (no `python3`).
-Opcional: tmux para la terminal partida, macOS para el dictado por voz.
+Opcional: macOS para el dictado por voz.
 
 ### Inicio rápido
 
@@ -522,6 +536,27 @@ ajustar algo dentro de tus cerebros (la 0.4.0, por ejemplo, pasa la identidad de
 agentes a `BRAIN.md`), lo hace sola, antes copia todo a un respaldo y no borra nada; lo
 que escribiste tú se deja como está.
 Más en [el manual](manual/es/actualizaciones.md).
+
+### Novedades de la v0.5.0
+
+- **Ningún texto se pierde contra el fondo de tu tema.** En el chat de tus
+  agentes había textos casi negros sobre fondos oscuros. Claude Code, Hermes y
+  OpenClaw ahora saben qué fondo pinta Workspace y escriben con colores que se
+  leen sobre él, también en Terminal.app; en la mayoría de las terminales,
+  Codex y los comandos también toman sus colores del tema.
+- **Hermes y OpenClaw usan la misma memoria y las mismas skills que los demás
+  motores.** Hermes recibe la memoria de la pestaña al día cuando la retomas y
+  usa las skills de tu cerebro; OpenClaw lee la memoria larga de tu cerebro en
+  cada mensaje.
+- **El mapa de la memoria, en la portada del hub.** Muestra paso a paso qué
+  archivos de tu agente se leen y se escriben al abrir, trabajar, cerrar y
+  retomar una pestaña.
+- **Menos cosas a la vista.** Workflows y Proyectos ya no aparecen en el hub,
+  la ayuda ni el manual; si escribes sus comandos, siguen funcionando. La 0.6
+  quita su código y tus datos se quedan.
+- **«Cargando…» mientras abre un agente.** En vez de una pantalla quieta, ves
+  «Cargando…» al centro mientras Workspace prepara al agente (y, en Hermes y
+  OpenClaw, la pestaña que elegiste). No tapa ningún aviso.
 
 ### Novedades de la v0.4.1
 
