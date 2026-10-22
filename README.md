@@ -3,18 +3,142 @@
 
 # Workspace
 
-**A sovereign terminal OS for AI agents — built for the individual.**
-*Un "sistema operativo" de terminal para agentes de IA — hecho para la persona.*
+Choose your AI engine. Keep your agents and their memory.
 
-![License: MIT](https://img.shields.io/badge/license-MIT-black)
-![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-black)
-![Dependencies: none](https://img.shields.io/badge/dependencies-stdlib%20only-black)
-![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-black)
-![Status: early](https://img.shields.io/badge/status-early%20%2F%20upcoming-orange)
+Elige tu motor de IA. Conserva tus agentes y su memoria.
 
-**[English](#english) · [Español](#español)**
+[Español](#español) · [English](#english) · [Manual](manual/README.md) · [MIT](LICENSE)
+
+macOS · Windows · Linux | Python 3.9+ | En desarrollo activo
 
 </div>
+
+<a id="español"></a>
+
+## Español
+
+### Elige tu motor. Conserva tu agente.
+
+Workspace te permite trabajar con Claude Code, Codex, Antigravity, OpenCode, OpenClaw o Hermes desde un mismo menú. Puedes cambiar de motor conservando la identidad, las skills y la memoria guardada de tu agente.
+
+![Mapa 1: motores disponibles](assets/readme/motores-es.svg)
+
+Conservas el cerebro y eliges qué programa lo usa. Cada motor necesita su propia instalación y tu cuenta o configuración. No todos ofrecen las mismas funciones: consulta la [compatibilidad por motor y sistema](manual/es/compatibilidad.md).
+
+Workspace organiza el trabajo. Las respuestas las produce el modelo que usa tu motor, y sus límites, herramientas y costos siguen dependiendo de ese proveedor.
+
+### ¿Para qué sirve?
+
+Imagina que tienes un asistente para investigar y otro para trabajar en tus proyectos. Quieres que cada uno conserve sus instrucciones, lo que aprende y los pendientes de cada conversación. También quieres poder cambiar de herramienta de IA sin empezar a definirlos desde cero.
+
+Workspace reúne esas piezas en un menú de terminal. Desde ahí creas tus agentes, abres sus conversaciones y eliges con qué motor trabajan. La terminal es la ventana de texto donde escribes comandos y hablas con ellos.
+
+![Mapa 2: agentes y cerebros](assets/readme/agentes-es.svg)
+
+Los agentes del mapa son ejemplos. Tú decides cuántos crear y para qué usarlos.
+
+### Cuatro ideas para entenderlo
+
+| Pieza | Qué significa | Ejemplo |
+|---|---|---|
+| Agente | Tu asistente con nombre, propósito e instrucciones | Un asistente que te ayuda a investigar |
+| Cerebro | La carpeta donde guarda su identidad, conocimientos y procedimientos | Archivos legibles que conservas en tu computadora |
+| Motor | El programa de IA que ejecuta al agente y le da sus herramientas | Claude Code o Codex |
+| Pestaña | Un espacio de conversación con sus propios pendientes y memoria | Una investigación concreta que retomas mañana |
+
+Una skill es un procedimiento reutilizable: por ejemplo, cómo preparar un informe siguiendo tus criterios. Vive en el cerebro, junto con la memoria.
+
+### ¿Qué pasa cuando trabajas?
+
+![Mapa 3: continuidad entre sesiones](assets/readme/continuidad-es.svg)
+
+Por ejemplo: investigas un tema, eliges una opción y dejas dos pendientes. Cuando vuelves a esa pestaña, el agente recibe lo que quedó registrado para continuar. Puedes abrirla con otro motor.
+
+Esto comparte la memoria guardada. El historial completo del chat y las herramientas disponibles dependen de cada motor. No significa que recuerde cada palabra ni garantiza recuperar una sesión tras un cierre forzado.
+
+### Lo que puedes hacer desde el menú
+
+| Sección | Para qué la abres |
+|---|---|
+| Agentes | Crear o cargar un agente, elegir su motor y ajustar sus opciones |
+| Motores | Comprobar cuáles tienes instalados y con sesión iniciada |
+| Usuarios | Indicar quién usa un agente en esta computadora |
+| Temas | Cambiar la apariencia del menú |
+| Actualizaciones | Actualizar, elegir cómo recibir novedades o volver a la versión anterior |
+| Documentación | Entender cada función y ver el mapa de memoria con tus archivos reales |
+
+Dentro de las secciones, la tecla `i` explica su funcionamiento. Para empezar, basta con crear un agente y abrir una pestaña.
+
+### Tus archivos, permisos y costos
+
+El cerebro vive en una carpeta separada de Workspace. Puedes abrir sus archivos, respaldarlos y llevártelos. Reinstalar el programa no exige reconstruir a tus agentes. Llevar un cerebro a otra computadora requiere copiarlo o sincronizarlo y configurar allí el motor.
+
+Los permisos dependen del motor y de las opciones del agente. Workspace conserva las protecciones del motor: no asumas que todos ofrecen el mismo aislamiento. La [guía de motores](manual/es/motores.md#permisos) explica las diferencias.
+
+Tus solicitudes y los archivos que el agente use pueden enviarse al proveedor de IA elegido. Que el cerebro sea local no convierte en local al modelo. Revisa la [guía de privacidad](manual/es/privacidad.md) antes de trabajar con información sensible.
+
+Workspace se distribuye con licencia MIT. El acceso a los motores y modelos puede requerir suscripciones o consumo de API, que pagas a sus proveedores. La revisión opcional de skills también usa tu motor y puede consumir cuota.
+
+### Instalar y empezar
+
+Necesitas Python 3.9 o superior, Git y al menos un motor instalado con tu cuenta configurada. No necesitas instalar paquetes de Python con pip para el núcleo de Workspace.
+
+<details>
+<summary>macOS o Linux</summary>
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MaxGarcia399/workspace/main/setup.sh | bash
+```
+
+</details>
+
+<details>
+<summary>Windows, desde PowerShell</summary>
+
+```powershell
+irm https://raw.githubusercontent.com/MaxGarcia399/workspace/main/setup.ps1 -OutFile $env:TEMP\workspace-setup.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File $env:TEMP\workspace-setup.ps1
+```
+
+Instala fuera de OneDrive. La ubicación por defecto es `%LOCALAPPDATA%\Workspace`. Abre una terminal nueva al terminar.
+
+</details>
+
+Después, escribe `workspace`, crea o carga un agente y abre una pestaña. Si algo falla, `workspace doctor` revisa la instalación. La [guía de instalación](manual/es/instalar.md) incluye el procedimiento manual y el [primer arranque](manual/es/primer-arranque.md) explica los siguientes pasos.
+
+Las actualizaciones son automáticas por defecto. Puedes cambiarlas a solo avisar o apagarlas desde Actualizaciones. `workspace update` actualiza cuando tú quieras y `workspace update --rollback` vuelve a la anterior. Los ajustes que una actualización deba hacer en el cerebro llevan respaldo. [Cómo funcionan las actualizaciones](manual/es/actualizaciones.md).
+
+### Novedades de la v0.5.1
+
+- El mapa de memoria está en Documentación y deja de ocupar la portada del menú.
+- Las skills que aprende Hermes se guardan en el cerebro para que otros motores también las encuentren.
+- Se corrigieron problemas de memoria entre pestañas y de integración con Hermes y OpenClaw.
+- Se corrigió el movimiento inicial del cursor cuando todavía no hay agentes.
+
+### Historial resumido
+
+Lo que fuimos añadiendo y corrigiendo, de lo más reciente al inicio del proyecto. Estos son cambios de cada versión, no instrucciones de uso actuales.
+
+| Versión | Lo que se añadió o cambió | Lo que se corrigió |
+|---|---|---|
+| 0.5.0 | Pantalla «Cargando…», mapa de memoria y mejor integración con Hermes y OpenClaw | Textos oscuros en los chats y avisos sobre instrucciones antiguas |
+| 0.4.1 | Mantenimiento de Usuarios | Dejaron de aparecer usuarios de ejemplo como personas reales |
+| 0.4.0 | Memoria por pestaña entre motores, Usuarios y Documentación; revisión de skills en la sesión visible | Identificación de usuarios entre máquinas y apertura simultánea de agentes con OpenClaw |
+| 0.3.3 | Ajuste del primer arranque | Se eliminó el aviso de configuración incompleta que podía quedarse tras terminar |
+| 0.3.2 | Corrección inicial del aviso del primer arranque | Entrar solo a mirar ya no debía dejar la configuración como pendiente |
+| 0.3.1 | Secciones más sencillas, ayudas con mapas y verificación de sesión de motores | Motores dejó de perder el teclado durante la verificación |
+| 0.3.0 | Permisos por agente, revisión opcional de skills y diagnóstico centrado en lo esencial | Se retiraron permisos generales para ejecutar comandos sin preguntar |
+| 0.2.0 | Lanzador con búsqueda, opciones de actualización y regreso a la versión anterior | La actualización comprueba el arranque y vuelve atrás si la nueva versión falla |
+| 0.1.0 | Primera versión: menú de terminal, cerebros propios, motores intercambiables, instalación guiada y doctor | Punto de partida |
+
+Historial completo, con todos los detalles: [CHANGELOG](CHANGELOG.md).
+
+
+### Para seguir explorando
+
+[Manual en español](manual/es/README.md) · [Compatibilidad](manual/es/compatibilidad.md) · [Privacidad](manual/es/privacidad.md) · [Principios del proyecto](manual/MANIFESTO.md)
+
+Workspace está en desarrollo activo. Las funciones y su integración varían por motor y sistema. Para reportar una vulnerabilidad, sigue [SECURITY.md](SECURITY.md) y evita publicar datos sensibles en una incidencia.
 
 ---
 
@@ -22,667 +146,129 @@
 
 ## English
 
-### What it is
+### Choose your engine. Keep your agent.
 
-Workspace runs **multiple AI agents from one terminal** — each with its own
-**identity**, its own **brain** (a folder of plain files you keep), and the
-**engine** you choose to run it. One place to launch them, keep their context,
-and work.
+Workspace lets you work with Claude Code, Codex, Antigravity, OpenCode, OpenClaw or Hermes from one menu. Switch engines while keeping your agent’s identity, skills and saved memory.
 
-```
-Agent = identity + brain + engine + sections
-```
+![Mapa 1: available engines](assets/readme/motores-en.svg)
 
-### Mission
+Keep the brain and choose which program uses it. Each engine needs its own installation and your account or configuration. Features vary: see [compatibility by engine and operating system](manual/en/compatibility.md).
 
-Workspace is a **platform for you — the individual — to create and to learn as
-you go.** Two commitments drive every decision:
+Workspace organizes the work. Your engine's model generates the responses. Its provider still determines the limits, tools and costs.
 
-- **Transparency, all the way down.** You see what each piece does, why it does
-  it, what it changes, and what it costs. No magic, no black boxes, no hidden
-  conditions behind vague promises.
-- **The individual, not the enterprise.** This is built 100% around a single
-  person getting leverage from AI — owning their context and their tools — not
-  around seat licenses, admin consoles, or lock-in. If a choice is good for the
-  company but bad for the person, the person wins.
+### What is it for?
 
-### Why it exists
+Imagine having one assistant for research and another for your projects. Each needs its own instructions, knowledge and pending work. You also want to change AI tools without defining those assistants all over again.
 
-Most AI tooling marries you to one vendor: your context, your history, and your
-agents live inside someone else's product. Workspace takes the opposite bet.
+Workspace brings those pieces together in a terminal menu. Create your agents, open their conversations and choose which engine runs them. The terminal is the text window where you enter commands and talk to your agents.
 
-- **You own the brain.** Each agent's knowledge lives in plain, legible files you
-  keep — portable, inspectable, versionable. Not a vector database you can't read.
-- **You choose the engine.** The loop that talks to the model is pluggable. It
-  runs today on **six engines — Claude Code, Codex, Antigravity, OpenCode,
-  OpenClaw and Hermes** (each through its own official CLI and your own login);
-  others plug in **without reinventing the agent's identity.** Not every engine can do everything yet — the
-  [compatibility matrix](manual/en/compatibility.md) says exactly what works where.
-- **You stay in control.** Credentials are per-machine and never touch the repo.
-  The harness fails soft — a broken piece never takes down your session.
+![Mapa 2: agents and brains](assets/readme/agentes-en.svg)
 
-Workspace owns the **ecosystem** (agents, brains, orchestration). It deliberately
-does **not** rewrite the inference loop — that is inherited from the engine. The
-independence comes from the pluggable engine, not from re-implementing the hard part.
+These agents are examples. You choose how many to create and what they do.
 
-### Features
+### Four ideas to understand it
 
-What a fresh install gives you today:
+| Piece | Meaning | Example |
+|---|---|---|
+| Agent | Your assistant with a name, purpose and instructions | A research assistant |
+| Brain | The folder holding its identity, knowledge and procedures | Readable files you keep on your computer |
+| Engine | The AI program that runs the agent and provides its tools | Claude Code or Codex |
+| Tab | A conversation space with its own memory and pending work | Research you return to tomorrow |
 
-- **One hub for all your agents** — `workspace` opens a terminal menu to create,
-  load and launch agents; each agent also gets its own command. Every section
-  shows only the essentials in one centered box, and `i` explains how it works.
-- **Brains you own** — each agent's identity, memory, skills and sessions live in
-  a folder of Markdown outside Workspace. Readable, editable, portable; updating
-  or reinstalling Workspace never touches them.
-- **Six engines** — Claude Code, Codex, Antigravity, OpenCode, OpenClaw and Hermes,
-  each through its own CLI and your own login; switch an agent's engine from the hub. Claude
-  Code is the most integrated ([what works with each](manual/en/compatibility.md)).
-  Engines plug in through a documented contract (`engines/CONTRACT.md`).
-- **Permissions per brain** — by default an agent reads, creates and edits files
-  inside its own brain without asking you; for terminal commands, files outside
-  its brain and the network it asks first (Codex runs commands inside its sandbox,
-  which only lets it write to its brain and temporary folders, with no network).
-  You can turn off that free access per agent in **Agents** (pick the agent and Enter). Nothing ever
-  switches off the engine's protections.
-- **Skills** — reusable procedures in each brain, looked up when a task needs
-  them; when you create an agent you can fetch skills from public sources, and
-  they are checked before being added. Skill review is **optional** (off by
-  default, on in Agents (Enter on the agent)): when the next session opens, your
-  agent reviews the previous one in plain sight; it uses a little of your
-  subscription.
-- **Doctor and safe updates** — `workspace doctor` checks the essentials and
-  repairs what it can (`--bundle` makes a redacted zip to ask for help). Updates
-  are automatic, notify-only or off; a new version is tested on your machine
-  before it's used, and `workspace update --rollback` takes you back.
-- **The same memory in every engine** — each tab keeps its memory in the brain:
-  the agent saves decisions, pending items and facts as it works, and on close
-  Workspace tidies them up with plain code. Whichever engine opens that tab next
-  starts from the same memory. The **Memory map**, in **Menu › Documentation**,
-  shows it step by step with your agent's real files.
-- **Users** — **Menu › Users** shows who uses each agent across your machines;
-  Workspace records who you are on each one (at install, or with «that's me on
-  this PC»).
-- **Documentation** — **Menu › Documentation** explains everything Workspace
-  does, chapter by chapter, with a simple map, what is happening on your PC
-  right now and how to check it yourself.
-- **Nothing runs without a window** — no AI process works behind your back: the
-  agent saves its memory inside its visible session, and evals against a golden
-  set run only when you ask (`workspace eval`, Claude Code).
-- **Optional extra** — voice dictation (macOS only, `workspace voice --setup`).
+A skill is a reusable procedure, such as how to prepare a report using your criteria. It lives in the brain alongside the memory.
 
-> Status: **early / upcoming.** The core works end to end and is covered by a
-> test suite; polish, the public roadmap, pricing, and audience are still being
-> shaped. Expect rough edges, and surfaces that are scaffolding rather than finished.
+### What happens while you work?
 
-### How it works
+![Mapa 3: session continuity](assets/readme/continuidad-en.svg)
 
-```
-workspace  →  front.py  →  dispatch.py  →  engines/<engine>.launch()
-              (menu+CLI)    (resolve brain,    (the loop that talks to
-                            load config,        the model — inherited,
-                            pick engine)        not rewritten)
-```
+For example, you research a topic, choose an option and leave two things to do. When you return to that tab, the agent receives the recorded information to continue. You can open it with another engine.
 
-### Project structure
+This shares saved memory. The full chat history and available tools depend on each engine. It does not mean remembering every word or guarantee recovery after a forced shutdown.
 
-```
-front.py        # the door: menu + CLI (the `workspace` command)
-dispatch.py     # <agent> → resolves brain → loads config → starts its engine
-engines/        # pluggable engines + CONTRACT.md (the interface)
-agents/         # empty registry (your agents live in their brains)
-hooks/          # event listeners (session start/end, …)
-migrations/     # adjustments an update applies on your machine
-manual/         # the user manual (English and Spanish)
-install.py      # per-machine installer (writes only to your machine)
-doctor.py       # phase-by-phase diagnose / repair
-```
+### What you can do from the menu
 
-Brains do **not** live in this repo — each agent's brain is its own folder that
-Workspace references; the agent's definition travels inside it
-(`<brain>/.workspace/agent.json`).
+| Section | Why you open it |
+|---|---|
+| Agents | Create or load an agent, choose its engine and adjust its options |
+| Engines | Check which engines are installed and signed in |
+| Users | Identify who uses an agent on this computer |
+| Themes | Change the menu's appearance |
+| Updates | Update, choose how to receive updates or return to the previous version |
+| Documentation | Understand each feature and see the memory map with your real files |
 
-### Install
+Inside sections, `i` explains how things work. To get started, create an agent and open a tab.
 
-One command (macOS / Linux):
+### Your files, permissions and costs
+
+The brain lives in a folder outside Workspace. You can read its files, back them up and take them with you. Reinstalling the program does not require rebuilding your agents. Moving a brain to another computer requires copying or syncing it and setting up the engine there.
+
+Permissions depend on the engine and agent settings. Workspace keeps the engine's protections in place. Do not assume every engine provides the same isolation. The [engine guide](manual/en/engines.md) explains the differences.
+
+Your requests and files used by the agent may be sent to your chosen AI provider. A local brain does not make the model local. Read the [privacy guide](manual/en/privacy.md) before using sensitive information.
+
+Workspace is distributed under the MIT license. Engines and models may require subscriptions or API usage paid to their providers. Optional skill review also uses your engine and may consume quota.
+
+### Install and get started
+
+You need Python 3.9+, Git and at least one engine installed with your account configured. Workspace's core needs no Python packages installed through pip.
+
+<details>
+<summary>macOS or Linux</summary>
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/MaxGarcia399/workspace/main/setup.sh | bash
 ```
 
-Or clone and run the installer:
+</details>
 
-```bash
-git clone https://github.com/MaxGarcia399/workspace.git ~/Desktop/Workspace
-python3 ~/Desktop/Workspace/install.py
-```
-
-**Windows (PowerShell):**
+<details>
+<summary>Windows, from PowerShell</summary>
 
 ```powershell
 irm https://raw.githubusercontent.com/MaxGarcia399/workspace/main/setup.ps1 -OutFile $env:TEMP\workspace-setup.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File $env:TEMP\workspace-setup.ps1
 ```
 
-Or clone and run the installer:
+Install outside OneDrive. The default location is `%LOCALAPPDATA%\Workspace`. Open a new terminal when installation finishes.
 
-```powershell
-git clone https://github.com/MaxGarcia399/workspace.git "$env:LOCALAPPDATA\Workspace"
-python "$env:LOCALAPPDATA\Workspace\install.py"
-```
+</details>
 
-On Windows the default location is `%LOCALAPPDATA%\Workspace`. **Do not install
-under OneDrive** (a redirected Desktop/Documents counts): both `setup.ps1` and the
-installer refuse cloud-synced paths, because sync locks break the harness. The
-installer creates `workspace.cmd` in `%USERPROFILE%\.local\bin`, so the command
-works in cmd.exe, PowerShell and the VS Code terminal; open a new terminal after
-installing.
+Then enter `workspace`, create or load an agent and open a tab. If something fails, `workspace doctor` checks the installation. See [installation](manual/en/install.md) for the manual method and [first run](manual/en/first-run.md) for the next steps.
 
-The installer is **per-machine**: it drops the `workspace` command, wires the
-hooks, and writes only to your machine's local config — never to the shared repo.
-
-**Requirements:** Python 3.9+, Git, and at least one engine CLI logged in with
-your own account: **Claude Code** (`claude`), **Codex** (`codex`),
-**Antigravity** (`agy`), **OpenCode** (`opencode`), **OpenClaw** (`openclaw`) or
-**Hermes** (`hermes`). Claude Code is the most integrated today. On Windows use
-`python` (not `python3`). Optional: macOS for voice dictation.
-
-### Quickstart
-
-```bash
-workspace            # open the menu (pick an agent or a tool)
-workspace doctor     # diagnose / repair the install
-workspace --help     # every command
-```
-
-### Updates
-
-Workspace keeps itself up to date, and **you choose how**:
-
-- **Automatic** (the default): when you open an agent, at most once every 6 hours, it
-  installs the new version, with a safety net. First it checks that the new
-  version starts on your computer. If it doesn't, Workspace goes back to the one you had.
-- **Notify only:** once a day it tells you a new version is out; you install
-  it with `workspace update` when you want.
-- **Off:** it never checks on its own.
-
-Change it in the hub (**Updates**, the «automatic» row) or with
-`workspace update --auto auto|notify|off`. Whatever you pick, `workspace update`
-installs on demand and `workspace update --rollback` takes you back. Your agents,
-brains and settings live outside the Workspace folder. When a version needs to
-adjust something inside your brains (0.4.0, for example, moves your agents'
-identity to `BRAIN.md`), it does it on its own, copies everything to a backup
-first and deletes nothing; what you wrote yourself is left alone.
-More in [the manual](manual/en/updates.md).
+Updates are automatic by default. Choose notify-only or turn them off in Updates. `workspace update` updates on demand and `workspace update --rollback` returns to the previous version. Changes an update needs to make inside a brain are backed up first. [How updates work](manual/en/updates.md).
 
 ### What's new in v0.5.1
 
-- **The memory map, only in Documentation.** It left the hub's front page,
-  where it got mixed up with your agents. Open it from
-  **Menu › Documentation**: its first row, or the `m` key.
-- **Hermes learns into your brain.** The skills it creates go to your
-  agent's `skills/aprendidas/`, and your other engines see them too.
-- **Hermes and OpenClaw, steadier with your memory.** Hermes no longer asks
-  about its hook when it opens, and from Discord it can't search other
-  agents' conversations; two open tabs no longer erase each other's memory;
-  OpenClaw no longer runs skill reviews without a window.
-- **A fix.** With no agents, the first ↓ on the hub's front page now moves
-  the cursor.
+- The memory map lives in Documentation and no longer occupies the hub's front page.
+- Skills learned by Hermes are saved in the brain so other engines can find them too.
+- Fixes address memory across tabs and integration with Hermes and OpenClaw.
+- The initial cursor movement now works when no agents exist yet.
 
-### What's new in v0.5.0
+### Release history at a glance
 
-- **No text gets lost against your theme's background.** Your agents' chats
-  had near-black text on dark backgrounds. Claude Code, Hermes and OpenClaw
-  now know the background Workspace paints and write in colors that read on
-  it, in Terminal.app too; in most terminals Codex and commands also take
-  their colors from the theme.
-- **Hermes and OpenClaw use the same memory and skills as the other
-  engines.** Hermes gets the tab's up-to-date memory when you resume it and
-  uses your brain's skills; OpenClaw reads your brain's long-term memory on
-  every message.
-- **The memory map, in Documentation.** It shows step by step which of your
-  agent's files are read and written when you open, work, close and resume a
-  tab.
-- **Fewer things in sight.** Workflows and Proyectos no longer show up in the
-  hub, the help or the manual; if you type their commands they still work.
-  Version 0.6 removes their code and your data stays.
-- **«Loading…» while an agent opens.** Instead of a still screen, you see
-  «Loading…» in the middle of the screen while Workspace prepares the agent
-  (and, in Hermes and OpenClaw, the tab you picked). It hides no notice.
+What we added and fixed, from recent releases back to the start. These describe changes in each release, not current usage instructions.
 
-### What's new in v0.4.1
+| Version | Added or changed | Fixed |
+|---|---|---|
+| 0.5.0 | A loading screen, a memory map, and better integration with Hermes and OpenClaw | Dark chat text and notices about old template instructions |
+| 0.4.1 | Maintenance of the Users section | Example users stopped appearing as real people |
+| 0.4.0 | Tab memory across engines, Users and Documentation; skill review inside the visible session | User identification across computers and opening multiple OpenClaw agents at once |
+| 0.3.3 | First-run adjustment | Removed the unfinished-setup notice that could remain after setup was complete |
+| 0.3.2 | Initial fix for the first-run notice | Looking at setup should no longer leave it marked as unfinished |
+| 0.3.1 | Simpler sections, help with maps and engine sign-in checks | The Engines section no longer lost keyboard input while checking |
+| 0.3.0 | Per-agent permissions, optional skill review and diagnosis focused on essentials | Removed blanket permission to run commands without asking |
+| 0.2.0 | A searchable launcher, update preferences and rollback | Updates check startup and revert if the new version fails |
+| 0.1.0 | First release: terminal menu, owned brains, swappable engines, guided setup and doctor | Starting point |
 
-- **A fix.** The **Users** section no longer shows three names that belong to
-  no one: agents created with 0.2.0 or earlier came with three empty example
-  folders, and 0.4.0 took them for users. Workspace removes them on its own
-  when you open the agent; nothing with tabs, preferences or memory is touched.
+Full release history: [CHANGELOG.en.md](CHANGELOG.en.md).
 
-### What's new in v0.4.0
 
-- **Each tab remembers the same thing on any engine.** Your agent saves what
-  matters as it works (decisions, pending items, facts) and, when you open the
-  tab on that engine or another, it starts from the same memory. Workspace
-  tidies it up on its own, with no AI; nothing is deleted.
-- **Two new sections.** **Users** shows who uses each agent across your
-  machines (rename, merge, «that's me on this PC»). **Documentation** explains
-  everything Workspace does, with what is happening on your PC right now.
-- **No AI works without a window.** The "distiller" that summarized memory on
-  its own is gone; skill review, if you turn it on, happens in your agent's
-  session, in plain sight.
-- **Nothing waits for your approval.** Your agent keeps its skills, memory and
-  identity up to date on its own (it curates its skills once a week and
-  completes its personality from what you told it), always recoverable, and
-  tells you what it changed.
-- **Your brains get a few changes when you update**, always with a backup
-  first: your agents' identity moves to `BRAIN.md` (each engine still finds it),
-  the memory instructions are brought up to date, and the old proposals tray
-  (`STATE/DESTILADO.md`) moves to `STATE/memoria-archivo/`. Nothing is deleted.
-- **More private.** Your account tokens and saved keys no longer reach the
-  engines or what your agents run; telemetry and «get skills» start off.
-- **Fixes.** Windows opens the menu on its own again when you open a terminal;
-  `--help` never runs anything; uninstalling with «clean all» moves Workspace's
-  OpenClaw and Hermes profiles (with your conversations) to a backup instead of
-  deleting them, and only removes the terminal commands Workspace added; an
-  engine that isn't installed no longer blocks its agent; closing with the X
-  loses nothing; several OpenClaw agents can be open at once; on Windows,
-  uninstalling really deletes the Workspace folder.
+### Keep exploring
 
-### What's new in v0.3.3
+[English manual](manual/en/README.md) · [Compatibility](manual/en/compatibility.md) · [Privacy](manual/en/privacy.md) · [Project principles](manual/MANIFESTO.md)
 
-- **A fix.** The hub no longer shows the "setup unfinished" notice, which
-  could stay even after you had finished the first run. To go through it
-  again: `workspace onboarding`.
-
-### What's new in v0.3.1
-
-- **A simpler hub.** Every section shows only what you need, in one centered
-  box; the explanation and its maps are behind `i`. Agents shows your agents
-  with the options of the one you pick below and «+ add agent» at the end;
-  Engines checks for real whether you're signed in; Updates shows only what you
-  can do right then, including going back to the previous version; Commands
-  opens each command's map on the right with `i`.
-- **Less clutter.** Shortcuts left the menu (keys `1`–`9` follow your agents'
-  order) and Google Calendar is paused while we improve it.
-
-### What's new in v0.3.0
-
-- **You choose how each agent works.** Creating or loading an agent offers two
-  switches: reading and writing its own brain without asking (on: it's its main
-  job; for everything else it asks you) and automatic skill review (off). Change
-  them anytime in **Agents** (pick the agent and Enter).
-- **No more blanket permissions for Claude Code agents.** The installer used to let
-  every agent run any command without asking. Updating switches your agents to
-  "free only inside their brain" on its own. Auto-accept edits is now off by default.
-- **Skill review is optional and works with all three engines** — off by default;
-  when on, the agent's own engine (Claude Code, Codex or Antigravity) does it in
-  the background and uses a little of your subscription.
-- **The doctor checks and repairs only the essentials** — your agents, their hooks
-  and commands, git/Python/the engine you use, and updates — and fixes hooks that
-  point to a Workspace folder that no longer exists.
-- **Simpler install, sessions kept for a year** (it was ten): no "Who are you?"
-  question, and it asks for the CLI of the engine you'll use. A retention you
-  chose yourself is never touched.
-
-Full list: [CHANGELOG.en.md](CHANGELOG.en.md).
-
-### Manual
-
-The user manual lives in [`manual/`](manual/README.md) — short chapters in
-[English](manual/en/README.md) and [Spanish](manual/es/README.md): install, first
-run, the hub, engines, what works with each engine, commands, themes, updates,
-troubleshooting, uninstall and privacy.
-What Workspace stands for, in ten lines: [the manifesto](manual/MANIFESTO.md).
-Found a security problem? See [SECURITY.md](SECURITY.md) — please don't open a
-public issue.
-
-### Design principles
-
-- **Zero dependencies.** Pure Python 3.9 standard library. No `pip install`.
-- **Cross-platform, fail-soft.** macOS, Linux, Windows; errors degrade gracefully.
-- **Your files, not a black box.** Brains are folders of Markdown you control.
-- **Honest about limits.** No promises of perfect memory, universal auto-save, or
-  lossless transfer between providers.
-
-### License
-
-[MIT](LICENSE). Copyright (c) 2026 The Workspace Authors.
+Workspace is in active development. Features and integration vary by engine and operating system. To report a vulnerability, follow [SECURITY.md](SECURITY.md) and keep sensitive information out of public issues.
 
 ---
 
-<a id="español"></a>
-
-## Español
-
-### Qué es
-
-Workspace corre **varios agentes de IA desde una terminal** — cada uno con su
-**identidad**, su **cerebro** (una carpeta de archivos legibles que tú conservas),
-y el **motor** que elijas para ejecutarlo. Un solo lugar para lanzarlos, conservar
-su contexto y trabajar.
-
-```
-Agente = identidad + cerebro + motor + secciones
-```
-
-### Misión
-
-Workspace es una **plataforma para ti —la persona— para crear y aprender sobre la
-marcha.** Dos compromisos guían cada decisión:
-
-- **Transparencia hasta el fondo.** Ves qué hace cada pieza, por qué, qué cambia
-  y qué cuesta. Sin magia, sin cajas negras, sin condiciones escondidas detrás de
-  promesas vagas.
-- **El individuo, no la empresa.** Está pensado 100% en una sola persona sacándole
-  provecho a la IA —dueña de su contexto y sus herramientas— no en licencias por
-  asiento, consolas de admin ni lock-in. Si una decisión es buena para la empresa
-  pero mala para la persona, gana la persona.
-
-### Por qué existe
-
-La mayoría de las herramientas de IA te casan con un proveedor: tu contexto, tu
-historial y tus agentes viven dentro del producto de alguien más. Workspace
-apuesta por lo contrario.
-
-- **Eres dueño del cerebro.** El conocimiento de cada agente vive en archivos
-  legibles que conservas — portables, inspeccionables, versionables. No una base
-  vectorial que no puedes leer.
-- **Eliges el motor.** El bucle que habla con el modelo es enchufable. Hoy corre
-  sobre **seis motores: Claude Code, Codex, Antigravity, OpenCode, OpenClaw y
-  Hermes** (cada uno con su CLI oficial y tu propia sesión); otros se enchufan
-  **sin reinventar la identidad del agente.** No todos los motores pueden todo todavía — la
-  [matriz de compatibilidad](manual/es/compatibilidad.md) dice qué funciona dónde.
-- **Mantienes el control.** Las credenciales son por-máquina y jamás tocan el
-  repo. El harness falla-suave — una pieza rota nunca tumba tu sesión.
-
-Workspace es dueño del **ecosistema** (agentes, cerebros, orquestación).
-Deliberadamente **no** reescribe el bucle de inferencia — ese se hereda del motor.
-La independencia viene del motor enchufable, no de reimplementar la parte difícil.
-
-### Features
-
-Lo que te da una instalación nueva hoy:
-
-- **Un hub para todos tus agentes** — `workspace` abre un menú de terminal para
-  crear, cargar y lanzar agentes; cada agente tiene además su propio comando.
-  Cada sección muestra solo lo esencial en una caja centrada, y `i` explica cómo
-  funciona.
-- **Cerebros que son tuyos** — la identidad, memoria, skills y sesiones de cada
-  agente viven en una carpeta de Markdown fuera de Workspace. Legibles, editables,
-  portables; actualizar o reinstalar Workspace no los toca.
-- **Seis motores** — Claude Code, Codex, Antigravity, OpenCode, OpenClaw y Hermes, cada
-  uno con su propio CLI y tu propia sesión; cambias el motor de un agente desde el hub. Claude Code es el
-  más integrado ([qué funciona con cada uno](manual/es/compatibilidad.md)). Los
-  motores se enchufan con un contrato documentado (`engines/CONTRACT.md`).
-- **Permisos por cerebro** — de entrada, un agente lee, crea y edita archivos
-  dentro de su cerebro sin preguntarte; para comandos de terminal, archivos fuera
-  de su cerebro y la red te pregunta antes (Codex corre comandos dentro de su caja,
-  que solo le deja escribir en su cerebro y en carpetas temporales, sin red). Ese
-  acceso libre se apaga por agente en **Agentes** (elige el agente y Enter). Nada desactiva las
-  protecciones del motor.
-- **Skills** — procedimientos reutilizables en cada cerebro, que el agente consulta
-  cuando una tarea los necesita; al crear un agente puedes traer skills de fuentes
-  públicas, revisadas antes de agregarse. La revisión de skills es **opcional**
-  (viene apagada, se prende en Agentes (Enter sobre el agente)): al abrir la siguiente
-  sesión, tu agente revisa la anterior a la vista; usa un poco de tu suscripción.
-- **Doctor y actualizaciones seguras** — `workspace doctor` revisa lo esencial y
-  repara lo que puede (`--bundle` arma un zip con tus datos tachados para pedir
-  ayuda). Las actualizaciones son automáticas, solo-avisar o apagadas; una versión
-  nueva se prueba en tu máquina antes de usarse y `workspace update --rollback` te
-  regresa.
-- **La misma memoria en todos los motores** — cada pestaña guarda su memoria en
-  el cerebro: el agente anota decisiones, pendientes y datos mientras trabaja, y
-  al cerrar Workspace los ordena con código. El motor que abra esa pestaña
-  después arranca con la misma memoria. El **Mapa de la memoria**, en
-  **Menú › Documentación**, lo enseña paso a paso con los archivos reales de tu
-  agente.
-- **Usuarios** — **Menú › Usuarios** muestra quién usa cada agente en todas tus
-  máquinas; Workspace registra quién eres en cada una (al instalar, o con «soy yo
-  en esta PC»).
-- **Documentación** — **Menú › Documentación** explica todo lo que hace
-  Workspace, capítulo por capítulo, con un mapa simple, lo que está pasando ahora
-  en tu PC y cómo comprobarlo tú.
-- **Nada corre sin ventana** — ningún proceso con IA trabaja a tus espaldas: el
-  agente guarda su memoria dentro de su sesión visible, y los evals contra un set
-  de referencia corren solo cuando tú lo pides (`workspace eval`, Claude Code).
-- **Extra opcional** — dictado por voz (solo macOS, `workspace voice --setup`).
-
-> Estado: **early / upcoming (temprano).** El núcleo funciona end-to-end y está
-> cubierto por una suite de tests; el pulido, el roadmap público, el precio y el
-> público objetivo aún se están definiendo. Habrá aristas, y partes que son andamio
-> más que producto terminado.
-
-### Cómo funciona
-
-```
-workspace  →  front.py  →  dispatch.py  →  engines/<motor>.launch()
-              (menú+CLI)    (resuelve el       (el bucle que habla con
-                            cerebro, carga      el modelo — heredado,
-                            config, elige       no reescrito)
-                            motor)
-```
-
-### Estructura del proyecto
-
-```
-front.py        # la puerta: menú + CLI (el comando `workspace`)
-dispatch.py     # <agente> → resuelve cerebro → carga config → arranca su motor
-engines/        # motores enchufables + CONTRACT.md (la interfaz)
-agents/         # registro vacío (tus agentes viven en sus cerebros)
-hooks/          # listeners por evento (inicio/fin de sesión, …)
-migrations/     # ajustes que una actualización aplica en tu máquina
-manual/         # el manual de usuario (español e inglés)
-install.py      # instalador per-máquina (solo escribe en tu máquina)
-doctor.py       # diagnóstico / reparación por fases
-```
-
-Los cerebros **no** viven en este repo — el cerebro de cada agente es su propia
-carpeta que Workspace referencia; la definición del agente viaja dentro de él
-(`<cerebro>/.workspace/agent.json`).
-
-### Instalación
-
-Un comando (macOS / Linux):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/MaxGarcia399/workspace/main/setup.sh | bash
-```
-
-O clona y corre el instalador:
-
-```bash
-git clone https://github.com/MaxGarcia399/workspace.git ~/Desktop/Workspace
-python3 ~/Desktop/Workspace/install.py
-```
-
-**Windows (PowerShell):**
-
-```powershell
-irm https://raw.githubusercontent.com/MaxGarcia399/workspace/main/setup.ps1 -OutFile $env:TEMP\workspace-setup.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File $env:TEMP\workspace-setup.ps1
-```
-
-O clona y corre el instalador:
-
-```powershell
-git clone https://github.com/MaxGarcia399/workspace.git "$env:LOCALAPPDATA\Workspace"
-python "$env:LOCALAPPDATA\Workspace\install.py"
-```
-
-En Windows la ubicación por default es `%LOCALAPPDATA%\Workspace`. **No lo instales
-bajo OneDrive** (un Escritorio/Documentos redirigido cuenta): `setup.ps1` y el
-instalador rechazan rutas sincronizadas a la nube porque los bloqueos del sync rompen
-el harness. El instalador crea `workspace.cmd` en `%USERPROFILE%\.local\bin`, así que
-el comando funciona en cmd.exe, PowerShell y la terminal de VS Code; abre una terminal
-nueva al terminar.
-
-El instalador es **per-máquina**: deja el comando `workspace`, cablea los hooks y
-solo escribe en la config local de tu máquina — nunca en el repo compartido.
-
-**Requisitos:** Python 3.9+, Git, y al menos un CLI de motor con tu propia sesión
-iniciada: **Claude Code** (`claude`), **Codex** (`codex`), **Antigravity** (`agy`),
-**OpenCode** (`opencode`), **OpenClaw** (`openclaw`) o **Hermes** (`hermes`).
-Hoy Claude Code es el más integrado. En Windows usa `python` (no `python3`).
-Opcional: macOS para el dictado por voz.
-
-### Inicio rápido
-
-```bash
-workspace            # abre el menú (elige un agente o una herramienta)
-workspace doctor     # diagnostica / repara la instalación
-workspace --help     # todos los comandos
-```
-
-### Actualizaciones
-
-Workspace se mantiene al día solo, y **tú eliges cómo**:
-
-- **Automáticas** (de inicio): al abrir un agente, como mucho una vez cada 6 horas,
-  instala la versión nueva, con red de seguridad. Antes comprueba que esa versión
-  arranca en tu computadora. Si no arranca, Workspace vuelve a la que tenías.
-- **Solo avisar:** una vez al día te dice que hay versión nueva; la instalas con
-  `workspace update` cuando quieras.
-- **Apagadas:** nunca consulta por su cuenta.
-
-Se cambia en el hub (**Actualizaciones**, fila «automáticas») o con
-`workspace update --auto auto|notify|off`. Elijas lo que elijas, `workspace update`
-instala cuando lo pides y `workspace update --rollback` te regresa. Tus agentes,
-cerebros y ajustes viven fuera de la carpeta de Workspace. Cuando una versión necesita
-ajustar algo dentro de tus cerebros (la 0.4.0, por ejemplo, pasa la identidad de tus
-agentes a `BRAIN.md`), lo hace sola, antes copia todo a un respaldo y no borra nada; lo
-que escribiste tú se deja como está.
-Más en [el manual](manual/es/actualizaciones.md).
-
-### Novedades de la v0.5.1
-
-- **El mapa de la memoria, solo en Documentación.** Salió de la portada del
-  hub, donde se confundía con tus agentes. Ábrelo desde
-  **Menú › Documentación**: su primer renglón, o la tecla `m`.
-- **Hermes aprende en tu cerebro.** Las skills que crea van a
-  `skills/aprendidas/` de tu agente, y tus otros motores también las ven.
-- **Hermes y OpenClaw, más firmes con tu memoria.** Hermes ya no pregunta por
-  su gancho al abrir, y desde Discord no puede buscar conversaciones de otros
-  agentes; dos pestañas abiertas ya no se borran la memoria; OpenClaw ya no
-  corre revisiones de skills sin ventana.
-- **Un arreglo.** Sin agentes, la primera flecha ↓ en la portada del hub ya
-  mueve el cursor.
-
-### Novedades de la v0.5.0
-
-- **Ningún texto se pierde contra el fondo de tu tema.** En el chat de tus
-  agentes había textos casi negros sobre fondos oscuros. Claude Code, Hermes y
-  OpenClaw ahora saben qué fondo pinta Workspace y escriben con colores que se
-  leen sobre él, también en Terminal.app; en la mayoría de las terminales,
-  Codex y los comandos también toman sus colores del tema.
-- **Hermes y OpenClaw usan la misma memoria y las mismas skills que los demás
-  motores.** Hermes recibe la memoria de la pestaña al día cuando la retomas y
-  usa las skills de tu cerebro; OpenClaw lee la memoria larga de tu cerebro en
-  cada mensaje.
-- **El mapa de la memoria, en Documentación.** Muestra paso a paso qué
-  archivos de tu agente se leen y se escriben al abrir, trabajar, cerrar y
-  retomar una pestaña.
-- **Menos cosas a la vista.** Workflows y Proyectos ya no aparecen en el hub,
-  la ayuda ni el manual; si escribes sus comandos, siguen funcionando. La 0.6
-  quita su código y tus datos se quedan.
-- **«Cargando…» mientras abre un agente.** En vez de una pantalla quieta, ves
-  «Cargando…» al centro mientras Workspace prepara al agente (y, en Hermes y
-  OpenClaw, la pestaña que elegiste). No tapa ningún aviso.
-
-### Novedades de la v0.4.1
-
-- **Un arreglo.** La sección **Usuarios** ya no muestra tres nombres que no son
-  de nadie: los agentes creados con la 0.2.0 o antes traían tres carpetas de
-  ejemplo vacías y la 0.4.0 las tomaba por usuarios. Workspace las quita solo
-  al abrir el agente; nada que tenga pestañas, preferencias o memoria se toca.
-
-### Novedades de la v0.4.0
-
-- **Cada pestaña recuerda lo mismo en cualquier motor.** Tu agente guarda lo
-  importante mientras trabaja (decisiones, pendientes, hechos) y, al abrir la
-  pestaña en ese motor o en otro, arranca con la misma memoria. Workspace la
-  ordena solo, sin IA; nada se borra.
-- **Dos secciones nuevas.** **Usuarios** muestra quién usa cada agente en todas
-  tus máquinas (cambiar nombre, unir, «soy yo en esta PC»). **Documentación**
-  explica todo lo que hace Workspace, con lo que está pasando ahora en tu PC.
-- **Ninguna IA trabaja sin ventana.** Se retiró el «destilador» que resumía la
-  memoria por su cuenta; la revisión de skills, si la enciendes, ocurre en la
-  sesión de tu agente, a la vista.
-- **Nada espera tu aprobación.** Tu agente mantiene solo sus skills, su memoria
-  y su identidad (cura sus skills una vez por semana y completa su personalidad
-  con lo que le dijiste), siempre recuperable, y te cuenta qué cambió.
-- **Tus cerebros reciben unos cambios al actualizar**, siempre con respaldo
-  antes: la identidad de tus agentes pasa a `BRAIN.md` (cada motor la sigue
-  encontrando), las instrucciones de memoria se ponen al día y la bandeja vieja
-  de propuestas (`STATE/DESTILADO.md`) pasa a `STATE/memoria-archivo/`. Nada se
-  borra.
-- **Más privado.** Las fichas de tus cuentas y las llaves guardadas ya no llegan
-  a los motores ni a lo que ejecutan tus agentes; la telemetría y «obtener
-  skills» empiezan apagadas.
-- **Arreglos.** Windows vuelve a abrir el menú solo al abrir la terminal;
-  `--help` nunca ejecuta nada; desinstalar con «limpiar todo» mueve los perfiles
-  de Workspace en OpenClaw y Hermes (con tus conversaciones) a un respaldo en vez
-  de borrarlos, y solo quita los comandos de terminal que puso Workspace; un
-  motor que no está instalado ya no bloquea a su agente; cerrar con la X no
-  pierde nada; puedes tener varios agentes de OpenClaw abiertos a la vez; en
-  Windows, desinstalar ya borra de verdad la carpeta de Workspace.
-
-### Novedades de la v0.3.3
-
-- **Un arreglo.** El hub ya no muestra el aviso de «configuración a medias»,
-  que podía seguir ahí aunque ya hubieras terminado el primer arranque. Para
-  repasarlo: `workspace onboarding`.
-
-### Novedades de la v0.3.1
-
-- **Un hub más simple.** Cada sección muestra solo lo que necesitas, en una caja
-  centrada; la explicación y sus mapas están detrás de `i`. Agentes muestra tus
-  agentes con las opciones del elegido debajo y «+ agregar agente» al final;
-  Motores verifica de verdad si tienes sesión; Actualizaciones muestra solo
-  lo que puedes hacer en ese momento, incluido volver a la versión anterior;
-  Comandos abre con `i` el mapa de cada comando a la derecha.
-- **Menos ruido.** Atajos salió del menú (las teclas `1`–`9` siguen el orden de
-  tus agentes) y Google Calendar queda en pausa mientras lo mejoramos.
-
-### Novedades de la v0.3.0
-
-- **Tú eliges cómo trabaja cada agente.** Crear o cargar un agente te da dos
-  interruptores: leer y escribir su cerebro sin preguntar (encendido: es su trabajo
-  principal; lo demás te lo pregunta) y la revisión automática de skills (apagada).
-  Los cambias cuando quieras en **Agentes** (elige el agente y Enter).
-- **Se acabaron los permisos sin límite en los agentes de Claude Code.** El instalador
-  dejaba a todo agente correr cualquier comando sin preguntar. Al actualizar, tus agentes
-  pasan solos a «libres solo dentro de su cerebro». Auto-aceptar ediciones viene ahora
-  apagado.
-- **La revisión de skills es opcional y funciona con los tres motores** — viene
-  apagada; si la prendes, el propio motor del agente (Claude Code, Codex o Antigravity)
-  la hace en segundo plano y usa un poco de tu suscripción.
-- **El doctor revisa y repara solo lo esencial** — tus agentes, sus hooks y comandos,
-  git/Python/el motor que usas y las actualizaciones — y arregla los hooks que apuntan a
-  una carpeta de Workspace que ya no existe.
-- **Instalar es más simple y tus sesiones se conservan un año** (antes, diez): ya no
-  pregunta «¿Quién eres?» y pide el CLI del motor que vayas a usar. Una retención que tú
-  elegiste jamás se toca.
-
-Lista completa: [CHANGELOG.md](CHANGELOG.md).
-
-### Manual
-
-El manual de usuario vive en [`manual/`](manual/README.md) — capítulos cortos en
-[español](manual/es/README.md) e [inglés](manual/en/README.md): instalar, primer
-arranque, el hub, motores, qué funciona con cada motor, comandos, temas,
-actualizaciones, diagnóstico, desinstalar y privacidad. Lo que Workspace defiende, en diez líneas: [el manifiesto](manual/MANIFIESTO.md).
-¿Encontraste un problema de seguridad? Lee [SECURITY.md](SECURITY.md) — por favor
-no abras un issue público.
-
-### Principios de diseño
-
-- **Cero dependencias.** Python 3.9, solo biblioteca estándar. Sin `pip install`.
-- **Cross-platform, falla-suave.** macOS, Linux, Windows; los errores degradan con
-  gracia.
-- **Tus archivos, no una caja negra.** Los cerebros son carpetas de Markdown que
-  controlas.
-- **Honesto sobre los límites.** Sin promesas de memoria perfecta, guardado
-  universal automático, ni transferencia sin pérdida entre proveedores.
-
-### Licencia
-
-[MIT](LICENSE). Copyright (c) 2026 The Workspace Authors.
+[MIT License](LICENSE). Copyright (c) 2026 The Workspace Authors.
