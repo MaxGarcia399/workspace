@@ -54,12 +54,35 @@ STRINGS = {
                                  '(Workspace no copia tus llaves). Sin él, Hermes abre su propio '
                                  'asistente en vez de tu agente: conéctalo en Motores › Hermes › '
                                  'cuenta y proveedor (el proveedor y el modelo).',
-    'motorbar.hermes.skills': 'conecté las skills de tu cerebro y Hermes ya no crea skills en su '
-                              'perfil compartido',
+    'motorbar.hermes.skills': 'conecté las skills de tu cerebro; las que Hermes aprenda se '
+                              'guardan en él (skills/aprendidas/), no en su perfil compartido',
+    'motorbar.hermes.skills_create': 'las skills que Hermes aprenda ahora se guardan en tu '
+                                     'cerebro (skills/aprendidas/), donde las ven tus otros '
+                                     'motores',
     'motorbar.hermes.skills_foreign': 'el perfil tiene una sección skills: que no edito: las '
                                       'skills de tu cerebro no se conectan',
+    'motorbar.hermes.discord_off': 'apagué en Discord {tools} de Hermes (un bot conectado al '
+                                   'perfil compartido podía leer las conversaciones de todos '
+                                   'tus agentes)',
+    'motorbar.hermes.discord_still': 'no pude apagar {tools} en Discord (no guarda nada: la '
+                                     'memoria de Hermes está apagada)',
+    'motorbar.hermes.discord_leak': 'no pude apagar {tool} en Discord: un bot de Discord '
+                                    'conectado al perfil «{p}» podría leer las conversaciones '
+                                    'de tus otros agentes; córrelo a mano: hermes --profile {p} '
+                                    'tools disable --platform {plat} {tool}',
+    'motorbar.hermes.platforms_off': 'apagué {tools} de Hermes en Discord, Telegram, Slack, '
+                                     'WhatsApp y sus demás plataformas (un bot conectado al '
+                                     'perfil compartido podía leer las conversaciones de todos '
+                                     'tus agentes)',
+    'motorbar.hermes.platforms_leak': 'no pude apagar {tool} en las plataformas de mensajería de '
+                                      'Hermes (la sección agent: del perfil tiene una forma que '
+                                      'no edito): un bot de Telegram, Slack u otra conectado al '
+                                      'perfil «{p}» podría leer las conversaciones de tus otros '
+                                      'agentes; agrega {tool} y memory a agent.disabled_toolsets '
+                                      'en {cfg}',
     'motorbar.hermes.plan_skills': '  skills      : las de fábrica del perfil + las de tu cerebro '
-                                   '(skills/); Hermes no crea skills en el perfil compartido',
+                                   '(skills/); las que Hermes crea van a skills/aprendidas/ de tu '
+                                   'cerebro',
     'motorbar.openclaw.memory_failed': 'no pude prender la carga de la memoria larga '
                                        '(STATE/MEMORY.md): OpenClaw abre sin ella',
     'motorbar.openclaw.memory_restored': 'volví a prender la carga de STATE/MEMORY.md (hook '
@@ -71,6 +94,7 @@ STRINGS = {
                                   'turno: jamás usa su agente «main» de fábrica, que contesta '
                                   'con otra identidad',
     'motorbar.openclaw.plan_memory': '  memoria     : STATE/MEMORY.md de tu cerebro en cada turno '
-                                     '(hook oficial bootstrap-extra-files, con el gateway); su '
-                                     'búsqueda por significado, apagada',
+                                     '(hook oficial bootstrap-extra-files, con el gateway); lo que '
+                                     'su memoria propia escribiría, apagado; su búsqueda de '
+                                     'memoria sigue encendida (solo en sus propios archivos)',
 }

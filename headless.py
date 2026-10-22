@@ -146,7 +146,14 @@ def _invoke_claude_code(prompt, *, model, timeout, cwd, tools, exe_override,
     exe = exe_override or shutil.which("claude")
     if not exe:
         return False, "claude no está en PATH"
-    cmd = [exe, "-p", prompt]
+    # Un claude instalado por npm en Windows es `claude.cmd`: cmd.exe vuelve a
+    # leer cada argumento (el prompt se cortaba en el primer salto de línea y
+    # una comilla impar ejecutaba comandos). Ahí el prompt va por stdin:
+    # VERIFICADO, `claude -p` sin prompt lo toma de stdin («Input must be
+    # provided either through stdin or as a prompt argument»).
+    import memoria
+    entrada = (prompt or "").encode("utf-8") if memoria.pasa_por_cmd(exe) else None
+    cmd = [exe, "-p"] + ([] if entrada is not None else [prompt])
     if model:
         cmd += ["--model", model]
     cmd += ["--output-format", "text"]
@@ -195,10 +202,14 @@ def _invoke_claude_code(prompt, *, model, timeout, cwd, tools, exe_override,
     if cwd:
         os.makedirs(cwd, exist_ok=True)
     if kill_group:                    # write-scoped: mata TODO el grupo en timeout
-        return _run_killgroup(cmd, cwd, env, timeout)
+        return _run_killgroup(cmd, cwd, env, timeout, entrada=entrada)
     try:
-        r = subprocess.run(cmd, cwd=cwd or None, env=env, timeout=timeout,
-                           capture_output=True, stdin=subprocess.DEVNULL)
+        if entrada is not None:
+            r = subprocess.run(cmd, cwd=cwd or None, env=env, timeout=timeout,
+                               capture_output=True, input=entrada)
+        else:
+            r = subprocess.run(cmd, cwd=cwd or None, env=env, timeout=timeout,
+                               capture_output=True, stdin=subprocess.DEVNULL)
     except Exception as e:
         return False, "fallo al invocar: %s" % e
     out = r.stdout.decode("utf-8", errors="replace")
@@ -209,16 +220,18 @@ def _invoke_claude_code(prompt, *, model, timeout, cwd, tools, exe_override,
     return True, out
 
 
-def _run_killgroup(cmd, cwd, env, timeout):
+def _run_killgroup(cmd, cwd, env, timeout, entrada=None):
     """Corre `cmd` en su PROPIO grupo de procesos (start_new_session) y, en
     timeout/abort, mata el GRUPO ENTERO con SIGKILL (sandbox-exec→claude→node→git
     no quedan huérfanos). Es el camino write-scoped (agente que ESCRIBE): Argus
-    exige killpg cuando hay escritura/red. Devuelve (ok, out)."""
+    exige killpg cuando hay escritura/red. `entrada` (bytes) va por stdin; sin
+    ella, stdin cerrado. Devuelve (ok, out)."""
     import signal
     try:
         p = subprocess.Popen(cmd, cwd=cwd or None, env=env,
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                             stdin=subprocess.DEVNULL, start_new_session=True)
+                             stdin=subprocess.DEVNULL if entrada is None else subprocess.PIPE,
+                             start_new_session=True)
     except Exception as e:
         return False, "fallo al invocar: %s" % e
     def _kill_tree():
@@ -235,7 +248,7 @@ def _run_killgroup(cmd, cwd, env, timeout):
             pass
 
     try:
-        out_b, err_b = p.communicate(timeout=timeout)
+        out_b, err_b = p.communicate(input=entrada, timeout=timeout)
     except subprocess.TimeoutExpired:
         _kill_tree()
         return False, "timeout: grupo de procesos matado (killpg) tras %ss" % timeout
@@ -263,6 +276,11 @@ def _invoke_codex(prompt, *, model, timeout, cwd, tools, exe_override,
     - `--output-last-message <tmp>`: stdout de codex exec mezcla logs con
       la respuesta; el mensaje final limpio va a un archivo temporal.
     - `--skip-git-repo-check`: el staging del harness no es repo git.
+    - El prompt entra por STDIN (`-`), como en engines/codex.run_turn
+      (verificado contra `codex exec --help`): un codex instalado por npm en
+      Windows es `codex.cmd` y cmd.exe vuelve a leer cada argumento (corte
+      en el primer salto de línea, %VAR%, comandos con una comilla impar), y
+      un prompt que empiece con `-` tampoco se cuela como flag.
     """
     exe = exe_override or shutil.which("codex")
     if not exe:
@@ -276,7 +294,7 @@ def _invoke_codex(prompt, *, model, timeout, cwd, tools, exe_override,
            "--output-last-message", outfile]
     if model:
         cmd += ["--model", model]
-    cmd += [prompt]
+    cmd += ["-"]                      # prompt por stdin
     if wrapper:                       # sandbox del SO (agent-real), como claude-code
         cmd = list(wrapper) + cmd
     import secret_store
@@ -285,7 +303,7 @@ def _invoke_codex(prompt, *, model, timeout, cwd, tools, exe_override,
     env["WORKSPACE_NO_AUTOUPDATE"] = "1"
     try:
         r = subprocess.run(cmd, cwd=cwd or None, env=env, timeout=timeout,
-                           capture_output=True, stdin=subprocess.DEVNULL)
+                           capture_output=True, input=(prompt or "").encode("utf-8"))
         if r.returncode != 0:
             err = r.stderr.decode("utf-8", errors="replace")[:300]
             return False, "exit %d: %s" % (r.returncode, err)
@@ -318,12 +336,13 @@ def _invoke_opencode(prompt, *, model, timeout, cwd, tools, exe_override,
     except Exception as e:
         return False, "engines/opencode.py no importable: %s" % e
 
-    def runner(cmd, cwd=None, env=None, timeout=None):
+    def runner(cmd, cwd=None, env=None, timeout=None, input=""):
+        # el mensaje entra por stdin (opencode.run_turn): jamás como argumento
         env = dict(env or os.environ)
         env["WORKSPACE_REVIEW_RUNNING"] = "1"
         return subprocess.run((list(wrapper) if wrapper else []) + list(cmd),
                               cwd=cwd, env=env, timeout=timeout,
-                              capture_output=True, stdin=subprocess.DEVNULL)
+                              capture_output=True, input=(input or "").encode("utf-8"))
     return oc.run_turn(prompt, model=model, cwd=cwd, timeout=timeout,
                        exe_override=exe_override, runner=runner)
 
@@ -336,8 +355,10 @@ def _invoke_openclaw(prompt, *, model, timeout, cwd, tools, exe_override,
     cuyo cerebro es `cwd`. Se prepara como en el arranque (perfil + agente con
     workspace = el cerebro). Jamás el «main» de fábrica del perfil, que
     contestaba con su identidad de fábrica: sin agente no hay turno.
-    can_disable_tools=False: no hay knob verificado. El modelo NO se fija salvo
-    override explícito."""
+    Cada turno lleva su PROPIA clave (`--session-key agent:<id>:ws-headless-…`):
+    sin ella todos los turnos sin ventana se sumaban a una sola conversación
+    del agente. can_disable_tools=False: no hay knob verificado. El modelo NO
+    se fija salvo override explícito."""
     if wrapper:
         return False, "openclaw: sandbox del SO (wrapper) aún no soportado"
     try:
@@ -353,8 +374,15 @@ def _invoke_openclaw(prompt, *, model, timeout, cwd, tools, exe_override,
     ok, aid = oc.prepare_agent(cfg, exe=exe)
     if not ok:
         return False, "openclaw: %s" % aid
-    return oc.run_turn(prompt, model=model, cwd=cwd, timeout=timeout,
-                       exe_override=exe_override, agent=aid)
+    # Una sesión nueva por turno ya no trae la identidad del historial de la
+    # principal: el turno empieza diciendo quién es el agente (R2, 0.5.1).
+    try:
+        quien = oc.identidad_sin_ventana(cfg, aid)
+    except Exception:
+        quien = ""
+    return oc.run_turn(" ".join(p for p in (quien, prompt or "") if p), model=model, cwd=cwd,
+                       timeout=timeout, exe_override=exe_override, agent=aid,
+                       session_key=oc.headless_session_key(aid))
 
 
 def _invoke_hermes(prompt, *, model, timeout, cwd, tools, exe_override,

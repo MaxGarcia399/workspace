@@ -3,8 +3,9 @@
 Mismo lenguaje que Usuarios (una caja centrada, section_box): a la izquierda
 el mapa completo de la memoria y los 13 capítulos, en el orden en que los
 vives; a la derecha el elegido. El primer renglón (o la tecla m) abre el mapa
-completo en pantalla grande (docs_mapa); la fila «Mapa de la memoria» de la
-portada del hub lo abre directo (run_mapa). Cada capítulo trae:
+completo en pantalla grande (docs_mapa), con el agente elegido aquí; q/Esc
+vuelve a los capítulos. Es la única entrada al mapa: desde la 0.5.1 ya no está
+en la portada del hub (ahí se confundía con los agentes). Cada capítulo trae:
 
   · un mapa (cajas en fila, brain_view.pipeline) y 3–4 frases cortas;
   · EN ESTA PC   una línea real del agente elegido (solo lectura);
@@ -322,9 +323,7 @@ def render(S, w, h):
     if S.get('mapa') is not None:
         import docs_mapa
         S['mapa']['ctx'] = ctx(S)
-        # desde la portada del hub el mapa es su propia sección: MEMORIA
-        palabra = HL.section_word('memoria') if S.get('solo_mapa') else word()
-        return docs_mapa.render(S['mapa'], w, h, palabra)
+        return docs_mapa.render(S['mapa'], w, h, word())
     if S.get('info'):
         return SB.info_frame(K, w, h, word(), _t('docs.info.title', 'CÓMO LEER ESTA SECCIÓN',
                                                   'HOW TO READ THIS SECTION'),
@@ -409,8 +408,6 @@ def _act_mapa(S, key):
         _abrir(S, docs_mapa.actual(M))
         M['msg'], S['msg'] = S['msg'], ''
     elif r is False:
-        if S.get('solo_mapa'):                     # abierto desde el hub: vuelve al hub
-            return False
         S['mapa'] = None
     return True
 
@@ -455,39 +452,6 @@ def run():
     if not live:
         S['cap'] = 0                               # sin terminal: el capítulo 1
         print('\n'.join(render(S, 110, 44)))
-        return
-    import engines_tui
-    _loop_con(S, engines_tui)
-
-
-def initial_mapa(agente=None):
-    """El estado de run_mapa: el mapa ya abierto, con `agente` (su nombre)
-    elegido si tiene cerebro en esta PC; si no, el primero."""
-    import docs_mapa
-    S = initial()
-    S['solo_mapa'] = True
-    S['mapa'] = docs_mapa.initial()
-    S['mapa']['al_hub'] = True
-    nombres = [str(a.get('name', '')).lower() for a in S['agents']]
-    if agente and str(agente).lower() in nombres:
-        S['agent'] = nombres.index(str(agente).lower())
-    return S
-
-
-@_theme_screen
-def run_mapa(agente=None):
-    """El mapa de la memoria directo, sin los capítulos: la fila «Mapa de la
-    memoria» de la portada del hub (pedido del dueño 2026-10-19: en
-    Documentación quedaba escondido). Abre con el agente que estaba apuntado
-    en el hub; q/Esc regresa al hub."""
-    S = initial_mapa(agente)
-    try:
-        import _console
-        live = _console.interactive()
-    except Exception:
-        live = sys.stdin.isatty()
-    if not live:
-        print('\n'.join(render(S, 150, 50)))
         return
     import engines_tui
     _loop_con(S, engines_tui)

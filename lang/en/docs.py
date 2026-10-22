@@ -40,7 +40,6 @@ STRINGS = {
     'docs.mapa.ejemplo': 'no agents yet: the path with example names',
     'docs.mapa.fuera': 'OUTSIDE THE BRAIN · stays here',
     'docs.mapa.k.back': 'chapters',
-    'docs.mapa.k.hub': 'back',
     'docs.mapa.k.scroll': 'scroll',
     'docs.mapa.k.step': 'step',
     'docs.mapa.legend.idle': 'not used in this step',

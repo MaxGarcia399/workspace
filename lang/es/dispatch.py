@@ -24,4 +24,6 @@ STRINGS = {
         "  Solo esta vez: {name} sigue con {engine} como su motor.",
     # cargando.py: al centro mientras se prepara la apertura de un agente
     "dispatch.cargando": "Cargando…",
+    # cargando.py: al centro mientras se guarda la sesión al salir del chat
+    "dispatch.guardando": "Guardando…",
 }

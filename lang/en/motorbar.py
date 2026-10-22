@@ -54,12 +54,32 @@ STRINGS = {
                                  "doesn't copy your keys). Without one, Hermes opens its own "
                                  "wizard instead of your agent: connect it in Engines › Hermes › "
                                  "account and provider (provider and model).",
-    'motorbar.hermes.skills': "connected your brain's skills; Hermes no longer creates skills in "
-                              "its shared profile",
+    'motorbar.hermes.skills': "connected your brain's skills; the ones Hermes learns are saved "
+                              "in it (skills/aprendidas/), not in its shared profile",
+    'motorbar.hermes.skills_create': "the skills Hermes learns are now saved in your brain "
+                                     "(skills/aprendidas/), where your other engines see them",
     'motorbar.hermes.skills_foreign': "the profile has a skills: section I don't edit: your "
                                       "brain's skills aren't connected",
+    'motorbar.hermes.discord_off': "turned off Hermes' {tools} in Discord (a bot connected to "
+                                   "the shared profile could read all your agents' "
+                                   "conversations)",
+    'motorbar.hermes.discord_still': "couldn't turn off {tools} in Discord (it saves nothing: "
+                                     "Hermes' memory is off)",
+    'motorbar.hermes.discord_leak': "couldn't turn off {tool} in Discord: a Discord bot "
+                                    "connected to the «{p}» profile could read your other "
+                                    "agents' conversations; run it by hand: hermes --profile "
+                                    "{p} tools disable --platform {plat} {tool}",
+    'motorbar.hermes.platforms_off': "turned off Hermes' {tools} on Discord, Telegram, Slack, "
+                                     "WhatsApp and its other platforms (a bot connected to the "
+                                     "shared profile could read all your agents' conversations)",
+    'motorbar.hermes.platforms_leak': "couldn't turn off {tool} on Hermes' messaging platforms "
+                                      "(the profile's agent: section has a shape I don't edit): a "
+                                      "Telegram, Slack or other bot connected to the «{p}» "
+                                      "profile could read your other agents' conversations; add "
+                                      "{tool} and memory to agent.disabled_toolsets in {cfg}",
     'motorbar.hermes.plan_skills': "  skills      : the profile's built-in ones + your brain's "
-                                   "(skills/); Hermes doesn't create skills in the shared profile",
+                                   "(skills/); the ones Hermes creates go to your brain's "
+                                   "skills/aprendidas/",
     'motorbar.openclaw.memory_failed': "couldn't turn on loading the long-term memory "
                                        "(STATE/MEMORY.md): OpenClaw opens without it",
     'motorbar.openclaw.memory_restored': "turned loading STATE/MEMORY.md back on "
@@ -72,5 +92,6 @@ STRINGS = {
                                   "which answers with another identity",
     'motorbar.openclaw.plan_memory': "  memory      : your brain's STATE/MEMORY.md on every turn "
                                      "(official bootstrap-extra-files hook, with the gateway); "
-                                     "its semantic search, off",
+                                     "what its own memory would write, off; its memory search "
+                                     "stays on (only over its own files)",
 }

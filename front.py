@@ -256,31 +256,9 @@ def items():
     # el picker estático solo lista SU porción: cal/tono/atajos son pantallas
     # del recinto animado y no entran aquí (decisión previa, intacta).
     _solo_hub = ("__cal__", "__tono__")
-    # Los destinos directos de la portada (el mapa de la memoria) van antes
-    # del menú, como en el lanzador. Falla-suave: sin hublayout, sin ellos.
-    try:
-        import hublayout as _hlg
-        out += [(g["idx"], g["label"], g["tag"], True)
-                for g in _hlg.lanzador_gos()]
-    except Exception:
-        pass
     out += [(tok, lbl, tag, True) for tok, lbl, tag in menu_entries()
             if tok not in _solo_hub]
     return out
-
-
-#: El agente apuntado en el hub al elegir un destino directo de la portada
-#: («Mapa de la memoria»): _lz_activate lo anota y _abre_mapa lo consume
-#: (el token que devuelve el menú solo dice el destino).
-_APUNTADO = {"name": None}
-
-
-def _abre_mapa():
-    """«Mapa de la memoria» (portada del hub): el mapa directo, con el agente
-    que estaba apuntado; q/Esc regresa al hub."""
-    agente, _APUNTADO["name"] = _APUNTADO["name"], None
-    import docs_tui
-    docs_tui.run_mapa(agente)
 
 
 def _row(disp, tag, selected, selectable, w):
@@ -2364,19 +2342,13 @@ def _menu_machinery(tout):
 
     def _lz_activate():
         """Enter en el lanzador: agente → lanza (rutina de siempre) · `›` →
-        entra al submenú · destino directo (el mapa) → su token, con el
-        agente apuntado anotado · opción del menú → la abre · pin → lo
-        cicla · idioma → lo aplica."""
+        entra al submenú · opción del menú → la abre · pin → lo cicla ·
+        idioma → lo aplica."""
         it = _lz_cur()
         k = it.get("kind")
         if k == "sub":
             _lz_drill(it["idx"])
             return None
-        if k == "go":
-            g = S.get("gsel", 0)
-            _APUNTADO["name"] = (agents[g].get("name")
-                                 if 0 <= g < len(agents) else None)
-            return it["idx"]
         if k not in ("agent", "opt", "pin", "lang"):
             return None
         _lz_point(it)
@@ -2438,6 +2410,9 @@ def _menu_machinery(tout):
 
     def _lz_nav(d):
         if d in ("up", "down"):
+            # parte de la fila que se VE: sin agentes, lz_sel arranca en el
+            # aviso (no seleccionable) y el cursor se pinta en Menú
+            _lz_cur()
             S["lz_sel"] = _hlz.lanzador_step(_lz_items(), S.get("lz_sel", 0),
                                              -1 if d == "up" else +1)
             it = _lz_cur()
@@ -6527,10 +6502,6 @@ def main():
                                      "usuarios_tui"),
                     "__docs__": (_t("menu.docs.label", "Documentación").lower(),
                                  "docs_tui"),
-                    # «Mapa de la memoria», en la portada (2026-10-19): el
-                    # mapa directo con el agente apuntado; Esc regresa aquí.
-                    "__mapa__": (_t("hub.lanzador.map",
-                                    "Mapa de la memoria").lower(), _abre_mapa),
                     # Calendario, Tono y Actualizaciones también REGRESAN al
                     # hub (Esc/q): antes salían al shell (pedido del socio
                     # 2026-10-12: «Esc regresa al hub en todas las secciones»).

@@ -895,7 +895,8 @@ CAPITULOS = (
 
 
 # ── El mapa de la memoria ───────────────────────────────────────────────────
-# Primer renglón de la sección (y la tecla m): el árbol REAL del cerebro del
+# Primer renglón de la sección (y la tecla m), su única entrada: desde la
+# 0.5.1 ya no está en la portada del hub. Es el árbol REAL del cerebro del
 # agente elegido —el agente → sus carpetas → sus archivos, como la vista del
 # cerebro de «Agregar agente»— y, abajo, lo que vive fuera (esta PC y la
 # conversación de su motor). Cada paso (todo el recorrido, abrir, trabajar,
@@ -931,8 +932,12 @@ MOTOR_RUTAS = {
     "opencode": {"puntero": "AGENTS.md", "conversacion_dir": "opencode export <id>",
                  "conversacion": "", "retoma": "opencode --session <id>",
                  "notas": "workspace memoria nota"},
-    "openclaw": {"puntero": "AGENTS.md", "conversacion_dir": "~/.openclaw-workspace/agents/<id>/sessions/",
-                 "conversacion": "<id>.jsonl", "retoma": "openclaw tui --session <id>",
+    # OpenClaw 2026.9+: las conversaciones de cada agente viven en su SQLite
+    # (session_continuity._capture_openclaw_export) y la pestaña se retoma con
+    # su clave en el perfil de Workspace (engines/openclaw._interactive_argv).
+    "openclaw": {"puntero": "AGENTS.md", "conversacion_dir": "~/.openclaw-workspace/agents/<id>/agent/",
+                 "conversacion": "openclaw-agent.sqlite",
+                 "retoma": "openclaw --profile workspace tui --session <id>",
                  "notas": "workspace memoria nota --tab {pestana} --engine openclaw"},
     "hermes": {"puntero": "AGENTS.md", "conversacion_dir": "hermes sessions export <id>",
                "conversacion": "", "retoma": "hermes --resume <id>",
@@ -1252,7 +1257,8 @@ MAPA_PASOS = (
 )
 
 #: El renglón del mapa en la lista de la sección (antes del capítulo 1) y lo
-#: que se ve a la derecha mientras está elegido.
+#: que se ve a la derecha mientras está elegido. Con la tecla m, es la única
+#: forma de abrir el mapa (el hub ya no lo ofrece en su portada).
 MAPA_INTRO = {
     "es": {"corto": "el mapa de la memoria",
            "titulo": "Cómo recuerda tu agente",

@@ -98,8 +98,8 @@ What a fresh install gives you today:
 - **The same memory in every engine** — each tab keeps its memory in the brain:
   the agent saves decisions, pending items and facts as it works, and on close
   Workspace tidies them up with plain code. Whichever engine opens that tab next
-  starts from the same memory. The **Memory map**, on the hub's front page, shows
-  it step by step with your agent's real files.
+  starts from the same memory. The **Memory map**, in **Menu › Documentation**,
+  shows it step by step with your agent's real files.
 - **Users** — **Menu › Users** shows who uses each agent across your machines;
   Workspace records who you are on each one (at install, or with «that's me on
   this PC»).
@@ -215,6 +215,20 @@ identity to `BRAIN.md`), it does it on its own, copies everything to a backup
 first and deletes nothing; what you wrote yourself is left alone.
 More in [the manual](manual/en/updates.md).
 
+### What's new in v0.5.1
+
+- **The memory map, only in Documentation.** It left the hub's front page,
+  where it got mixed up with your agents. Open it from
+  **Menu › Documentation**: its first row, or the `m` key.
+- **Hermes learns into your brain.** The skills it creates go to your
+  agent's `skills/aprendidas/`, and your other engines see them too.
+- **Hermes and OpenClaw, steadier with your memory.** Hermes no longer asks
+  about its hook when it opens, and from Discord it can't search other
+  agents' conversations; two open tabs no longer erase each other's memory;
+  OpenClaw no longer runs skill reviews without a window.
+- **A fix.** With no agents, the first ↓ on the hub's front page now moves
+  the cursor.
+
 ### What's new in v0.5.0
 
 - **No text gets lost against your theme's background.** Your agents' chats
@@ -226,9 +240,9 @@ More in [the manual](manual/en/updates.md).
   engines.** Hermes gets the tab's up-to-date memory when you resume it and
   uses your brain's skills; OpenClaw reads your brain's long-term memory on
   every message.
-- **The memory map, on the hub's front page.** It shows step by step which of
-  your agent's files are read and written when you open, work, close and
-  resume a tab.
+- **The memory map, in Documentation.** It shows step by step which of your
+  agent's files are read and written when you open, work, close and resume a
+  tab.
 - **Fewer things in sight.** Workflows and Proyectos no longer show up in the
   hub, the help or the manual; if you type their commands they still work.
   Version 0.6 removes their code and your data stays.
@@ -418,8 +432,9 @@ Lo que te da una instalación nueva hoy:
 - **La misma memoria en todos los motores** — cada pestaña guarda su memoria en
   el cerebro: el agente anota decisiones, pendientes y datos mientras trabaja, y
   al cerrar Workspace los ordena con código. El motor que abra esa pestaña
-  después arranca con la misma memoria. El **Mapa de la memoria**, en la portada
-  del hub, lo enseña paso a paso con los archivos reales de tu agente.
+  después arranca con la misma memoria. El **Mapa de la memoria**, en
+  **Menú › Documentación**, lo enseña paso a paso con los archivos reales de tu
+  agente.
 - **Usuarios** — **Menú › Usuarios** muestra quién usa cada agente en todas tus
   máquinas; Workspace registra quién eres en cada una (al instalar, o con «soy yo
   en esta PC»).
@@ -537,6 +552,20 @@ agentes a `BRAIN.md`), lo hace sola, antes copia todo a un respaldo y no borra n
 que escribiste tú se deja como está.
 Más en [el manual](manual/es/actualizaciones.md).
 
+### Novedades de la v0.5.1
+
+- **El mapa de la memoria, solo en Documentación.** Salió de la portada del
+  hub, donde se confundía con tus agentes. Ábrelo desde
+  **Menú › Documentación**: su primer renglón, o la tecla `m`.
+- **Hermes aprende en tu cerebro.** Las skills que crea van a
+  `skills/aprendidas/` de tu agente, y tus otros motores también las ven.
+- **Hermes y OpenClaw, más firmes con tu memoria.** Hermes ya no pregunta por
+  su gancho al abrir, y desde Discord no puede buscar conversaciones de otros
+  agentes; dos pestañas abiertas ya no se borran la memoria; OpenClaw ya no
+  corre revisiones de skills sin ventana.
+- **Un arreglo.** Sin agentes, la primera flecha ↓ en la portada del hub ya
+  mueve el cursor.
+
 ### Novedades de la v0.5.0
 
 - **Ningún texto se pierde contra el fondo de tu tema.** En el chat de tus
@@ -548,7 +577,7 @@ Más en [el manual](manual/es/actualizaciones.md).
   motores.** Hermes recibe la memoria de la pestaña al día cuando la retomas y
   usa las skills de tu cerebro; OpenClaw lee la memoria larga de tu cerebro en
   cada mensaje.
-- **El mapa de la memoria, en la portada del hub.** Muestra paso a paso qué
+- **El mapa de la memoria, en Documentación.** Muestra paso a paso qué
   archivos de tu agente se leen y se escriben al abrir, trabajar, cerrar y
   retomar una pestaña.
 - **Menos cosas a la vista.** Workflows y Proyectos ya no aparecen en el hub,

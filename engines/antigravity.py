@@ -507,13 +507,29 @@ def _write_gemini(brain, ctx, session_block=""):
             body += "\n\n%s\n%s\n%s\n" % (_SESSION_START, session_block,
                                           _SESSION_END)
         p = _gemini_path(brain)
-        tmp = p + ".workspace-tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            fh.write(body)
-        os.replace(tmp, p)
+        _escribir_atomico(p, body)
         return True
     except Exception:
         return False
+
+
+def _escribir_atomico(path, text):
+    """Escribe `path` entero o no lo toca: temporal ÚNICO por proceso (con un
+    nombre fijo, dos pestañas o un cierre tardío en otro proceso escribían el
+    MISMO temporal y una podía dejar el texto a medio escribir de la otra;
+    revisión de la 0.5.1, P2-9) y, si algo falla, el temporal no se queda en
+    el cerebro. Misma regla que opencode._atomic_write."""
+    tmp = "%s.%d.workspace-tmp" % (path, os.getpid())
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def _split_session_block(text):
@@ -549,10 +565,7 @@ def _strip_session_block(brain):
         base, found = _split_session_block(txt)
         if not found:
             return False
-        tmp = p + ".workspace-tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            fh.write(base.rstrip() + "\n")
-        os.replace(tmp, p)
+        _escribir_atomico(p, base.rstrip() + "\n")
         return True
     except Exception:
         return False
@@ -588,10 +601,7 @@ def _restore_gemini(brain):
         with open(p, encoding="utf-8", errors="replace") as fh:
             if fh.read() == body:
                 return False
-        tmp = p + ".workspace-tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            fh.write(body)
-        os.replace(tmp, p)
+        _escribir_atomico(p, body)
         return True
     except Exception:
         return False
@@ -614,10 +624,7 @@ def _append_session_block(brain, block):
         base, _ = _split_session_block(txt)
         body = (base.rstrip() + "\n\n%s\n%s\n%s\n"
                 % (_SESSION_START, block, _SESSION_END))
-        tmp = p + ".workspace-tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            fh.write(body)
-        os.replace(tmp, p)
+        _escribir_atomico(p, body)
         return True
     except Exception:
         return False
@@ -726,6 +733,9 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
         try:
             import sessions_registry as _reg
             first_prompt = _reg.first_prompt_context(brain, tab[1], engine="antigravity")
+            if os.name == "nt":       # viaja como argumento: el lanzador .cmd pasa por
+                import memoria        # cmd.exe (revisión de la 0.5.1, P2-10)
+                first_prompt = memoria.argv_seguro(first_prompt)
             print("WORKSPACE: GEMINI.md propio del socio y no pude anexar — "
                   "la memoria de la pestaña irá en el primer mensaje "
                   "(visible).")
@@ -809,7 +819,14 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
     except Exception:
         otra = False
     if not otra:
-        _restore_gemini(brain)
+        # GEMINI.md y, si quedó, el bloque del AGENTS.md que dejó otra ventana
+        # (Codex, OpenCode, OpenClaw, Hermes) que cerró antes con esta abierta:
+        # la última en cerrar lo limpia (revisión de la 0.5.1, P2-1).
+        try:
+            import pending_runs
+            pending_runs.clean_docs("antigravity", brain)
+        except Exception:
+            _restore_gemini(brain)
     elif session_blk or appended or _appended_ctx:
         _strip_session_block(brain)
     # Binding POST-HOC: solo si el cache CAMBIÓ durante esta corrida (un id

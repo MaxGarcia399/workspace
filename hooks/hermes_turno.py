@@ -6,7 +6,7 @@ perfil; en `pre_llm_call` (una vez por turno, antes de llamar al modelo) un
 stdout `{"context": "..."}` se ANEXA al mensaje del socio de ese turno (nunca
 al system prompt; el mensaje limpio queda igual en su historial). Lo cablea
 engines/hermes.py SOLO en el perfil propio de Workspace, jamás en el perfil
-del socio. Hace tres cosas:
+del socio. Hace cuatro cosas:
 
   · **Tono**: el mismo recordatorio que el hook de Claude Code
     (`personalidad.linea()`), para que mover un dial se sienta al siguiente
@@ -19,7 +19,14 @@ del socio. Hace tres cosas:
     retomar una sesión, así que el bloque de la pestaña de AGENTS.md no le
     llega. Va aquí en el primer turno de una sesión que no lo trae y cuando la
     memoria cambió por fuera (otro motor, otra ventana); nunca en todos los
-    turnos (engines/hermes.memoria_turno decide y guarda la marca).
+    turnos (engines/hermes.memoria_turno decide y guarda la marca). Empieza
+    diciendo cuál es la pestaña de ESTA ventana y el comando exacto de
+    memoria: el AGENTS.md es uno por cerebro y puede traer el bloque de otra
+    (con el hook aprobado, el de esta ni pasa por ahí).
+  · **Memoria larga del cerebro** (STATE/MEMORY.md): en el primer turno de
+    una sesión nueva y, al retomarla, solo si cambió desde la última vez que
+    se le mandó (Hermes la guarda en el historial: repetirla la acumulaba),
+    dentro del tope del contexto del hook (engines/hermes.memoria_larga_turno).
 
 En los turnos headless de Workspace (HERMES_SESSION_SOURCE=tool) no hace nada.
 
@@ -78,6 +85,14 @@ def main():
             mem = _h.memoria_turno(run, sid, primer_turno=extra.get("is_first_turn") is True)
             if mem:
                 partes.append(mem)
+    except Exception:
+        pass
+    try:
+        if run and sid:
+            from engines import hermes as _h
+            larga = _h.memoria_larga_turno(run, sid, usado=len("\n\n".join(partes)))
+            if larga:
+                partes.append(larga)
     except Exception:
         pass
     if partes:

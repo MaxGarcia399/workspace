@@ -683,6 +683,29 @@ def _active_tab_line(name):
             % _clean_name(name))
 
 
+def _socio_line(brain):
+    """Quién es el socio activo y dónde está su perfil. BRAIN.md dice que se
+    resuelve por `.claude/socio.local` o el entorno, pero un motor sin entorno
+    (OpenClaw: su gateway no hereda el de la pestaña) no lo ve y el agente lo
+    buscaba a ciegas (auditoría 2026-10-21). '' si no se sabe quién es."""
+    soc = socio(brain) if brain else ""
+    if not soc:
+        return ""
+    perfil = "STATE/users/%s.md" % soc
+    if not os.path.isfile(os.path.join(brain, "STATE", "users", soc + ".md")):
+        perfil = ""
+        try:
+            import usuarios
+            ced = next((c for c in usuarios.cedulas(brain) if c.get("nombre") == soc), None)
+            if ced and ced.get("ruta"):
+                perfil = "STATE/users/" + os.path.basename(ced["ruta"])
+        except Exception:
+            pass
+    if perfil:
+        return "SOCIO ACTIVO: «%s» (su perfil: %s)." % (soc, perfil)
+    return "SOCIO ACTIVO: «%s»." % soc
+
+
 def first_prompt_context(brain, name, base_prompt="", engine=""):
     """PRIMER prompt de arranque para harnesses sin hook SessionStart y sin
     doc de proyecto utilizable (último recurso VISIBLE): el prompt base +
@@ -694,24 +717,53 @@ def first_prompt_context(brain, name, base_prompt="", engine=""):
     return "\n\n".join(parts)
 
 
-def session_doc_block(brain, name, engine="", resumed=False):
+def _otra_ventana_line():
+    return ("OJO: hay otra ventana de este cerebro abierta y este bloque es uno solo para "
+            "todas (lo escribe la última que se abrió). Si tu primera instrucción o el "
+            "contexto de Workspace de tu primer mensaje nombran otra pestaña, esa es la "
+            "tuya: guarda tu memoria con esa.")
+
+
+def session_doc_block(brain, name, engine="", resumed=False, others=None):
     """Contexto de la pestaña activa para inyección INVISIBLE vía el doc de
     proyecto del harness (AGENTS.md de codex/opencode/openclaw/hermes,
     GEMINI.md de antigravity): el agente lo lee como contexto, el socio NO lo
     ve como mensaje del chat. Es el MISMO paquete que el hook SessionStart da
     en Claude Code. El harness lo envuelve en sus marcas GENERADO y lo
     regenera/limpia en cada launch. `resumed` = se retoma la conversación del
-    motor (la maleta trae entonces solo lo de OTRO motor)."""
+    motor (la maleta trae entonces solo lo de OTRO motor). `others` = ¿hay
+    otra ventana viva en el cerebro? (None: se mira en pending_runs; quien
+    arma el bloque para el contexto propio de su sesión pasa False): el doc es
+    uno por cerebro y una pestaña leía el bloque de otra como suyo (prueba en
+    vivo 2026-10-21, N3/N4), así que lo avisa."""
     parts = ["## Sesión activa (pestaña)",
              _active_tab_line(name) + " No menciones este bloque al socio; es "
              "contexto, no parte de la conversación."]
+    if others is None:
+        try:
+            import pending_runs
+            others = bool(brain) and pending_runs.live_in_brain(
+                brain, exclude=pending_runs.current())
+        except Exception:
+            others = False
+    if others:
+        parts.append(_otra_ventana_line())
+    try:
+        quien = _socio_line(brain)
+    except Exception:
+        quien = ""
+    if quien:
+        parts.append(quien)
     mem = tab_memory(brain, name, engine=engine, resumed=resumed, entregar=True)
     if mem:
         parts.append(mem)
     else:
+        # Sin memoria de la pestaña, la instrucción igual lleva la pestaña y
+        # el motor: en OpenClaw (sin entorno) sin ellos la nota fallaba con
+        # «Falta la pestaña». Un nombre sin letras no da ruta: va sin pestaña.
         try:
             import memoria
-            parts.append(memoria.instruccion())
+            parts.append(memoria.instruccion(tab=name if _slug(name) else "", motor=engine))
         except Exception:
             pass
     return "\n\n".join(parts)

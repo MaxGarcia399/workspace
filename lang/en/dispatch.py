@@ -24,4 +24,6 @@ STRINGS = {
         "  Just this time: {name} keeps {engine} as its engine.",
     # cargando.py: centered while an agent's opening is being prepared
     "dispatch.cargando": "Loading…",
+    # cargando.py: centered while the session is saved on leaving the chat
+    "dispatch.guardando": "Saving…",
 }

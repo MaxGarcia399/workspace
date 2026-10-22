@@ -710,7 +710,7 @@ def _console_guard(run_id, cli, brain):
 
 def run_official_cli_interactive(cli, brain=None, argv=None, behaviors=None,
                                  exe_override=None, runner=None, context_sink=None,
-                                 pending=None, console_guard=None):
+                                 pending=None, console_guard=None, guardando=False):
     """Lanza un CLI oficial en modo INTERACTIVO envuelto en el ciclo de vida
     neutral: on_session_start → el binario corre con la tty → on_session_end
     al salir. Devuelve el returncode. El contexto de arranque va al
@@ -728,7 +728,13 @@ def run_official_cli_interactive(cli, brain=None, argv=None, behaviors=None,
     Red de seguridad (pending_runs, 2026-10-16): la corrida se anota ANTES de
     abrir (`pending` = lo que el adaptador necesita para atar después) y, en
     Windows, la X tiene manejador. El adaptador llama pending_runs.done() al
-    terminar su atado y limpieza."""
+    terminar su atado y limpieza.
+
+    `guardando`: al salir normal del chat (rc 0; no con la X ni por una
+    señal: la consola ya no está o es de otra pestaña; no tras un error del
+    motor, que puede haber quedado en pantalla) se pinta «Guardando…»
+    (cargando.guardando) mientras corre la captura; lo quita el adaptador
+    con cargando.quitar() cuando termina lo suyo."""
     info = INTERACTIVE_CLIS.get(cli)
     if info is None:
         raise InteractiveError("CLI oficial desconocido: %r (tabla: %s)"
@@ -792,6 +798,13 @@ def run_official_cli_interactive(cli, brain=None, argv=None, behaviors=None,
                 _quiet_dead_tty()
             if closed_by_x is not None and closed_by_x.is_set():
                 _quiet_dead_tty()
+            elif guardando and ended_by is None and rc == 0:
+                # (con rc≠0 el motor pudo dejar su error en pantalla: no se tapa)
+                try:
+                    import cargando
+                    cargando.guardando()
+                except Exception:
+                    pass
             end_payload = dict(payload, source="exit")
             if ended_by is not None:
                 end_payload["end_signal"] = ended_by

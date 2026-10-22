@@ -26,7 +26,7 @@ Vale para macOS, Linux y Windows, salvo donde se indica.
 | Función | Claude Code | Codex | Antigravity | OpenCode | OpenClaw | Hermes |
 |---|---|---|---|---|---|---|
 | Abrir el agente desde el hub | ✅ | ✅ (envuelto) | ✅ (envuelto) | ✅ (envuelto) | ✅ (envuelto, con gateway: varias pestañas) | ✅ (envuelto) |
-| El agente arranca con su memoria | ✅ automático | ✅ vía un `AGENTS.md` que Workspace genera en el cerebro | ✅ vía un `GEMINI.md` que Workspace genera en el cerebro | ✅ vía un `AGENTS.md` que Workspace genera en el cerebro | ✅ vía el mismo `AGENTS.md` (perfil propio de OpenClaw, sin archivos extra) y, en cada mensaje, `STATE/MEMORY.md` del cerebro | ✅ vía el mismo `AGENTS.md` (perfil propio de Hermes, identidad neutral); el agente lee su cerebro con tu primer mensaje y, al retomar una pestaña, recibe su memoria al día |
+| El agente arranca con su memoria | ✅ automático | ✅ vía un `AGENTS.md` que Workspace genera en el cerebro | ✅ vía un `GEMINI.md` que Workspace genera en el cerebro | ✅ vía un `AGENTS.md` que Workspace genera en el cerebro | ✅ vía el mismo `AGENTS.md` (perfil propio de OpenClaw, sin archivos extra) y, en cada mensaje, `STATE/MEMORY.md` del cerebro | ✅ vía el mismo `AGENTS.md` (perfil propio de Hermes, identidad neutral) y, con tu primer mensaje (también al retomar una pestaña), la memoria de la pestaña al día y `STATE/MEMORY.md` del cerebro |
 | Conectores MCP | ✅ | ✅ (configuración del propio Codex) | ✅ | ✅ (configuración del propio OpenCode) | ✅ (configuración del propio OpenClaw) | ✅ (configuración del propio Hermes) |
 | Avisos de sesión (*hooks*: guardar memoria al cerrar, etc.) | ✅ | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace), más tu tono en cada mensaje y la memoria de la pestaña al retomar |
 | Retomar sesiones desde las pestañas de Workspace | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -45,21 +45,26 @@ Si el programa del motor no está instalado (o no está en el PATH), nada de est
 
 Codex, Antigravity, OpenCode, OpenClaw y Hermes también traen *hooks* propios, pero Workspace no los activa: los
 avisos de abrir y cerrar ya los emite Workspace alrededor del programa, y activarlos los
-duplicaría. Las excepciones: uno de Hermes, por mensaje, que añade tu tono y, al retomar una
-pestaña, su memoria (Hermes te pide aprobarlo una vez), y el oficial de OpenClaw que carga la
+duplicaría. Las excepciones: uno de Hermes, por mensaje, que añade tu tono y, al empezar o
+retomar una conversación, la memoria de la pestaña y la del cerebro (Hermes lo aprueba solo si
+es el único hook del perfil; si agregaste hooks
+tuyos, te pide aprobarlo una vez), y el oficial de OpenClaw que carga la
 memoria del cerebro. Por eso con esos motores no hay avisos por herramienta ni estado en vivo. Con
 OpenCode, OpenClaw y Hermes, el modelo es el que elijas en su propia configuración: Workspace no lo cambia.
 
 Hermes corre en un perfil propio de Workspace (tu Hermes personal no cambia). En ese perfil su
 memoria propia está apagada, porque la comparten todos tus agentes: la memoria de cada agente vive
 en su cerebro y le llega por `AGENTS.md` y, al retomar, por su hook. Usa las skills del cerebro de
-cada agente (`skills/`) además de las suyas de fábrica, y ya no crea skills en el perfil
-compartido. Sus tareas programadas siguen como en tu Hermes.
+cada agente (`skills/`) además de las suyas de fábrica, y las que aprende las guarda en ese mismo
+cerebro (`skills/aprendidas/`), no en el perfil compartido: al cerrar la sesión, Workspace las
+anota en el catálogo del cerebro y tus otros motores también las ven. Sus tareas programadas
+siguen como en tu Hermes.
 
 OpenClaw también corre en un perfil propio. Su memoria propia está apagada y lee la del cerebro
 (`STATE/MEMORY.md`) en cada mensaje con su hook oficial, cuando corre con el gateway (lo normal);
-en el modo de una sola ventana abre sin ella. Su búsqueda por significado queda apagada: para
-indexar tu cerebro mandaría tus notas a un servicio externo. Sus skills son las del cerebro
+en el modo de una sola ventana abre sin ella. Su búsqueda de memoria sigue encendida, pero solo
+busca en sus propios archivos de memoria, que el cerebro no usa; Workspace no la apunta al
+cerebro: para indexarlo mandaría tus notas a un servicio externo. Sus skills son las del cerebro
 (`skills/`).
 
 ## Permisos por motor

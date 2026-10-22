@@ -474,7 +474,11 @@ def launch(cfg, passthrough, plan=False, preselect=None, show_banner=True):
         if os.path.exists(jsonl):
             cmd += ["--resume", wid]
         else:
-            cmd += ["--session-id", wid, "--name", wname]
+            # Un claude instalado por npm en Windows es `claude.cmd`: el nombre
+            # de la pestaña (puede venir de otra máquina) pasa por cmd.exe.
+            nombre = (_memoria.argv_seguro(wname, tope=200)
+                      if _memoria.pasa_por_cmd(cmd[0]) else wname)
+            cmd += ["--session-id", wid, "--name", nombre or wid]
         # Modelo SINCRONIZADO de pestañas (sessions_registry): la pestaña
         # elegida/creada queda con su .md en STATE/sessions/<socio>/ — eso SÍ
         # viaja por Obsidian; el workspaces.json es dotfolder y NO sincroniza

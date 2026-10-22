@@ -8,6 +8,67 @@ How to read this: every version has a number (`MAJOR.MINOR.PATCH`). A PATCH
 change fixes things; a MINOR one brings new features without breaking
 anything; a MAJOR one warns you well in advance if something changes shape.
 
+## 0.5.1 — 2026-10-21
+
+**Fixes**
+- **The memory map leaves the hub's front page**, where it got mixed up
+  with your agents, and stays in Documentation: open it with its first row
+  or the `m` key. It works as always: with the agent chosen there, Tab
+  switches agent and Esc takes you back to the chapters.
+- **With no agents, the first ↓ on the front page now moves the cursor.**
+  Before, it stayed on Menu and you had to press it again.
+- **Hermes saves the skills it learns in the brain.** They go to your
+  agent's `skills/aprendidas/` instead of its shared profile: one agent no
+  longer sees what another learned, and when the session closes Workspace
+  adds them to the brain's catalog so your other engines can use them too.
+- **Hermes no longer asks you to approve Workspace's hook when it opens.** If
+  you have hooks of your own in its profile, it still asks as before.
+- **Hermes gets your brain's long-term memory** (`STATE/MEMORY.md`) when a
+  conversation starts, like your other engines: it no longer depends on the
+  agent deciding to read it. When you resume it, it gets it again only if it
+  changed, so it doesn't pile up in the conversation every time you reopen it.
+- **From Discord, Telegram, Slack, WhatsApp or any other messaging platform,
+  Hermes can no longer search your other agents' conversations.** Workspace
+  turns off its conversation search and its own memory there too, as it
+  already did in the terminal.
+- **Two tabs of the same agent no longer erase each other's memory.** When
+  one closes (in OpenClaw, Hermes, Codex or OpenCode), the memory block stays
+  while the other one is still open, and the last one to close clears it
+  even if it wasn't the one that wrote it.
+- **With two tabs of the same agent open at once, each one knows which it
+  is.** In Hermes and OpenClaw, the one you opened first no longer thinks
+  it's the second one, sees its memory or saves its notes into it.
+- **Opening an agent with OpenClaw for the first time no longer fails for
+  taking too long.** Workspace prepares its profile in a single step and
+  gives it the time it needs; if it still runs over, it tells you in one
+  line and reopening it is enough.
+- **OpenClaw no longer learns skills on its own.** Its "Skill Workshop" ran a
+  weekly review per agent, with no window, and saved what it learned outside
+  your brain; Workspace turns it off. Asking it to create a skill still works.
+- **OpenClaw recovers the conversation you closed with the X sooner**: when
+  you close another tab normally, Workspace saves it. While it saves on
+  leaving OpenClaw you see «Saving…» in the middle, instead of a still window.
+- **OpenClaw knows who you are and, on Windows, that its terminal is
+  PowerShell.** The tab block names the active partner and reminds it to
+  separate commands with `;`.
+- **When Workspace uses OpenClaw without a window** (for example, to
+  personalize an agent), each request goes in its own conversation and no
+  longer mixes with your agent's main one; each one starts by telling it who
+  it is, so it answers with your agent's name.
+- **On Windows, when Workspace uses OpenClaw or OpenCode without a window,
+  the engine gets your whole request.** Before, only its first line arrived (when
+  personalizing an agent, without the rules or what you typed in the form),
+  and quotes in that text could make Windows run part of it as a command.
+- **If OpenClaw's backup fails when you leave, the notice stays on screen and
+  Workspace tries again** the next time you open the agent. Before, clearing
+  «Saving…» also erased the notice and what was in the terminal, and the
+  backup wasn't retried.
+- **Your agent introduces itself with the name its identity gives.** When
+  Workspace uses OpenClaw without a window, the agent answers with the name
+  in its `BRAIN.md` («# Soy Ventisca») even if its folder is called
+  something else, and an agent you load from its folder takes that name.
+  The agents you already have keep theirs.
+
 ## 0.5.0 — 2026-10-21
 
 **What's new**

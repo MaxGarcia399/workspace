@@ -1,5 +1,5 @@
-"""WORKSPACE · docs_mapa — EL MAPA DE LA MEMORIA (sección Documentación, y
-directo desde la portada del hub: fila «Mapa de la memoria», docs_tui.run_mapa).
+"""WORKSPACE · docs_mapa — EL MAPA DE LA MEMORIA (sección Documentación: su
+primer renglón o la tecla m; desde la 0.5.1 ya no está en la portada del hub).
 
 El árbol REAL del cerebro del agente elegido, como la vista del cerebro de
 «Agregar agente»: el agente → sus carpetas → sus archivos, y abajo lo que vive
@@ -503,16 +503,12 @@ def cuerpo(K, M, iw, alto):
     return arriba + expl + dib + pie, len(arriba) + len(expl)
 
 
-def _chips(desplaza=False, al_hub=False):
-    """`al_hub`: abierto desde la portada del hub, q regresa al hub (no hay
-    capítulos detrás)."""
-    sale = (_t("docs.mapa.k.hub", "vuelve", "back") if al_hub
-            else _t("docs.mapa.k.back", "capítulos", "chapters"))
+def _chips(desplaza=False):
     return (("←→", _t("docs.mapa.k.step", "paso", "step")),) + (
         (("↑↓", _t("docs.mapa.k.scroll", "desplaza", "scroll")),) if desplaza else ()) + (
         ("Tab", _t("docs.k.agent", "otro agente", "other agent")),
         ("Enter", _t("docs.k.open", "abre", "opens")),
-        ("q", sale))
+        ("q", _t("docs.mapa.k.back", "capítulos", "chapters")))
 
 
 def render(M, w, h, word):
@@ -542,8 +538,7 @@ def render(M, w, h, word):
         M["paso"] = guardado
         M["_est"] = (clave, mx)
     def _marco():
-        lineas = SB.frame(K, w, h, word, titulo, _cuerpo,
-                          _chips(M.get("_desplaza", False), M.get("al_hub", False)),
+        lineas = SB.frame(K, w, h, word, titulo, _cuerpo, _chips(M.get("_desplaza", False)),
                           msg=M.get("msg", ""), scroll=M.get("scroll", 0), box_w=BOX_W,
                           stable_rows=M["_est"][1])
         M["scroll"] = max(0, min(M.get("scroll", 0), SB.frame.last_max_scroll))

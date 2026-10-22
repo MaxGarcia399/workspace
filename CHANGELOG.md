@@ -8,6 +8,69 @@ Cómo leer esto: cada versión tiene su número (`MAYOR.MENOR.PARCHE`). Un
 cambio de PARCHE arregla cosas; uno de MENOR trae funciones nuevas sin romper
 nada; uno de MAYOR avisa con tiempo si algo cambia de forma.
 
+## 0.5.1 — 2026-10-21
+
+**Arreglos**
+- **El mapa de la memoria sale de la portada del hub**, donde se confundía
+  con tus agentes, y queda en Documentación: ábrelo con su primer renglón o
+  con la tecla `m`. Funciona como siempre: con el agente elegido ahí, Tab
+  cambia de agente y Esc te regresa a los capítulos.
+- **Sin agentes, la primera flecha ↓ de la portada ya mueve el cursor.**
+  Antes se quedaba en Menú y había que oprimirla otra vez.
+- **Hermes guarda en el cerebro las skills que aprende.** Van a
+  `skills/aprendidas/` de tu agente y ya no a su perfil compartido: un agente
+  no ve lo que aprendió otro, y al cerrar la sesión Workspace las anota en el
+  catálogo del cerebro para que tus otros motores también las usen.
+- **Hermes ya no te pide aprobar el gancho de Workspace al abrir.** Si tienes
+  ganchos propios en su perfil, te sigue preguntando como antes.
+- **Hermes recibe la memoria larga de tu cerebro** (`STATE/MEMORY.md`) al
+  empezar una conversación, como tus otros motores: ya no depende de que el
+  agente decida leerla. Al retomarla le llega otra vez solo si cambió, así
+  que no se acumula en la conversación cada vez que la reabres.
+- **Desde Discord, Telegram, Slack, WhatsApp u otra plataforma de
+  mensajería, Hermes ya no puede buscar en las conversaciones de tus otros
+  agentes.** Workspace apaga ahí su búsqueda de conversaciones y su memoria
+  propia, como ya lo hacía en la terminal.
+- **Dos pestañas del mismo agente ya no se borran la memoria.** Al cerrar una
+  (en OpenClaw, Hermes, Codex u OpenCode), el bloque de memoria se queda
+  mientras la otra siga abierta, y la última en cerrar lo limpia aunque no
+  sea la que lo escribió.
+- **Con dos pestañas del mismo agente abiertas a la vez, cada una sabe cuál
+  es.** En Hermes y OpenClaw, la que abriste primero ya no se cree la
+  segunda, ni ve su memoria ni guarda sus notas en ella.
+- **La primera vez que abres un agente con OpenClaw ya no falla por
+  tardar.** Workspace prepara su perfil en un solo paso y le da el tiempo
+  que necesita; si aun así se pasa, te lo dice en una línea y basta con
+  volver a abrirlo.
+- **OpenClaw ya no aprende skills por su cuenta.** Su «taller de skills»
+  corría cada semana, sin ventana, una revisión por agente y guardaba lo
+  aprendido fuera de tu cerebro; Workspace lo apaga. Pedirle que cree una
+  skill sigue funcionando.
+- **OpenClaw recupera antes la conversación que cerraste con la X**: al
+  cerrar normal otra pestaña, Workspace la guarda. Mientras guarda al salir
+  de OpenClaw ves «Guardando…» al centro, en vez de una ventana quieta.
+- **OpenClaw sabe quién eres y, en Windows, que su terminal es PowerShell.**
+  El bloque de la pestaña nombra al socio activo y le recuerda separar
+  comandos con `;`.
+- **Cuando Workspace usa OpenClaw sin ventana** (por ejemplo, al personalizar
+  un agente), cada pedido va en su propia conversación y ya no se mezcla con
+  la principal de tu agente; cada una empieza diciéndole quién es, así que
+  contesta con el nombre de tu agente.
+- **En Windows, cuando Workspace usa OpenClaw u OpenCode sin ventana, el
+  motor recibe tu pedido completo.** Antes le llegaba solo la primera línea (al
+  personalizar un agente, sin las reglas ni lo que escribiste en el
+  formulario), y unas comillas en ese texto podían hacer que Windows
+  ejecutara parte de él como un comando.
+- **Si el respaldo de OpenClaw falla al salir, el aviso se queda a la vista
+  y Workspace lo vuelve a intentar** la próxima vez que abres el agente.
+  Antes, al quitar «Guardando…» se borraban el aviso y lo que había en la
+  terminal, y el respaldo no se reintentaba.
+- **Tu agente se presenta con el nombre que dice su identidad.** Cuando
+  Workspace usa OpenClaw sin ventana, el agente contesta con el nombre de su
+  `BRAIN.md` («# Soy Ventisca») aunque su carpeta se llame de otra forma, y
+  un agente que cargas desde su carpeta toma ese nombre. Los agentes que ya
+  tienes conservan el suyo.
+
 ## 0.5.0 — 2026-10-21
 
 **Novedades**

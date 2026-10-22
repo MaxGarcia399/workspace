@@ -137,9 +137,6 @@ STRINGS = {
     'hub.lanzador.tab.menu': 'Menu',
     'hub.lanzador.tab.personalization': 'Personalization',
     'hub.lanzador.tab.lang': 'Language',
-    # destino directo de la raíz: el mapa de la memoria (docs_tui.run_mapa)
-    'hub.lanzador.map': 'Memory map',
-    'hub.lanzador.map.tag': 'how your agent remembers, step by step',
     # vista estática (ui.anim apagado): la lista en la caja del lanzador
     'hub.static.hint.direct': 'direct',
     'hub.layout.lanzador': 'Launcher — agents at the center, minimal',

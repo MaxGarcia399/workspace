@@ -213,13 +213,17 @@ def done(run_id=None):
     Excepción (memoria v1, 2026-10-17): si llegó la X y la captura no
     alcanzó (opencode exporta en más de los ~4 s que da Windows), la corrida
     se queda como «interrupted» para que reconcile() la capture al reabrir —
-    sin esa copia no hay maleta de la sesión."""
+    sin esa copia no hay maleta de la sesión. Lo mismo si en un cierre
+    normal la captura falló (el export de OpenClaw venció o dio error): se
+    reintenta al reabrir, con el mismo tope de intentos (segunda revisión
+    de la candidata 0.5.1, N1)."""
     rid = run_id or current()
     try:
         if rid:
             rec = _read(_path(rid))
             st = ((rec or {}).get("closed") or {}).get("capture_state")
-            if rec and rec.get("interrupted_at") and st not in _CAPTURA_FINAL:
+            cortada = bool(rec) and bool(rec.get("interrupted_at")) and st not in _CAPTURA_FINAL
+            if cortada or (rec and st == "failed"):
                 _update(rid, lambda r: r.update(state="interrupted"))
             else:
                 os.remove(_path(rid))
@@ -298,19 +302,28 @@ def live_in_brain(brain, exclude=None):
 
 
 def clean_docs(engine, brain):
-    """Quita SOLO el bloque marcado de la pestaña (WORKSPACE:SESSION) del doc
-    que usa ese motor; el resto del archivo queda byte a byte. Lo demás del doc
-    generado lo re-sincroniza el siguiente arranque. GEMINI.md generado vuelve
-    además a su puntero en reposo (sin la ruta de esta máquina ni el contexto
-    de arranque); el del socio, solo pierde lo anexado."""
+    """Quita SOLO el bloque marcado de la pestaña (WORKSPACE:SESSION) de los
+    docs de proyecto del cerebro; el resto de cada archivo queda byte a byte.
+    Lo demás del doc generado lo re-sincroniza el siguiente arranque. GEMINI.md
+    generado vuelve además a su puntero en reposo (sin la ruta de esta máquina
+    ni el contexto de arranque); el del socio, solo pierde lo anexado.
+    Los DOS docs, sea cual sea el motor que cierra (`engine` queda por
+    compatibilidad): quien llama es la última corrida viva del cerebro y el
+    bloque pudo escribirlo OTRA ventana, de otro motor, que cerró antes con
+    esta abierta; se quedaba huérfano con la pestaña de una ventana cerrada
+    (revisión de la 0.5.1, P2-1). Idempotente y falla-suave."""
+    hecho = False
     try:
-        if engine == "antigravity":
-            from engines import antigravity as agy
-            return bool(agy._restore_gemini(brain))
-        from engines import codex
-        return bool(codex._strip_session_block(brain))
+        from engines import antigravity as agy
+        hecho = bool(agy._restore_gemini(brain)) or hecho
     except Exception:
-        return False
+        pass
+    try:
+        from engines import codex
+        hecho = bool(codex._strip_session_block(brain)) or hecho
+    except Exception:
+        pass
+    return hecho
 
 
 @contextlib.contextmanager
@@ -333,10 +346,11 @@ def _env(values):
 
 
 # ── 4. el cierre tardío ─────────────────────────────────────────────────────
-def reconcile(brain=None, budget=8.0, notify=None):
+def reconcile(brain=None, budget=8.0, notify=None, engine=None):
     """Cierra tarde las corridas cuyo envoltorio murió sin terminar su cierre
     (la X, un crash, un apagón). `brain` = solo las de ese cerebro (None =
-    todas). → lista de resúmenes. Jamás levanta."""
+    todas); `engine` = solo las de ese motor (None = todos). → lista de
+    resúmenes. Jamás levanta."""
     out = []
     t_end = time.monotonic() + max(0.0, float(budget))
     try:
@@ -344,8 +358,10 @@ def reconcile(brain=None, budget=8.0, notify=None):
     except Exception:
         return out
     for rec in pending(brain):
-        if time.monotonic() > t_end:
-            break
+        if time.monotonic() >= t_end:      # `>=`: con tope 0 no empieza ninguna (el
+            break                          # reloj de Windows avanza a saltos de ~15 ms)
+        if engine and rec.get("engine") != engine:
+            continue
         if proc_alive(rec):
             continue
         p = _path(rec["run_id"])

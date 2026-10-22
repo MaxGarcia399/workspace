@@ -239,8 +239,16 @@ def _legacy_missing(exe, sid, cwd=None, runner=None):
 
 def session_marker(cfg, tab_name):
     """Marca de la pestaña en el mensaje de arranque (opencode 1): con dos
-    pestañas abriendo a la vez, distingue cuál sesión es de cuál."""
-    return "pestaña «%s» de %s" % (tab_name, cfg.get("display") or cfg.get("name") or "?")
+    pestañas abriendo a la vez, distingue cuál sesión es de cuál. En Windows
+    viaja como argumento por el `opencode.cmd` de npm, es decir por cmd.exe, y
+    lleva el nombre de la pestaña y del agente, que pueden venir de otra
+    máquina: va saneada (memoria.argv_seguro). La captura busca esta misma
+    marca, así que el mensaje y la búsqueda coinciden."""
+    marca = "pestaña «%s» de %s" % (tab_name, cfg.get("display") or cfg.get("name") or "?")
+    if os.name == "nt":
+        import memoria
+        marca = memoria.argv_seguro(marca, tope=200)
+    return marca
 
 
 def _first_user_text(export):
@@ -359,19 +367,26 @@ def _parse_run_json(text):
 
 def run_turn(prompt, *, model=None, cwd=None, timeout=120,
              exe_override=None, runner=None):
-    """UN turno HEADLESS real: `opencode run -m <modelo> --format json
-    <mensaje>`. La respuesta sale como JSONL de eventos; se concatena el texto
-    (ver _parse_run_json). Devuelve (ok, texto). `runner`/`exe_override` son
-    knobs de test (la suite jamás corre un opencode real ni toca la red)."""
+    """UN turno HEADLESS real: `opencode run -m <modelo> --format json`, con
+    el mensaje por STDIN. La respuesta sale como JSONL de eventos; se
+    concatena el texto (ver _parse_run_json). Devuelve (ok, texto).
+    `runner`/`exe_override` son knobs de test (la suite jamás corre un
+    opencode real ni toca la red).
+
+    El mensaje nunca va como argumento: en Windows npm instala `opencode.cmd`
+    y cmd.exe vuelve a leer cada argumento (se cortaba en el primer salto de
+    línea, expandía %VAR% y una comilla impar ejecutaba comandos; revisión de
+    la candidata 0.5.1). `run` no tiene opción de archivo para el mensaje
+    (`--file` lo adjunta), pero sin argumentos toma el mensaje de la entrada
+    estándar si no es una terminal (VERIFICADO en el binario de 1.19.3 y de
+    2.0.30: `process.stdin.isTTY ? void 0 : <stdin>`, unido al mensaje). Un
+    prompt que empiece con `-` tampoco se cuela como flag."""
     exe = _exe(exe_override)
     if not exe:
         return False, "opencode no está en PATH"
     cmd = [exe, "run", "--format", "json"]
     if model:
         cmd += ["-m", model]
-    # El mensaje va como positional al final; `--` evita que un prompt que
-    # empiece con `-` se cuele como flag.
-    cmd += ["--", prompt or ""]
     try:
         if cwd:
             os.makedirs(cwd, exist_ok=True)
@@ -379,10 +394,12 @@ def run_turn(prompt, *, model=None, cwd=None, timeout=120,
         env = secret_store.engine_env()   # el motor no hereda la bóveda
         env["WORKSPACE_NO_AUTOUPDATE"] = "1"
         if runner is not None:
-            r = runner(cmd, cwd=cwd or None, env=env, timeout=timeout)
+            r = runner(cmd, cwd=cwd or None, env=env, timeout=timeout,
+                       input=prompt or "")
         else:
             r = subprocess.run(cmd, cwd=cwd or None, env=env, timeout=timeout,
-                               capture_output=True, stdin=subprocess.DEVNULL)
+                               input=(prompt or "").encode("utf-8"),
+                               capture_output=True)
         rc = getattr(r, "returncode", 1)
         raw_out = getattr(r, "stdout", b"") or b""
         out = raw_out.decode("utf-8", "replace") if isinstance(raw_out, bytes) \
@@ -452,10 +469,21 @@ except Exception:        # pragma: no cover — defensa si codex cambia
 
 
 def _atomic_write(path, text):
-    tmp = path + ".workspace-tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        fh.write(text)
-    os.replace(tmp, path)                # escritura atómica
+    # Temporal ÚNICO por proceso: con un nombre fijo, dos pestañas del mismo
+    # cerebro (cada una en su proceso) escribían el MISMO temporal y una podía
+    # dejar en AGENTS.md el texto a medio escribir de la otra. Si algo falla,
+    # el temporal no se queda en el cerebro.
+    tmp = "%s.%d.workspace-tmp" % (path, os.getpid())
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp, path)            # escritura atómica
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def _agents_doc_text(cfg, session_context="", engine="opencode", embed=""):
@@ -850,6 +878,9 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
         try:
             import sessions_registry as _reg
             first_prompt = _reg.first_prompt_context(brain, tab[1], engine="opencode")
+            if os.name == "nt":       # viaja como argumento: el lanzador .cmd pasa por
+                import memoria        # cmd.exe (revisión de la 0.5.1, P2-10)
+                first_prompt = memoria.argv_seguro(first_prompt)
             print("WORKSPACE: no pude anexar la memoria al AGENTS.md del "
                   "socio — irá en el primer mensaje (visible).")
         except Exception:
@@ -871,6 +902,9 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
         boot = first_prompt or ("" if (passthrough or resumed) else
                                 "Lee %s e inicia el cerebro. Al terminar, confirma "
                                 "en una línea breve." % _identity_doc(cfg))
+        if boot and os.name == "nt":  # viaja como argumento: el lanzador .cmd pasa por
+            import memoria            # cmd.exe (la marca ya viene saneada)
+            boot = memoria.argv_seguro(boot)
         if boot and find:
             boot += " (%s)" % find["marker"]
         if boot:
@@ -927,10 +961,27 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
             pass
     # Limpieza: el bloque de la pestaña era de ESTA corrida → se restaura el
     # puntero base (o se quita el anexo del doc del socio). Best-effort; un
-    # crash deja un bloque que el siguiente launch limpia.
-    if session_blk or _doc_dirty:
+    # crash deja un bloque que el siguiente launch limpia. AGENTS.md es UNO
+    # por cerebro: si otra pestaña sigue viva en él (de cualquier motor), el
+    # bloque es el suyo y no se toca; lo limpia la última que cierre.
+    try:
+        import pending_runs
+        otra = bool(brain) and pending_runs.live_in_brain(brain, exclude=pending_runs.current())
+    except Exception:
+        otra = False
+    if (session_blk or _doc_dirty) and not otra:
         try:
             inject_context(cfg)
+        except Exception:
+            pass
+    if not otra and brain:
+        # El bloque que quede (lo pudo escribir OTRA ventana que cerró antes
+        # con esta abierta) es de Workspace y ya no es de nadie: lo quita
+        # la última en cerrar, sin tocar el texto del socio (revisión de la
+        # 0.5.1, P2-1).
+        try:
+            import pending_runs
+            pending_runs.clean_docs("opencode", brain)
         except Exception:
             pass
     try:

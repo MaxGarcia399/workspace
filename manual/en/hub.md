@@ -1,7 +1,7 @@
 # The hub and its keys
 
 The **hub** is what you see when you type `workspace`: a box with your agents and, below them,
-the **Memory map** and three entries — **Menu**, **Personalization** and **Language**. Enter goes in; the box title shows
+three entries — **Menu**, **Personalization** and **Language**. Enter goes in; the box title shows
 where you are (WORKSPACE › MENU) and Esc goes back. The box always keeps the same size: you can
 shrink the window until only the box fits.
 
@@ -29,14 +29,6 @@ tests/test_manual_compat.py fails if they change. -->
 **← →** switch its engine (`‹ engine ›`, saved on this machine; the next Enter uses it) and
 **Tab** shows one line with its engine, where its brain lives and what it's doing.
 
-## Memory map
-
-The **Memory map ›** row, right below your agents, opens the map of how the agent you were
-pointing at remembers: the real tree of its brain and, step by step, which files it reads and
-which it writes, in order and in colors. ← → or the digits `0` … `7` change the step, ↑ ↓ scrolls
-if it doesn't fit, Tab switches agent, Enter opens what proves it and Esc takes you back to the
-hub. It's the same map as the first row of Documentation.
-
 ## Menu
 
 The sections under **Menu**. Open them from Menu › or by searching:
@@ -50,7 +42,15 @@ The sections under **Menu**. Open them from Menu › or by searching:
 | Tone | your agents' personality dials |
 | Engines | each engine's status, what it can do and its connections |
 | Users | who uses each agent: «that's me on this PC», rename, merge two users who are the same person (e.g. the Mac one and the Windows one) and create a new one. Each user has a fixed ID, so renaming never confuses another machine; nothing is deleted |
-| Documentation | everything Workspace does, in 13 chapters (opening a tab, closing, what travels, what goes online, what it never does…): each with a map, the real data on this PC for the chosen agent, the file or command that proves it (Enter opens it) and the setting that turns it off |
+| Documentation | the memory map (its first row) and everything Workspace does, in 13 chapters (opening a tab, closing, what travels, what goes online, what it never does…): each with a map, the real data on this PC for the chosen agent, the file or command that proves it (Enter opens it) and the setting that turns it off |
+
+## Memory map
+
+It lives in **Documentation** (Menu › Documentation): its first row, or the `m` key from any
+chapter, opens the map of how the chosen agent remembers: the real tree of its brain and, step by
+step, which files it reads and which it writes, in order and in colors. ← → or the digits `0` …
+`7` change the step, ↑ ↓ scrolls if it doesn't fit, Tab switches agent, Enter opens what proves
+it and Esc takes you back to the chapters.
 
 ## The digits
 

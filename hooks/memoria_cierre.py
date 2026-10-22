@@ -14,6 +14,9 @@ Windows). Todo sin IA, en milisegundos (memoria.al_cerrar):
   4. MEMORY   → más de 200 líneas: lo más viejo de la sección de Workspace
                 pasa a STATE/memoria-archivo/.
   5. OpenClaw → lo que dejó suelto en la raíz se mueve a motores/openclaw/.
+  6. skills   → las que el agente guardó solo en skills/aprendidas/ (Hermes)
+                se anotan en skills/README.md sin reescribir nada
+                (skills_aprendidas.catalogar).
 
 Lee el payload JSON de stdin. Silencioso y falla-suave (jamás rompe el cierre).
 Kill-switch: WORKSPACE_NO_MEMORIA=1. Cero dependencias (3.9+).

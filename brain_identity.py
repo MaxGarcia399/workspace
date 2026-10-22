@@ -102,6 +102,32 @@ def read_identity(brain, cfg=None, limit=None):
     return txt
 
 
+#: «# Soy X»: la línea con la que la identidad dice cómo se llama el agente.
+_SOY = re.compile(r"(?m)^#[ \t]+Soy[ \t]+(.+?)[ \t]*$")
+
+
+def identity_name(brain, cfg=None):
+    """El nombre con el que el agente se presenta en su identidad («# Soy X»
+    al principio de su doc de identidad, o del BRAIN.md), o '' si no lo dice.
+    Es el nombre del agente aunque su carpeta o su registro digan otro (al
+    cargar un cerebro, el registro toma el nombre de la carpeta). Solo un
+    nombre: «# Soy **Zenith**, la asistente…» → «Zenith»; una frase que no
+    empieza como nombre («# Soy un cerebro de prueba») → ''."""
+    if not brain:
+        return ""
+    for txt in (read_identity(brain, cfg, limit=4096),
+                _read(os.path.join(str(brain), IDENTITY_DOC), 4096) or ""):
+        m = _SOY.search(txt or "")
+        if not m:
+            continue
+        nombre = re.split(r"\s*(?:[,(:;—–]|\s-\s)", m.group(1))[0]
+        nombre = nombre.strip().strip("*_`").strip(" .").strip()
+        if nombre and not nombre[0].islower() and len(nombre) <= 40:
+            return nombre
+        return ""
+    return ""
+
+
 #: Nombres que algún motor crea o lee POR SU CUENTA desde la raíz de su
 #: workspace y que NO deben estar sueltos en la raíz del cerebro: competirían
 #: con la identidad y la memoria comunes (regla de estructura: todos los motores
@@ -234,20 +260,30 @@ def _strip_frontmatter(text):
     return text
 
 
-def embed_core(brain, cfg=None, socio=None, budget=EMBED_BUDGET, reject=None):
+def embed_core(brain, cfg=None, socio=None, budget=EMBED_BUDGET, reject=None, extra=()):
     """Bloque markdown con la copia del núcleo, para incrustar en un puntero.
 
     `reject(texto) -> [hallazgos]` (opcional, del motor): un documento con
     hallazgos NO se incrusta (p. ej. el escáner de inyección de Hermes
-    bloquearía el archivo ENTERO). Devuelve {"text", "included", "truncated",
-    "omitted", "rejected": [(rel, hallazgos)]}; text = '' si no hay nada que
-    incrustar. Falla-suave: jamás levanta."""
+    bloquearía el archivo ENTERO). `extra`: rutas relativas al cerebro que van
+    DESPUÉS del núcleo, dentro del mismo presupuesto (p. ej. STATE/MEMORY.md
+    cuando el motor no tiene otro camino para recibirla). Devuelve {"text",
+    "included", "truncated", "omitted", "rejected": [(rel, hallazgos)]};
+    text = '' si no hay nada que incrustar. Falla-suave: jamás levanta."""
     res = {"text": "", "included": [], "truncated": "", "omitted": [],
            "rejected": []}
     try:
         docs = core_docs(brain, cfg, socio)
     except Exception:
         docs = []
+    extras = []
+    for rel in extra or ():
+        rel = str(rel or "").replace("\\", "/").strip("/")
+        path = os.path.join(str(brain or ""), *rel.split("/")) if rel else ""
+        if path and ".." not in rel.split("/") and os.path.isfile(path) \
+                and rel not in [r for r, _p in docs]:
+            docs.append((rel, path))
+            extras.append(rel)
     parts, left = [], int(budget)
     for i, (rel, path) in enumerate(docs):
         body = _read(path)
@@ -281,9 +317,11 @@ def embed_core(brain, cfg=None, socio=None, budget=EMBED_BUDGET, reject=None):
         return res
     lines = ["## Núcleo de identidad (copia generada en cada arranque)", "",
              "Este motor no incrusta archivos por su cuenta: Workspace copia aquí el "
-             "núcleo de identidad de este cerebro y YA ESTÁ CARGADO, así que no hace "
+             "núcleo de identidad de este cerebro%s y YA ESTÁ CARGADO, así que no hace "
              "falta leer estos archivos para arrancar. La fuente única sigue siendo "
-             "cada archivo del cerebro (esta copia no se edita: se regenera).", ""]
+             "cada archivo del cerebro (esta copia no se edita: se regenera)."
+             % (" (y su memoria larga)" if any(r in res["included"] or r == res["truncated"]
+                                              for r in extras) else ""), ""]
     lines += parts
     if res["omitted"]:
         lines += ["No incrustados por tamaño (léelos al arrancar, en este orden): "

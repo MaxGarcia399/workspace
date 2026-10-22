@@ -213,8 +213,20 @@ def normalizar_motor(motor):
     return {"claude": "claude-code", "agy": "antigravity", "gemini": "antigravity"}.get(m, m)
 
 
+def _motor_sin_entorno():
+    """El motor que corre este comando cuando no hay entorno de pestaña: el
+    exec de OpenClaw (su gateway no hereda el de la pestaña) pone
+    OPENCLAW_SHELL=exec, y su TUI local `tui-local` (doc 2026.9.33,
+    help/environment.md). '' si no se sabe."""
+    shell = os.environ.get("OPENCLAW_SHELL", "").strip().lower()
+    return "openclaw" if shell in ("exec", "tui-local") else ""
+
+
 def motor_actual():
-    return normalizar_motor(os.environ.get("WORKSPACE_ENGINE", "")) or "agente"
+    """El motor de la sesión: el que exporta el lanzador y, sin él, el que se
+    deduce (una nota de OpenClaw quedaba como «agente», N4); si no, «agente»."""
+    return (normalizar_motor(os.environ.get("WORKSPACE_ENGINE", ""))
+            or _motor_sin_entorno() or "agente")
 
 
 def raiz_cerebro(path):
@@ -241,6 +253,81 @@ def resolver_cerebro(brain=None):
 
 def resolver_pestana(tab=None):
     return (tab or os.environ.get("WORKSPACE_WS") or os.environ.get("ZENITH_WS") or "").strip()
+
+
+def validar_pestana_propia(tab):
+    """Una ventana de Workspace (su pestaña viene en el entorno) guarda solo en
+    SU pestaña. El `--tab` explícito le ganaba al entorno: un Hermes con el
+    hook aprobado congela en su system prompt el bloque del AGENTS.md de OTRA
+    ventana, con su comando (`--tab "B" --engine openclaw`), y si el modelo lo
+    copiaba la nota caía en B sin aviso (revisión de la 0.5.1, P1-1). Mismo
+    trato que la validación del exec de OpenClaw (validar_pestana_sin_entorno):
+    se rechaza y se dice cuál es la suya. Sin la pestaña en el entorno (una
+    terminal normal, el exec de OpenClaw) no se mira nada: el uso de --tab
+    desde fuera de una pestaña no cambia. → `tab`, o ValueError."""
+    propia = (os.environ.get("WORKSPACE_WS") or os.environ.get("ZENITH_WS") or "").strip()
+    if not tab or not propia:
+        return tab
+    import sessions_registry as reg
+    mia = reg._slug(propia)
+    if not mia or reg._slug(tab) == mia:
+        return tab
+    raise ValueError("Esta ventana es la pestaña «%s»: guarda en ella con --tab %s (o sin --tab). "
+                     "«%s» es de otra ventana." % (reg._clean_name(propia), mia,
+                                                   reg._clean_name(tab) or tab))
+
+
+_NOMBRE_MOTOR = {"openclaw": "OpenClaw"}
+
+
+def _pestanas_vivas(brain, motor):
+    """Nombres de las pestañas con una ventana VIVA de `motor` en el cerebro
+    (pending_runs: cada ventana anota su corrida antes de abrir el motor y la
+    borra al cerrar). Falla-suave: []."""
+    try:
+        import pending_runs
+        out = []
+        for rec in pending_runs.pending(brain):
+            tab = str(rec.get("tab") or "")
+            if rec.get("engine") == motor and tab and tab not in out \
+                    and pending_runs.proc_alive(rec):
+                out.append(tab)
+        return out
+    except Exception:
+        return []
+
+
+def validar_pestana_sin_entorno(brain, tab):
+    """En el exec de un motor sin entorno de pestaña (OpenClaw), la pestaña es
+    la que el agente escribió en --tab, a veces copiada del bloque de OTRA
+    ventana (el AGENTS.md es uno por cerebro): la nota caía en la memoria de
+    otra pestaña, también al reabrir (prueba en vivo 2026-10-21, N4). Si hay
+    ventanas de ese motor abiertas en el cerebro, la pestaña tiene que ser una
+    de ellas; si no hay ninguna, no hay con qué comparar y pasa. Con el
+    entorno de la pestaña, o fuera de ese exec (una terminal, otro motor), no
+    se mira nada: el uso normal de --tab no cambia. → la pestaña, o
+    ValueError con las que están abiertas (sin invitar a adivinar)."""
+    motor = _motor_sin_entorno()
+    if not motor or os.environ.get("WORKSPACE_WS") or os.environ.get("ZENITH_WS"):
+        return tab
+    vivas = _pestanas_vivas(raiz_cerebro(brain), motor)
+    if not vivas:
+        return tab
+    import sessions_registry as reg
+    if tab and reg._slug(tab) in [reg._slug(v) for v in vivas]:
+        return tab
+    nombre = _NOMBRE_MOTOR.get(motor, motor)
+    abiertas = ", ".join("«%s»" % v for v in vivas)
+    if len(vivas) == 1:
+        guia = "usa --tab %s --engine %s" % (reg._slug(vivas[0]), motor)
+    else:
+        guia = "usa --tab con la que nombra tu primera instrucción y --engine %s" % motor
+    if not tab:
+        raise ValueError("Falta la pestaña: %s (abierta%s con %s en este cerebro: %s)"
+                         % (guia, "s" if len(vivas) > 1 else "", nombre, abiertas))
+    raise ValueError("La pestaña «%s» no está abierta con %s en este cerebro (abierta%s: %s). "
+                     "Guarda en la tuya, la que nombra tu primera instrucción: %s"
+                     % (tab, nombre, "s" if len(vivas) > 1 else "", abiertas, guia))
 
 
 def ficha_path(brain, tab, crear=False):
@@ -1184,6 +1271,87 @@ def _cmd(tab="", motor=""):
     return "workspace memoria %s"
 
 
+def _shell_powershell(motor=""):
+    """¿La terminal del agente es PowerShell? En Windows, OpenClaw ejecuta los
+    comandos con PowerShell 7 si lo encuentra y, si no, con Windows
+    PowerShell 5.1, que no acepta `&&` (doc tools/exec.md; auditoría
+    2026-10-21: el primer comando estilo bash del agente falló). `;` sirve
+    en los dos."""
+    return normalizar_motor(motor) in SIN_ENTORNO and sys.platform == "win32"
+
+
+#: Lo que cmd.exe interpreta aunque vaya entre comillas, o que rompe las
+#: comillas de un argumento (en Windows el lanzador de npm es un .cmd).
+_ARGV_RARO = re.compile(r"[\"'%^!<>|&]")
+#: Tope de un mensaje que viaja como argumento: cmd.exe no acepta una línea de
+#: comandos de más de 8191 caracteres (el motor no abriría).
+ARGV_MAX = 3000
+
+
+def argv_seguro(texto, tope=ARGV_MAX):
+    """`texto` en UNA línea que el cmd.exe de un lanzador .cmd (npm, Windows)
+    no interpreta: sin comillas ni % ^ ! < > | & (_ARGV_RARO), sin saltos de
+    línea y con tope (cortado en un espacio). Para mensajes de arranque que
+    llevan el nombre de la pestaña o su memoria: crudos, cmd.exe los cortaba
+    en el primer salto de línea, expandía %VAR% y una comilla rompía el
+    entrecomillado (revisión de la 0.5.1, P2-10)."""
+    t = re.sub(r"\s+", " ", _ARGV_RARO.sub(" ", str(texto or ""))).strip()
+    if len(t) > tope:
+        t = (t[:tope].rsplit(" ", 1)[0] or t[:tope]).rstrip()
+    return t
+
+
+def pasa_por_cmd(exe):
+    """¿`exe` es un lanzador .cmd/.bat de Windows (npm instala así claude,
+    codex, opencode, openclaw…)? Python lo corre con cmd.exe, que vuelve a
+    leer cada argumento: el texto libre va por stdin o por archivo, o con
+    argv_seguro."""
+    return os.name == "nt" and str(exe or "").lower().endswith((".cmd", ".bat"))
+
+
+def linea_pestana(tab, motor="", argv=False):
+    """La pestaña de ESTA ventana, dicha de forma explícita y con el comando
+    exacto de memoria (--tab y --engine), para el contexto propio de cada
+    sesión (el hook por turno de Hermes, el primer mensaje de OpenClaw): el
+    bloque del AGENTS.md es uno por cerebro, lo reescribe la última ventana
+    que abre y una pestaña se creía otra y guardaba en su memoria (prueba en
+    vivo 2026-10-21, N3/N4). `argv=True`: el texto viaja como argumento de
+    línea de comandos y en Windows pasa por el cmd.exe del lanzador de npm:
+    sin comillas ni caracteres que cmd interprete, y la pestaña va por su
+    slug, que lleva a la misma ficha. Ese texto es el PRIMER mensaje de la
+    sesión y el modelo lo toma como tarea: «Guarda tu memoria siempre con…»
+    hacía que cada pestaña nueva de OpenClaw guardara sola una nota y un
+    resumen del arranque (prueba en vivo de la candidata 0.5.1, R1: 7 de 7).
+    Ahí el comando va solo como referencia, para cuando haya algo que
+    guardar, y dice que el arranque no lo es. '' si la pestaña no da ruta."""
+    import sessions_registry as reg
+    nombre = reg._clean_name(tab)
+    slug = reg._slug(nombre)
+    if not slug:
+        return ""
+    motor = normalizar_motor(motor)
+    eng = (" --engine %s" % motor) if motor else ""
+    de_motor = (" (motor %s)" % motor) if motor else ""
+    if argv:
+        nombre = re.sub(r"\s+", " ", _ARGV_RARO.sub(" ", nombre)).strip() or slug
+        c = "workspace memoria %%s --tab %s%s" % (slug, eng)
+        return ("Esta ventana es la pestaña «%s»%s: si el bloque de sesión del AGENTS.md "
+                "nombra otra pestaña, es de otra ventana abierta en este cerebro y la tuya "
+                "sigue siendo esta. Solo como referencia, para más adelante: cuando haya una "
+                "decisión, un pendiente o algo que valga guardar, usa exactamente %s --tipo "
+                "decision (o pendiente, hecho, nota, dato, preferencia) con el texto entre "
+                "comillas, y para el resumen, %s.%s Arrancar no es algo que guardar: no "
+                "anotes nada ni hagas un resumen por el arranque." % (
+                    nombre, de_motor, c % "nota", c % "checkpoint",
+                    " Si workspace no existe en tu terminal, usa workspace.cmd."
+                    if sys.platform == "win32" else ""))
+    c = 'workspace memoria %%s --tab "%s"%s' % (nombre.replace('"', ""), eng)
+    return ("[Workspace · esta ventana es la pestaña «%s»%s. Si el AGENTS.md o el arranque "
+            "de esta conversación nombran otra pestaña, es de otra ventana abierta en este "
+            "cerebro: la tuya es esta. Guarda tu memoria siempre con: %s --tipo <tipo> \"…\" "
+            "(el resumen: %s …)]" % (nombre, de_motor, c % "nota", c % "checkpoint"))
+
+
 #: Motores que solo dejan pasar comandos IDÉNTICOS a una regla (Antigravity:
 #: `command(<comando completo>)`, VERIFICADO 2026-10-17): una nota con su texto
 #: nunca coincide y pediría permiso cada vez. Ahí el agente escribe la nota en
@@ -1282,7 +1450,9 @@ def instruccion(revision=0, tab="", motor=""):
         + c % "checkpoint" + " --expected-revision %d --objective … --decision … "
         "--blocker … --next-step … --result … (≤600 caracteres por campo; si hay conflicto, "
         "workspace memoria status y reconciliar, nunca pisar)." % revision,
-        "  · Si `workspace` no existe en tu terminal, usa `workspace.cmd` (Windows)."])
+        "  · Si `workspace` no existe en tu terminal, usa `workspace.cmd` (Windows)."]
+        + (["  · Tu terminal es PowerShell: separa comandos con `;`, no con `&&`."]
+           if _shell_powershell(motor) else []))
 
 
 def instruccion_entrada(revision=0, tab=""):
@@ -1662,7 +1832,9 @@ def instruccion_corta(revision=0, tab="", motor=""):
     c = _cmd(tab, motor)
     return ("Guardar memoria: " + c % "nota" + " --tipo decision|pendiente|hecho|nota|dato|"
             "preferencia \"…\" (cerrar: --cierra P-n); resumen: " + c % "checkpoint"
-            + " --expected-revision %d …. Nunca edites el archivo de la pestaña a mano." % revision)
+            + " --expected-revision %d …. Nunca edites el archivo de la pestaña a mano." % revision
+            + (" Tu terminal es PowerShell: separa con `;`, no con `&&`."
+               if _shell_powershell(motor) else ""))
 
 
 def paquete_recortado(lineas, limite, revision=0, tab="", motor=""):
@@ -1718,7 +1890,8 @@ def _quitar_checkpoint_vacio(brain, tab):
 def al_cerrar(brain, tab, motor="", transcript="", desde=0.0):
     """Todo lo que toca al cerrar una sesión, sin IA y falla-suave por paso:
     maleta → memoria del agente → compactar → archivar MEMORY → quitar el
-    checkpoint de relleno si sigue vacío → OpenClaw."""
+    checkpoint de relleno si sigue vacío → OpenClaw → catálogo de las skills
+    que el agente guardó solo (skills/aprendidas/, de cualquier motor)."""
     res = {}
     brain = raiz_cerebro(brain)
     motor = normalizar_motor(motor)
@@ -1743,6 +1916,14 @@ def al_cerrar(brain, tab, motor="", transcript="", desde=0.0):
             res["openclaw_movidos"] = mover_raiz_openclaw(brain, desde)
         except Exception as exc:
             res["openclaw_error"] = type(exc).__name__
+    # Hermes guarda en skills/aprendidas/ lo que aprende; los demás motores
+    # lo encuentran por el catálogo. Corre en el cierre de cualquier motor:
+    # si la pestaña de Hermes se cerró de golpe, lo anota el siguiente.
+    try:
+        import skills_aprendidas
+        res["skills_aprendidas"] = skills_aprendidas.catalogar(brain)
+    except Exception as exc:
+        res["skills_aprendidas_error"] = type(exc).__name__
     return res
 
 
@@ -1800,9 +1981,11 @@ def main(argv=None):
     if argv and argv[0] == "checkpoint" and "--entrada" in argv:
         # el resumen desde la bandeja (motores de reglas exactas, ver ENTRADA_ARCHIVO)
         resto = [x for x in argv[1:] if x != "--entrada"]
-        tab = resolver_pestana(next((resto[i + 1] for i, x in enumerate(resto[:-1]) if x == "--tab"), None))
+        explicita = next((resto[i + 1] for i, x in enumerate(resto[:-1]) if x == "--tab"), None)
+        tab = resolver_pestana(explicita)
         brain = resolver_cerebro(next((resto[i + 1] for i, x in enumerate(resto[:-1]) if x == "--brain"), None))
         try:
+            validar_pestana_propia(explicita)
             extra = leer_entrada_checkpoint(brain, tab)
             bandeja = entrada_path(brain, tab, "checkpoint")
         except (ValueError, OSError) as e:
@@ -1810,6 +1993,14 @@ def main(argv=None):
             return 1
         argv = ["checkpoint", "--brain", brain, "--tab", tab] + extra + \
             [x for x in resto if x not in ("--tab", "--brain", tab, brain)]
+    if argv and argv[0] == "checkpoint" and not bandeja:
+        try:                               # el resumen escribe: la misma pestaña que `nota`
+            validar_pestana_propia(_opcion(argv, "--tab"))
+            validar_pestana_sin_entorno(resolver_cerebro(_opcion(argv, "--brain")),
+                                        resolver_pestana(_opcion(argv, "--tab")))
+        except ValueError as e:
+            print(json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False))
+            return 1
     if argv and argv[0] in _DELEGADOS:
         import session_continuity
         rc = session_continuity.main(_con_cerebro_y_pestana(argv))
@@ -1822,6 +2013,10 @@ def main(argv=None):
     brain = resolver_cerebro(a.brain)
     tab = resolver_pestana(a.tab)
     try:
+        if a.comando in ("nota", "compactar"):          # los que escriben en la ficha
+            validar_pestana_propia(a.tab)
+        if a.comando == "nota":
+            tab = validar_pestana_sin_entorno(brain, tab)
         if a.comando == "nota" and a.entrada:
             res, problemas = procesar_entrada(brain, tab, motor=a.motor)
             if a.json:

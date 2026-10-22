@@ -26,7 +26,7 @@ Applies to macOS, Linux and Windows unless noted.
 | Feature | Claude Code | Codex | Antigravity | OpenCode | OpenClaw | Hermes |
 |---|---|---|---|---|---|---|
 | Open the agent from the hub | ✅ | ✅ (wrapped) | ✅ (wrapped) | ✅ (wrapped) | ✅ (wrapped, with gateway: several tabs) | ✅ (wrapped) |
-| Agent starts with its memory | ✅ automatic | ✅ through an `AGENTS.md` Workspace writes into the brain | ✅ through a `GEMINI.md` Workspace writes into the brain | ✅ through an `AGENTS.md` Workspace writes into the brain | ✅ through the same `AGENTS.md` (OpenClaw profile of its own, no extra files) and, on every message, the brain's `STATE/MEMORY.md` | ✅ through the same `AGENTS.md` (Hermes profile of its own, neutral identity); the agent reads its brain with your first message and, when you resume a tab, gets its up-to-date memory |
+| Agent starts with its memory | ✅ automatic | ✅ through an `AGENTS.md` Workspace writes into the brain | ✅ through a `GEMINI.md` Workspace writes into the brain | ✅ through an `AGENTS.md` Workspace writes into the brain | ✅ through the same `AGENTS.md` (OpenClaw profile of its own, no extra files) and, on every message, the brain's `STATE/MEMORY.md` | ✅ through the same `AGENTS.md` (Hermes profile of its own, neutral identity) and, with your first message (also when you resume a tab), the tab's up-to-date memory and the brain's `STATE/MEMORY.md` |
 | MCP connectors | ✅ | ✅ (Codex's own config) | ✅ | ✅ (OpenCode's own config) | ✅ (OpenClaw's own config) | ✅ (Hermes' own config) |
 | Session events (*hooks*: save memory on close, etc.) | ✅ | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace), plus your tone with every message and the tab's memory when you resume |
 | Resume sessions from Workspace's tabs | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -45,21 +45,27 @@ If the engine's program isn't installed (or isn't on the PATH), none of this wor
 
 Codex, Antigravity, OpenCode, OpenClaw and Hermes have hooks of their own too, but Workspace doesn't turn them on:
 Workspace already sends the open and close events around the program, and turning them on would
-send them twice. The exceptions: one Hermes hook, per message, that adds your tone and, when you
-resume a tab, its memory (Hermes asks you to approve it once), and OpenClaw's official one that
+send them twice. The exceptions: one Hermes hook, per message, that adds your tone and, when a
+conversation starts or resumes, the tab's memory and the brain's (Hermes approves it by itself
+if it's the only hook in the profile; if
+you added hooks of your own, it asks you to approve it once), and OpenClaw's official one that
 loads the brain's memory. That's why those engines have no per-tool events or live status. With
 OpenCode, OpenClaw and Hermes, the model is the one you pick in its own config: Workspace doesn't change it.
 
 Hermes runs in a Workspace profile of its own (your personal Hermes doesn't change). In that
 profile its own memory is off, because all your agents share it: each agent's memory lives in its
 brain and reaches it through `AGENTS.md` and, when you resume, through its hook. It uses each
-agent's brain skills (`skills/`) besides its built-in ones, and no longer creates skills in the
-shared profile. Its scheduled tasks stay as in your Hermes.
+agent's brain skills (`skills/`) besides its built-in ones, and saves the ones it learns in that
+same brain (`skills/aprendidas/`), not in the shared profile: when the session closes, Workspace
+adds them to the brain's catalog and your other engines see them too. Its scheduled tasks stay as
+in your Hermes.
 
 OpenClaw runs in a profile of its own too. Its own memory is off and it reads the brain's
 (`STATE/MEMORY.md`) on every message through its official hook, when it runs with the gateway (the
-usual case); in single-window mode it opens without it. Its semantic search stays off: indexing
-your brain would send your notes to an outside service. Its skills are the brain's (`skills/`).
+usual case); in single-window mode it opens without it. Its memory search stays on, but it only
+searches its own memory files, which the brain doesn't use; Workspace doesn't point it at the
+brain: indexing it would send your notes to an outside service. Its skills are the brain's
+(`skills/`).
 
 ## Permissions by engine
 

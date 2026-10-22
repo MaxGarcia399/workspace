@@ -40,7 +40,6 @@ STRINGS = {
     'docs.mapa.ejemplo': 'sin agentes todavía: el recorrido con nombres de ejemplo',
     'docs.mapa.fuera': 'FUERA DEL CEREBRO · no viaja',
     'docs.mapa.k.back': 'capítulos',
-    'docs.mapa.k.hub': 'vuelve',
     'docs.mapa.k.scroll': 'desplaza',
     'docs.mapa.k.step': 'paso',
     'docs.mapa.legend.idle': 'no se usa en este paso',

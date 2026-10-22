@@ -881,6 +881,25 @@ _SESSION_STARTS = (_SESSION_START, legacy.SESSION_START)
 _SESSION_ENDS = (_SESSION_END, legacy.SESSION_END)
 
 
+def _escribir_atomico(path, text):
+    """Escribe `path` entero o no lo toca: temporal ÚNICO por proceso (con un
+    nombre fijo, dos pestañas o un cierre tardío en otro proceso escribían el
+    MISMO temporal y una podía dejar el texto a medio escribir de la otra;
+    revisión de la 0.5.1, P2-9) y, si algo falla, el temporal no se queda en
+    el cerebro. Misma regla que opencode._atomic_write."""
+    tmp = "%s.%d.workspace-tmp" % (path, os.getpid())
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def _split_session_block(text):
     """(texto_sin_bloque, había_bloque). Corta por LÍNEAS completas entre las
     marcas (actuales o legacy) — contenido con `-->` adentro no rompe el
@@ -913,10 +932,7 @@ def _strip_session_block(brain):
         base, found = _split_session_block(txt)
         if not found:
             return False
-        tmp = p + ".workspace-tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            fh.write(base.rstrip() + "\n")
-        os.replace(tmp, p)
+        _escribir_atomico(p, base.rstrip() + "\n")
         return True
     except Exception:
         return False
@@ -965,20 +981,14 @@ def inject_context(cfg, session_context=""):
                         body = (base.rstrip() + "\n\n%s\n%s\n%s\n"
                                 % (_SESSION_START, session_context,
                                    _SESSION_END))
-                        tmp = path + ".workspace-tmp"
-                        with open(tmp, "w", encoding="utf-8") as fh:
-                            fh.write(body)
-                        os.replace(tmp, path)
+                        _escribir_atomico(path, body)
                         out.update(ok=True, action="custom",
                                    session="appended",
                                    detail="AGENTS.md del socio — bloque de "
                                           "sesión anexado (marcado; se "
                                           "limpia al cerrar)")
                     elif had:
-                        tmp = path + ".workspace-tmp"
-                        with open(tmp, "w", encoding="utf-8") as fh:
-                            fh.write(base.rstrip() + "\n")
-                        os.replace(tmp, path)
+                        _escribir_atomico(path, base.rstrip() + "\n")
                         out.update(ok=True, action="custom",
                                    detail="AGENTS.md del socio — bloque de "
                                           "sesión viejo limpiado")
@@ -999,10 +1009,7 @@ def inject_context(cfg, session_context=""):
             action = "synced"
         else:
             action = "created"
-        tmp = path + ".workspace-tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            fh.write(want)
-        os.replace(tmp, path)            # escritura atómica (no medio-archivo)
+        _escribir_atomico(path, want)            # escritura atómica (no medio-archivo)
         out.update(ok=True, action=action)
         return out
     except Exception as e:
@@ -1429,6 +1436,9 @@ def _launch_selected(cfg, passthrough, brain, agent, tab, resume_sid, session_bl
         try:
             import sessions_registry as _reg
             first_prompt = _reg.first_prompt_context(brain, tab[1], engine="codex")
+            if os.name == "nt":       # viaja como argumento: el lanzador .cmd pasa por
+                import memoria        # cmd.exe (revisión de la 0.5.1, P2-10)
+                first_prompt = memoria.argv_seguro(first_prompt)
             print("WORKSPACE: no pude anexar la memoria al AGENTS.md del "
                   "socio — irá en el primer mensaje (visible).")
         except Exception:
@@ -1534,10 +1544,27 @@ def _launch_selected(cfg, passthrough, brain, agent, tab, resume_sid, session_bl
     # de ESTA corrida — doc generado → se restaura el puntero base (sin
     # bloque); doc del socio → se le quita el bloque anexado (strip) y queda
     # byte-a-byte como era. Best-effort; un crash deja un bloque huérfano que
-    # el strip-antes-de-anexar del siguiente launch auto-limpia.
-    if session_blk or _doc_dirty:
+    # el strip-antes-de-anexar del siguiente launch auto-limpia. AGENTS.md es
+    # UNO por cerebro: si otra pestaña sigue viva en él (de cualquier motor),
+    # el bloque es el suyo y no se toca; lo limpia la última que cierre.
+    try:
+        import pending_runs
+        otra = bool(brain) and pending_runs.live_in_brain(brain, exclude=pending_runs.current())
+    except Exception:
+        otra = False
+    if (session_blk or _doc_dirty) and not otra:
         try:
             inject_context(cfg)
+        except Exception:
+            pass
+    if not otra and brain:
+        # El bloque que quede (lo pudo escribir OTRA ventana que cerró antes
+        # con esta abierta) es de Workspace y ya no es de nadie: lo quita
+        # la última en cerrar, sin tocar el texto del socio (revisión de la
+        # 0.5.1, P2-1).
+        try:
+            import pending_runs
+            pending_runs.clean_docs("codex", brain)
         except Exception:
             pass
     # Binding POST-HOC: la sesión que codex creó/usó para este cerebro queda

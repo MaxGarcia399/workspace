@@ -330,8 +330,9 @@ def separate(dry_run=True, empty_registry=True, out=print):
 def seed_definition(folder, name=None, owner=None, display=None, tagline="",
                     color="gris", out=print):
     """Siembra `<folder>/.workspace/agent.json` para un cerebro 'pelón' (sin def).
-    Infiere name de la carpeta y owner de socio.local. Brand → genérico del
-    template. Devuelve (ok, name|error). No sobrescribe una def existente."""
+    Infiere name de la carpeta y owner de socio.local; el `display`, del
+    «# Soy X» de su identidad si lo dice (si no, el nombre). Brand → genérico
+    del template. Devuelve (ok, name|error). No sobrescribe una def existente."""
     folder = os.path.abspath(os.path.expanduser(folder or ""))
     if not os.path.isdir(folder):
         return False, _t("addagent.err.no_folder", "la carpeta no existe: {p}",
@@ -344,6 +345,15 @@ def seed_definition(folder, name=None, owner=None, display=None, tagline="",
     if not agentsreg.is_valid_name(name):
         return False, "no pude inferir un nombre válido de %r" % folder
     owner = owner or _detect_owner(folder)
+    if not display:
+        # El cerebro dice cómo se llama («# Soy Ventisca»), aunque la carpeta
+        # diga otra cosa («Vivo»): ese es su nombre visible (prueba en vivo
+        # final de la candidata 0.5.1, O1).
+        try:
+            import brain_identity
+            display = brain_identity.identity_name(folder)
+        except Exception:
+            display = ""
     defn = {
         "version": 1,
         "name": name,
