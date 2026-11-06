@@ -244,8 +244,9 @@ def default_session(agent):
     resolve_brain) y lee `<brain>/.claude/<agente>-workspaces.json` (lista de
     dicts per-máquina, gitignored). Ordena por max(last_opened, updated,
     created) — cada campo ISO parseado falla-suave a 0 — y devuelve la primera
-    entrada con `id` y `name`. JSON roto / archivo ausente / sin entradas
-    válidas → None."""
+    entrada con `id` y `name` que esté en la lista única de pestañas (los .md
+    del cerebro, sin las archivadas: sesiones v2). JSON roto / archivo
+    ausente / sin entradas válidas → None."""
     try:
         import json
         from datetime import datetime
@@ -271,6 +272,18 @@ def default_session(agent):
                 return 0
 
         rows = [w for w in data if isinstance(w, dict)]
+        # sesiones v2: solo las pestañas de la lista única (los .md del
+        # cerebro, sin las archivadas). Un cerebro sin ningún .md (legado) usa
+        # la lista local tal cual.
+        try:
+            import agent_brand
+            todas = agent_brand.pestanas(brain, agent_brand.socio_comun(brain), True)
+            if todas:
+                activas = {t["slug"] for t in todas
+                           if not agent_brand.es_archivada(t.get("estado"))}
+                rows = [w for w in rows if agent_brand.slug(str(w.get("name") or "")) in activas]
+        except Exception:
+            pass
         rows.sort(key=lambda w: max(_ts(w, "last_opened"), _ts(w, "updated"),
                                     _ts(w, "created")), reverse=True)
         for w in rows:

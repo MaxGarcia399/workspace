@@ -61,6 +61,7 @@ STRINGS = {
     'panel.ses.switch_in_split': 'switching sessions: in the herdr split',
     'panel.ses.already': "you're already in that session",
     'panel.ses.xarm': 'x arms close mode',
+    'panel.ses.archived': '{n} archived · in the agent menu',
     'panel.op.mac_only': 'switching only on Mac/Linux',
     'panel.op.outside': 'outside the herdr split — read-only',
     'panel.op.no_mux': 'switch failed: mux unavailable',

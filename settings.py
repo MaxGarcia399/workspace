@@ -65,7 +65,7 @@ def _with_store_lock(fn):
         return fn()
 
 GROUPS = ("latido", "jobs", "hooks", "modelos", "budget", "cerebro",
-          "agentes", "ui", "otros")
+          "sesiones", "agentes", "ui", "otros")
 
 _SENTINEL = object()
 
@@ -381,6 +381,48 @@ SETTINGS_SCHEMA = (
      "label": "Memoria de Claude Code en el cerebro", "type": "bool", "default": True,
      "help": "La memoria propia de Claude Code se guarda en motores/claude-code/memoria/<socio>/ del cerebro, una carpeta por persona, y viaja con él (no se queda en esta máquina). En un cerebro compartido, el Claude Code de cada quien carga solo la suya.",
      "applies": "engines/claude_code.py → memoria.claude_settings_args: `--settings` con autoMemoryDirectory al abrir (no escribe la config de Claude Code); un --settings tuyo gana."},
+
+    # ── sesiones (pestañas de los agentes) ──
+    {"key": "sesiones.archivar_dias", "group": "sesiones",
+     "label": "Archivar pestañas sin usar (días)", "type": "int", "default": 15,
+     "range": (0, 3650),
+     "help": "Las pestañas que no abres en estos días se archivan solas: salen "
+             "del menú en todas tus máquinas, sin borrar nada (su memoria sigue "
+             "en el cerebro). Un aviso de una línea dice cuántas y cómo "
+             "deshacerlo. 0 = apagado.",
+     "applies": "sessions_registry.auto_archivar al abrir un agente (dispatch), "
+                "solo en ese cerebro y solo si su copia está al día (constancia de "
+                "máquinas); deshacer: `u` en el menú de pestañas o "
+                "`workspace sesiones desarchivar --ultimas`."},
+    # ── sesiones (nivel 2: la conversación de Claude Code viaja, sesiones v2 §D) ──
+    {"key": "sesiones.llevar_conversacion", "group": "sesiones",
+     "label": "Llevar la conversación a tus otras máquinas", "type": "enum",
+     "default": "off", "choices": ("off", "claude-code"),
+     "help": "Cada cerebro decide si su conversación de Claude Code viaja con él, para "
+             "todas las máquinas y personas que lo usan: `workspace sesiones "
+             "conversacion on|off --agente X`. Este ajuste es el de esta máquina para "
+             "los cerebros que no han decidido. claude-code = al cerrar una pestaña, su "
+             "conversación se guarda comprimida en el cerebro (motores/claude-code/"
+             "conversaciones/<socio>/) y en tu otra máquina se retoma con --resume; al "
+             "abrir solo se trae la tuya. En un cerebro compartido, todos los que lo usan "
+             "pueden ver esas conversaciones: para privacidad, usa un cerebro aparte. No "
+             "sube si pesa más que el tope o si trae algo que parece una llave, y nunca va "
+             "al espejo de git. Con Obsidian Sync, prende «Sync all other types» en cada "
+             "dispositivo. off (de fábrica) = se queda en cada máquina; la pestaña viaja "
+             "igual con su memoria.",
+     "applies": "conversaciones.modo(cerebro): `llevar_conversacion:` del frontmatter de "
+                "STATE/cerebro.md si el cerebro decidió; si no, este ajuste. guardar() "
+                "desde hooks/transcript_backup.py (SessionEnd) y memory_flush.py "
+                "(PreCompact); al_abrir() desde engines/claude_code.launch antes de "
+                "--resume/--session-id."},
+    {"key": "sesiones.conversacion_max_mb", "group": "sesiones",
+     "label": "Tope de la conversación que viaja (MB)", "type": "int",
+     "default": 4, "range": (1, 200),
+     "help": "Tamaño máximo de la conversación comprimida que se guarda en el "
+             "cerebro. 4 cabe en Obsidian Sync Standard (5 MB por archivo); con "
+             "Plus puedes subirlo hasta 200. Si una conversación se pasa, se queda "
+             "en esta máquina y te avisa en una línea.",
+     "applies": "conversaciones.guardar() (tope de la copia .jsonl.gz)."},
 
     # ── agentes ──
     {"key": "agentes.default_agent", "group": "agentes",
@@ -1059,6 +1101,13 @@ def pin_label(key):
     fallback: el label del schema. Nunca levanta."""
     spec = _BY_KEY.get(key) or {}
     return _ui_t("settings_ui.label." + str(key), spec.get("label") or key)
+
+
+def help_text(key):
+    """Ayuda de un setting EN EL IDIOMA DE LA UI (settings_ui.help.<key>);
+    fallback: el help del schema. Nunca levanta."""
+    spec = _BY_KEY.get(key) or {}
+    return _ui_t("settings_ui.help." + str(key), spec.get("help") or "")
 
 
 def pin_value_display(key, val):

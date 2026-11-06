@@ -14,7 +14,7 @@ Te muestra qué va a borrar y te pide confirmación.
 
 ## Qué se borra
 
-- El comando `workspace` y los comandos de cada agente.
+- El comando `workspace`, los comandos de cada agente y `workspace-memoria`.
 - La configuración local de Workspace en `~/.claude/workspace/` (ajustes, atajos, temas
   elegidos, estado de esta máquina).
 - Lo que el instalador añadió a tu terminal (PATH y menú al abrir; en Windows, el bloque del
@@ -27,7 +27,8 @@ Te muestra qué va a borrar y te pide confirmación.
 - **Los cerebros de tus agentes** (sus carpetas): son tuyos y viven aparte.
 - Las conversaciones guardadas por cada motor. Si eliges limpiar también los motores, las de
   los perfiles de Workspace en OpenClaw y Hermes se mueven a una carpeta de respaldo (ver abajo).
-- Los motores (Claude Code, Codex, Antigravity) ni sus sesiones.
+- Los motores (Claude Code, Codex, Antigravity, OpenCode, OpenClaw, Hermes, Kiro, GitHub Copilot,
+  Cursor) ni sus sesiones.
 
 ## Limpiar también cerebros y motores
 
@@ -39,6 +40,19 @@ limpiarlo, primero te muestra la lista exacta y quita **solo lo que escribió Wo
 - Codex: la confianza de tus cerebros en `config.toml` y sus temas `workspace-*`.
 - Antigravity: tus cerebros, sus reglas y la barra en su `settings.json`, y sus proyectos
   `workspace-*`.
+- GitHub Copilot: la barra en su `settings.json` y la copia que Workspace guardó antes
+  (`settings.workspace-statusline-backup.json`).
+- Cursor: la barra y la regla vieja de `workspace-memoria` en su `cli-config.json`, y las marcas
+  de confianza `.workspace-trusted` que dejó Workspace (las que aceptaste tú en Cursor se quedan).
+- Kiro: el agente `agents/workspace.json` de una versión anterior y, en su `settings/cli.json`,
+  solo los segmentos de la barra que prendió Workspace (también con `KIRO_HOME`).
+- En cada cerebro, la herramienta de memoria: en `.cursor/mcp.json`, `.cursor/cli.json` y
+  `.agents/mcp_config.json` solo lo de Workspace (lo tuyo se queda; el archivo y su carpeta se
+  borran solo si quedan vacíos) y el agente `.kiro/agents/workspace.json`. Quitar un agente
+  desde Agentes también los quita de su cerebro.
+- En `~/.local/bin`: los comandos de las barras
+  (`workspace-copilot-statusline`, `workspace-cursor-statusline`, `workspace-agy-statusline`),
+  solo si llevan la marca de Workspace.
 - OpenClaw y Hermes: el perfil propio de Workspace **no se borra**. Se mueve entero, con sus
   conversaciones y el proveedor que conectaste ahí, a una carpeta al lado
   (`<perfil>.workspace-respaldo-<fecha>`). Si no se puede mover, se queda donde está. Tu

@@ -80,6 +80,21 @@ def _brain_enc(brain):
 
 
 def _socio(brain):
+    """Socio activo del cerebro: la MISMA resolución que las pestañas
+    (sessions_registry.socio → identidad de la máquina, sesiones v2). Si no
+    se resuelve, el socio.local de antes; si tampoco, «equipo»."""
+    try:
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) \
+            if os.path.basename(os.path.dirname(os.path.abspath(__file__))) == "hooks" \
+            else os.path.dirname(os.path.abspath(__file__))
+        if root not in sys.path:
+            sys.path.insert(0, root)
+        import sessions_registry
+        s = re.sub(r"[^a-z0-9_-]", "", (sessions_registry.socio(brain) or "").lower())
+        if s:
+            return s
+    except Exception:
+        pass
     try:
         s = open(os.path.join(brain, ".claude", "socio.local"),
                  encoding="utf-8").read()
@@ -167,7 +182,8 @@ def _write_brain_file(brain, relpath, content, append=False):
             fh.write(content)
             fh.flush()
             os.fsync(fh.fileno())
-        os.replace(tmp, path)
+        import atomico                       # reintento en Windows (antivirus/Obsidian)
+        atomico.reemplazar(tmp, path)
     except Exception:
         try:
             os.remove(tmp)

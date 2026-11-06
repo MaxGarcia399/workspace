@@ -1,8 +1,10 @@
 """Read-only status formatting; countdowns derive from vendor reset timestamps.
 
-Lo comparten las dos barras que Workspace pinta DENTRO de un CLI ajeno:
+Lo comparten las barras que Workspace pinta DENTRO de un CLI ajeno:
   · el pie opt-in de Codex (codex_status.footer, WORKSPACE_CODEX_LIVE_BAR=1);
-  · la statusLine nativa de Antigravity (antigravity_usage.main → aquí).
+  · la statusLine nativa de Antigravity (antigravity_usage.main → aquí);
+  · la statusLine nativa de GitHub Copilot y la de Cursor (motor_statusline.main
+    → copilot_lines / cursor_lines).
 Solo formatea lo que el proveedor publica (cuotas, % de contexto): desconocido
 se dice como tal, nunca como 0. Colores = paleta del tema del hub (tuitheme),
 nada fijo; sin color (NO_COLOR, TERM=dumb, tema B/N) sale texto plano.
@@ -207,3 +209,191 @@ def antigravity_lines(payload,now=None,color=None):
     except (TypeError,ValueError):width=100
     import hublayout as H
     return [H.clip(line,width-1) for line in lines]
+
+
+def _num(value):
+    """Número finito ≥0 del JSON del motor, o None (bool/texto/NaN = no hay)."""
+    if isinstance(value,bool):return None
+    try:
+        f=float(value)
+    except (TypeError,ValueError):return None
+    return f if math.isfinite(f) and f>=0 else None
+
+
+def _copilot_context(ctx):
+    """% de la ventana de contexto OCUPADA, o None si Copilot aún no lo midió.
+    VERIFICADO 1.0.105: `current_context_used_percentage` (sobre
+    current_context_tokens: prompt de sistema + historial) es la ocupación
+    real; `used_percentage` es otra cosa (tokens gastados / ventana) y antes del
+    primer mensaje AMBOS llegan en 0 sin nada medido → «desconocido», no 0%."""
+    if not isinstance(ctx,dict):return None
+    cur=_num(ctx.get('current_context_tokens'))
+    if cur:
+        pct=_num(ctx.get('current_context_used_percentage'))
+        if pct is None:
+            size=_num(ctx.get('context_window_size'))
+            pct=(cur/size*100) if size else None
+        return pct if pct is not None and pct<=100 else None
+    if 'current_context_tokens' in ctx:return None
+    # versión sin los campos current_*: el % general, solo con tokens medidos
+    if _num(ctx.get('total_tokens')):
+        pct=_num(ctx.get('used_percentage'))
+        return pct if pct is not None and pct<=100 else None
+    return None
+
+
+def _dict(payload,key):
+    v=payload.get(key)
+    return v if isinstance(v,dict) else {}
+
+
+def _identity(payload,env,engine,K):
+    """(partes, carpeta) comunes a las barras de motor: el agente (del cerebro
+    de la carpeta o, si Workspace abrió ESTE motor, el del arranque) y la
+    pestaña (solo en una sesión de Workspace de este motor)."""
+    ws=_dict(payload,'workspace')
+    where=ws.get('current_dir') or payload.get('cwd') or env.get('WORKSPACE_BRAIN','')
+    mine=str(env.get('WORKSPACE_SESSION_ENGINE') or '')==engine
+    parts=[]
+    identity=agent_for_dir(where) if where else ''
+    if not identity and mine:
+        try:identity=clean(json.loads(env.get('WORKSPACE_AGENT_UI') or '{}').get('name') or '')
+        except (ValueError,AttributeError):identity=''
+    if identity:parts.append(_paint(K,'accent',(K.get('B') or '')+identity))
+    if mine:
+        tab=clean(env.get('WORKSPACE_WS') or '')[:60]
+        if tab:parts.append(_paint(K,'dim',tab))
+    return parts,where
+
+
+def _context_part(pct,ctx,K):
+    """«contexto N%» si el motor lo midió; «contexto tras el 1er mensaje» si
+    trae el bloque sin medir; None si no trae nada."""
+    if pct is not None:
+        return _paint(K,'warn' if pct>=80 else 'dim',
+                      t('motorbar.context','contexto {pct}%','context {pct}%',pct='%.0f' % pct))
+    if ctx:
+        return _paint(K,'dim',t('motorbar.context_pending','contexto tras el 1er mensaje',
+                                'context after the first message'))
+    return None
+
+
+def _fit(lines,width):
+    import hublayout as H
+    try:width=max(16,min(1000,int(width)))
+    except (TypeError,ValueError):width=100
+    return [H.clip(line,width) for line in lines if line]
+
+
+def git_branch(path,max_up=25):
+    """Rama de git de `path` leyendo .git/HEAD (sin procesos: la barra corre
+    tras cada evento del motor); sha corto si está desacoplada; '' si no hay."""
+    try:
+        p=os.path.realpath(str(path or ''))
+    except Exception:
+        return ''
+    for _ in range(max_up):
+        if not p:
+            break
+        g=os.path.join(p,'.git')
+        try:
+            if os.path.isfile(g):
+                with open(g,encoding='utf-8',errors='replace') as fh:
+                    first=fh.read(4096).strip()
+                if not first.startswith('gitdir:'):
+                    return ''
+                g=first.split(':',1)[1].strip()
+                if not os.path.isabs(g):
+                    g=os.path.join(p,g)
+            if os.path.isdir(g):
+                with open(os.path.join(g,'HEAD'),encoding='utf-8',errors='replace') as fh:
+                    head=fh.read(512).strip()
+                if head.startswith('ref:'):
+                    ref=head.split(':',1)[1].strip()
+                    return clean(ref[len('refs/heads/'):] if ref.startswith('refs/heads/') else ref)[:60]
+                return clean(head[:7])
+        except OSError:
+            return ''
+        parent=os.path.dirname(p)
+        if parent==p:
+            break
+        p=parent
+    return ''
+
+
+def copilot_lines(payload,color=None,env=None,width=100):
+    """La barra de Workspace en GitHub Copilot (su statusLine nativa, se APILA
+    bajo su pie; ver motor_statusline). UNA línea: agente · pestaña · modelo ·
+    contexto · uso de la sesión (créditos IA o solicitudes premium) · líneas
+    cambiadas · «todo permitido» · versión del cerebro. Solo lo que Copilot
+    publica en el JSON: lo que no está o no se midió se omite o se dice
+    («contexto tras el 1er mensaje»), jamás un 0 inventado. La cuota del plan
+    no viene en el JSON: la pinta el pie nativo. `color=None` → terminal."""
+    env=os.environ if env is None else env
+    K=colors(color)
+    model,ctx,cost,ai=_dict(payload,'model'),_dict(payload,'context_window'),_dict(payload,'cost'),_dict(payload,'ai_used')
+    parts,where=_identity(payload,env,'copilot',K)
+    name=clean(model.get('display_name') or model.get('id') or '')[:80]
+    if name:parts.append(_paint(K,'text',name))
+    part=_context_part(_copilot_context(ctx),ctx,K)
+    if part:parts.append(part)
+    nano=_num(ai.get('total_nano_aiu'))
+    shown=clean(ai.get('formatted') or '')[:20]
+    premium=_num(cost.get('total_premium_requests'))
+    if nano and shown:
+        parts.append(_paint(K,'dim',t('motorbar.copilot.ai_used','{n} créditos IA','{n} AI credits',n=shown)))
+    elif premium:
+        parts.append(_paint(K,'dim',t('motorbar.copilot.premium','{n} solicitudes premium',
+                                      '{n} premium requests',n='%g' % premium)))
+    added,removed=_num(cost.get('total_lines_added')),_num(cost.get('total_lines_removed'))
+    if added or removed:            # el que no vino no se pinta: desconocido ≠ 0
+        lines=(['+%d' % int(added)] if added is not None else [])+(['-%d' % int(removed)] if removed is not None else [])
+        parts.append(_paint(K,'dim',' '.join(lines)))
+    if payload.get('allow_all_enabled') is True:
+        parts.append(_paint(K,'warn',t('motorbar.copilot.allow_all','todo permitido','all allowed')))
+    version=brain_version(where) if where else ''
+    if version:parts.append(_paint(K,'dim',version))
+    if not parts:return []
+    return _fit([_paint(K,'dim',' · ').join(parts)],width)
+
+
+def cursor_lines(payload,color=None,env=None,width=100,workspace=False):
+    """La barra de Workspace en Cursor (su statusLine nativa REEMPLAZA la fila
+    del pie: modelo · % de tokens · carpeta · rama; ver motor_statusline).
+    Primera línea: agente · pestaña · modelo (+ parámetros, MAX) · contexto ·
+    auto-run · modo vim · versión del cerebro. Fuera de una sesión de
+    Workspace, segunda línea con la carpeta · rama (lo que la fila nativa
+    mostraba). Siempre imprime algo: vacía, Cursor dejaría la fila en blanco.
+    Solo lo que el JSON trae: el % es null hasta medir → «tras el 1er
+    mensaje»; los archivos editados no vienen en el JSON y no se inventan."""
+    env=os.environ if env is None else env
+    K=colors(color)
+    model,ctx,vim=_dict(payload,'model'),_dict(payload,'context_window'),_dict(payload,'vim')
+    parts,where=_identity(payload,env,'cursor',K)
+    name=clean(model.get('display_name') or model.get('id') or '')[:80]
+    if name:
+        extra=clean(model.get('param_summary') or '')[:40]
+        # Cursor 2026.10.22 ya trae los parámetros en display_name («Grok 4.7
+        # 256K High Fast» + param_summary «256K High Fast», visto en vivo):
+        # sumarlos otra vez los repetía en la barra.
+        if extra and extra.lower() not in name.lower():name+=' '+extra
+        if model.get('max_mode') is True:name+=' · MAX'
+        parts.append(_paint(K,'text',name))
+    pct=_num(ctx.get('used_percentage'))
+    part=_context_part(pct if pct is not None and pct<=100 else None,ctx,K)
+    if part:parts.append(part)
+    if payload.get('autorun') is True:
+        parts.append(_paint(K,'warn',t('motorbar.cursor.autorun','auto-run','auto-run')))
+    mode=clean(vim.get('mode') or '').upper()[:12]
+    if mode and mode!='NORMAL':parts.append(_paint(K,'dim','-- %s --' % mode))
+    version=brain_version(where) if (where and workspace) else ''
+    if version:parts.append(_paint(K,'dim',version))
+    lines=[_paint(K,'dim',' · ').join(parts) if parts else _paint(K,'dim','Cursor')]
+    if not workspace:
+        cwd=str(payload.get('cwd') or _dict(payload,'workspace').get('current_dir') or '')
+        if cwd:
+            home=os.path.expanduser('~')
+            shown=('~'+cwd[len(home):]) if home and home!='/' and (cwd==home or cwd.startswith(home+os.sep)) else cwd
+            branch=git_branch(cwd)
+            lines.append(_paint(K,'dim',clean(shown)+(' · '+branch if branch else '')))
+    return _fit(lines,width)

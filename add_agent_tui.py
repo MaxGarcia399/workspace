@@ -195,7 +195,7 @@ def _maxlen(key):
 MENU_OPTS = (
     ("crear", "crear agente nuevo",
      ("Un agente desde cero: formulario corto → ves el CEREBRO que va a "
-      "nacer y el harness con el que corre → se crea EN VIVO, paso por "
+      "nacer y el motor con el que corre → se crea EN VIVO, paso por "
       "paso. Nace autocontenido en ~/Desktop/<NOMBRE> - BRAIN, usable al "
       "terminar.",)),
     ("cargar", "cargar agente existente",
@@ -206,7 +206,7 @@ MENU_OPTS = (
     ("descubrir", "descubrir cerebros en el disco",
      ("Escanea Desktop / Documents / vaults buscando carpetas con "
       ".workspace/agent.json y te deja conectarlas — ves cuáles son nuevas "
-      "y cuáles ya están. Acción MANUAL — el harness jamás conecta nada "
+      "y cuáles ya están. Acción MANUAL — Workspace jamás conecta nada "
       "solo.",)),
 )
 
@@ -222,7 +222,7 @@ _CONCEPTOS = {
     "wiki/": "conocimiento on-demand (index + [[wikilinks]])",
     "skills/": "procedimientos reutilizables, por categoría",
     "adapters/": "cómo opera en cada runtime (claude-code, …)",
-    ".workspace/": "agent.json — identidad portátil que lee el harness",
+    ".workspace/": "agent.json — identidad portátil que lee Workspace",
     ".claude/": "runtime: hooks · statusline · socio.local",
 }
 _MAPA_ORDEN = (_bi.IDENTITY_DOC, _bi.LEGACY_IDENTITY_DOC, "BOOT/", "STATE/", "wiki/", "skills/",
@@ -696,7 +696,7 @@ def _ruta_corta(p):
 
 # ── escaneo de DESCUBRIR en 2º plano ─────────────────────────────────────────
 _SCAN_DONDE = ("vaults de Obsidian (obsidian.json)",
-               "junto al harness · raíz del disco (Windows, 1 nivel)",
+               "junto a Workspace · raíz del disco (Windows, 1 nivel)",
                "~ · ~/Desktop · ~/Documents (+ OneDrive)",
                "~/Documents/Obsidian · ~/Obsidian  (acotado: 1 nivel, tope de tiempo)")
 
@@ -1023,7 +1023,7 @@ def _b_crear_det(S, K, iw, full=2):
         return out
     out.append("")
     out.append(_divisor(K, _t("addagent.ui.form.whatsnext", "qué sigue"), iw, tono=3))
-    for ln in (_t("addagent.ui.form.next.1", "nada se crea aún: primero el PLAN (mapa del cerebro, harness, costo y pasos) y ahí confirmas"),
+    for ln in (_t("addagent.ui.form.next.1", "nada se crea aún: primero el PLAN (mapa del cerebro, motor, costo y pasos) y ahí confirmas"),
                _t("addagent.ui.form.next.2", "solo «nombre» es obligatorio — lo demás hace al agente a la medida y se puede afinar después")):
         for sub in _wrap(ln, max(8, iw - 4)):
             out.append(HL.clip(" %s·%s %s%s%s" % (K["DK"], K["R"], K["DIM"],
@@ -1091,7 +1091,7 @@ def _b_run_vivo(S, K, iw, ih):
     out.append(HL.clip(" %s %s%s%s" % (_icono(K, "run"), K["DIM"],
                                        cur or _t("addagent.ui.live.preparing", "preparando…"), K["R"]), iw))
     out.append("")
-    out.append(HL.clip((" %s" + _t("addagent.ui.live.agent", "agente:") + "%s %s%s%s %s" + _t("addagent.ui.live.harness", "· harness %s") + "%s")
+    out.append(HL.clip((" %s" + _t("addagent.ui.live.agent", "agente:") + "%s %s%s%s %s" + _t("addagent.ui.live.harness", "· motor %s") + "%s")
                        % (K["DK"], K["R"], K["GREY"], job["name"], K["R"],
                           K["DK"], job.get("engine", "?"), K["R"]), iw))
     return _cola_vivo(job, K, iw, ih, out)
@@ -1154,7 +1154,7 @@ def _b_done(S, K, iw):
                            % (K["OK"] + K["BO"], K["CHECK"], job["name"],
                               K["R"]), iw))
         dur = _mmss((job.get("t1") or time.monotonic()) - job["t0"])
-        out.append(HL.clip((" %s" + _t("addagent.ui.done.steps_dur", "%d pasos · %s · harness %s") + "%s")
+        out.append(HL.clip((" %s" + _t("addagent.ui.done.steps_dur", "%d pasos · %s · motor %s") + "%s")
                            % (K["DK"], len(job["steps"]), dur,
                               job.get("engine", "?"), K["R"]), iw))
         out.append("")
@@ -1390,7 +1390,7 @@ def _b_cargar_det(S, K, iw, full=2):
                               or info.get("name", "?").capitalize(),
                               K["R"]), iw))
         det = " · ".join(x for x in (
-            (_t("addagent.ui.detail.harness", "harness %s") % info["engine"]) if info.get("engine") else "",
+            (_t("addagent.ui.detail.harness", "motor %s") % info["engine"]) if info.get("engine") else "",
             (_t("addagent.ui.detail.owner", "dueño %s") % info["owner"]) if info.get("owner") else "") if x)
         if det:
             out.append(HL.clip("   %s%s%s" % (K["DK"], det, K["R"]), iw))
@@ -1538,7 +1538,7 @@ def _b_descubrir_det(S, K, iw, full=2):
                        % (K["DK"], K["R"], K["GREY"],
                           _ruta_corta(a.get("brain", "")), K["R"]), iw))
     det = " · ".join(x for x in (
-        (_t("addagent.ui.detail.harness", "harness %s") % d["engine"]) if d.get("engine") else "",
+        (_t("addagent.ui.detail.harness", "motor %s") % d["engine"]) if d.get("engine") else "",
         (_t("addagent.ui.detail.owner", "dueño %s") % d["owner"]) if d.get("owner") else "") if x)
     if det:
         out.append(HL.clip(" %s%s%s" % (K["DK"], det, K["R"]), iw))

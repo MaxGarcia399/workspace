@@ -256,4 +256,12 @@ STRINGS.update({
     "motores.inst.d.source": "Fuente oficial: {u} (verificada {d})",
     "motores.inst.d.cmd": "Comando: {c}",
     "motores.inst.d.miss": "Falta: {m} — instálalo antes",
+    # Windows: Workspace baja el instalador oficial y corre el archivo
+    "motores.inst.d.manual": "A mano, en PowerShell: {c}",
+    "motores.inst.fetch": "Workspace baja {u} y lo corre:",
+    "motores.inst.fetch_failed": "no pude bajar el instalador oficial {u} ({e}) "
+                                 "— no se ejecutó nada; revisa tu conexión o proxy",
+    "motores.inst.fetch.not_https": "no es HTTPS",
+    "motores.inst.fetch.too_big": "pesa más de {n} MB",
+    "motores.inst.fetch.empty": "llegó vacío",
 })

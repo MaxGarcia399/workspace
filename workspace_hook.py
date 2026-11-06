@@ -98,6 +98,17 @@ def _emit(event, ctx):
         pass
 
 
+def _from_cursor(data):
+    """¿Este hook lo disparó Cursor y no Claude Code? El CLI de Cursor
+    (2026.10.22) también corre los hooks de `<cerebro>/.claude/settings*.json`
+    (los de Workspace para Claude Code) y les manda su propio payload, que
+    trae `cursor_version` (Claude Code nunca lo manda). En Cursor el inicio y
+    el cierre ya los emite el wrapper de Workspace (engines/cursor.py): correr
+    también estos los duplicaba. Solo el payload decide: una marca heredada
+    del entorno apagaría los hooks de un Claude Code abierto desde ahí."""
+    return isinstance(data, dict) and bool(data.get("cursor_version"))
+
+
 def main():
     if len(sys.argv) < 2:
         return
@@ -107,6 +118,8 @@ def main():
 
     raw = _read_stdin()
     data = _parse(raw)
+    if _from_cursor(data):
+        return                              # Cursor corre los hooks de Claude Code
     res = neutral_hooks.run_event(event, data, raw=raw,
                                   behaviors=neutral_hooks.CLAUDE_CODE_PARITY)
 

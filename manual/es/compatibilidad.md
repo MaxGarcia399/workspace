@@ -23,34 +23,45 @@ El dictado es opcional: el doctor no lo revisa.
 
 Vale para macOS, Linux y Windows, salvo donde se indica.
 
-| Función | Claude Code | Codex | Antigravity | OpenCode | OpenClaw | Hermes |
-|---|---|---|---|---|---|---|
-| Abrir el agente desde el hub | ✅ | ✅ (envuelto) | ✅ (envuelto) | ✅ (envuelto) | ✅ (envuelto, con gateway: varias pestañas) | ✅ (envuelto) |
-| El agente arranca con su memoria | ✅ automático | ✅ vía un `AGENTS.md` que Workspace genera en el cerebro | ✅ vía un `GEMINI.md` que Workspace genera en el cerebro | ✅ vía un `AGENTS.md` que Workspace genera en el cerebro | ✅ vía el mismo `AGENTS.md` (perfil propio de OpenClaw, sin archivos extra) y, en cada mensaje, `STATE/MEMORY.md` del cerebro | ✅ vía el mismo `AGENTS.md` (perfil propio de Hermes, identidad neutral) y, con tu primer mensaje (también al retomar una pestaña), la memoria de la pestaña al día y `STATE/MEMORY.md` del cerebro |
-| Conectores MCP | ✅ | ✅ (configuración del propio Codex) | ✅ | ✅ (configuración del propio OpenCode) | ✅ (configuración del propio OpenClaw) | ✅ (configuración del propio Hermes) |
-| Avisos de sesión (*hooks*: guardar memoria al cerrar, etc.) | ✅ | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace), más tu tono en cada mensaje y la memoria de la pestaña al retomar |
-| Retomar sesiones desde las pestañas de Workspace | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Estado en vivo del agente en el hub | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Tareas sin ventana (evals) | ✅ | ✅ evals con herramientas¹ | ❌ | ✅ evals con herramientas¹ | ✅ solo turnos sueltos¹ | ✅ solo turnos sueltos¹ |
+| Función | Claude Code | Codex | Antigravity | OpenCode | OpenClaw | Hermes | Kiro | GitHub Copilot | Cursor |
+|---|---|---|---|---|---|---|---|---|---|
+| Abrir el agente desde el hub | ✅ | ✅ (envuelto) | ✅ (envuelto) | ✅ (envuelto) | ✅ (envuelto, con gateway: varias pestañas) | ✅ (envuelto) | ✅ (envuelto) | ✅ (envuelto) | ✅ (envuelto) |
+| El agente arranca con su memoria | ✅ automático | ✅ vía un `AGENTS.md` que Workspace genera en el cerebro | ✅ vía un `GEMINI.md` que Workspace genera en el cerebro | ✅ vía un `AGENTS.md` que Workspace genera en el cerebro | ✅ vía el mismo `AGENTS.md` (perfil propio de OpenClaw, sin archivos extra) y, en cada mensaje, `STATE/MEMORY.md` del cerebro | ✅ vía el mismo `AGENTS.md` (perfil propio de Hermes, identidad neutral) y, con tu primer mensaje (también al retomar una pestaña), la memoria de la pestaña al día y `STATE/MEMORY.md` del cerebro | ✅ vía el mismo `AGENTS.md` que Workspace genera en el cerebro | ✅ vía el mismo `AGENTS.md` y su propio `CLAUDE.md` (que trae `BRAIN.md`); los vuelve a leer al retomar | ✅ vía el mismo `AGENTS.md` (Cursor también lee el `CLAUDE.md` del cerebro) |
+| Conectores MCP | ✅ | ✅ (configuración del propio Codex) | ✅ | ✅ (configuración del propio OpenCode) | ✅ (configuración del propio OpenClaw) | ✅ (configuración del propio Hermes) | ✅ (configuración del propio Kiro) | ✅ (configuración del propio Copilot) | ✅ (configuración del propio Cursor) |
+| Avisos de sesión (*hooks*: guardar memoria al cerrar, etc.) | ✅ | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace), más tu tono en cada mensaje y la memoria de la pestaña al retomar | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace) | ✅ solo al abrir y al cerrar (los emite Workspace) |
+| Retomar sesiones desde las pestañas de Workspace | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Estado en vivo del agente en el hub | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Tareas sin ventana (evals) | ✅ | ✅ evals con herramientas¹ | ❌ | ✅ evals con herramientas¹ | ✅ solo turnos sueltos¹ | ✅ solo turnos sueltos¹ | ✅ solo turnos sueltos, aún sin probar con una cuenta¹ | ✅ solo turnos sueltos¹ | ✅ solo turnos sueltos, sin probar aún con una cuenta¹ |
 
 ✅ funciona · ❌ no disponible · ❔ sin verificar
 
 ¹ Los evals que corren sin herramientas necesitan un motor que pueda apagar las suyas: hoy solo
 Claude Code. Codex y OpenCode corren los evals que usan herramientas dentro del sandbox del
-sistema. OpenClaw y Hermes todavía no pueden apagar sus herramientas ni correr dentro de ese
-sandbox: Workspace no los usa para evals (sí responden turnos sueltos sin ventana).
+sistema. OpenClaw, Hermes, Kiro, GitHub Copilot y Cursor todavía no pueden apagar sus
+herramientas ni correr dentro de ese sandbox: Workspace no los usa para evals (sí responden
+turnos sueltos sin ventana; los de Kiro y Cursor aún no se probaron con una cuenta).
 
 Si el programa del motor no está instalado (o no está en el PATH), nada de esto funciona con
 él: `workspace doctor` te dice que instales su programa oficial ([Motores](motores.md)).
 
-Codex, Antigravity, OpenCode, OpenClaw y Hermes también traen *hooks* propios, pero Workspace no los activa: los
+Codex, Antigravity, OpenCode, OpenClaw, Hermes, Kiro y Cursor también traen *hooks* propios, pero Workspace no los activa: los
 avisos de abrir y cerrar ya los emite Workspace alrededor del programa, y activarlos los
 duplicaría. Las excepciones: uno de Hermes, por mensaje, que añade tu tono y, al empezar o
 retomar una conversación, la memoria de la pestaña y la del cerebro (Hermes lo aprueba solo si
 es el único hook del perfil; si agregaste hooks
 tuyos, te pide aprobarlo una vez), y el oficial de OpenClaw que carga la
 memoria del cerebro. Por eso con esos motores no hay avisos por herramienta ni estado en vivo. Con
-OpenCode, OpenClaw y Hermes, el modelo es el que elijas en su propia configuración: Workspace no lo cambia.
+OpenCode, OpenClaw, Hermes, Kiro y Cursor, el modelo es el que elijas en su propia configuración: Workspace no lo cambia.
+
+GitHub Copilot también trae *hooks* propios y tampoco se activan. Lee a la vez el `AGENTS.md`,
+el `CLAUDE.md` y el `GEMINI.md` del cerebro (y sigue el `@BRAIN.md` del `CLAUDE.md`), así que tu
+agente llega con su identidad aunque el `AGENTS.md` sea tuyo. El modelo es el de tu cuenta de
+Copilot (o el que elijas con `/model`): Workspace no lo cambia. La primera vez en cada cerebro,
+Copilot pregunta si confías en esa carpeta; contesta «Yes, and remember this folder».
+
+Cursor, además, corre por su cuenta los *hooks* de Claude Code que encuentre (los del cerebro y los
+de tu `~/.claude/settings.json`). Los de Workspace no hacen nada dentro de Cursor, para no
+duplicar los avisos; los tuyos corren como Cursor lo decida.
 
 Hermes corre en un perfil propio de Workspace (tu Hermes personal no cambia). En ese perfil su
 memoria propia está apagada, porque la comparten todos tus agentes: la memoria de cada agente vive

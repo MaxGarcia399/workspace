@@ -119,15 +119,16 @@ def installed_version(exe, runner=None, timeout=15):
             r = runner([exe, "--version"])
         else:
             import subprocess
+            import arbol_procesos   # Windows: al vencer muere el árbol (.cmd → node)
             env = None
             try:                        # el motor no hereda la bóveda
                 import secret_store
                 env = secret_store.engine_env()
             except Exception:
                 pass
-            r = subprocess.run([exe, "--version"], capture_output=True, text=True,
-                               encoding="utf-8", errors="replace", timeout=timeout,
-                               stdin=subprocess.DEVNULL, env=env)
+            r = arbol_procesos.run([exe, "--version"], capture_output=True, text=True,
+                                   encoding="utf-8", errors="replace", timeout=timeout,
+                                   stdin=subprocess.DEVNULL, env=env)
         if getattr(r, "returncode", 1) == 0:
             out = (getattr(r, "stdout", "") or "").strip()
     except Exception:

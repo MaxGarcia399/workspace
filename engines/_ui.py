@@ -63,6 +63,51 @@ def theme_cols(accent, dim):
         return accent, dim
 
 
+# ── avisos de una línea de la apertura ──────────────────────────────────────
+# dispatch los junta (usuarios/identidad, máquinas, archivo automático, el
+# cierre que quedó pendiente) en vez de imprimirlos: el banner y el menú de
+# pestañas limpian la pantalla y los borraban. Salen UNA vez, después de la
+# última limpieza, justo antes de que arranque el chat del motor
+# (claude_code.launch e interactive.run_official_cli_interactive: los pasa
+# TODO motor). Si el motor sale antes (un error), dispatch los suelta al
+# salir: jamás se pierden.
+_AVISOS = []
+
+
+def guardar_aviso(aviso):
+    """Guarda un aviso para soltar_avisos: el texto, o una función que lo da
+    en ese momento ('' = ya no hace falta, p. ej. el menú ya lo mostró)."""
+    if aviso:
+        _AVISOS.append(aviso)
+
+
+def avisos_nuevos():
+    """Olvida los avisos de una apertura anterior en este proceso."""
+    del _AVISOS[:]
+
+
+def soltar_avisos(out=None):
+    """Imprime los avisos guardados (y los olvida). Falla-suave, sin
+    esperas. → cuántas líneas imprimió."""
+    pend = list(_AVISOS)
+    del _AVISOS[:]
+    n = 0
+    for aviso in pend:
+        try:
+            txt = aviso() if callable(aviso) else aviso
+            if txt:
+                print(txt, file=out or sys.stdout)
+                n += 1
+        except Exception:
+            continue
+    try:
+        if n:
+            (out or sys.stdout).flush()
+    except Exception:
+        pass
+    return n
+
+
 def show_brain_banner(cfg, engine_label=""):
     """Mismo patrón que claude_code.launch: clear → banner del CEREBRO
     renderizado a buffer con width-check (jamás mostrarlo roto) → fallback

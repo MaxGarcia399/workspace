@@ -117,7 +117,7 @@ STRINGS = {
     "agents.x.model.where": "settings agentes.<nombre>.model (per-máquina).",
     "agents.x.model.effect": "Claude Code recibe --model <valor> al lanzar (engines/claude_code.model_args); un --model explícito o ANTHROPIC_MODEL ganan.",
     "agents.x.model.edit": "settings agentes.<nombre>.model.",
-    "agents.x.brain": "La carpeta que ES el agente: identidad, reglas, memoria, wiki y skills. El harness es reemplazable; el cerebro no.",
+    "agents.x.brain": "La carpeta que ES el agente: identidad, reglas, memoria, wiki y skills. Workspace y el motor se pueden reemplazar; el cerebro no.",
     "agents.x.brain.where": "paths.local.json → brains.<nombre> si existe (per-máquina); si no, el campo brain del agent.json relativo a la raíz de WORKSPACE (dispatch.resolve_brain).",
     "agents.x.brain.effect": "Al lanzar, el motor arranca con el directorio de trabajo en esta carpeta: ahí encuentra su identidad (BRAIN.md; en cerebros anteriores, CLAUDE.md) por el puntero de ese motor.",
     "agents.x.brain.edit": "~/.claude/workspace/paths.local.json → brains.<nombre>.",

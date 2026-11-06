@@ -10,6 +10,7 @@ el comando y la fuente oficial y pide Enter otra vez. Qué agentes lo usan y
 qué hace cada opción: en `i`. Workspace nunca ve tu cuenta.
 """
 import os
+import shlex
 import sys
 import threading
 import time
@@ -20,9 +21,11 @@ import section_box as SB
 import section_frame as SF
 from theme import screen as _theme_screen  # fondo/tinta del tema
 
-SUPPORTED = ('claude-code', 'codex', 'antigravity', 'opencode', 'openclaw', 'hermes')
+SUPPORTED = ('claude-code', 'codex', 'antigravity', 'opencode', 'openclaw', 'hermes',
+             'kiro', 'copilot', 'cursor')
 _NAMES = {'claude-code': 'Claude Code', 'codex': 'Codex', 'antigravity': 'Antigravity',
-          'opencode': 'OpenCode', 'openclaw': 'OpenClaw', 'hermes': 'Hermes'}
+          'opencode': 'OpenCode', 'openclaw': 'OpenClaw', 'hermes': 'Hermes',
+          'kiro': 'Kiro', 'copilot': 'GitHub Copilot', 'cursor': 'Cursor'}
 _t = SF.t
 
 
@@ -52,7 +55,7 @@ def initial(probe=True):
     """Al abrir, verifica la sesión de cada motor instalado EN SEGUNDO PLANO
     (no se quedan en «sin verificar»: eso hacía ver mal al producto)."""
     S = {'engines': _rows(), 'engine': 0, 'msg': '', 'checks': {}, 'busy': False,
-         'confirm': None, 'request': None}
+         'confirm': None, 'request': None, 'blocked': {}, 'acct': None}
     if probe:
         verify_all(S)
     return S
@@ -70,6 +73,40 @@ _SESSION_TTL = 60.0
 _STATUS_ENGINES = ('openclaw', 'hermes')
 
 
+def gatekeeper(eid):
+    """None, o lo que dice el adapter (`gatekeeper_block`) cuando macOS retiene
+    el programa del motor (cuarentena de un cask de Homebrew): entonces Motores
+    NO lo ejecuta (ni sesión, ni versión, ni login: cada llamada abría el
+    diálogo de macOS) y ofrece reinstalar con la receta oficial. Barato:
+    engine_gatekeeper lee atributos, sin subprocesos, con caché ruta+mtime."""
+    try:
+        import dispatch
+        return _blk(dispatch.load_engine(eid))
+    except Exception:
+        return None
+
+
+def install_block(eid):
+    """None, o lo que dice el adapter (`install_block`) cuando la instalación
+    del motor está incompleta (Kiro por cask: `kiro-cli chat` no abre). Solo
+    archivos: Motores dice «instalación incompleta» y ofrece reparar."""
+    try:
+        import dispatch
+        return _blk(dispatch.load_engine(eid), 'install_block')
+    except Exception:
+        return None
+
+
+def _blk(mod, hook='gatekeeper_block'):
+    """El veredicto del hook `hook` del adapter (dict) o None."""
+    fn = getattr(mod, hook, None)
+    try:
+        r = fn() if callable(fn) else None
+    except Exception:
+        return None
+    return r if isinstance(r, dict) else None
+
+
 def _probe(eid):
     """True/False/None (no se pudo saber) con el comando OFICIAL de cada motor,
     o 'needs_model' / 'version' cuando el motor tiene sesión pero no puede
@@ -80,7 +117,11 @@ def _probe(eid):
     try:
         import dispatch
         mod = dispatch.load_engine(eid)
-        if eid in _STATUS_ENGINES and callable(getattr(mod, 'status', None)):
+        if _blk(mod):
+            val = 'blocked'                # no se ejecuta: abriría el diálogo de macOS
+        elif _blk(mod, 'install_block'):
+            val = 'incomplete'             # el chat no abre: no es «listo»
+        elif eid in _STATUS_ENGINES and callable(getattr(mod, 'status', None)):
             st = mod.status() or {}
             if st.get('version_problem'):
                 val = 'version'
@@ -91,7 +132,8 @@ def _probe(eid):
         else:
             fn = getattr(mod, 'session_active', None)
             val = fn() if fn else None
-        val = val if isinstance(val, bool) or val in ('needs_model', 'version') else None
+        val = val if isinstance(val, bool) or val in ('needs_model', 'version',
+                                                      'blocked', 'incomplete') else None
     except Exception:
         val = None
     _SESSION_CACHE[eid] = (time.time(), val)
@@ -116,11 +158,19 @@ def verify(S, eid, force=False):
 
     def worker():
         val = _probe(eid)
+        if val in ('blocked', 'incomplete'):
+            # el porqué y el cask (para reinstalar/reparar) de lo que falla
+            S.setdefault('blocked', {})[eid] = ((gatekeeper(eid) if val == 'blocked'
+                                                 else install_block(eid)) or {})
+        else:
+            S.setdefault('blocked', {}).pop(eid, None)
         S['checks'][eid] = {'state': {True: 'verified', False: 'needs_login',
                                       'needs_model': 'needs_model',
-                                      'version': 'version'}.get(val, 'unknown'),
+                                      'version': 'version',
+                                      'blocked': 'blocked',
+                                      'incomplete': 'incomplete'}.get(val, 'unknown'),
                             'at': time.time()}
-        S.setdefault('versions', {})[eid] = version_of(eid)
+        S.setdefault('versions', {})[eid] = None if val == 'blocked' else version_of(eid)
     threading.Thread(target=worker, daemon=True).start()
 
 
@@ -137,6 +187,8 @@ def version_of(eid):
         mod = dispatch.load_engine(eid)
         if not getattr(mod, 'VERIFIED_VERSIONS', None):
             return None
+        if _blk(mod):                        # `--version` abriría el diálogo de macOS
+            return None
         exe = shutil.which(getattr(mod, 'BINARY', '') or '')
         if not exe:
             return None
@@ -150,6 +202,58 @@ def version_of(eid):
                                               if st == 'unsupported' else '')}
     except Exception:
         return None
+
+
+#: Qué tan completa es la integración según la CUENTA del motor (hook
+#: `integration()` del adapter; hoy Antigravity, plan §3.5): un plan personal
+#: de Google es «experimental» (su FAQ no soporta envolver agy en planes de
+#: consumidor). El adapter solo lee config documentada (sin correr el motor):
+#: barato, con caché corta.
+_INTEGRATION_CACHE = {}
+_INTEGRATION_TTL = 30.0
+
+
+def integration_of(eid):
+    """{'level': 'full'|'experimental', 'kind', 'url'} o None (el motor no lo
+    declara). Falla-suave."""
+    hit = _INTEGRATION_CACHE.get(eid)
+    if hit and time.time() - hit[0] < _INTEGRATION_TTL:
+        return hit[1]
+    try:
+        import dispatch
+        fn = getattr(dispatch.load_engine(eid), 'integration', None)
+        info = fn() if callable(fn) else None
+    except Exception:
+        info = None
+    if not (isinstance(info, dict) and info.get('level') in ('full', 'experimental')):
+        info = None
+    _INTEGRATION_CACHE[eid] = (time.time(), info)
+    return info
+
+
+def integration_label(info):
+    """(texto, color-key) de la fila «integración»."""
+    if info.get('level') == 'experimental':
+        return _t('motores.i.exp', 'experimental', 'experimental'), 'C'
+    return _t('motores.i.full', 'completa', 'full'), 'OK'
+
+
+def integration_note(info):
+    """El porqué, en una línea (fila «integración» y Enter sobre ella)."""
+    if info.get('level') == 'experimental':
+        return _t('motores.i.n_exp',
+                  'Entraste con Google y agy no dice si el plan es personal; con uno personal, '
+                  'Google no soporta usar agy dentro de otras apps ({u}). Con API key o cuenta '
+                  'empresarial: completa.',
+                  "You signed in with Google and agy doesn't say if the plan is personal; on a "
+                  "consumer plan, Google doesn't support agy inside other apps ({u}). API key or "
+                  'business account: full.',
+                  u=info.get('url') or '')
+    if info.get('kind') == 'api_key':
+        return _t('motores.i.n_key', 'Usas una API key de Gemini: integración completa.',
+                  "You use a Gemini API key: full integration.")
+    return _t('motores.i.n_biz', 'Usas una cuenta empresarial (Google Cloud): integración completa.',
+              'You use a business account (Google Cloud): full integration.')
 
 
 def version_label(info):
@@ -215,10 +319,19 @@ def refresh(S, announce=True):
         agent_state.invalidate()
     except Exception:
         pass
+    try:                                  # el socio pudo reinstalar o quitar la cuarentena
+        import engine_gatekeeper
+        engine_gatekeeper.forget()
+    except Exception:
+        pass
     S['engines'] = _rows()
     S['engine'] = next((n for n, d in enumerate(S['engines']) if d['id'] == eid), 0)
     S['checks'] = {}
+    _INTEGRATION_CACHE.clear()            # pudo cambiar de cuenta o poner su API key
     S['confirm'] = None
+    S['confirm_cmds'] = None
+    S['confirm_kind'] = None
+    S['acct'] = None
     verify_all(S, force=True)             # recién instalado o con sesión nueva
     if announce:
         S['msg'] = _t('motores.m.reloaded', 'motores recargados', 'engines reloaded') + (
@@ -264,6 +377,9 @@ def session_label(state):
             'missing': _t('motores.s.missing', 'instala primero', 'install first'),
             'needs_model': _t('motores.s.model', 'falta elegir modelo', 'choose a model'),
             'version': _t('motores.s.version', 'revisa la versión (i)', 'check the version (i)'),
+            'blocked': _t('motores.s.blocked', 'macOS lo bloquea', 'blocked by macOS'),
+            'incomplete': _t('motores.s.incomplete', 'el chat no abre',
+                             "chat won't open"),
             }.get(state, _t('motores.s.checking', 'verificando…', 'checking…'))
 
 
@@ -274,6 +390,9 @@ def status_of(S, d):
         return _t('motores.l.missing', 'no instalado', 'not installed'), 'ERR'
     st = (S['checks'].get(d['id']) or {}).get('state')
     if st == 'verified':
+        info = integration_of(d['id'])
+        if info and info.get('level') == 'experimental':
+            return integration_label(info)
         return _t('motores.l.ready', 'listo', 'ready'), 'OK'
     if st == 'needs_login':
         return _t('motores.l.login2', 'sin sesión', 'not signed in'), 'ERR'
@@ -281,6 +400,10 @@ def status_of(S, d):
         return _t('motores.l.model', 'falta modelo', 'no model'), 'ERR'
     if st == 'version':
         return _t('motores.l.version', 'revisar versión', 'check version'), 'ERR'
+    if st == 'blocked':
+        return _t('motores.l.blocked', 'bloqueado', 'blocked'), 'ERR'
+    if st == 'incomplete':
+        return _t('motores.l.incomplete', 'incompleta', 'incomplete'), 'ERR'
     if st == 'checking' or st is None:
         return _t('motores.l.checking', 'verificando…', 'checking…'), 'DIM'
     return _t('motores.l.installed', 'instalado', 'installed'), 'DIM'
@@ -306,9 +429,28 @@ def options(S, d):
                 ('reload', _t('motores.o.reload', 'ya lo instalé: recargar', 'I installed it: reload'), '')]
     chk = (S['checks'].get(eid) or {}).get('state')
     out = [('session', _t('motores.f.session', 'sesión', 'sign-in'), session_label(chk))]
+    if chk == 'blocked':
+        # macOS retiene el programa: nada que lo ejecute (sesión, cuenta);
+        # solo reinstalar con la receta oficial (Workspace no quita la cuarentena)
+        return out + [('reinstall', _t('motores.o.reinstall', 'reinstalar (receta oficial)',
+                                       'reinstall (official recipe)'), ''),
+                      ('hub', _t('motores.o.hub3', 'ofrecer en el hub', 'offer in the hub'),
+                       m_enabled(eid))]
     ver = (S.get('versions') or {}).get(eid)
     if ver:
         out.append(('version', _t('motores.f.version', 'versión', 'version'), version_label(ver)[0]))
+    integ = integration_of(eid)
+    if integ:
+        out.append(('integration', _t('motores.f.integration', 'integración', 'integration'),
+                    integration_label(integ)[0]))
+    if chk == 'incomplete':
+        # el chat no abre: reparar con la receta oficial; la cuenta sí sirve
+        return out + [('repair', _t('motores.o.repair', 'reparar (receta oficial)',
+                                    'repair (official recipe)'), ''),
+                      ('account', _t('motores.o.account', 'cuenta y proveedor',
+                                     'account and provider'), ''),
+                      ('hub', _t('motores.o.hub3', 'ofrecer en el hub', 'offer in the hub'),
+                       m_enabled(eid))]
     if chk not in ('verified', 'needs_model'):     # con sesión pero sin modelo: «cuenta y proveedor»
         out.append(('login', _t('motores.o.login', 'iniciar sesión', 'sign in'), ''))
     # SIEMPRE disponible: el flujo oficial del motor para entrar, cambiar de
@@ -321,13 +463,23 @@ def options(S, d):
     return out
 
 
-_ACCIONES = ('install', 'reload', 'login', 'account')
+_ACCIONES = ('install', 'reload', 'login', 'account', 'reinstall', 'repair')
 
 
 def _chips(S):
     if S.get('confirm'):
-        return (('Enter', _t('motores.k.install', 'instala', 'install')),
+        return (('Enter', (_t('motores.k.repair', 'repara', 'repair')
+                           if S.get('confirm_kind') == 'repair' else
+                           _t('motores.k.reinstall', 'reinstala', 'reinstall'))
+                 if S.get('confirm_cmds') else _t('motores.k.install', 'instala', 'install')),
                 ('Esc', _t('motores.k.cancel', 'cancela', 'cancel')))
+    if S.get('acct'):
+        if S['acct'].get('confirm'):
+            return (('Enter', _t('motores.k.confirm', 'confirma', 'confirm')),
+                    ('Esc', _t('motores.k.cancel', 'cancela', 'cancel')))
+        return (('↑↓', _t('motores.k.option', 'opción', 'option')),
+                ('Enter', _t('motores.k.do', 'aplica', 'apply')),
+                ('←', _t('motores.k.to_opts2', 'a sus opciones', 'to its options')))
     if S.get('focus') == 'detail':
         return (('↑↓', _t('motores.k.option', 'opción', 'option')),
                 ('Enter', _t('motores.k.do', 'aplica', 'apply')),
@@ -348,6 +500,10 @@ def _mark(S, d):
 def _detalle(S, K, d, iw):
     """Solo las opciones del motor (o la confirmación de instalar)."""
     eid = d.get('id')
+    if S.get('confirm') == eid and S.get('confirm_cmds'):
+        return _detalle_reinstall(S, K, d, iw), 0
+    if (S.get('acct') or {}).get('eid') == eid:
+        return _detalle_cuenta(S, K, d, iw)
     if S.get('confirm') == eid:
         try:
             import engine_install
@@ -356,8 +512,9 @@ def _detalle(S, K, d, iw):
             rec = None
         out = [HL.clip('%s%s%s' % (K['C'] + K['BO'], _t('motores.c.title', '¿Instalar {n}?',
                                                          'Install {n}?', n=engine_name(d)), K['R']), iw), '']
-        if rec:
-            out += ['%s%s%s' % (K['WH'], ln, K['R']) for ln in SB._wrap(' '.join(rec['cmd']), iw)[:3]]
+        if rec:                            # Windows: qué baja Workspace y qué corre
+            for txt in engine_install.shown(rec['cmd']):
+                out += ['%s%s%s' % (K['WH'], ln, K['R']) for ln in SB._wrap(txt, iw)[:3]]
             out += ['%s%s%s' % (K['DIM'], ln, K['R']) for ln in SB._wrap(
                 _t('motores.c.src', 'fuente oficial: {u}', 'official source: {u}', u=rec['source']), iw)[:2]]
         return out, 0
@@ -384,11 +541,118 @@ def _detalle(S, K, d, iw):
                                     K['R'])
         elif key == 'version':
             valor = '%s%s%s' % (K[version_label(S['versions'][eid])[1]], val, K['R'])
+        elif key == 'integration':
+            valor = '%s%s%s' % (K[integration_label(integration_of(eid) or {})[1]], val, K['R'])
         else:
             st = (S['checks'].get(eid) or {}).get('state')
-            vcol = K['OK'] if st == 'verified' else (K['ERR'] if st == 'needs_login' else K['DIM'])
+            vcol = K['OK'] if st == 'verified' else (
+                K['ERR'] if st in ('needs_login', 'blocked', 'incomplete') else K['DIM'])
             valor = '%s%s%s' % (vcol, val, K['R'])
         out.append(HL.clip('%s%s%s%s%s' % (cur, tinta, HL.pad(lab, lab_w), K['R'], valor), iw))
+    why = ((S.get('blocked') or {}).get(eid) or {}).get('why')
+    if why and (S['checks'].get(eid) or {}).get('state') in ('blocked', 'incomplete'):
+        out.append('')                    # la línea clara: qué pasa y qué hacer
+        out += ['%s%s%s' % (K['ERR'], ln, K['R']) for ln in SB._wrap(why, iw)[:3]]
+    elif any(o[0] == 'integration' for o in ops):
+        info = integration_of(eid) or {}
+        if info.get('level') == 'experimental':  # por qué «experimental», siempre a la vista
+            out.append('')
+            out += ['%s%s%s' % (K['DIM'], ln, K['R'])
+                    for ln in SB._wrap(integration_note(info), iw)[:6]]
+    return out, fila
+
+
+def _detalle_reinstall(S, K, d, iw):
+    """Confirmación de «reinstalar»: los comandos tal cual (quitar el cask de
+    Homebrew y la receta oficial) y la fuente, antes de Enter."""
+    try:
+        import engine_install
+        rec = engine_install.recipe(d.get('id')) or {}
+    except Exception:
+        rec = {}
+    titulo = (_t('motores.c.repairtitle', '¿Reparar {n}?', 'Repair {n}?', n=engine_name(d))
+              if S.get('confirm_kind') == 'repair' else
+              _t('motores.c.retitle', '¿Reinstalar {n}?', 'Reinstall {n}?', n=engine_name(d)))
+    out = [HL.clip('%s%s%s' % (K['C'] + K['BO'], titulo, K['R']), iw), '']
+    for cmd in S.get('confirm_cmds') or []:
+        for txt in engine_install.shown(cmd, lambda c: '$ ' + shlex.join(c)):
+            out += ['%s%s%s' % (K['WH'], ln, K['R']) for ln in SB._wrap(txt, iw)[:3]]
+    if rec.get('source'):
+        out += ['%s%s%s' % (K['DIM'], ln, K['R']) for ln in SB._wrap(
+            _t('motores.c.src', 'fuente oficial: {u}', 'official source: {u}', u=rec['source']),
+            iw)[:2]]
+    return out
+
+
+#: Etiqueta de cada acción del menú «cuenta y proveedor» (adapter.account_menu).
+def _acct_label(key, d):
+    n = engine_name(d)
+    return {'whoami': _t('motores.a.whoami', 'ver la cuenta', 'show the account'),
+            'login': _t('motores.o.login', 'iniciar sesión', 'sign in'),
+            'models': _t('motores.a.models', 'ver los modelos de tu cuenta',
+                         "list your account's models"),
+            'open': _t('motores.a.open', 'abrir {n}', 'open {n}', n=n),
+            'switch': _t('motores.a.switch', 'cambiar de cuenta', 'switch account'),
+            'add': _t('motores.a.add', 'entrar con otra cuenta', 'sign in with another account'),
+            'providers': _t('motores.a.providers', 'proveedor propio: cómo',
+                            'own provider: how')}.get(key, key)
+
+
+def _detalle_cuenta(S, K, d, iw):
+    """«cuenta y proveedor» con sesión (o sin saber) en un motor que no tiene
+    selector de modelo fuera del chat: el estado, dónde se elige el modelo y
+    las acciones OFICIALES que declara su adapter (account_menu)."""
+    A = S['acct']
+    menu = A.get('menu') or {}
+    acts = menu.get('actions') or []
+    n = engine_name(d)
+    out = [HL.clip('%s%s%s' % (K['C'] + K['BO'], _t('motores.a.title', '{n} · cuenta y proveedor',
+                                                     '{n} · account and provider', n=n), K['R']),
+                   iw)]
+    if A.get('confirm') == 'switch':
+        cmds = dict(acts).get('switch') or []
+        out += ['', HL.clip('%s%s%s' % (K['WH'] + K['BO'], _t(
+            'motores.a.sw_q', '¿Cambiar de cuenta en {n}?', 'Switch account in {n}?', n=n),
+            K['R']), iw)]
+        out += ['%s%s%s' % (K['DIM'], ln, K['R']) for ln in SB._wrap(_t(
+            'motores.a.sw_why', 'cierra tu sesión y abre el inicio de sesión oficial',
+            'signs you out and opens the official sign-in'), iw)[:2]]
+        for cmd in cmds:
+            out += ['%s%s%s' % (K['WH'], ln, K['R']) for ln in SB._wrap('$ ' + shlex.join(cmd), iw)[:2]]
+        return out, 0
+    if A.get('active') is True:
+        out.append(HL.clip('%s%s%s' % (K['OK'], _t('motores.a.on', '✓ sesión iniciada',
+                                                     '✓ signed in'), K['R']), iw))
+    elif (S['checks'].get(A.get('eid')) or {}).get('state') in (None, 'checking'):
+        out.append(HL.clip('%s%s%s' % (K['DIM'], _t('motores.a.checking', 'sesión: verificando…',
+                                                     'sign-in: checking…'), K['R']), iw))
+    else:
+        out.append(HL.clip('%s%s%s' % (K['DIM'], _t('motores.a.unknown',
+                                                     'sesión: no se pudo verificar',
+                                                     "sign-in: couldn't check"), K['R']), iw))
+    if menu.get('account'):
+        nota = _t('motores.a.inside2', 'la cuenta ({a}) y el modelo ({m}) se eligen dentro de {n}',
+                  'the account ({a}) and the model ({m}) are chosen inside {n}',
+                  a=menu['account'], m=menu.get('model') or '/model', n=n)
+    else:
+        nota = _t('motores.a.inside', 'el modelo se elige dentro del chat con {m}',
+                  'the model is chosen inside the chat with {m}', m=menu.get('model') or '/model')
+    out += ['%s%s%s' % (K['DIM'], ln, K['R']) for ln in SB._wrap(nota, iw)[:2]]
+    if menu.get('warn'):
+        out += ['%s%s%s' % (K['ERR'], ln, K['R']) for ln in SB._wrap(menu['warn'], iw)[:5]]
+    out.append('')
+    A['opt'] = max(0, min(A.get('opt', 0), len(acts) - 1)) if acts else 0
+    fila = len(out)
+    for i, (key, _cmd) in enumerate(acts):
+        on = i == A['opt']
+        if on:
+            fila = len(out)
+        cur = ('%s%s %s' % (K['C'] + K['BO'], K['PTR'], K['R'])) if on else '  '
+        tinta = (K['WH'] + K['BO']) if on else K['GREY']
+        lab = _acct_label(key, d)
+        flecha = '%s›%s' % ((K['C'] + K['BO']) if on else K['DK'], K['R'])
+        out.append(HL.clip('%s%s%s%s%s%s' % (cur, tinta, lab, K['R'],
+                                             ' ' * max(1, iw - 3 - HL.vis(lab)), flecha), iw))
     return out, fila
 
 
@@ -432,6 +696,11 @@ def info_blocks(S, K):
     if not d.get('binaries_ok') and miss:
         blocks.append(('dim', _t('motores.miss', 'Para instalarlo falta: {m}', 'To install it you need: {m}',
                                  m=', '.join(miss))))
+    integ = integration_of(eid) if d.get('binaries_ok') else None
+    if integ:
+        blocks[1][1].append((_t('motores.f.integration', 'integración', 'integration'),
+                             integration_label(integ)[0]))
+        blocks.append(('dim', integration_note(integ)))
     blocks += [
         ('gap',),
         ('flow', [(_t('motores.info.n1', 'tu agente', 'your agent'),
@@ -442,14 +711,15 @@ def info_blocks(S, K):
                    _t('motores.info.c3', 'el proveedor', 'the vendor'))]),
         ('gap',),
         ('p', _t('motores.info.p1',
-                 'Un motor es el programa oficial (Claude Code, Codex, Antigravity, OpenCode, OpenClaw o Hermes) que corre a tus '
-                 'agentes con tu propia cuenta. Workspace nunca ve ni guarda tus credenciales. Al '
-                 'cambiar de motor, la pestaña sigue igual: el nuevo recibe su memoria y lo último '
-                 'que pasó en el anterior.',
-                 'An engine is the official program (Claude Code, Codex, Antigravity, OpenCode, OpenClaw or Hermes) that runs your '
-                 'agents with your own account. Workspace never sees or stores your credentials. When '
-                 'you switch engines the tab carries on: the new one gets its memory and the latest '
-                 'from the previous one.')),
+                 'Un motor es el programa oficial ({m} o {u}) que corre a tus '
+                 'agentes con tu propia cuenta. Workspace configura y abre tus motores oficiales; '
+                 'nunca ve ni guarda tus credenciales. Al cambiar de motor, la pestaña sigue igual: '
+                 'el nuevo recibe su memoria y lo último que pasó en el anterior.',
+                 'An engine is the official program ({m} or {u}) that runs your '
+                 'agents with your own account. Workspace sets up and opens your official engines; '
+                 'it never sees or stores your credentials. When you switch engines the tab carries '
+                 'on: the new one gets its memory and the latest from the previous one.',
+                 m=', '.join(list(_NAMES.values())[:-1]), u=list(_NAMES.values())[-1])),
         ('h', _t('motores.info.h_opts', 'sus opciones', 'its options')),
         ('kv', [(_t('motores.o.install', 'instalar', 'install'),
                  _t('motores.info.o_install', 'corre el instalador oficial (te muestra el comando antes)',
@@ -469,11 +739,31 @@ def info_blocks(S, K):
                  _t('motores.info.o_login', 'abre el login del propio programa',
                     "opens the program's own sign-in")),
                 (_t('motores.o.account', 'cuenta y proveedor', 'account and provider'),
-                 _t('motores.info.o_account',
+                 _t('motores.info.o_account2',
                     'siempre a mano: abre la configuración oficial de cuenta y proveedor '
-                    'de ese motor (Workspace no guarda llaves)',
+                    'de ese motor; si ya tienes sesión y el motor elige el modelo dentro '
+                    'del chat (Kiro, GitHub Copilot, Cursor), te muestra la cuenta, abre '
+                    'el motor o cambia de cuenta (Workspace no guarda llaves)',
                     "always there: opens that engine's official account and provider "
-                    "setup (Workspace stores no keys)")),
+                    "setup; if you're already signed in and the engine picks the model "
+                    "inside the chat (Kiro, GitHub Copilot, Cursor), it shows the account, "
+                    "opens the engine or switches account (Workspace stores no keys)")),
+                (_t('motores.o.repair', 'reparar (receta oficial)', 'repair (official recipe)'),
+                 _t('motores.info.o_repair',
+                    'si la instalación quedó incompleta (Kiro por Homebrew: su chat no '
+                    'abre): quita el de Homebrew y corre la receta oficial; te muestra los '
+                    'comandos antes',
+                    'if the install is incomplete (Kiro from Homebrew: its chat won\'t '
+                    "open): removes Homebrew's and runs the official recipe; shows you the "
+                    'commands first')),
+                (_t('motores.o.reinstall', 'reinstalar (receta oficial)',
+                    'reinstall (official recipe)'),
+                 _t('motores.info.o_reinstall',
+                    'solo si macOS bloquea el programa (lo instaló Homebrew): quita el '
+                    'de Homebrew y corre la receta oficial; te muestra los comandos antes',
+                    'only if macOS blocks the program (Homebrew installed it): removes '
+                    "Homebrew's and runs the official recipe; shows you the commands "
+                    'first')),
                 (_t('motores.o.hub3', 'ofrecer en el hub', 'offer in the hub'),
                  _t('motores.info.o_hub', 'si ←→ en el hub lo ofrece al cambiar el motor de un agente',
                     "whether ←→ in the hub offers it when changing an agent's engine"))]),
@@ -483,6 +773,18 @@ def info_blocks(S, K):
                    'oficial de cada programa) · el de cada agente se elige en Agentes',
                    "ready = installed and signed in (checked on open with each program's official "
                    "command) · each agent's is chosen in Agents")),
+        ('gap',),
+        ('dim', _t('motores.info.marcas',
+                   'Workspace es independiente: no está afiliado a Anthropic, OpenAI, Google, '
+                   'Anomaly (OpenCode), la OpenClaw Foundation, Nous Research (Hermes), Amazon Web '
+                   'Services (Kiro), GitHub ni Anysphere (Cursor), ni cuenta con su respaldo. Las '
+                   'marcas son de sus dueños. Cada motor se usa con tu propia cuenta y bajo sus '
+                   'propios términos.',
+                   'Workspace is independent. It is not affiliated with or endorsed by Anthropic, '
+                   'OpenAI, Google, Anomaly (OpenCode), the OpenClaw Foundation, Nous Research '
+                   '(Hermes), Amazon Web Services (Kiro), GitHub or Anysphere (Cursor). All '
+                   'trademarks belong to their owners. Each engine runs with your own account and '
+                   'under its own terms.')),
     ]
     return blocks
 
@@ -526,6 +828,14 @@ def _enter(S):
         else:
             S['confirm'] = eid
         return True
+    if S.get('confirm') == eid and S.get('confirm_cmds'):
+        S['request'] = ('reinstall', eid, list(S['confirm_cmds']))
+        S['confirm'], S['confirm_cmds'], S['confirm_kind'] = None, None, None
+        return False
+    blk = gatekeeper(eid)
+    if blk:                                # correrlo abriría el diálogo de macOS
+        S['msg'] = '✗ ' + (blk.get('why') or '')
+        return True
     try:
         import engine_install
         login = engine_install.recipe(eid)['login_cmd']
@@ -555,10 +865,36 @@ def prepare_login(eid):
         return True, ''
 
 
+def _account_menu(eid, active):
+    """El menú de «cuenta y proveedor» que declara el adapter (hook
+    `account_menu(active)`), o None: sin hook o sin sesión → el flujo oficial
+    de engine_install._ACCOUNT, como siempre."""
+    try:
+        import dispatch
+        fn = getattr(dispatch.load_engine(eid), 'account_menu', None)
+        menu = fn(active) if callable(fn) else None
+    except Exception:
+        return None
+    return menu if isinstance(menu, dict) and menu.get('actions') else None
+
+
 def _account(S):
     """«cuenta y proveedor»: corre el flujo OFICIAL de cuenta/proveedor del
-    motor (engine_install._ACCOUNT). Al volver, se re-verifica la sesión."""
+    motor (engine_install._ACCOUNT). Si el motor ya tiene sesión y su adapter
+    declara un menú (Kiro, Copilot, Cursor: su login falla o no sirve con la
+    sesión iniciada y el modelo se elige dentro del chat), abre ese menú en vez
+    de correr a ciegas el login. Al volver, se re-verifica la sesión."""
     eid = selected(S).get('id')
+    blk = gatekeeper(eid)
+    if blk:                                # correrlo abriría el diálogo de macOS
+        S['msg'] = '✗ ' + (blk.get('why') or '')
+        return True
+    st = (S['checks'].get(eid) or {}).get('state')
+    active = {'verified': True, 'needs_login': False}.get(st)
+    menu = _account_menu(eid, active)
+    if menu:
+        S['acct'] = {'eid': eid, 'menu': menu, 'opt': 0, 'confirm': None, 'active': active}
+        return True
     try:
         import engine_install
         cmd = engine_install.recipe(eid)['account_cmd']
@@ -572,11 +908,86 @@ def _account(S):
     return True
 
 
+def _open_dir(eid):
+    """Carpeta VACÍA de Workspace donde «abrir el motor» lo corre: así no lee
+    como instrucciones los archivos de la carpeta del hub ni toca un cerebro."""
+    try:
+        import paths
+        d = os.path.join(paths.state_dir(), 'motores', str(eid))
+        os.makedirs(d, exist_ok=True)
+        return d
+    except Exception:
+        return None
+
+
+def _account_do(S, key):
+    """Corre la acción `key` del menú de cuenta (comando OFICIAL del motor, en
+    la terminal: lo que imprime lo ve el socio, Workspace no lo lee)."""
+    A = S.get('acct') or {}
+    eid = A.get('eid')
+    cmd = dict((A.get('menu') or {}).get('actions') or []).get(key)
+    S['acct'] = None
+    if not (eid and cmd):
+        return True
+    opts = {'cwd': _open_dir(eid)} if key == 'open' else {}
+    S['request'] = ('account', eid, cmd, opts)
+    return False
+
+
+def _act_cuenta(S, key):
+    """Teclas dentro del menú de cuenta. «cambiar de cuenta» pide confirmar
+    (cierra la sesión); Esc/← regresa a las opciones del motor."""
+    A = S['acct']
+    acts = (A.get('menu') or {}).get('actions') or []
+    S['msg'] = ''
+    if A.get('confirm'):
+        if key in ('\r', '\n'):
+            return _account_do(S, A['confirm'])
+        A['confirm'] = None
+        S['msg'] = _t('motores.m.cancel2', 'cancelado · tu sesión sigue igual',
+                      'cancelled · your sign-in is unchanged')
+        return True
+    if key in ('\x1b', 'left', 'q', 'Q'):
+        S['acct'] = None
+    elif key in ('up', 'down') and acts:
+        A['opt'] = (A.get('opt', 0) + (-1 if key == 'up' else 1)) % len(acts)
+    elif key in ('\r', '\n', ' ') and acts:
+        k = acts[A.get('opt', 0) % len(acts)][0]
+        if k == 'switch':
+            A['confirm'] = 'switch'
+            return True
+        return _account_do(S, k)
+    return True
+
+
+def _reinstall(S, kind='reinstall'):
+    """«reinstalar» (macOS lo bloquea) o «reparar» (instalación incompleta):
+    muestra los comandos (quitar el cask de Homebrew + la receta oficial) y
+    espera Enter, como instalar."""
+    d = selected(S)
+    eid = d.get('id')
+    try:
+        import engine_install
+        info = (S.get('blocked') or {}).get(eid) or (
+            install_block(eid) if kind == 'repair' else gatekeeper(eid))
+        cmds = engine_install.reinstall(eid, info)
+    except Exception:
+        cmds = []
+    if not cmds:
+        S['msg'] = _t('motores.m.norecipe', 'sin instalador oficial registrado',
+                      'no official installer registered')
+        return True
+    S['confirm'], S['confirm_cmds'], S['confirm_kind'] = eid, cmds, kind
+    return True
+
+
 def _aplica(S):
     """Enter sobre la opción elegida."""
     key = options(S, selected(S))[S.get('opt', 0)][0]
     if key == 'account':
         return _account(S)
+    if key in ('reinstall', 'repair'):
+        return _reinstall(S, key)
     if key in ('install', 'login'):
         return _enter(S)
     if key == 'reload':
@@ -586,6 +997,9 @@ def _aplica(S):
     elif key == 'version':
         ver = (S.get('versions') or {}).get(selected(S).get('id'))
         S['msg'] = version_note(ver) if ver else ''
+    elif key == 'integration':
+        info = integration_of(selected(S).get('id'))
+        S['msg'] = integration_note(info) if info else ''
     elif key == 'hub':
         toggle_m(S)
     return True
@@ -596,13 +1010,15 @@ def act(S, key):
     if S.get('confirm'):
         if key in ('\r', '\n'):
             return _enter(S)
-        S['confirm'] = None
+        S['confirm'], S['confirm_cmds'], S['confirm_kind'] = None, None, None
         S['msg'] = _t('motores.m.cancel', 'cancelado · nada se instaló', 'cancelled · nothing installed')
         return True
     if SB.info_key(S, key):
         return True
     if key == '\x03':
         return False
+    if S.get('acct'):
+        return _act_cuenta(S, key)
     if not S.get('engines'):
         if key == 'r':
             refresh(S)
@@ -657,13 +1073,21 @@ def run():
         req = S.get('request')
         if not req:
             return
-        kind, eid, cmd = req
+        kind, eid, cmd = req[:3]
+        opts = req[3] if len(req) > 3 else {}
         ready, why = prepare_login(eid) if kind == 'login' else (True, '')
         if why:
             print('\n  ' + why)
         # sin perfil listo (Hermes) el aviso es el motivo, no «verificando…»;
-        # si el programa no está o no arranca, se dice aquí y en la lista
-        rc, problem = (launch(cmd) if ready else (1, why))
+        # si el programa no está o no arranca, se dice aquí y en la lista.
+        # Varios comandos (reinstalar, cambiar de cuenta) van en orden y paran
+        # en el primero que falle.
+        rc, problem = (1, why)
+        if ready:
+            for c in (cmd if cmd and isinstance(cmd[0], (list, tuple)) else [cmd]):
+                rc, problem = launch(list(c), cwd=(opts or {}).get('cwd'))
+                if problem or rc not in (0, None):
+                    break
         if ready and problem:
             print('\n  ' + problem)
         try:
@@ -674,7 +1098,7 @@ def run():
         S['msg'] = after_message(S, kind, eid, rc, problem, ready)
 
 
-def launch(cmd):
+def launch(cmd, cwd=None):
     """Corre un comando de Motores con la RUTA real del programa. En Windows los
     CLIs de npm (npm, opencode, openclaw, codex…) son atajos `.cmd` y por su
     nombre suelto `subprocess` no los encuentra: instalar, iniciar sesión y
@@ -691,13 +1115,24 @@ def launch(cmd):
                         "✗ couldn't find `{b}` on this terminal's PATH — nothing ran; if you "
                         "already installed it, choose «I installed it: reload» or open a new terminal",
                         b=cmd[0])
-    print('\n  $ ' + ' '.join(cmd) + '\n')
+    # Windows (VERIFICADO 2026-11-05): el one-liner `irm … | iex` como línea
+    # de comandos lo bloquea Defender («Trojan:Win32/Commando.C!ml»). Workspace
+    # baja el instalador oficial y corre el ARCHIVO (engine_install.runnable),
+    # y lo dice antes: la línea «$ …» es lo que de verdad corre.
+    import engine_install
+    url = engine_install.script_url(cmd)
+    if url:
+        print('\n  ' + engine_install.fetch_line(url))
     try:
         # instalar / iniciar sesión / «cuenta y proveedor» corren el CLI del
         # motor: sin las fichas que cargó el hub (Greptile, 2026-10-17)
         import secret_store
-        return subprocess.run([exe] + list(cmd[1:]), check=False,
-                              env=secret_store.engine_env()).returncode, ''
+        with engine_install.runnable(cmd) as argv:
+            print(('  $ ' if url else '\n  $ ') + ' '.join(argv) + '\n')
+            return subprocess.run([exe] + list(argv[1:]), check=False, cwd=cwd or None,
+                                  env=secret_store.engine_env()).returncode, ''
+    except engine_install.DownloadError as e:
+        return None, '✗ ' + str(e)
     except KeyboardInterrupt:
         return 130, ''
     except OSError as e:
@@ -711,7 +1146,7 @@ def after_message(S, kind, eid, rc, problem, ready=True):
         return problem
     if not ready:
         return S.get('msg') or ''
-    if kind == 'install':
+    if kind in ('install', 'reinstall'):
         try:
             import engine_install
             why = engine_install.diagnose_exit(engine_install.recipe(eid), rc)
@@ -719,6 +1154,9 @@ def after_message(S, kind, eid, rc, problem, ready=True):
             why = ''
         if why:
             return '✗ ' + why
+        blk = (gatekeeper(eid) or install_block(eid)) if kind == 'reinstall' else None
+        if blk:                            # sigue retenido o incompleto (otro en el PATH)
+            return '✗ ' + (blk.get('why') or '')
         # el foco va a la siguiente acción útil: conectar la cuenta
         ops = [o[0] for o in options(S, selected(S))]
         nxt = 'login' if 'login' in ops else ('account' if 'account' in ops else None)

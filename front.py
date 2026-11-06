@@ -1243,7 +1243,7 @@ def cmd_update(args=None):
     if "--auto" in args:
         return _cmd_update_auto(args)
     print(f"{C}WORKSPACE update{R} {DIM}— "
-          + _t("cli.update.head", "harness + cerebros, en su rama actual…")
+          + _t("cli.update.head", "Workspace + cerebros, en su rama actual…")
           + f"{R}\n")
     import updater
     hres = updater.update_harness(ROOT, mode="manual", force="--force" in args)
@@ -1495,6 +1495,26 @@ def cmd_version(args=None):
             print(f"   · {n}")
         print(f"  {DIM}" + _t("version.changelog_hint", "Historial completo: CHANGELOG.md") + f"{R}")
     return 0
+
+
+def _sesiones_al_abrir_hub():
+    """Sesiones v2 al abrir el hub, en un hilo de fondo (jamás frena el
+    arranque): SOLO la constancia de esta máquina en cada cerebro (maquinas).
+    El archivo automático de pestañas no corre aquí: el hilo muere en cuanto
+    se elige un agente (os.execvp) y dejaba lo archivado sin lote ni aviso.
+    Corre en dispatch, sobre el cerebro que se abre (sessions_registry.al_abrir)."""
+    def _trabajo():
+        try:
+            import maquinas
+            maquinas.al_abrir()
+        except Exception:
+            pass
+    try:
+        import threading
+        threading.Thread(target=_trabajo, name="sesiones-al-abrir",
+                         daemon=True).start()
+    except Exception:
+        pass
 
 
 def _apply_pending_migrations():
@@ -2907,7 +2927,7 @@ def _offer_update(interactive):
     interactivo (CI/instalación) NUNCA promptea — a lo mucho reporta que hay update.
     Devuelve el rc de cmd_update si se ejecutó, o None si no se actualizó."""
     print(f"\n{DIM}  " + _t("cli.offer.searching",
-                            "Buscando actualizaciones del harness…") + f"{R}")
+                            "Buscando actualizaciones de Workspace…") + f"{R}")
     info = _update_available()
     if not info.get("ok"):
         print(f"  {DIM}" + _t("cli.offer.unverified", "· no se pudo verificar "
@@ -3013,7 +3033,7 @@ def cmd_doctor(args):
     local_only = (("--check" in doctor_args or "-c" in doctor_args)
                   and not ("--remote" in doctor_args or "--fetch" in doctor_args))
     if local_only and not from_update:
-        print(f"\n  {DIM}" + _t("cli.doctor.local_only", "· updates del harness: "
+        print(f"\n  {DIM}" + _t("cli.doctor.local_only", "· actualizaciones de Workspace: "
                                 "sin consultar remoto (diagnóstico local). "
                                 "`workspace doctor --check --remote` o "
                                 "`workspace update` para verificarlo.") + f"{R}")
@@ -5127,7 +5147,7 @@ def cmd_uninstall(args):
     script = os.path.join(ROOT, "uninstall.py")
     if not os.path.isfile(script):
         print(_t("cli.uninstall.missing",
-                 "WORKSPACE: no encuentro uninstall.py en el harness."))
+                 "WORKSPACE: no encuentro uninstall.py en la carpeta de Workspace."))
         return 1
     return subprocess.call([sys.executable, script] + list(args or []))
 
@@ -6216,6 +6236,8 @@ def _dispatch_table():
         # Delegación autónoma segura (bus automático v1, opt-in).
         "bus": lambda a: cmd_bus(a),
         "memoria": _run_module("memoria"),     # nota/ver/vigente/maleta + checkpoint/status
+        "sesiones": _run_module("sesiones"),   # lista/archivar/desarchivar (sesiones v2)
+        "identidad": _run_module("identidad"), # ver/soy/deshacer (sesiones v2)
         # Pane derecho del split (panel.py; lo corre mux.right_pane_cmd()).
         "panel": lambda a: cmd_panel(a),
         # ── DEV/EQUIPO (el gate _DEV_CMDS corta antes en la build de cliente) ──
@@ -6456,6 +6478,7 @@ def main():
     except Exception:
         pass
     _apply_pending_migrations()                   # ajustes de una actualización, a la vista
+    _sesiones_al_abrir_hub()                      # sesiones v2: constancia de esta máquina
     # El harness arranca VACÍO de agentes: es un producto que se distribuye a clientes
     # y ellos conectan sus PROPIOS cerebros explícitamente ("Agregar agente → cargar
     # ruta"). NO auto-descubrimos cerebros del disco al bootear (eso metía un agente

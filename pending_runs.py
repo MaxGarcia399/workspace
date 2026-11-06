@@ -46,7 +46,9 @@ ENV_KEYS = ("WORKSPACE_WS", "WORKSPACE_WID", "WORKSPACE_AGENT_NAME",
             "WORKSPACE_OPENCODE_SESSION", "WORKSPACE_OPENCODE_FIND",
             "WORKSPACE_OPENCLAW_SESSION", "WORKSPACE_OPENCLAW_PROFILE",
             "WORKSPACE_HERMES_SESSION", "WORKSPACE_HERMES_RUN", "WORKSPACE_HERMES_PROFILE",
-            "WORKSPACE_NO_TRANSCRIPT_BACKUP")
+            "WORKSPACE_NO_TRANSCRIPT_BACKUP",
+            "WORKSPACE_KIRO_SESSION", "WORKSPACE_KIRO_FIND", "WORKSPACE_COPILOT_SESSION",
+            "WORKSPACE_CURSOR_SESSION", "WORKSPACE_CURSOR_FIND")
 #: Corridas más viejas que esto (o con tantos intentos fallidos) se dan por
 #: perdidas: recibo «interrupted» y fuera (no se reintenta para siempre).
 MAX_AGE = 14 * 86400
@@ -123,6 +125,15 @@ def _norm(brain):
     return os.path.realpath(brain) if brain else ""
 
 
+def _socio(brain):
+    """El socio que resuelve esta corrida en su cerebro ('' si no se sabe)."""
+    try:
+        import sessions_registry as reg
+        return reg.socio(str(brain)) if brain else ""
+    except Exception:
+        return ""
+
+
 # ── 1. antes de abrir ───────────────────────────────────────────────────────
 def begin(run_id, engine, brain, started, extra=None):
     """Anota la corrida ANTES de lanzar el TUI. Falla-suave: None si no se
@@ -134,6 +145,9 @@ def begin(run_id, engine, brain, started, extra=None):
                "proc": _proc_mark(),
                "tab": str(extra.pop("tab", None) or os.environ.get("WORKSPACE_WS") or ""),
                "agent": str(extra.pop("agent", None) or os.environ.get("WORKSPACE_AGENT_NAME") or ""),
+               # el socio de la corrida: `workspace-memoria` escribe en SU carpeta
+               # aunque el agente ponga otro WORKSPACE_SOCIO delante
+               "socio": _socio(brain),
                "env": {k: os.environ[k] for k in ENV_KEYS if os.environ.get(k)},
                "extra": extra, "attempts": 0}
         _write(_path(run_id), rec)
@@ -186,6 +200,20 @@ def _next_start(rec, same_engine=True):
 
 def current():
     return _CURRENT.get("run_id") or ""
+
+
+def engine_started(h):
+    """Anota la huella del proceso del motor ({"pid", "ctime"},
+    motor_guardia.huella) en la corrida en curso: si el envoltorio muere sin
+    cerrar y el motor sigue vivo, reconcile() lo reconoce y lo cierra antes de
+    retomar. Jamás levanta."""
+    run_id = current()
+    if not run_id or not isinstance(h, dict) or h.get("ctime") is None:
+        return
+    try:
+        _update(run_id, lambda rec: rec.__setitem__("engine_proc", dict(h)))
+    except Exception:
+        pass
 
 
 # ── 2. cierre normal ────────────────────────────────────────────────────────
@@ -357,6 +385,22 @@ def reconcile(brain=None, budget=8.0, notify=None, engine=None):
         from olock import file_lock, LockTimeout
     except Exception:
         return out
+    # Primero, los motores huérfanos de TODAS las corridas muertas (barato: sin
+    # captura): si la captura de una corrida vieja agota el tope, el huérfano
+    # de una más nueva no puede quedarse con su conversación (Codex: «already
+    # has an active writer»). Revisión de la candidata, C1.
+    paradas = set()
+    muertas = [rec for rec in pending(brain)
+               if rec.get("engine_proc") and (not engine or rec.get("engine") == engine)
+               and not proc_alive(rec)]
+    if muertas and time.monotonic() < t_end:
+        try:
+            import motor_guardia
+            gracia = max(0.5, min(motor_guardia.GRACIA, t_end - time.monotonic() - 2.0))
+            vivas = motor_guardia.detener_varios([r["engine_proc"] for r in muertas], gracia)
+            paradas = {r.get("run_id") for r in muertas if r["engine_proc"] in vivas}
+        except Exception:
+            pass
     for rec in pending(brain):
         if time.monotonic() >= t_end:      # `>=`: con tope 0 no empieza ninguna (el
             break                          # reloj de Windows avanza a saltos de ~15 ms)
@@ -376,7 +420,10 @@ def reconcile(brain=None, budget=8.0, notify=None, engine=None):
                                "(%s · pestaña «%s»)…" % (rec.get("engine"), rec.get("tab") or "—"))
                     except Exception:
                         pass
+                orphan = rec.get("run_id") in paradas or _stop_orphan(rec, t_end)
                 summary = _finish(rec)
+                if orphan:
+                    summary["orphan_stopped"] = True
                 out.append(summary)
                 # Una captura que falló NO se olvida: queda para el próximo
                 # arranque hasta MAX_ATTEMPTS o MAX_AGE (Greptile, 2026-10-17:
@@ -416,6 +463,25 @@ def reconcile(brain=None, budget=8.0, notify=None, engine=None):
             except Exception:
                 pass
     return out
+
+
+def _stop_orphan(rec, t_end=None):
+    """El envoltorio murió sin cerrar y su motor puede seguir vivo, huérfano
+    (si el guardia de motor_guardia tampoco alcanzó). Codex guarda su hilo con
+    un solo escritor y no deja retomarlo mientras ese proceso viva: se cierra
+    como con la X ANTES de capturar y retomar. Solo el proceso de la huella
+    anotada (pid + hora de arranque). → True si había uno vivo."""
+    h = rec.get("engine_proc")
+    if not h:
+        return False
+    try:
+        import motor_guardia
+        gracia = motor_guardia.GRACIA
+        if t_end is not None:              # dentro del tope de reconcile (abrir no espera de más)
+            gracia = max(0.5, min(gracia, t_end - time.monotonic() - 2.0))
+        return motor_guardia.detener(h, gracia)
+    except Exception:
+        return False
 
 
 def _give_up(rec):
@@ -534,6 +600,15 @@ def late_bind(rec, res):
                                       cwd=brain) if exe else ""
         if not oc._valid_session_id(sid) or reg.owner(brain, "opencode", sid, exclude=tab):
             sid = ""
+    elif engine == "cursor":
+        if not env.get("WORKSPACE_CURSOR_FIND"):
+            return ""
+        from engines import cursor as cu
+        sid = str((res or {}).get("session_id") or "")
+        if not cu.valid_chat_id(sid):
+            sid = cu.find_new_session(brain, json.loads(env["WORKSPACE_CURSOR_FIND"]))
+        if not cu.valid_chat_id(sid) or reg.owner(brain, "cursor", sid, exclude=tab):
+            sid = ""
     elif engine == "hermes":
         from engines import hermes as hm
         run = env.get("WORKSPACE_HERMES_RUN", "")
@@ -550,6 +625,17 @@ def late_bind(rec, res):
         if key and openclaw_never_created(res):
             reg.unbind(brain, agent, tab, "openclaw", key)
         return ""
+    elif engine == "kiro":
+        # Igual que opencode: la sesión la creó Kiro y se reconoce por la
+        # marca de la pestaña en su primer mensaje (engines/kiro.find_new_session).
+        if not env.get("WORKSPACE_KIRO_FIND"):
+            return ""
+        from engines import kiro as kr
+        sid = str((res or {}).get("session_id") or "")
+        if not kr._valid_session_id(sid):
+            sid = kr.find_new_session(brain, json.loads(env["WORKSPACE_KIRO_FIND"]))
+        if not kr._valid_session_id(sid) or reg.owner(brain, "kiro", sid, exclude=tab):
+            sid = ""
     if sid and sid != known:
         reg.bind(brain, agent, tab, engine, sid)
         return sid

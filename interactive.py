@@ -523,6 +523,43 @@ INTERACTIVE_CLIS = {
                  "ingester aún (connectors lo marca A-IMPLEMENTAR) ⇒ sin "
                  "transcript neutral post-hoc"),
     },
+    "kiro": {
+        "binary": "kiro-cli",
+        "argv": ["kiro-cli", "chat"],
+        "verified": False,
+        "hooks": "wrapper",
+        "note": ("`kiro-cli chat` abre el TUI de Kiro: V3 en la 2.34.0 (pty, llave "
+                 "falsa) y V2 en la 2.35.1 (cuenta real, 2026-10-29). engines/kiro.py "
+                 "agrega --trust-workspace (V3: solo esa carpeta, solo ese arranque), "
+                 "--resume-id <id> de la pestaña (sess_… en V3, el uuid en V2) y el "
+                 "arranque como mensaje posicional. NO fija modelo. Contexto → el "
+                 "mismo AGENTS.md puntero. Sesión → copia de su .jsonl al cerrar."),
+    },
+    "copilot": {
+        "binary": "copilot",
+        "argv": ["copilot"],
+        "verified": False,
+        "hooks": "wrapper",
+        "note": ("GitHub Copilot CLI 1.0.105: `copilot` a secas abre su interfaz "
+                 "interactiva. engines/copilot.py agrega --session-id <uuid> de la "
+                 "pestaña (lo crea o lo retoma) y -i con el arranque del cerebro en "
+                 "una sesión nueva (VERIFICADO en un pty con un proveedor BYOK falso, "
+                 "dos ventanas a la vez). NO fija modelo ni permisos. Contexto → el "
+                 "mismo AGENTS.md puntero (además lee CLAUDE.md y expande @BRAIN.md). "
+                 "Sesión → session-state/<id>/events.jsonl al cerrar."),
+    },
+    "cursor": {
+        "binary": "cursor-agent",
+        "argv": ["cursor-agent"],
+        "verified": False,
+        "hooks": "wrapper",
+        "note": ("`cursor-agent` a secas abre el TUI (2026.10.22; sin cuenta "
+                 "muestra «Press any key to log in»). engines/cursor.py agrega "
+                 "--trust y --resume <id> de la pestaña; NO fija modelo. Contexto "
+                 "→ el mismo AGENTS.md puntero. Sus hooks (y los de Claude Code "
+                 "que importa del cerebro) no se cablean. Sesión → transcript "
+                 "legible de Cursor al cerrar. Turno real A-VERIFICAR con cuenta."),
+    },
 }
 
 
@@ -597,15 +634,75 @@ def call_motor(cmd, env=None, cwd=None, grace=None):
     a cada proceso de la consola (_console_guard)."""
     if os.name == "nt":
         return subprocess.call(cmd, env=env, cwd=cwd)
-    with subprocess.Popen(cmd, env=env, cwd=cwd) as p:
-        try:
-            return p.wait()
-        except _SessionSignal as sig:
-            _stop_motor(p, sig, _MOTOR_GRACE if grace is None else grace)
-            raise
-        except BaseException:          # lo mismo que subprocess.call
-            p.kill()
-            raise
+    guardia = None
+    try:
+        with subprocess.Popen(cmd, env=env, cwd=cwd) as p:
+            # SIGHUP/SIGTERM esperan mientras se arma el guardia: sus `except
+            # Exception` se tragarían el _SessionSignal. Llegan al desbloquear,
+            # ya dentro del try que se lo reenvía al motor.
+            mask = _block_session_signals()
+            try:
+                guardia = _vigilar_motor(p.pid)
+            except BaseException:
+                _restore_mask(mask)
+                p.kill()
+                raise
+            try:
+                _restore_mask(mask)
+                return p.wait()
+            except _SessionSignal as sig:
+                _stop_motor(p, sig, _MOTOR_GRACE if grace is None else grace)
+                raise
+            except BaseException:      # lo mismo que subprocess.call
+                p.kill()
+                raise
+    finally:
+        if guardia is not None:        # el motor ya salió (el with lo esperó)
+            mask = _block_session_signals()
+            try:
+                guardia.soltar()
+            finally:
+                _restore_mask(mask)
+
+
+def _block_session_signals():
+    import signal
+    try:
+        return signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGHUP, signal.SIGTERM})
+    except (AttributeError, ValueError, OSError):
+        return None
+
+
+def _restore_mask(mask):
+    if mask is None:
+        return
+    import signal
+    try:
+        signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+    except (ValueError, OSError):
+        pass
+
+
+def _vigilar_motor(pid):
+    """Si este envoltorio muere sin cerrar (un crash, kill -9), el motor no
+    queda huérfano: su huella va a la corrida en curso (el siguiente arranque
+    lo cierra antes de retomar) y un guardia aparte lo cierra al instante
+    (motor_guardia; E2E en Mac 2026-10-31: el Codex huérfano no dejaba
+    retomar la pestaña). → el guardia, o None."""
+    try:
+        import motor_guardia
+        h = motor_guardia.huella(pid)
+    except Exception:
+        return None
+    try:
+        import pending_runs
+        pending_runs.engine_started(h)
+    except Exception:
+        pass
+    try:
+        return motor_guardia.vigilar(pid, h=h)
+    except Exception:
+        return None
 
 
 def _stop_motor(p, sig, grace):
@@ -773,6 +870,15 @@ def run_official_cli_interactive(cli, brain=None, argv=None, behaviors=None,
     import engines                   # memoria v1: `workspace memoria nota` sabe el motor
     engines.mark_session_engine(env, cli)
     cmd = [exe] + list(argv if argv is not None else info["argv"][1:])
+    # Los avisos de una línea que dispatch juntó al abrir: salen aquí, justo
+    # antes del chat, cuando el adaptador ya pintó su banner o su menú (los
+    # dos limpian la pantalla y los borraban). Vale para todos los motores
+    # envueltos. Falla-suave.
+    try:
+        from engines import _ui as _avisos
+        _avisos.soltar_avisos()
+    except Exception:
+        pass
     import pending_runs
     pending_runs.begin(run_id, cli, brain, started, extra=pending)
     # console_guard None = solo en la corrida real (sin runner de prueba); codex

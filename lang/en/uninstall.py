@@ -24,7 +24,7 @@ STRINGS = {
     "uninstall.kept_inside": "kept: {p}",
     "uninstall.label.state": "per-machine state",
     "uninstall.label.state_item": "state",
-    "uninstall.no_root": "harness folder not found at {p} (nothing to delete there; use "
+    "uninstall.no_root": "Workspace folder not found at {p} (nothing to delete there; use "
                          "--workspace <path> if it lives elsewhere)",
     "uninstall.nothing": "Nothing was deleted.",
     "uninstall.plan.app": "desktop app: {p}",
@@ -40,8 +40,8 @@ STRINGS = {
     "uninstall.plan.engines_clean": "the conversations of Workspace's profiles in OpenClaw "
                                     "and Hermes, in a backup folder next to each profile "
                                     "(see below)",
-    "uninstall.plan.harness": "harness folder: {p}",
-    "uninstall.plan.harness_kept": "harness folder (--keep-folder): {p}",
+    "uninstall.plan.harness": "Workspace folder: {p}",
+    "uninstall.plan.harness_kept": "Workspace folder (--keep-folder): {p}",
     "uninstall.plan.keep": "KEPT (untouched)",
     "uninstall.plan.no_backup": "no backup (--no-backup)",
     "uninstall.plan.nothing_to_backup": "nothing to back up (no state)",
@@ -71,12 +71,13 @@ STRINGS = {
     "uninstall.x.reset_theme.2": "theme {th} removed from ~/.claude/settings.json",
     "uninstall.x.restore_retention.1": "would restore cleanupPeriodDays={prior!r} in {sp}",
     "uninstall.x.restore_retention.2": "cleanupPeriodDays restored ({v})",
-    "uninstall.x.main.1": "\n  {b}{c}WORKSPACE uninstaller{r}  {dim}· {v} · {root}{r}",
+    "uninstall.x.main.1": "\n  {b}{c}Workspace uninstaller{r}  {dim}· {v} · {root}{r}",
     "uninstall.x.main.2": "desktop app",
-    "uninstall.x.main.3": "{dim}harness folder kept (--keep-folder): {root}{r}",
-    "uninstall.x.main.4": "{dim}warning: {root} doesn't look like a WORKSPACE harness (no front.py/dispatch.py/install.py) — I WON'T delete the folder. Use --workspace <path> if it's another one.{r}",
-    "uninstall.x.main.5": "harness folder",
-    "uninstall.x.main.6": "\n  {c}Done.{r} WORKSPACE uninstalled from this machine.",
+    "uninstall.x.main.3": "{dim}Workspace folder kept (--keep-folder): {root}{r}",
+    "uninstall.x.main.4": "{dim}warning: {root} doesn't look like a Workspace folder (no front.py/dispatch.py/install.py) — I WON'T delete the folder. Use --workspace <path> if it's another one.{r}",
+    "uninstall.x.main.5": "Workspace folder",
+    "uninstall.x.main.6": "\n  {c}Done.{r} Workspace uninstalled from this machine.",
+    "uninstall.x.main.6_dry": "\n  {c}Dry run.{r} Nothing was touched: above is what it would do.",
     "uninstall.x.main.7": "  {dim}The BRAINS (agent folders) and transcripts were NOT touched.{r}",
     "uninstall.x.main.8": "  {dim}Open a NEW terminal to drop the old PATH/greeter.{r}",
     "uninstall.x.main.9": "  {dim}If you reinstall Workspace, load each agent again (Add agent → load its folder) so it points to the new install; if you restored your backup, `workspace doctor` is enough.{r}",
@@ -91,9 +92,9 @@ STRINGS = {
     "uninstall.git.changes": "{n} uncommitted change(s)",
     "uninstall.git.commits": "{n} unpushed commit(s)",
     "uninstall.git.stashes": "{n} saved stash(es)",
-    "uninstall.plan.harness_git": "harness folder: {p} — it's a git checkout with unpublished "
+    "uninstall.plan.harness_git": "Workspace folder: {p} — it's a git checkout with unpublished "
                                   "work ({w}); delete it yourself once you've saved it",
-    "uninstall.x.main.git": "{dim}harness folder kept: {root} — it has unpublished git work "
+    "uninstall.x.main.git": "{dim}Workspace folder kept: {root} — it has unpublished git work "
                             "({w}).{r}",
     "uninstall.need_yes": "Without an interactive terminal I can't ask you to confirm. Nothing "
                           "was deleted. To uninstall like this, add --yes (and check first what "
@@ -118,6 +119,16 @@ STRINGS = {
     "uninstall.clean.agy_rules": "brain file rules ({k})",
     "uninstall.clean.agy_memoria": "`workspace memoria …` rules ({k})",
     "uninstall.clean.agy_project": "Antigravity: project {p}",
+    "uninstall.clean.copilot": "GitHub Copilot: {p}",
+    "uninstall.clean.cursor": "Cursor: {p}",
+    "uninstall.clean.memoria_permiso": "`workspace-memoria` permission",
+    "uninstall.clean.kiro_agent": "Kiro: Workspace's agent {p}",
+    "uninstall.clean.memoria_mcp": "brain «{n}»: memory tool in {p}",
+    "uninstall.clean.kiro_settings": "Kiro: {p}",
+    "uninstall.clean.kiro_segments": "status bar segments Workspace turned on",
+    "uninstall.clean.copilot_backup": "GitHub Copilot: Workspace's backup {p}",
+    "uninstall.clean.motor_shim": "an engine's status bar: {p}",
+    "uninstall.clean.cursor_trust": "Cursor: trust Workspace gave {p}",
     "uninstall.clean.openclaw": "OpenClaw: Workspace's profile {p} → moved aside (not "
                                 "deleted) to {b}, with its conversations and the provider you "
                                 "connected there; your personal OpenClaw is untouched",

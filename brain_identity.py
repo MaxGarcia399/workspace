@@ -5,7 +5,7 @@ de un cerebro» (formato de cerebro v2, release A).
 La identidad del agente vive en un archivo NEUTRAL de motor: `BRAIN.md`. Los
 archivos que cada motor lee por su cuenta son PUNTEROS generados hacia ella:
 `CLAUDE.md` (Claude Code, con `@BRAIN.md`), `AGENTS.md` (codex/opencode/
-openclaw/hermes), `GEMINI.md` (antigravity).
+openclaw/hermes/cursor), `GEMINI.md` (antigravity).
 
 Compatibilidad (release A — nada se migra todavía):
   · cerebro NUEVO (template v2): `BRAIN.md` + `CLAUDE.md` puntero.
@@ -137,7 +137,12 @@ def identity_name(brain, cfg=None):
 #: `.hermes.md`/`HERMES.md` y `AGENTS.override.md` le ganan a AGENTS.md) — y
 #: contra OpenClaw 2026.5.12 (crea SOUL/IDENTITY/USER/BOOTSTRAP/HEARTBEAT/TOOLS).
 #: `.hermes/`: Hermes v0.18.2 guarda ahí los planes de su skill de planes y
-#: lee plugins de proyecto (código del binario, 2026-10-15).
+#: lee plugins de proyecto (su código abierto, MIT, 2026-10-15).
+#: `.cursor/` (reglas `.cursor/rules/*.mdc`, `cli.json`, `mcp.json`, `hooks.json`):
+#: config de PROYECTO de Cursor en la raíz de su carpeta (doc oficial:
+#: https://cursor.com/docs/rules, /docs/cli/reference/configuration,
+#: /docs/mcp y /docs/hooks). `.cursorrules`: el formato viejo de reglas de
+#: Cursor; la doc actual ya no lo menciona, se reserva por precaución.
 RESERVED_ROOT = (
     ("SOUL.md", "openclaw"), ("IDENTITY.md", "openclaw"), ("USER.md", "openclaw"),
     ("BOOTSTRAP.md", "openclaw"), ("BOOT.md", "openclaw"),
@@ -145,6 +150,11 @@ RESERVED_ROOT = (
     ("DREAMS.md", "openclaw"), ("MEMORY.md", "openclaw"), ("memory", "openclaw"),
     ("HERMES.md", "hermes"), (".hermes.md", "hermes"),
     ("AGENTS.override.md", "hermes"), (".hermes", "hermes"),
+    # `.kiro/`: Kiro CLI 2.34 carga de la raíz del proyecto steering, agentes,
+    # hooks, MCP y skills propios (doc oficial «steering», «custom-agents»):
+    # competirían con la identidad común.
+    (".kiro", "kiro"),
+    (".cursor", "cursor"), (".cursorrules", "cursor"),
 )
 
 
@@ -159,8 +169,20 @@ def reserved_in_root(brain):
     for name, motor in RESERVED_ROOT:
         if name in names:
             is_dir = os.path.isdir(os.path.join(str(brain), name))
+            if is_dir and _solo_de_workspace(brain, name):
+                continue
             out.append((name + ("/" if is_dir else ""), motor))
     return out
+
+
+def _solo_de_workspace(brain, name):
+    """¿`.cursor/` o `.kiro/` traen SOLO la herramienta de memoria que pone
+    Workspace (memoria_mcp)? Entonces no es identidad paralela: no se avisa."""
+    try:
+        import memoria_mcp
+        return memoria_mcp.solo_de_workspace(brain, name)
+    except Exception:
+        return False
 
 
 # ── núcleo de identidad INCRUSTADO (motores sin imports) ──────────────────
@@ -181,8 +203,16 @@ _BOOT_NUM = re.compile(r"^\d\d-.+\.md$")
 
 
 def socio_of(brain):
-    """Socio activo: `.claude/socio.local` del cerebro → el de la máquina
+    """Socio activo: la identidad de ESTA máquina en ese cerebro (sesiones v2,
+    identidad.py) → `.claude/socio.local` del cerebro → el de la máquina
     (`socio.local` del directorio de estado). '' si no hay. Solo [a-z0-9_-]."""
+    try:
+        import identidad
+        s = identidad.socio(str(brain or ""))
+        if s:
+            return s
+    except Exception:
+        pass
     try:
         import paths
         machine = os.path.join(paths.state_dir(), "socio.local")

@@ -23,8 +23,17 @@ separación dura de este módulo:
   COMPATIBILIDAD (no se rompe Claude Code):
     `.claude/<agente>-workspaces.json` sigue siendo el per-máquina que leen
     los dashboards/hooks de Claude Code. Este módulo lo espeja (pestaña
-    nueva → entrada ws) y MIGRA: una pestaña que hoy solo viva ahí recibe
-    su .md sembrado → entra al modelo sincronizado sin pérdida.
+    nueva → entrada ws). Sesiones v2 (2026-11-05): ya NO es fuente de
+    pestañas ni siembra `.md` (las pruebas de una sola máquina revivían en
+    las demás). Sus ids y last_opened pasan al store local
+    (absorber_json_local) y lo que no tiene `.md` queda anotado como
+    `huerfanas` en el store, recuperable con `desarchivar`.
+
+  ARCHIVAR (sesiones v2): `estado: archivada` + `archivada: <fecha>` en el
+    frontmatter del `.md` — viaja, así que sale del menú en todas las
+    máquinas; el archivo no se mueve ni se borra. archivar/desarchivar/
+    archivadas/desarchivar_ultimas, auto_archivar (ajuste
+    sesiones.archivar_dias) y tabs(…, archivadas=False).
 
 Cero dependencias (stdlib). Falla-suave ABSOLUTA: el arranque de un agente
 JAMÁS truena por el registro. Escrituras atómicas (tmp + os.replace).
@@ -45,7 +54,7 @@ VERSION = 1
 
 #: Motores conocidos (informativo — bind() acepta cualquier nombre de motor).
 ENGINES = ("claude-code", "codex", "antigravity", "gemini", "opencode",
-           "openclaw", "hermes")
+           "openclaw", "hermes", "kiro", "copilot", "cursor")
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────
@@ -129,13 +138,10 @@ def _read_json(path, default):
 def _atomic_write(path, data):
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        # tmp ÚNICO por proceso: el banner/hook y el dashboard escriben el mismo
-        # registro al arrancar; un `.tmp` compartido hacía que dos procesos
-        # concurrentes se pisaran el temporal (camino crítico del arranque).
-        tmp = "%s.tmp-%d" % (path, os.getpid())
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, indent=2, ensure_ascii=False)
-        os.replace(tmp, path)   # atómico: camino crítico del arranque
+        # tmp ÚNICO (el banner/hook y el dashboard escriben el mismo registro
+        # al arrancar) + reintento en Windows; si falla, sin `.tmp` y con aviso
+        import atomico
+        atomico.escribir(path, json.dumps(data, indent=2, ensure_ascii=False), avisar=True)
         return True
     except Exception:
         return False
@@ -148,16 +154,37 @@ def _brain_key(brain):
     return os.path.realpath(brain or "")
 
 
-def _local_load():
-    data = _read_json(local_store_path(), {})
+def _local_load(path=None):
+    data = _read_json(path or local_store_path(), {})
     if not isinstance(data.get("map"), dict):
         data = {"version": VERSION, "map": {}}
     data.setdefault("version", VERSION)
     return data
 
 
-def _local_save(data):
-    return _atomic_write(local_store_path(), data)
+def _local_save(data, path=None):
+    return _atomic_write(path or local_store_path(), data)
+
+
+def _con_store(fn, path=None):
+    """Corre `fn()` —un leer-modificar-escribir del store local— con su
+    candado: el menú, el motor y los hooks arrancan a la vez y, sin él, uno
+    pisaba los `lotes` o los ids del otro (en Windows se vio). Sin olock, o
+    con el candado ocupado más de 5 s, corre igual: mejor escribir que
+    perder el cambio."""
+    try:
+        from olock import file_lock, LockTimeout
+    except Exception:
+        return fn()
+    try:
+        lk = file_lock(path or local_store_path(), timeout=5)
+        lk.__enter__()
+    except LockTimeout:
+        return fn()
+    try:
+        return fn()
+    finally:
+        lk.__exit__(None, None, None)
 
 
 def _local_slot(data, brain, slug, create=False):
@@ -186,9 +213,30 @@ def _por_cedula(brain, s):
 
 
 def socio(brain):
-    """Socio activo del cerebro: `.claude/socio.local` → env WORKSPACE_SOCIO →
-    única carpeta de `STATE/sessions/` (sin prefijo _). '' si no se resuelve.
-    Un nombre viejo de un usuario renombrado/unido se lee como el actual."""
+    """Socio activo del cerebro. Quién eres es de la MÁQUINA (sesiones v2,
+    identidad.py → `<state_dir>/identidad.json`): el «soy yo en esta PC» de
+    este cerebro → tu persona resuelta contra SUS cédulas (nombre, luego
+    alias) → la carpeta con tu nombre (se crea al escribir). Solo si esta
+    máquina no sabe quién eres, el orden de antes (_socio_legado). '' si no
+    se resuelve. Un nombre viejo de un usuario renombrado/unido se lee como el
+    actual."""
+    try:
+        import identidad
+        s = identidad.socio(brain)
+        if s:
+            return s
+    except Exception:
+        pass
+    return _socio_legado(brain)
+
+
+def _socio_legado(brain):
+    """El orden de antes (máquina sin identidad): `.claude/socio.local` → env
+    WORKSPACE_SOCIO → única carpeta de `STATE/sessions/` (sin prefijo _),
+    salvo que esa carpeta ya sea de alguien con cédula: sin saber quién eres,
+    tomar la carpeta de otra persona te mostraba sus pestañas y guardaba las
+    tuyas en ella (sesiones v2, F1). Ahí no se adivina: el preflight te dice
+    cómo elegir (una vez)."""
     try:
         with open(os.path.join(brain, ".claude", "socio.local"),
                   encoding="utf-8") as fh:
@@ -205,11 +253,19 @@ def socio(brain):
         cands = [x for x in os.listdir(d)
                  if os.path.isdir(os.path.join(d, x))
                  and not x.startswith(("_", "."))]
-        if len(cands) == 1:
+        if len(cands) == 1 and not _de_alguien(brain, cands[0]):
             return cands[0]
     except Exception:
         pass
     return ""
+
+
+def _de_alguien(brain, carpeta):
+    try:
+        import identidad
+        return identidad.es_de_alguien(brain, carpeta)
+    except Exception:
+        return False
 
 
 def preflight(brain):
@@ -245,9 +301,15 @@ def preflight(brain):
                    + " o dile quién eres con: " + remedio)
         return out
     d = _md_dir(brain, soc)
+    # La carpeta del socio se crea al ESCRIBIR una pestaña (ensure_tab), no
+    # aquí: con la identidad por máquina, abrir el cerebro de otra persona no
+    # debe dejarle una carpeta (ni un perfil) tuyos vacíos. Se prueba en la
+    # carpeta más cercana que ya exista dentro del cerebro.
+    sonda, base = d, os.path.abspath(brain)
+    while not os.path.isdir(sonda) and os.path.abspath(sonda) != base:
+        sonda = os.path.dirname(sonda)
     try:
-        os.makedirs(d, exist_ok=True)
-        probe = os.path.join(d, ".workspace-write-probe")
+        probe = os.path.join(sonda, ".workspace-write-probe")
         with open(probe, "w", encoding="utf-8") as fh:
             fh.write("ok")
         os.remove(probe)
@@ -291,7 +353,31 @@ def _brain_tabs(brain):
         if not fn.endswith(".md") or fn == "README.md":
             continue
         out.append({"slug": _slug(fn[:-3]), "name": fn[:-3],
-                    "workspace": "", "actualizada": "", "estado": ""})
+                    "workspace": "", "actualizada": "", "estado": "",
+                    "archivada": "", "archivo": os.path.join(d, fn)})
+    return out
+
+
+def _pestanas(brain, archivadas=False):
+    """La lista del NÚCLEO común (agent_brand.pestanas: los `.md`, una por
+    slug, sin las archivadas por default) — la misma que ven los dashboards
+    y el panel. Fallback inline (sin agent_brand): _brain_tabs deduplicado."""
+    soc = socio(brain)
+    if not soc:
+        return []
+    try:
+        import agent_brand
+        return agent_brand.pestanas(brain, soc, archivadas)
+    except Exception:
+        pass
+    out, seen = [], set()
+    for bt in _brain_tabs(brain):
+        arch = str(bt.get("estado") or "").strip().lower() == "archivada"
+        if bt["slug"] in seen or (archivadas == "solo" and not arch) \
+                or (not archivadas and arch):
+            continue
+        seen.add(bt["slug"])
+        out.append(bt)
     return out
 
 
@@ -361,48 +447,122 @@ nota`; este archivo no se edita a mano. Ver STATE/sessions/README.md.]
 - %s — pestaña registrada en el modelo sincronizado de sesiones.
 """ % (sl, name, soc, claude_wid or "", today, today, name, today)
     try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp = "%s.tmp-%d" % (path, os.getpid())   # único por proceso (ver _atomic_write)
-        with open(tmp, "w", encoding="utf-8") as fh:
-            fh.write(txt)
-        os.replace(tmp, path)
+        import atomico                    # tmp único + reintento (ver _atomic_write)
+        atomico.escribir(path, txt, avisar=True)
         return True
     except Exception:
         return False
 
 
 # ── migración (sin pérdida, perezosa, idempotente) ──────────────────────────
-def _migrate(brain, agent):
-    """(1) Pestañas que hoy solo viven en el workspaces.json per-máquina →
-    se les siembra su .md (entran a Obsidian Sync). (2) El legacy
-    `.workspace/sessions.json` (primer diseño) → sus resume-ids pasan al store
-    local y el archivo se renombra a `.migrated` (ya no es fuente de nada).
-    Corre en cada tabs()/ensure_tab() — barato e idempotente. Falla-suave."""
-    soc = socio(brain)
-    # (1) workspaces.json → .md sembrado
+def absorber_json_local(brain, agent, store=None):
+    """Sesiones v2 (expandir→contraer): lo útil del `.claude/<agente>-
+    workspaces.json` per-máquina pasa al store local — el id de Claude Code y
+    el last_opened de cada pestaña que SÍ tiene `.md` — y las entradas SIN
+    `.md` quedan anotadas en `huerfanas` del store, SIN sembrarse (eran de
+    una sola máquina: las pruebas de la PC revivían en la Mac). `desarchivar
+    <nombre>` recupera una huérfana. El json no se toca: lo siguen leyendo
+    los dashboards y hooks viejos. Idempotente (lo corre la migración y cada
+    tabs()/ensure_tab(); solo escribe si algo cambia). `store` = ruta del
+    sessions-local.json (la migración pasa el de su HOME). Falla-suave →
+    {"ids": n, "huerfanas": [nombres sin .md]}."""
+    res = {"ids": 0, "huerfanas": []}
     try:
-        if soc:
-            have = {t["slug"] for t in _brain_tabs(brain)}
-            for w in _read_json(_ws_path(brain, agent), []):
+        ws = _read_json(_ws_path(brain, agent), [])
+        soc = socio(brain) if ws else ""
+        if not ws or not soc:          # sin socio no se sabe qué tiene .md
+            return res
+        import agent_brand
+        have = {t["slug"] for t in _brain_tabs(brain)}   # también archivadas
+        path = store or local_store_path()
+        bk = _brain_key(brain)
+
+        def aplicar(data):
+            changed, ids, huer = False, 0, []
+            hb = data.setdefault("huerfanas", {})
+            if not isinstance(hb, dict):
+                hb = data["huerfanas"] = {}
+            mine = hb.get(bk) if isinstance(hb.get(bk), dict) else {}
+            for w in ws:
                 if not isinstance(w, dict):
                     continue
                 name = _clean_name(w.get("name"))
                 sl = _slug(name)
-                if not name or not sl or sl in have:
-                    continue      # sin slug sano no hay .md que sembrar
-                if _seed_md(brain, name, claude_wid=w.get("id") or "",
-                            soc=soc):
-                    have.add(sl)
+                if not name or not sl:
+                    continue
+                wid = str(w.get("id") or "").strip()
+                lo = str(w.get("last_opened") or "").strip()
+                if sl in have:
+                    slot = _local_slot(data, brain, sl, create=True)
+                    if wid and not slot.get("claude-code"):
+                        slot["claude-code"] = wid
+                        changed, ids = True, ids + 1
+                    if lo and agent_brand._epoch(lo) > agent_brand._epoch(
+                            slot.get("last_opened", "")):
+                        slot["last_opened"] = lo
+                        changed = True
+                    if sl in mine:                   # ya tiene su .md
+                        mine.pop(sl)
+                        changed = True
+                    continue
+                huer.append(name)
+                rec = {"name": name, "agente": str(agent or ""), "id": wid,
+                       "last_opened": lo,
+                       "created": str(w.get("created") or "").strip()}
+                if mine.get(sl) != rec:
+                    mine[sl] = rec
+                    changed = True
+            if mine:
+                hb[bk] = mine
+            elif bk in hb:
+                hb.pop(bk)
+                changed = True
+            return changed, ids, huer
+
+        changed, ids, huer = aplicar(_local_load(path))
+        res["huerfanas"] = huer
+        if changed:
+            from olock import file_lock
+            with file_lock(path, timeout=5):
+                data = _local_load(path)
+                changed, ids, huer = aplicar(data)
+                if changed:
+                    _local_save(data, path)
+            res.update(ids=ids, huerfanas=huer)
     except Exception:
         pass
+    return res
+
+
+def huerfanas(brain=None):
+    """Las entradas del workspaces.json local SIN `.md` que la sesiones v2 no
+    siembra: {cerebro: {slug: {name, agente, id, …}}} (todas) o {slug: …} de
+    `brain`. Solo lee."""
+    hb = _local_load().get("huerfanas")
+    hb = hb if isinstance(hb, dict) else {}
+    if brain is None:
+        return hb
+    mine = hb.get(_brain_key(brain))
+    return mine if isinstance(mine, dict) else {}
+
+
+def _migrate(brain, agent):
+    """(1) Sesiones v2: el workspaces.json per-máquina YA NO siembra `.md`
+    (absorber_json_local: sus ids y last_opened pasan al store local; lo que
+    no tiene `.md` queda anotado como huérfano). (2) El legacy
+    `.workspace/sessions.json` (primer diseño) → sus resume-ids pasan al store
+    local y el archivo se renombra a `.migrated` (ya no es fuente de nada).
+    Corre en cada tabs()/ensure_tab() — barato e idempotente. Falla-suave."""
+    soc = socio(brain)
+    # (1) workspaces.json → store local (sin sembrar nada)
+    absorber_json_local(brain, agent)
     # (2) legacy .workspace/sessions.json → store local + rename
     try:
         lp = _legacy_registry_path(brain)
         legacy = _read_json(lp, {})
         tabs_l = legacy.get("tabs") if isinstance(legacy, dict) else None
         if isinstance(tabs_l, list):
-            data = _local_load()
-            changed = False
+            ids = []
             for t in tabs_l:
                 if not isinstance(t, dict):
                     continue
@@ -418,13 +578,20 @@ def _migrate(brain, agent):
                                  "claude-code", ""), soc=soc)
                 r = t.get("resume") or {}
                 if any(r.values()):
+                    ids.append((sl, r))
+
+            def _pasar():
+                data, changed = _local_load(), False
+                for sl, r in ids:
                     slot = _local_slot(data, brain, sl, create=True)
                     for eng, rid in r.items():
                         if rid and slot.get(eng) != rid:
                             slot[eng] = rid
                             changed = True
-            if changed:
-                _local_save(data)
+                if changed:
+                    _local_save(data)
+            if ids:
+                _con_store(_pasar)
             if os.path.exists(lp):
                 os.replace(lp, lp + ".migrated")
     except Exception:
@@ -432,11 +599,16 @@ def _migrate(brain, agent):
 
 
 # ── API pública (misma firma que consumen los motores) ─────────────────────
-def tabs(brain, agent):
-    """Las pestañas del agente — DERIVADAS de los .md sincronizados,
-    enriquecidas con lo local (resume-ids + last_opened). La lista es la
-    misma en cualquier máquina con el mismo contenido de Obsidian; lo local
-    solo cambia CÓMO se resume aquí. Incluye la migración perezosa."""
+def tabs(brain, agent, archivadas=False):
+    """Las pestañas del agente — DERIVADAS de los .md sincronizados (el núcleo
+    común con los dashboards y el panel: agent_brand.pestanas), enriquecidas
+    con lo local (resume-ids + last_opened). La lista es la misma en
+    cualquier máquina con el mismo contenido del cerebro; lo local solo
+    cambia CÓMO se resume aquí. Incluye la migración perezosa.
+
+    `archivadas`: False (default) → sin las archivadas · True → todas ·
+    "solo" → solo las archivadas (mejor: archivadas()). Cada pestaña trae
+    `archivada` (la fecha, o '')."""
     _migrate(brain, agent)
     out = []
     try:
@@ -445,13 +617,9 @@ def tabs(brain, agent):
         for w in _read_json(_ws_path(brain, agent), []):
             if isinstance(w, dict) and w.get("name"):
                 ws_by_slug.setdefault(_slug(w["name"]), w)
-        seen = set()
-        for bt in _brain_tabs(brain):
-            sl = bt["slug"]
-            if not sl or sl in seen:   # dedupe: dos .md que colapsan al
-                continue               # mismo slug (conflicto de sync) no
-            seen.add(sl)               # duplican la pestaña en el picker
-            slot = _local_slot(data, brain, sl) or {}
+        for bt in _pestanas(brain, archivadas):
+            sl = bt["slug"]            # una por slug (dos .md que colapsan
+            slot = _local_slot(data, brain, sl) or {}   # al mismo = UNA)
             resume = {k: v for k, v in slot.items() if k != "last_opened"}
             # claude-code: store local → workspaces.json → frontmatter
             if not resume.get("claude-code"):
@@ -462,10 +630,28 @@ def tabs(brain, agent):
             out.append({"name": bt["name"], "slug": sl,
                         "estado": bt.get("estado", ""),
                         "actualizada": bt.get("actualizada", ""),
+                        "archivada": bt.get("archivada", "") if _es_archivada(bt) else "",
                         "last_opened": slot.get("last_opened", ""),
                         "resume": resume})
     except Exception:
         pass
+    return out
+
+
+def _es_archivada(bt):
+    try:
+        import agent_brand
+        return agent_brand.es_archivada(bt.get("estado"))
+    except Exception:
+        return str(bt.get("estado") or "").strip().lower() == "archivada"
+
+
+def archivadas(brain, agent):
+    """Solo las pestañas archivadas (mismo formato que tabs()), la archivada
+    más reciente primero. Su memoria sigue en el cerebro, intacta."""
+    out = tabs(brain, agent, archivadas="solo")
+    out.sort(key=lambda t: (t.get("name") or "").lower())
+    out.sort(key=lambda t: t.get("archivada") or "", reverse=True)   # estable
     return out
 
 
@@ -481,24 +667,37 @@ def ensure_tab(brain, agent, name, claude_wid=None):
     """La pestaña `name` existe en el modelo SINCRONIZADO (se siembra su .md
     si falta) y queda abierta AHORA en el store local. `claude_wid` (uuid que
     eligió el picker) se guarda local y se espeja al workspaces.json para que
-    el picker de Claude Code la liste/resuma idéntico. Devuelve el tab dict
-    o None (falla-suave)."""
+    el picker de Claude Code la liste/resuma idéntico. Abrir una pestaña
+    ARCHIVADA la desarchiva (sesiones v2). Los motores la llaman justo antes
+    de lanzar (o del exec): este proceso es la ventana de la pestaña, y queda
+    anotado con su pid para que el archivo automático no la toque mientras
+    viva. Devuelve el tab dict o None (falla-suave)."""
     try:
-        _migrate(brain, agent)
         name = _clean_name(name)      # un nombre con saltos/`---` no inyecta
         sl = _slug(name)
         if not sl:
             return None
         _seed_md(brain, name, claude_wid=claude_wid or "")
-        data = _local_load()
-        slot = _local_slot(data, brain, sl, create=True)
-        if claude_wid:
-            slot["claude-code"] = claude_wid
-        elif not slot.get("claude-code"):
-            import uuid
-            slot["claude-code"] = str(uuid.uuid4())
-        slot["last_opened"] = _now()
-        _local_save(data)
+        try:
+            desarchivar(brain, agent, name)   # abrirla = vuelve a la lista
+        except Exception:
+            pass
+        marcar_usada(brain, name)     # el uso viaja: `usada: <hoy>`, 1 vez al día
+        _migrate(brain, agent)        # después de sembrar: la nueva no es huérfana
+
+        def _abrir():
+            data = _local_load()
+            slot = _local_slot(data, brain, sl, create=True)
+            if claude_wid:
+                slot["claude-code"] = claude_wid
+            elif not slot.get("claude-code"):
+                import uuid
+                slot["claude-code"] = str(uuid.uuid4())
+            slot["last_opened"] = _now()
+            _anotar_abierta(data, brain, sl)   # protegida mientras viva esta ventana
+            _local_save(data)
+            return dict(slot)
+        slot = _con_store(_abrir)
         _mirror_to_claude(brain, agent, name, slot["claude-code"])
         return find_tab(tabs(brain, agent), name) or {
             "name": name, "slug": sl, "resume": dict(slot)}
@@ -657,6 +856,673 @@ def resume_id(brain, agent, name, engine):
             if bt["slug"] == sl:
                 return str(bt.get("workspace") or "")
         return ""
+    except Exception:
+        return ""
+
+
+# ── sesiones v2: ARCHIVAR (quitar del menú sin borrar) ──────────────────────
+#: Días sin uso tras los que una pestaña se archiva sola (decisión del dueño,
+#: 2026-11-05). El ajuste `sesiones.archivar_dias` lo cambia; 0 lo apaga.
+ARCHIVAR_DIAS_DEFAULT = 15
+#: Lotes de archivo que se guardan para deshacer (`u`, `desarchivar --ultimas`).
+LOTES_MAX = 30
+
+
+def _t(key, es, **kw):
+    """Texto al usuario en su idioma (i18n, catálogo lang/*/sesiones.py);
+    sin i18n, el español de aquí. Jamás levanta."""
+    try:
+        import i18n
+        s = i18n.t(key, **kw)
+        if s != key:
+            return s
+    except Exception:
+        pass
+    try:
+        return es.format(**kw) if kw else es
+    except Exception:
+        return es
+
+
+def _rutas_tab(brain, name):
+    """Los `.md` de la pestaña `name` (por su slug o por su nombre visible):
+    el suyo y, si un conflicto de sync dejó otro que cae en el mismo slug,
+    también ese — archivar los marca a todos, o la pestaña reaparecería con
+    el otro. [] si no tiene memoria en el cerebro."""
+    sl = _slug(name)
+    out = []
+    if not sl:
+        return out
+    for bt in _brain_tabs(brain):
+        a = bt.get("archivo") or ""
+        if a and a not in out and os.path.isfile(a) and (
+                bt.get("slug") == sl or _slug(bt.get("name") or "") == sl):
+            out.append(a)
+    return out
+
+
+def _front_archivo(texto, archivar, fecha):
+    """El texto con el archivo puesto (`estado: archivada` + `archivada:
+    <fecha>`) o quitado (`estado: activa`, sin `archivada:`). Solo toca esas
+    dos claves de nivel 0 del frontmatter; el resto queda byte a byte. None
+    si no hay nada que cambiar o si el frontmatter no se entiende (no se
+    reescribe a ciegas)."""
+    lineas = texto.split("\n")
+    if not lineas or lineas[0].strip() != "---":
+        if not archivar or not texto.strip():
+            return None
+        return "---\nestado: archivada\narchivada: %s\n---\n%s" % (fecha, texto)
+    fin = next((i for i in range(1, len(lineas)) if lineas[i].strip() == "---"), -1)
+    if fin < 0:
+        return None
+    head = lineas[1:fin]
+
+    def clave(ln, k):
+        return re.match(r"^%s\s*:" % k, ln) is not None
+
+    def valor(ln):
+        return ln.split(":", 1)[1].strip()
+
+    try:
+        import agent_brand
+        es_arch = agent_brand.es_archivada
+    except Exception:
+        def es_arch(v):
+            return str(v or "").strip().lower() == "archivada"
+    ya = any(es_arch(valor(ln)) for ln in head if clave(ln, "estado"))
+    if archivar and ya:
+        return None                     # ya archivada: se queda su fecha
+    out, puso_est, puso_arc = [], False, False
+    for ln in head:
+        if clave(ln, "estado"):
+            if puso_est:
+                continue                # duplicada: la última ganaría al leer
+            puso_est = True
+            if archivar:
+                out.append("estado: archivada")
+                if not puso_arc:
+                    out.append("archivada: %s" % fecha)
+                    puso_arc = True
+            else:
+                out.append("estado: activa" if es_arch(valor(ln)) else ln)
+            continue
+        if clave(ln, "archivada"):
+            if archivar and not puso_arc:
+                out.append("archivada: %s" % fecha)
+                puso_arc = True
+            continue                    # desarchivar: se quita
+        out.append(ln)
+    if archivar:
+        if not puso_est:
+            out.append("estado: archivada")
+        if not puso_arc:
+            out.append("archivada: %s" % fecha)
+    if out == head:
+        return None
+    return "\n".join([lineas[0]] + out + lineas[fin:])
+
+
+def _marcar(path, archivar, fecha=None):
+    """Pone o quita el archivo en el frontmatter de `path` con el candado y la
+    escritura atómica de `workspace memoria` (las notas del agente y esto no
+    se pisan). True si ESTE llamado cambió el archivo, False si ya estaba
+    así. Lanza si no se pudo (no es UTF-8, permisos, candado ocupado)."""
+    if not path or not os.path.isfile(path):
+        return False
+    try:                                # sin candado ni escritura si ya está así
+        import agent_brand              # (abrir cada pestaña pasa por aquí)
+        fm = agent_brand.parse_frontmatter(path)
+        if agent_brand.es_archivada(fm.get("estado")) == bool(archivar) \
+                and (archivar or "archivada" not in fm):
+            return False
+    except Exception:
+        pass
+    return _reescribir(path, lambda texto: _front_archivo(texto, archivar, fecha or _today()))
+
+
+def _reescribir(path, editar):
+    """`editar(texto) → texto nuevo | None` sobre `path`, con el candado y la
+    escritura atómica de `workspace memoria` (las notas del agente y esto no
+    se pisan). True si cambió; lanza si no se pudo (no es UTF-8, permisos,
+    candado ocupado)."""
+    import memoria
+    with memoria._lock(path):
+        texto = memoria._leer(path)    # estricto: uno que no es UTF-8 no se reescribe
+        nuevo = editar(texto)
+        if nuevo is None:
+            return False
+        memoria._atomic(path, nuevo)   # frente C: helper común (os.replace con reintento)
+        return True
+
+
+def _front_clave(texto, clave, valor):
+    """El texto con `clave: valor` (nivel 0) en el frontmatter: reemplaza la
+    clave (y quita sus duplicadas) o la agrega al final; el resto queda byte
+    a byte. Sin frontmatter, se le pone uno con esa sola clave. None si ya
+    estaba así o si el frontmatter no se entiende."""
+    lineas = texto.split("\n")
+    linea = "%s: %s" % (clave, valor)
+    if not lineas or lineas[0].strip() != "---":
+        return "---\n%s\n---\n%s" % (linea, texto) if texto.strip() else None
+    fin = next((i for i in range(1, len(lineas)) if lineas[i].strip() == "---"), -1)
+    if fin < 0:
+        return None
+    head = lineas[1:fin]
+    out, puesta = [], False
+    for ln in head:
+        if re.match(r"^%s\s*:" % re.escape(clave), ln):
+            if not puesta:
+                out.append(linea)
+                puesta = True
+            continue
+        out.append(ln)
+    if not puesta:
+        out.append(linea)
+    if out == head:
+        return None
+    return "\n".join([lineas[0]] + out + lineas[fin:])
+
+
+def marcar_usada(brain, name, fecha=None):
+    """Deja `usada: <hoy>` en el frontmatter de la pestaña `name`: el último
+    uso que VIAJA (el `last_opened` es de cada máquina). Como mucho una
+    escritura al día: si ya dice hoy, no se toca ni se toma el candado. Lo
+    llama ensure_tab al abrir. True si escribió. Falla-suave."""
+    fecha = fecha or _today()
+    escribio = False
+    for p in _rutas_tab(brain, name):
+        try:
+            import agent_brand
+            if agent_brand.parse_frontmatter(p).get("usada", "").strip() == fecha:
+                continue
+            if _reescribir(p, lambda texto: _front_clave(texto, "usada", fecha)):
+                escribio = True
+        except Exception:
+            continue
+    return escribio
+
+
+def _nombre_visible(brain, name):
+    """El nombre con el que el menú muestra la pestaña (su `titulo:`)."""
+    sl = _slug(name)
+    for bt in _pestanas(brain, True):
+        if bt.get("slug") == sl or _slug(bt.get("name") or "") == sl:
+            return bt.get("name") or _clean_name(name)
+    return _clean_name(name)
+
+
+def _nuevo_lote():
+    import uuid
+    return "%s-%s" % (datetime.datetime.now().strftime("%Y%m%dT%H%M%S"), uuid.uuid4().hex[:6])
+
+
+def _lote(lid, tipo, agregar=None, quitar=None):
+    """Anota en el lote `lid` (lo crea si falta) la pestaña `agregar`, o le
+    quita `quitar` (y el lote, si queda vacío). Quien archiva agrega cada
+    pestaña ANTES de marcarla: si el proceso se corta a media pasada, lo ya
+    marcado se puede deshacer (deshacer una que no llegó a archivarse no hace
+    nada). Bajo el candado del store. Falla-suave."""
+    def fn():
+        data = _local_load()
+        lotes = [x for x in (data.get("lotes") or []) if isinstance(x, dict)]
+        lt = next((x for x in lotes if x.get("id") == lid), None)
+        if lt is None:
+            if not agregar:
+                return
+            lt = {"id": lid, "tipo": tipo, "cuando": _now(), "pestanas": []}
+            lotes.append(lt)
+        pest = [x for x in lt.get("pestanas") or [] if isinstance(x, dict)]
+        if agregar:
+            pest.append(agregar)
+        if quitar:
+            pest = [x for x in pest if (x.get("brain"), x.get("slug"))
+                    != (quitar.get("brain"), quitar.get("slug"))]
+        lt["pestanas"] = pest
+        if not pest:
+            lotes.remove(lt)
+        data["lotes"] = lotes[-LOTES_MAX:]
+        _local_save(data)
+    try:
+        _con_store(fn)
+    except Exception:
+        pass
+
+
+def _poner(brain, name, archivar, fecha=None, rutas=None):
+    """(ok, [rutas que cambiaron]). ok = la pestaña existe y quedó en el
+    estado pedido."""
+    rutas = rutas if rutas is not None else _rutas_tab(brain, name)
+    if not rutas:
+        return False, []
+    cambio = []
+    for p in rutas:
+        try:
+            if _marcar(p, archivar, fecha):
+                cambio.append(p)
+        except Exception:
+            return False, cambio
+    return True, cambio
+
+
+def archivar(brain, agent, name, fecha=None):
+    """Archiva la pestaña `name`: `estado: archivada` + `archivada: <fecha>`
+    en su `.md`. El archivo no se mueve ni se borra; como viaja con el
+    cerebro, sale del menú en TODAS las máquinas. Su memoria sigue ahí
+    (`workspace memoria` la lee). Queda un lote para deshacer (`u` en el
+    menú, `workspace sesiones desarchivar --ultimas`). True si quedó
+    archivada (ahora o ya lo estaba); False si no existe o no se pudo."""
+    try:
+        rutas = _rutas_tab(brain, name)
+        if not rutas:
+            return False
+        if esta_archivada(brain, name):
+            return True
+        visible = _nombre_visible(brain, name)
+        lid = _nuevo_lote()
+        item = {"brain": _brain_key(brain), "agente": str(agent or ""),
+                "slug": _slug(visible) or _slug(name), "name": visible, "archivos": rutas}
+        _lote(lid, "manual", agregar=item)          # antes de marcar (ver _lote)
+        ok, cambio = _poner(brain, name, True, fecha, rutas=rutas)
+        if not cambio:
+            _lote(lid, "manual", quitar=item)
+        return ok
+    except Exception:
+        return False
+
+
+def desarchivar(brain, agent, name):
+    """La pestaña `name` vuelve al menú (`estado: activa`, sin `archivada:`).
+    Si no tiene `.md` pero es una huérfana del workspaces.json local (lo que
+    la sesiones v2 dejó de sembrar), se le siembra su `.md`: así se deshace
+    también eso. True si quedó en la lista; False si no existe o no se pudo."""
+    try:
+        rutas = _rutas_tab(brain, name)
+        if not rutas:
+            return _recuperar_huerfana(brain, agent, name)
+        ok, _cambio = _poner(brain, name, False, rutas=rutas)
+        return ok
+    except Exception:
+        return False
+
+
+def _recuperar_huerfana(brain, agent, name):
+    sl = _slug(name)
+    rec = huerfanas(brain).get(sl) if sl else None
+    if not isinstance(rec, dict):
+        return False
+    if not _seed_md(brain, rec.get("name") or name, claude_wid=rec.get("id") or ""):
+        return False
+    try:
+        from olock import file_lock
+        with file_lock(local_store_path(), timeout=5):
+            data = _local_load()
+            mine = (data.get("huerfanas") or {}).get(_brain_key(brain)) or {}
+            mine.pop(sl, None)
+            if rec.get("id"):
+                slot = _local_slot(data, brain, sl, create=True)
+                slot.setdefault("claude-code", rec["id"])
+            _local_save(data)
+    except Exception:
+        pass
+    return True
+
+
+def esta_archivada(brain, name):
+    """¿La pestaña `name` está archivada? (False si no existe). Ojo: no es
+    agent_brand.es_archivada, que mira un valor de `estado:`."""
+    rutas = _rutas_tab(brain, name)
+    if not rutas:
+        return False
+    try:
+        import agent_brand
+        return all(agent_brand.es_archivada(agent_brand.parse_frontmatter(p).get("estado"))
+                   for p in rutas)
+    except Exception:
+        return False
+
+
+def _deshacer_item(p):
+    """Desarchiva una pestaña de un lote. True si ESTE llamado la recuperó."""
+    rutas = [a for a in (p.get("archivos") or []) if isinstance(a, str) and os.path.isfile(a)]
+    if not rutas and p.get("brain") and p.get("name"):
+        rutas = _rutas_tab(p["brain"], p["name"])
+    _ok, cambio = _poner(p.get("brain") or "", p.get("name") or "", False, rutas=rutas)
+    return bool(cambio)
+
+
+def desarchivar_ultimas(brain=None, agent=None):
+    """Deshace el último lote de archivo (el `u` del menú, `workspace sesiones
+    desarchivar --ultimas`): con `brain`, el último que tocó ese cerebro; sin
+    él, el más reciente de esta máquina. Lo deshecho sale del lote, así que
+    otro `u` deshace el anterior. Si en el último lote ya no queda nada que
+    recuperar (se abrieron o se recuperaron a mano), es «nada que deshacer»:
+    no se salta a un lote viejo que nadie esperaba. → [nombres recuperados]
+    ([] = nada que deshacer)."""
+    recuperadas = []
+    bk = _brain_key(brain) if brain else None
+
+    def fn():
+        data = _local_load()
+        lotes = [lt for lt in (data.get("lotes") or []) if isinstance(lt, dict)]
+        i = next((k for k in range(len(lotes) - 1, -1, -1)
+                  if any(bk is None or p.get("brain") == bk
+                         for p in lotes[k].get("pestanas") or [] if isinstance(p, dict))),
+                 None)
+        if i is None:
+            return
+        lt = lotes[i]
+        todas = [p for p in lt.get("pestanas") or [] if isinstance(p, dict)]
+        mias = [p for p in todas if bk is None or p.get("brain") == bk]
+        for p in mias:
+            if _deshacer_item(p):
+                recuperadas.append(p.get("name") or p.get("slug") or "?")
+        if not recuperadas:
+            return                      # el lote se queda: nada que deshacer
+        resto = [p for p in todas if p not in mias]
+        if resto:
+            lt["pestanas"] = resto
+        else:
+            lotes.pop(i)
+        data["lotes"] = lotes
+        _local_save(data)
+    try:
+        _con_store(fn)
+    except Exception:
+        pass
+    return recuperadas
+
+
+def dias_archivar():
+    """Días sin uso tras los que una pestaña se archiva sola: el ajuste
+    `sesiones.archivar_dias` (0 = apagado). Falla-suave → 15."""
+    try:
+        import settings
+        return max(0, int(settings.get("sesiones.archivar_dias")))
+    except Exception:
+        return ARCHIVAR_DIAS_DEFAULT
+
+
+def _fin_del_dia(fecha):
+    """Epoch de una fecha del frontmatter o del store: una fecha sola
+    (YYYY-MM-DD) cuenta hasta el final de ese día; una con hora, tal cual.
+    Vacía o ilegible → 0."""
+    try:
+        import agent_brand
+        ep = agent_brand._epoch(fecha)
+    except Exception:
+        return 0.0
+    s = str(fecha or "").strip()
+    return ep + 86399 if ep and len(s) == 10 else ep
+
+
+def ultimo_uso(tab, slot=None):
+    """Epoch del último uso de una pestaña (fila del núcleo): el MÁXIMO entre
+    el last_opened de esta máquina, el `usada:` del `.md` (lo escribe cada
+    máquina al abrirla: el uso que viaja), su `actualizada:` y la fecha de
+    modificación del `.md` (lo que escribió otra máquina llega por ahí)."""
+    try:
+        import agent_brand
+        ep = agent_brand._epoch
+    except Exception:
+        def ep(_s):
+            return 0.0
+    usos = [ep((slot or {}).get("last_opened", "")), ep(tab.get("actualizada", "")),
+            _fin_del_dia(tab.get("usada", ""))]
+    try:
+        usos.append(os.path.getmtime(tab.get("archivo") or ""))
+    except OSError:
+        pass
+    return max(usos)
+
+
+def _marca_proceso():
+    """Huella de ESTE proceso (pid + hora de inicio), la misma que usa
+    pending_runs: un pid reciclado no pasa por vivo."""
+    import time
+    try:
+        import openclaw_gateway as G
+        return G._mark()
+    except Exception:
+        return {"pid": os.getpid(), "ctime": None, "t0": time.time()}
+
+
+def _proceso_vivo(marca):
+    """¿Vive el proceso de la huella? Mac/Linux y Windows (OpenProcess) vía
+    openclaw_gateway._alive, como pending_runs. Sin él: os.kill(pid, 0) fuera
+    de Windows; en Windows, vivo por 12 h (jamás os.kill ahí: lo terminaría)."""
+    try:
+        import openclaw_gateway as G
+        return bool(G._alive(marca))
+    except Exception:
+        pass
+    import time
+    try:
+        pid = int((marca or {}).get("pid") or 0)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        return time.time() - float((marca or {}).get("t0") or 0) < 12 * 3600
+    try:
+        os.kill(pid, 0)
+        return True
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+
+
+def _anotar_abierta(data, brain, sl):
+    """En el store (`abiertas`): la pestaña `sl` está abierta en ESTE proceso.
+    Una entrada por pid (otra pestaña en el mismo proceso la reemplaza)."""
+    ab = data.get("abiertas") if isinstance(data.get("abiertas"), dict) else {}
+    data["abiertas"] = ab
+    mias = ab.get(_brain_key(brain)) if isinstance(ab.get(_brain_key(brain)), dict) else {}
+    ab[_brain_key(brain)] = mias
+    marca = _marca_proceso()
+    mias[str(marca.get("pid"))] = {"slug": sl, "proc": marca, "desde": _now()}
+
+
+def abiertas_en_ventanas(brain):
+    """Slugs de las pestañas de `brain` abiertas en una ventana viva de esta
+    máquina (ensure_tab anota cada una con su pid al lanzarla; Claude Code
+    hace exec y no pasa por pending_runs). Las de procesos muertos se limpian
+    solas. Falla-suave → set()."""
+    bk = _brain_key(brain)
+    try:
+        mias = (_local_load().get("abiertas") or {}).get(bk)
+        if not isinstance(mias, dict) or not mias:
+            return set()
+        vivas, muertas = set(), {}
+        for pid, e in mias.items():
+            if isinstance(e, dict) and _proceso_vivo(e.get("proc")):
+                vivas.add(str(e.get("slug") or ""))
+            else:
+                muertas[pid] = e
+        if muertas:
+            def limpiar():
+                data = _local_load()
+                ab = data.get("abiertas") if isinstance(data.get("abiertas"), dict) else {}
+                actual = ab.get(bk) if isinstance(ab.get(bk), dict) else {}
+                for pid, e in muertas.items():
+                    if actual.get(pid) == e:        # nadie la reanotó mientras
+                        actual.pop(pid)
+                if not actual:
+                    ab.pop(bk, None)
+                if not ab:
+                    data.pop("abiertas", None)
+                _local_save(data)
+            _con_store(limpiar)
+        vivas.discard("")
+        return vivas
+    except Exception:
+        return set()
+
+
+def _abiertas_ahora(brain):
+    """Slugs de las pestañas abiertas en este momento: la de esta ventana
+    (WORKSPACE_WS), las de las ventanas vivas de esta máquina (con su pid) y
+    las de las corridas vivas del cerebro (pending_runs)."""
+    out = {_slug(os.environ.get(k) or "") for k in ("WORKSPACE_WS", "ZENITH_WS")}
+    out |= abiertas_en_ventanas(brain)
+    try:
+        import pending_runs
+        for rec in pending_runs.pending(brain):
+            if rec.get("tab") and pending_runs.proc_alive(rec):
+                out.add(_slug(rec["tab"]))
+    except Exception:
+        pass
+    out.discard("")
+    return out
+
+
+#: Días que esta máquina pudo estar fuera sin que su copia del cerebro se
+#: considere vieja para archivar solo (hallazgo de la revisión: una PC que
+#: vuelve tras semanas archivaba lo que otra usó ayer).
+FUERA_MAX_DIAS = 2
+
+
+def _copia_confiable(brain, ahora):
+    """¿La copia del cerebro en esta máquina sirve para decidir qué lleva N
+    días sin uso? Lo dice la constancia de máquinas (frente C):
+      · `maquinas.visto_previo(brain)`: la vez ANTERIOR que esta máquina dejó
+        su constancia en ese cerebro (la de esta apertura ya se escribió).
+        Sin ella o de hace más de FUERA_MAX_DIAS días, esta máquina estuvo
+        fuera y su copia puede estar vieja → no;
+      · `maquinas.copia_al_dia(brain)`: False si otra máquina trae actividad
+        más nueva que lo que esta tiene en disco (aún no le llega) → no.
+        None = no hay otra máquina con constancia (un solo equipo): no hay
+        contra qué estar desfasada → sí (si no, un cliente con una sola
+        máquina nunca archivaría).
+    Cualquier otra duda (sin maquinas, sin esas funciones, error) → no."""
+    try:
+        import maquinas
+        previo = getattr(maquinas, "visto_previo", None)
+        al_dia = getattr(maquinas, "copia_al_dia", None)
+        if not callable(previo) or not callable(al_dia):
+            return False
+        visto = previo(brain)
+        if visto is None or float(visto) < ahora - FUERA_MAX_DIAS * 86400:
+            return False
+        return al_dia(brain) is not False
+    except Exception:
+        return False
+
+
+def auto_archivar(brain, agent, dias=None, ahora=None, abiertas=()):
+    """Archiva solas las pestañas sin uso en más de `dias` días (default: el
+    ajuste `sesiones.archivar_dias`; 0 = apagado). Último uso = ultimo_uso().
+    Corre solo en dispatch, sobre el cerebro que se abre.
+      · No archiva nada si la copia del cerebro en esta máquina puede estar
+        vieja (_copia_confiable: esta máquina estuvo fuera, u otra trae
+        actividad que aún no llega).
+      · Nunca archiva una pestaña abierta en este momento (`abiertas` + las
+        que detecta _abiertas_ahora).
+      · Con `archivar_desde` en el store local (la gracia que pone la
+        migración al actualizar), el último uso nunca es anterior a esa fecha.
+      · Cada pestaña entra al lote ANTES de marcarse (_lote): un corte a media
+        pasada se puede deshacer.
+    Barato (lee los frontmatter, sin red) y falla-suave. `ahora` (epoch) es
+    para pruebas con reloj simulado. → [nombres archivados]."""
+    try:
+        dias = dias_archivar() if dias is None else int(dias)
+        if dias <= 0 or not brain or not os.path.isdir(brain):
+            return []
+        import time
+        ahora = time.time() if ahora is None else float(ahora)
+        if not _copia_confiable(brain, ahora):
+            return []
+        limite = ahora - dias * 86400
+        proteger = {_slug(x) for x in (abiertas or ())} | _abiertas_ahora(brain)
+        data = _local_load()
+        slots = data["map"].get(_brain_key(brain)) or {}
+        # gracia tras actualizar (migración archivar_desde): nada cuenta como
+        # sin uso antes de esa fecha — mientras, cada pestaña que se abre en
+        # cualquier máquina gana su `usada:`
+        desde = _fin_del_dia(data.get("archivar_desde", ""))
+        fecha = datetime.date.fromtimestamp(ahora).isoformat()
+        lid, nombres = None, []
+        for t in _pestanas(brain, False):
+            if t["slug"] in proteger:
+                continue
+            slot = slots.get(t["slug"]) if isinstance(slots.get(t["slug"]), dict) else {}
+            uso = max(ultimo_uso(t, slot), desde)
+            if not uso or uso >= limite:
+                continue
+            rutas = _rutas_tab(brain, t["name"])
+            if t.get("archivo") and t["archivo"] not in rutas:
+                rutas.append(t["archivo"])
+            item = {"brain": _brain_key(brain), "agente": str(agent or ""),
+                    "slug": t["slug"], "name": t["name"], "archivos": rutas}
+            lid = lid or _nuevo_lote()
+            _lote(lid, "auto", agregar=item)        # antes de marcar
+            ok, cambio = _poner(brain, t["name"], True, fecha, rutas=rutas)
+            if ok and cambio:
+                nombres.append(t["name"])
+            else:
+                _lote(lid, "auto", quitar=item)
+        return nombres
+    except Exception:
+        return []
+
+
+def aviso_auto(n, dias=None, menu=False):
+    """La línea que avisa lo que se archivó solo, con su deshacer. `menu`:
+    la del menú de pestañas, donde se deshace con la tecla `u` (el comando
+    no cabía en la caja y se cortaba justo antes del deshacer)."""
+    dias = dias_archivar() if dias is None else dias
+    if menu:
+        if n == 1:
+            return _t("sesiones.auto.uno_menu",
+                      "archivé 1 pestaña sin usar en {dias} días · u para deshacer", dias=dias)
+        return _t("sesiones.auto.varias_menu",
+                  "archivé {n} pestañas sin usar en {dias} días · u para deshacer",
+                  n=n, dias=dias)
+    if n == 1:
+        return _t("sesiones.auto.uno", "archivé 1 pestaña sin usar en {dias} días · deshacer: "
+                  "`workspace sesiones desarchivar --ultimas`", dias=dias)
+    return _t("sesiones.auto.varias", "archivé {n} pestañas sin usar en {dias} días · deshacer: "
+              "`workspace sesiones desarchivar --ultimas`", n=n, dias=dias)
+
+
+def aviso_pendiente(brain, menu=False):
+    """La línea del último archivo automático de este cerebro, si en este
+    cerebro nadie la ha visto todavía, UNA sola vez y sin importar cuánto
+    tiempo pasó: el menú de pestañas la muestra al entrar, porque la
+    pantalla del motor borra lo que dispatch imprime antes. '' si no hay o
+    ya se vio. `menu`: el texto del menú (aviso_auto). Falla-suave."""
+    bk = _brain_key(brain)
+
+    def fn():
+        data = _local_load()
+        for lt in reversed([x for x in (data.get("lotes") or []) if isinstance(x, dict)]):
+            mias = [p for p in lt.get("pestanas") or []
+                    if isinstance(p, dict) and p.get("brain") == bk]
+            if lt.get("tipo") != "auto" or not mias:
+                continue
+            vistos = lt.get("anunciado")
+            if vistos is True or (isinstance(vistos, list) and bk in vistos):
+                return ""
+            lt["anunciado"] = (vistos if isinstance(vistos, list) else []) + [bk]
+            _local_save(data)
+            return aviso_auto(len(mias), menu=menu)
+        return ""
+    try:
+        return _con_store(fn) or ""
+    except Exception:
+        return ""
+
+
+def al_abrir(brain, agent, abiertas=()):
+    """Al abrir un agente (dispatch, DESPUÉS de la constancia de máquinas):
+    archiva solo lo que lleva más de N días sin uso en ESE cerebro. Es el
+    único lugar donde corre el archivo automático (el hub ya no: su hilo
+    moría a media escritura al elegir un agente). → la línea de aviso, o ''
+    si no archivó nada."""
+    try:
+        n = len(auto_archivar(brain, agent, abiertas=abiertas))
+        return aviso_auto(n) if n else ""
     except Exception:
         return ""
 

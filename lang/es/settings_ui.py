@@ -30,6 +30,11 @@ STRINGS = {
     'settings_ui.label.otros.auto_update': 'Actualizaciones automáticas',
     'settings_ui.label.otros.update_channel': 'Canal de actualización',
     'settings_ui.label.otros.notify_on_done': 'Notificar al terminar',
+    'settings_ui.label.sesiones.archivar_dias': 'Archivar pestañas sin usar (días)',
+    'settings_ui.label.sesiones.llevar_conversacion': 'Llevar la conversación a tus otras máquinas',
+    'settings_ui.label.sesiones.conversacion_max_mb': 'Tope de la conversación que viaja (MB)',
+    'settings_ui.help.sesiones.llevar_conversacion':
+        'Cada cerebro decide si su conversación de Claude Code viaja con él, para todas las máquinas y personas que lo usan: `workspace sesiones conversacion on|off --agente X`. Este ajuste es el de esta máquina para los cerebros que no han decidido. claude-code = al cerrar una pestaña, su conversación se guarda comprimida en el cerebro (motores/claude-code/conversaciones/<socio>/) y en tu otra máquina se retoma con --resume; al abrir solo se trae la tuya. En un cerebro compartido, todos los que lo usan pueden ver esas conversaciones: para privacidad, usa un cerebro aparte. No sube si pesa más que el tope o si trae algo que parece una llave, y nunca va al espejo de git. Con Obsidian Sync, prende «Sync all other types» en cada dispositivo. off (de fábrica) = se queda en cada máquina; la pestaña viaja igual con su memoria.',
 
     'settings_ui.choice.ui.background.tema': 'tema',
     'settings_ui.choice.ui.background.negro': 'negro',

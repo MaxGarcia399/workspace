@@ -19,8 +19,11 @@ Diseño:
 - Cross-platform: stdlib puro (shutil.copy2, os.makedirs), sin POSIX-isms.
 - Amputable (C10): borrar este archivo = la feature se apaga (el doctor fase 5
   lo re-esperaría; quitarlo de install.build_hooks lo apaga de verdad).
-- NO toca el cerebro: el backup vive en ~/.claude/workspace/ (per-máquina,
-  fuera del vault sincronizado y fuera de cualquier git de cerebro).
+- El backup NO toca el cerebro: vive en ~/.claude/workspace/ (per-máquina,
+  fuera del vault sincronizado y fuera de cualquier git de cerebro). Aparte,
+  y solo con `sesiones.llevar_conversacion` prendido (apagado de fábrica),
+  `llevar_conversacion` deja la copia comprimida en el cerebro para retomarla
+  en otra máquina (nivel 2; ver conversaciones.py).
 - Desactivable: WORKSPACE_NO_TRANSCRIPT_BACKUP=1 (el env SIEMPRE gana) o
   `settings set hooks.transcript_backup off` (canal nuevo, settings.py).
 
@@ -129,24 +132,45 @@ def _setting_on(key):
         return True
 
 
-def main():
+def llevar_conversacion(transcript, brain, data=None):
+    """Nivel 2 de sesiones (ajuste `sesiones.llevar_conversacion`, APAGADO de
+    fábrica): la copia comprimida de la conversación en el cerebro para
+    retomarla en otra máquina. Todo lo decide conversaciones.py (raíz de
+    WORKSPACE): pestaña, tope, secretos, «solo si cambió». Lo usan este hook
+    (SessionEnd) y memory_flush.py (PreCompact). Falla-suave: devuelve el
+    estado ('' si no se pudo ni intentar)."""
+    try:
+        import conversaciones
+        res = conversaciones.guardar(brain, transcript, payload=data or {})
+    except Exception:
+        return ""
+    if res.get("aviso"):
+        print("WORKSPACE: " + res["aviso"], file=sys.stderr)
+    return res.get("estado", "")
+
+
+def _respaldo_on():
     if os.environ.get("WORKSPACE_NO_TRANSCRIPT_BACKUP"):
-        return                                   # env: el kill-switch gana
-    if not _setting_on("hooks.transcript_backup"):
-        return                                   # canal nuevo (settings.py)
+        return False                             # env: el kill-switch gana
+    return _setting_on("hooks.transcript_backup")  # canal nuevo (settings.py)
+
+
+def main():
     data = _stdin()
     brain = data.get("cwd", "") or os.getcwd()
     tpath = data.get("transcript_path", "")
-    if tpath and data.get("transcript_backup") == tpath:
-        return      # Antigravity: el wrapper ya lo respaldó y anotó (session_continuity)
-    backup = backup_transcript(tpath, brain)
-    if backup:
-        try:
-            import session_continuity
-            session_continuity.captured(brain, data, backup)
-        except Exception as exc:
-            print("WORKSPACE: respaldo guardado; estado de memoria pendiente (%s)" % exc,
-                  file=sys.stderr)
+    # Antigravity: el wrapper ya lo respaldó y anotó (session_continuity)
+    if _respaldo_on() and not (tpath and data.get("transcript_backup") == tpath):
+        backup = backup_transcript(tpath, brain)
+        if backup:
+            try:
+                import session_continuity
+                session_continuity.captured(brain, data, backup)
+            except Exception as exc:
+                print("WORKSPACE: respaldo guardado; estado de memoria pendiente (%s)" % exc,
+                      file=sys.stderr)
+    # Nivel 2: su propio ajuste (apagado de fábrica), aparte del respaldo local.
+    llevar_conversacion(tpath, brain, data)
 
 
 if __name__ == "__main__":

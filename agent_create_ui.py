@@ -529,7 +529,8 @@ def _route_explanations():
          'agente nunca edita la ficha a mano.\n'
          '\n'
          'Al cerrar, en cualquier motor, Workspace arma sin IA la maleta: lo último que pediste, la última '
-         'respuesta y los archivos que tocó, para que el siguiente motor siga donde quedó. Si cerraste con la '
+         'respuesta y, en Claude Code y Codex, los archivos que tocó, para que el siguiente motor siga donde '
+         'quedó. Si cerraste con la '
          'X, el cierre se completa al siguiente arranque. Escribir y ordenar archivos no usa tokens de modelo; '
          'las notas del agente ocupan un poco de su respuesta.'),
  'retrieve': _t('addagent.route.retrieve.impact', 'Para recuperar contexto se empieza por el índice de STATE y se abre el archivo señalado. Si '

@@ -87,9 +87,24 @@ def _pending_path(brain):
 
 
 def _socio(brain):
-    """Socio activo del cerebro (lo escribe el instalador en .claude/socio.local)."""
+    """Socio activo del cerebro: la MISMA resolución que las pestañas
+    (sessions_registry.socio → identidad de la máquina, sesiones v2). Si no
+    se resuelve, el socio.local de antes; si tampoco, «equipo»."""
     try:
-        s = open(os.path.join(brain, ".claude", "socio.local"), encoding="utf-8").read()
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) \
+            if os.path.basename(os.path.dirname(os.path.abspath(__file__))) == "hooks" \
+            else os.path.dirname(os.path.abspath(__file__))
+        if root not in sys.path:
+            sys.path.insert(0, root)
+        import sessions_registry
+        s = re.sub(r"[^a-z0-9_-]", "", (sessions_registry.socio(brain) or "").lower())
+        if s:
+            return s
+    except Exception:
+        pass
+    try:
+        s = open(os.path.join(brain, ".claude", "socio.local"),
+                 encoding="utf-8").read()
         s = re.sub(r"[^a-z0-9_-]", "", s.strip().lower())
         return s or "equipo"
     except Exception:

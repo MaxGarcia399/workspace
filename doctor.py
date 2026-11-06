@@ -131,10 +131,13 @@ def f(status, label, detail="", action=""):
 
 
 def _run(cmd, timeout=25, cwd=None):
-    """(returncode, stdout, stderr). returncode -1 = no se pudo correr (timeout, falta binario…)."""
+    """(returncode, stdout, stderr). returncode -1 = no se pudo correr (timeout, falta binario…).
+    Corre también el `--version` de los motores: en Windows, al vencer, muere el
+    árbol entero (un `.cmd` de npm no deja a node vivo ni cuelga al doctor)."""
+    import arbol_procesos
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=timeout, cwd=cwd)
+        r = arbol_procesos.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                               errors="replace", timeout=timeout, cwd=cwd)
         return r.returncode, (r.stdout or "").strip(), (r.stderr or "").strip()
     except Exception as e:
         return -1, "", str(e)
@@ -279,7 +282,7 @@ def phase_prereqs(ctx, fix):
         if mod is None:
             out.append(f(FAIL, _t("doctor.phase_prereqs.7", "motor '{eng}' no disponible", eng=eng),
                          _t("doctor.used_by", "lo usan: {who}", who=', '.join(who)),
-                         _t("doctor.phase_prereqs.8", "engines/{v}.py falta o no carga — actualiza el harness (`workspace update`) o corrige el agente a un motor instalado", v=eng.replace('-', '_'))))
+                         _t("doctor.phase_prereqs.8", "engines/{v}.py falta o no carga — actualiza Workspace (`workspace update`) o corrige el agente a un motor instalado", v=eng.replace('-', '_'))))
             continue
         binary = getattr(mod, "BINARY", None) or ENGINE_BINARIES.get(eng)
         if not binary:      # motor sin BINARY: su META declara qué necesita
@@ -290,7 +293,23 @@ def phase_prereqs(ctx, fix):
                          _t("doctor.phase_prereqs.10", "sin CLI externo que validar · lo usan: {v}", v=', '.join(who))))
             continue
         exe = shutil.which(binary)
-        if exe:
+        blk = None
+        if exe and callable(getattr(mod, "gatekeeper_block", None)):
+            try:
+                blk = mod.gatekeeper_block(exe)
+            except Exception:
+                blk = None
+            blk = blk if isinstance(blk, dict) else None
+        if blk:
+            # macOS retiene el programa (cuarentena de un cask de Homebrew):
+            # `--version` abriría su diálogo. No se ejecuta; se dice qué hacer.
+            out.append(f(FAIL, _t("doctor.engine_gatekeeper",
+                                  "{binary} CLI (motor {eng}): macOS lo bloquea",
+                                  binary=binary, eng=eng),
+                         blk.get("why") or "",
+                         _t("doctor.engine_gatekeeper.hint",
+                            "Motores › {eng} › reinstalar (receta oficial)", eng=eng)))
+        elif exe:
             # `exe` (la ruta de which), no el nombre: en Windows los CLIs de npm
             # son `.cmd` y subprocess no los encuentra por nombre → la versión
             # salía vacía y la deriva no se podía revisar.
@@ -356,9 +375,9 @@ def phase_redirected_paths(ctx, fix):
     out = []
     root_lbl = pathguard.redirected_root(ROOT)
     if root_lbl:
-        out.append(f(FAIL, _t("doctor.phase_redirected_paths.1", "WORKSPACE vive en una ruta redirigida a la nube"),
+        out.append(f(FAIL, _t("doctor.phase_redirected_paths.1", "Workspace vive en una ruta redirigida a la nube"),
                      f"{ROOT}  (bajo {root_lbl})",
-                     _t("doctor.phase_redirected_paths.2", "muévelo FUERA de OneDrive — a %LOCALAPPDATA%\\Workspace o C:\\Workspace — y reinstala (python install.py). OneDrive sincroniza y BLOQUEA los archivos del harness (locks, latencia, settings per-máquina) → fallos intermitentes difíciles de diagnosticar")))
+                     _t("doctor.phase_redirected_paths.2", "muévelo FUERA de OneDrive — a %LOCALAPPDATA%\\Workspace o C:\\Workspace — y reinstala (python install.py). OneDrive sincroniza y BLOQUEA los archivos de Workspace (locks, latencia, settings per-máquina) → fallos intermitentes difíciles de diagnosticar")))
     else:
         out.append(f(OK, _t("doctor.phase_redirected_paths.3", "WORKSPACE fuera de rutas redirigidas (OneDrive/known-folders)"), ROOT))
     for name, brain in _resolved_brains(ctx):
@@ -764,6 +783,41 @@ def phase_brains(ctx, fix):
 
 
 # ══════════════════════════════════════════════════════════════════════════
+#  FASE 4a · Sesiones entre máquinas: ¿el cerebro está llegando? (sesiones v2 · C)
+# ══════════════════════════════════════════════════════════════════════════
+def phase_maquinas(ctx, fix):
+    """La constancia que cada máquina deja en `STATE/maquinas/` (maquinas.py):
+    avisa si otra máquina no da noticias, si ven totales de pestañas distintos
+    por más de 1 h, si Obsidian está cerrado aquí (o sin la bóveda de este
+    cerebro) o si hay archivos en conflicto en las sesiones. Solo lee: la
+    constancia la escribe abrir un agente o el hub."""
+    out = []
+    try:
+        import maquinas
+    except Exception as e:
+        return [f(OK, _t("doctor.phase_maquinas.na", "sincronización entre máquinas no evaluable"),
+                  "%s: %s" % (type(e).__name__, e))]
+    for name, brain in _resolved_brains(ctx):
+        try:
+            avs = maquinas.avisos_detalle(brain)
+        except Exception as e:
+            out.append(f(WARN, _t("doctor.phase_maquinas.error",
+                                  "[{name}] no pude revisar la sincronización", name=name),
+                         "%s: %s" % (type(e).__name__, e)))
+            continue
+        for a in avs:
+            out.append(f(WARN, "[%s] %s" % (name, a["texto"]), "", a.get("accion", "")))
+        if not avs:
+            linea = maquinas.resumen_linea(brain) or _t(
+                "doctor.phase_maquinas.sola", "por ahora solo esta máquina abre este cerebro")
+            out.append(f(OK, _t("doctor.phase_maquinas.ok", "[{name}] sincronización entre máquinas",
+                                name=name), linea))
+    if not out:
+        out.append(f(OK, _t("doctor.phase_maquinas.sin", "sin cerebros que revisar"), ""))
+    return out
+
+
+# ══════════════════════════════════════════════════════════════════════════
 #  FASE 5 · Hooks cableados por cerebro (escribe SOLO el bloque `hooks`)
 # ══════════════════════════════════════════════════════════════════════════
 def _wired_events(groups):
@@ -807,6 +861,8 @@ def _hooks_status(settings, setup, scripts=None):
         native = events.native_event(l["event"])
         if native in (None, events.INTERNAL):
             continue           # el motor no expone el evento: nada que exigir
+        if l["event"] in events.POR_ARRANQUE.get("claude-code", ()):
+            continue           # va en el --settings de cada arranque, no en el cerebro
         if l["event"] in _wired_events(hooks_block.get(native)):
             continue
         label = "%s (%s)" % (l["script"][:-3], native)
@@ -884,9 +940,11 @@ def _stale_runner_paths(settings):
 
 
 def _runner_shape(block):
-    """{evento nativo: [(matcher, token, timeout)]} de los comandos del runner
-    de un bloque `hooks`. Es lo que el contrato (install.build_hooks) decide:
-    qué evento, con qué matcher y con qué cota. Deja fuera el intérprete y la
+    """{evento nativo: [(matcher, token, timeout, forma PowerShell)]} de los
+    comandos del runner de un bloque `hooks`. Es lo que el contrato
+    (install.build_hooks) decide: qué evento, con qué matcher, con qué cota y,
+    en Windows, si trae la clave `powershell` (sin ella Copilot niega toda
+    terminal: install.runner_cmd_powershell). Deja fuera el intérprete y la
     ruta del runner (los revisa _stale_runner_paths) y los hooks propios del
     usuario: correr el doctor con otro Python no es «drift»."""
     out = {}
@@ -898,7 +956,8 @@ def _runner_shape(block):
                 if "workspace_hook.py" not in cmd or not cmd.split():
                     continue
                 out.setdefault(native, []).append(
-                    (g.get("matcher"), cmd.rsplit(None, 1)[-1], h.get("timeout")))
+                    (g.get("matcher"), cmd.rsplit(None, 1)[-1], h.get("timeout"),
+                     bool(h.get("powershell"))))
     return {k: sorted(v, key=repr) for k, v in out.items()}
 
 
@@ -1449,14 +1508,14 @@ def phase_legacy_residue(ctx, fix):
                     shutil.rmtree(old_dir)
                     out.append(f(FIXED, _t("doctor.phase_legacy_residue.10", "[%s] %s sobrante eliminado (instalación anterior)")
                                  % (name, sub),
-                                 _t("doctor.phase_legacy_residue.11", "el harness lee solo .workspace/ (metadata muerta)")))
+                                 _t("doctor.phase_legacy_residue.11", "Workspace lee solo .workspace/ (metadata muerta)")))
                 except OSError as e:
                     out.append(f(WARN, _t("doctor.phase_legacy_residue.23", "[%s] no se pudo borrar %s") % (name, sub), str(e),
                                  _t("doctor.phase_legacy_residue.12", "bórralo a mano: rm -rf \"%s\"") % old_dir))
             elif has_ws:
                 out.append(f(WARN, _t("doctor.phase_legacy_residue.13", "[%s] %s sobrante en el cerebro (instalación anterior)")
                              % (name, sub),
-                             _t("doctor.phase_legacy_residue.14", "el harness lee solo .workspace/ (está muerto)"),
+                             _t("doctor.phase_legacy_residue.14", "Workspace lee solo .workspace/ (está muerto)"),
                              _t("doctor.phase_legacy_residue.15", "workspace doctor --fix lo borra (o: rm -rf \"%s\")") % old_dir))
             else:
                 out.append(f(WARN, _t("doctor.phase_legacy_residue.16", "[%s] %s sin .workspace/agent.json") % (name, sub),
@@ -1701,6 +1760,89 @@ def phase_brain_identity(ctx, fix):
     return out
 
 
+# ══════════════════════════════════════════════════════════════════════════
+#  FASE 4d · Quién eres en cada cerebro (sesiones v2: identidad por máquina)
+# ══════════════════════════════════════════════════════════════════════════
+def _motivo_identidad(motivo):
+    """El porqué de una unión que no se hizo, en el idioma activo."""
+    m = str(motivo or "")
+    if m.startswith("ajena:"):
+        return _t("doctor.phase_identidad.motivo.ajena",
+                  "tiene pestañas marcadas con la cédula de otra persona ({cedula})",
+                  cedula=m[6:])
+    if m in ("deshecha", "formato"):
+        return _t("doctor.phase_identidad.motivo." + m,
+                  {"deshecha": "deshiciste esa unión en esta máquina",
+                   "formato": "un perfil tiene un formato que Workspace no entiende"}[m])
+    return m
+
+
+def phase_identidad(ctx, fix):
+    """Quién eres lo sabe la MÁQUINA (identidad.py → identidad.json), no cada
+    cerebro. Avisa si la máquina no lo sabe, si un cerebro dice otra persona
+    en su socio.local sin un «soy yo en esta PC», si tienes dos usuarios
+    separados en un cerebro o si dos cerebros comparten id. Con --fix (el
+    modo normal) arma la identidad desde los socio.local y une tus usuarios
+    duplicados, igual que al abrir cada agente (respaldo y deshacer)."""
+    try:
+        import identidad
+        brains = [(a["name"], a.get("brain")) for a in ctx.get("agents") or []]
+        hall = identidad.diagnostico(brains, reparar=fix)
+    except Exception as e:
+        return [f(WARN, _t("doctor.phase_identidad.error", "no pude revisar quién eres en tus cerebros"),
+                  "%s: %s" % (type(e).__name__, e))]
+    est = {"ok": OK, "fixed": FIXED, "warn": WARN}
+    textos = {
+        "persona": ("en esta máquina eres «{nombre}»",
+                    "también: {alias} · cada cerebro te encuentra con tu usuario", ""),
+        "persona_creada": ("esta máquina ya sabe quién eres: «{nombre}»",
+                           "vale para todos tus cerebros · se cambia con «soy yo en esta PC» en "
+                           "la sección Usuarios", ""),
+        "sin_persona": ("cada agente sabe quién eres como antes",
+                        "esta máquina aún no tiene una identidad para todos tus cerebros: se "
+                        "guarda la primera vez que eliges «soy yo en esta PC» en Usuarios", ""),
+        "no_sabe": ("[{agente}] no sabe cuál de sus {n} usuarios eres en esta máquina",
+                    "no tomo la carpeta de otra persona como tuya",
+                    "elige «soy yo en esta PC» en la sección Usuarios (vale para todos tus "
+                    "cerebros)"),
+        "otra_persona": ("[{agente}] este cerebro dice que aquí eres «{socio}», pero en esta "
+                         "máquina eres «{nombre}»",
+                         "Workspace usa «{nombre}»",
+                         "si en este cerebro eres «{socio}», elige «soy yo en esta PC» en la "
+                         "sección Usuarios"),
+        "duplicadas": ("[{agente}] tienes dos usuarios separados: {nombres}",
+                       "se unen solos al abrir el agente (o con `workspace doctor`), con respaldo "
+                       "y deshacer", ""),
+        "unidas": ("[{agente}] «{origen}» y «{destino}» eran tú: quedaron unidos",
+                   "{n} pestaña(s) pasaron a «{destino}» y nada se borró · deshacer: {deshacer}", ""),
+        "bloqueada": ("[{agente}] no uní «{origen}» con «{destino}»", "{motivo}",
+                      "si son la misma persona, únelos en la sección Usuarios"),
+        "id_repetido": ("dos cerebros tienen el mismo id: {agentes}",
+                        "uno es copia del otro (STATE/cerebro.md)",
+                        "en la copia, borra STATE/cerebro.md: Workspace le da uno nuevo cuando "
+                        "haga falta"),
+        "override": ("[{agente}] aquí sigues siendo «{nombre}»",
+                     "lo que ya decía este cerebro en esta máquina · se cambia con «soy yo en esta "
+                     "PC» en la sección Usuarios", ""),
+        "error_cerebro": ("[{agente}] no pude revisar quién eres aquí", "{error}",
+                          "lo demás se revisó igual; vuelve a correr `workspace doctor`"),
+    }
+    out = []
+    for h in hall:
+        tipo, kw = h["tipo"], dict(h.get("kw") or {})
+        if "motivo" in kw:
+            kw["motivo"] = _motivo_identidad(kw["motivo"])
+        label, detail, action = textos.get(tipo, (tipo, "", ""))
+        key = "doctor.phase_identidad." + tipo
+        dkey = key + ".detail"
+        if tipo == "persona" and not kw.get("alias"):
+            dkey, detail = key + ".detail_solo", "cada cerebro te encuentra con tu usuario"
+        out.append(f(est.get(h["estado"], WARN), _t(key, label, **kw),
+                     _t(dkey, detail, **kw) if detail else "",
+                     _t(key + ".action", action, **kw) if action else ""))
+    return out
+
+
 PHASES = [
     ("1 · Prerrequisitos (git · python · CLI del motor)", phase_prereqs),
     ("1b · Rutas en la nube (OneDrive · solo detección)", phase_redirected_paths),
@@ -1708,8 +1850,10 @@ PHASES = [
     ("3 · Al día con origin", phase_updated),
     ("3b · Versión y ajustes de actualización", phase_update_state),
     ("4 · Cerebros de tus agentes · sesiones (resume)", phase_brains),
+    ("4a · Sesiones entre máquinas (sincronización)", phase_maquinas),
     ("4b · Formato del cerebro (archivos de motores en la raíz)", phase_brain_format),
     ("4c · Formato del cerebro: identidad en BRAIN.md", phase_brain_identity),
+    ("4d · Quién eres en cada cerebro (identidad de esta máquina)", phase_identidad),
     ("5 · Hooks de cada agente", phase_hooks),
     ("5c · MCPs (solo si los usas)", phase_mcps),
     ("5d · Restos de la instalación anterior", phase_legacy_residue),
@@ -1816,7 +1960,7 @@ def main(argv=None):
         check_only = True
     mode = _t("doctor.main.2", "diagnóstico (--check, no modifica nada)") if check_only else _t("doctor.main.3", "revisar y reparar")
     osname = "Windows" if IS_WIN else ("Mac" if sys.platform == "darwin" else "Linux")
-    print(f"\n  {BO}{C}WORKSPACE doctor{R}  {DIM}· {mode} · {osname} · {ROOT}{R}")
+    print(f"\n  {BO}{C}Workspace doctor{R}  {DIM}· {mode} · {osname} · {ROOT}{R}")
     if wt_downgraded:
         print(_t("doctor.main.4", "  {yel}⚠ Este WORKSPACE es un git WORKTREE — modo reparación desactivado (solo diagnóstico).{r}", yel=YEL, r=R))
         print(_t("doctor.main.5", "  {dim}Corre el doctor desde el checkout principal para reparar (override consciente: {force_env}=1).{r}", dim=DIM, force_env=install.FORCE_ENV, r=R))
@@ -1844,7 +1988,7 @@ def main(argv=None):
 
     # tabla de salud
     print(f"\n  {DIM}{'─' * 60}{R}")
-    print(_t("doctor.main.9", "  {bo}{wh}Salud del harness{r}", bo=BO, wh=WH, r=R))
+    print(_t("doctor.main.9", "  {bo}{wh}Salud de Workspace{r}", bo=BO, wh=WH, r=R))
     for title, st, _ in results:
         print(f"    {SYM[st]}  {title}")
     n = {s: sum(1 for _, st, _ in results if st == s) for s in (OK, FIXED, WARN, FAIL)}

@@ -7,8 +7,10 @@ You need three things:
 1. **Python 3.9 or newer.** On Windows the command is `python`; on Mac/Linux, `python3`.
 2. **Git.**
 3. **At least one engine** installed and logged in with your account: **Claude Code**
-   (`claude`), **Codex** (`codex`) or **Antigravity** (`agy`). If you don't have one yet, the
-   first run helps you install it.
+   (`claude`), **Codex** (`codex`), **Antigravity** (`agy`), **OpenCode** (`opencode`),
+   **OpenClaw** (`openclaw`), **Hermes** (`hermes`), **Kiro** (`kiro-cli`), **GitHub Copilot**
+   (`copilot`) or **Cursor** (`cursor-agent`). If you don't have one yet, the first run helps
+   you install it.
 
 No `pip install`, nothing else: Workspace has no dependencies.
 

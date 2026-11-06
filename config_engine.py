@@ -329,6 +329,15 @@ def origin_of(key):
     return "default"
 
 
+def _help(key, spec):
+    """La ayuda en el idioma de la UI (settings.help_text); sin traducción, la
+    del schema."""
+    try:
+        return settings.help_text(key) or spec.get("help", "")
+    except Exception:
+        return spec.get("help", "")
+
+
 def describe_settings():
     """El SETTINGS_SCHEMA renderizable: cada entrada con valor efectivo,
     origen y candado de env. Read-only, jamás toca disco para escribir."""
@@ -342,7 +351,7 @@ def describe_settings():
         env_var = _ENV_LOCKS.get(key, "")
         row = {"key": key, "group": s["group"], "label": s["label"],
                "type": s["type"], "default": s.get("default"),
-               "help": s.get("help", ""), "applies": s.get("applies", ""),
+               "help": _help(key, s), "applies": s.get("applies", ""),
                "scaffold": bool(s.get("scaffold")),
                "delegated": bool(s.get("delegated")),
                "readonly": bool(s.get("readonly")),

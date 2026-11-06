@@ -23,34 +23,45 @@ Dictation is optional: the doctor doesn't check it.
 
 Applies to macOS, Linux and Windows unless noted.
 
-| Feature | Claude Code | Codex | Antigravity | OpenCode | OpenClaw | Hermes |
-|---|---|---|---|---|---|---|
-| Open the agent from the hub | ✅ | ✅ (wrapped) | ✅ (wrapped) | ✅ (wrapped) | ✅ (wrapped, with gateway: several tabs) | ✅ (wrapped) |
-| Agent starts with its memory | ✅ automatic | ✅ through an `AGENTS.md` Workspace writes into the brain | ✅ through a `GEMINI.md` Workspace writes into the brain | ✅ through an `AGENTS.md` Workspace writes into the brain | ✅ through the same `AGENTS.md` (OpenClaw profile of its own, no extra files) and, on every message, the brain's `STATE/MEMORY.md` | ✅ through the same `AGENTS.md` (Hermes profile of its own, neutral identity) and, with your first message (also when you resume a tab), the tab's up-to-date memory and the brain's `STATE/MEMORY.md` |
-| MCP connectors | ✅ | ✅ (Codex's own config) | ✅ | ✅ (OpenCode's own config) | ✅ (OpenClaw's own config) | ✅ (Hermes' own config) |
-| Session events (*hooks*: save memory on close, etc.) | ✅ | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace), plus your tone with every message and the tab's memory when you resume |
-| Resume sessions from Workspace's tabs | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Live agent status in the hub | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Windowless tasks (evals) | ✅ | ✅ evals with tools¹ | ❌ | ✅ evals with tools¹ | ✅ single turns only¹ | ✅ single turns only¹ |
+| Feature | Claude Code | Codex | Antigravity | OpenCode | OpenClaw | Hermes | Kiro | GitHub Copilot | Cursor |
+|---|---|---|---|---|---|---|---|---|---|
+| Open the agent from the hub | ✅ | ✅ (wrapped) | ✅ (wrapped) | ✅ (wrapped) | ✅ (wrapped, with gateway: several tabs) | ✅ (wrapped) | ✅ (wrapped) | ✅ (wrapped) | ✅ (wrapped) |
+| Agent starts with its memory | ✅ automatic | ✅ through an `AGENTS.md` Workspace writes into the brain | ✅ through a `GEMINI.md` Workspace writes into the brain | ✅ through an `AGENTS.md` Workspace writes into the brain | ✅ through the same `AGENTS.md` (OpenClaw profile of its own, no extra files) and, on every message, the brain's `STATE/MEMORY.md` | ✅ through the same `AGENTS.md` (Hermes profile of its own, neutral identity) and, with your first message (also when you resume a tab), the tab's up-to-date memory and the brain's `STATE/MEMORY.md` | ✅ through the same `AGENTS.md` Workspace writes into the brain | ✅ through the same `AGENTS.md` and its own `CLAUDE.md` (which brings in `BRAIN.md`); it reads them again when resuming | ✅ through the same `AGENTS.md` (Cursor also reads the brain's `CLAUDE.md`) |
+| MCP connectors | ✅ | ✅ (Codex's own config) | ✅ | ✅ (OpenCode's own config) | ✅ (OpenClaw's own config) | ✅ (Hermes' own config) | ✅ (Kiro's own config) | ✅ (Copilot's own config) | ✅ (Cursor's own config) |
+| Session events (*hooks*: save memory on close, etc.) | ✅ | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace), plus your tone with every message and the tab's memory when you resume | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace) | ✅ on open and close only (sent by Workspace) |
+| Resume sessions from Workspace's tabs | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Live agent status in the hub | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Windowless tasks (evals) | ✅ | ✅ evals with tools¹ | ❌ | ✅ evals with tools¹ | ✅ single turns only¹ | ✅ single turns only¹ | ✅ single turns only, not yet tested with an account¹ | ✅ single turns only¹ | ✅ single turns only, not yet tried with an account¹ |
 
 ✅ works · ❌ not available · ❔ unknown
 
 ¹ Evals that run without tools need an engine that can turn its own tools off: today only
-Claude Code. Codex and OpenCode run the evals that use tools inside the OS sandbox. OpenClaw and
-Hermes can't turn their tools off or run inside that sandbox yet: Workspace doesn't use them for
-evals (they still answer single windowless turns).
+Claude Code. Codex and OpenCode run the evals that use tools inside the OS sandbox. OpenClaw,
+Hermes, Kiro, GitHub Copilot and Cursor can't turn their tools off or run inside that sandbox
+yet: Workspace doesn't use them for evals (they still answer single windowless turns; Kiro's
+and Cursor's haven't been tested with an account yet).
 
 If the engine's program isn't installed (or isn't on the PATH), none of this works with it:
 `workspace doctor` tells you to install its official program ([Engines](engines.md)).
 
-Codex, Antigravity, OpenCode, OpenClaw and Hermes have hooks of their own too, but Workspace doesn't turn them on:
+Codex, Antigravity, OpenCode, OpenClaw, Hermes, Kiro and Cursor have hooks of their own too, but Workspace doesn't turn them on:
 Workspace already sends the open and close events around the program, and turning them on would
 send them twice. The exceptions: one Hermes hook, per message, that adds your tone and, when a
 conversation starts or resumes, the tab's memory and the brain's (Hermes approves it by itself
 if it's the only hook in the profile; if
 you added hooks of your own, it asks you to approve it once), and OpenClaw's official one that
 loads the brain's memory. That's why those engines have no per-tool events or live status. With
-OpenCode, OpenClaw and Hermes, the model is the one you pick in its own config: Workspace doesn't change it.
+OpenCode, OpenClaw, Hermes, Kiro and Cursor, the model is the one you pick in its own config: Workspace doesn't change it.
+
+GitHub Copilot has hooks of its own too, and they aren't turned on either. It reads the brain's
+`AGENTS.md`, `CLAUDE.md` and `GEMINI.md` together (and follows the `@BRAIN.md` in `CLAUDE.md`), so
+your agent arrives with its identity even if the `AGENTS.md` is yours. The model is your Copilot
+account's (or the one you pick with `/model`): Workspace doesn't change it. The first time in each
+brain, Copilot asks whether you trust that folder; answer "Yes, and remember this folder".
+
+Cursor also runs, on its own, the Claude Code *hooks* it finds (the brain's and the ones in your
+`~/.claude/settings.json`). Workspace's do nothing inside Cursor, so events aren't sent twice;
+yours run as Cursor decides.
 
 Hermes runs in a Workspace profile of its own (your personal Hermes doesn't change). In that
 profile its own memory is off, because all your agents share it: each agent's memory lives in its

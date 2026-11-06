@@ -17,6 +17,12 @@ Quién la usa hoy:
   un cerebro compartido, el Claude Code de cada socio carga solo la suya y no confunde de quién
   es. La primera vez en cada máquina se copia aquí la que ya tenía; la original no se toca. Se
   apaga en Ajustes (`cerebro.claude_memoria_en_cerebro`).
+- `motores/claude-code/conversaciones/<socio>/` — solo si este cerebro lo permite (viene
+  apagado; se prende por cerebro con `workspace sesiones conversacion on`): al cerrar una
+  pestaña, su conversación de Claude Code se guarda aquí comprimida para retomarla en tu otra
+  máquina, y al abrir solo se trae la tuya. En un cerebro compartido, todos los que lo usan
+  pueden ver esas conversaciones: para privacidad, usa un cerebro aparte. No sube si pesa más
+  que el tope o si trae algo que parece una llave, y el `.gitignore` la deja fuera de git.
 - `motores/openclaw/` — si OpenClaw deja su memoria suelta en la raíz (`MEMORY.md`, `memory/`)
   durante una sesión, Workspace la **mueve** aquí al cerrar (nunca la borra).
 

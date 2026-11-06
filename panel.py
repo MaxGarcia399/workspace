@@ -767,9 +767,11 @@ def _sessions_data(ctx, ttl=5.0, now=None):
     `ctx.cache_sesiones` — cero subprocess por tick del loop de 1s. Devuelve
     {"rows": […], "open_now": […]}:
 
-      rows      — sesiones del agente (agent_brand.merged_sessions del cerebro
-                  + workspaces.json per-máquina): {wid, name, estado,
-                  actualizada, brain, switchable}. switchable = bool(wid).
+      rows      — sesiones del agente (agent_brand.merged_sessions: la lista
+                  única de los .md del cerebro, sin las archivadas; el
+                  workspaces.json per-máquina solo enriquece): {wid, name,
+                  estado, actualizada, brain, switchable}. switchable = bool(wid).
+      archivadas — cuántas archivadas hay (solo si hay alguna; sesiones v2).
       open_now  — sesiones herdr `workspace-split-*` VIVAS: {name, attached,
                   own} (own = la propia HERDR_SESSION).
 
@@ -824,6 +826,15 @@ def _sessions_data(ctx, ttl=5.0, now=None):
                     "brain": bool(m.get("_brain")),
                     "switchable": bool(wid),
                 })
+            # sesiones v2: el panel solo filtra (merged_sessions ya quita las
+            # archivadas) y muestra cuántas hay; se archivan desde el menú
+            try:
+                n_arch = len(agent_brand.pestanas(
+                    brain, agent_brand.socio_comun(brain, _socio(brain)), "solo"))
+            except Exception:
+                n_arch = 0
+            if n_arch:
+                data["archivadas"] = n_arch
         except Exception:
             pass
         try:
@@ -936,6 +947,10 @@ def _view_sesiones(ctx, w, h):
                 shown += 1
     if skipped:
         out.append(LM + FAINT + "  ⋮ +" + _t("panel.more", "{n} más", n=skipped) + R)
+    if data.get("archivadas"):
+        out.append(_clip(LM + FAINT + "  " + _t("panel.ses.archived",
+                                                "{n} archivada(s) · en el menú del agente",
+                                                n=data["archivadas"]) + R, w))
     # crear nueva sesión — CLICKEABLE (hit ("new",)); la tecla `n` hace lo
     # mismo. El loop la ejecuta con _new_session (registra el workspace + monta
     # el pane en él por el controlador persistente). Solo tiene sentido dentro

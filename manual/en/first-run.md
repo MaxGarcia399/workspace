@@ -4,9 +4,9 @@ The first time you type `workspace` (and have no agents yet) a **guided welcome*
 The steps are short; you can **skip** any of them and come back later.
 
 1. **Language** — Spanish or English.
-2. **Engines** — Workspace looks for the engines you have (Claude Code, Codex, Antigravity),
-   whether you're logged in, and, if one is missing, tells you how to install it. You pick the
-   default engine.
+2. **Engines** — Workspace looks for the engines you have (Claude Code, Codex, Antigravity,
+   OpenCode, OpenClaw, Hermes, Kiro, GitHub Copilot, Cursor), whether you're logged in, and, if
+   one is missing, tells you how to install it. You pick the default engine.
 3. **Appearance** — color theme and background.
 4. **Startup** (optional) — whether the menu shows up when you open a terminal.
 5. **Agent** — create your first agent (or load one you already have) and, if you like,

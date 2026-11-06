@@ -582,8 +582,240 @@ def parse_hermes(path):
     return doc
 
 
+# ── Kiro ──────────────────────────────────────────────────────────────────
+#: Marca de la cabecera del .jsonl que arma session_continuity.capture_kiro a
+#: partir de `messages.jsonl` de la sesión V3 de Kiro. Cada línea va ENVUELTA
+#: (`kiro_message`) para que ningún consumidor la confunda con otro formato.
+#: VERIFICADO 2.34.0: mensaje del socio = {"id","timestamp","payload":
+#: {"type":"user","content":"…"}}. VERIFICADO 3.1.0 (caja negra, 2026-11-05:
+#: la captura de 21 sesiones V3 reales, sin ventana, sale «decoded»): la
+#: respuesta es `payload.type == "assistant"` con el texto en `content`. Si no
+#: se reconoce, la respuesta no entra (jamás se adivina con otro campo).
+KIRO_HEADER = "kiro_session"
+KIRO_MESSAGE = "kiro_message"
+#: Si `content` viene en partes: solo las de texto (razonamiento, herramientas
+#: y resúmenes no).
+_KIRO_VISIBLE = ("text",)
+
+
+def _kiro_text(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(str(p.get("text") or p.get("content") or "") for p in content
+                         if isinstance(p, dict)
+                         and (p.get("type") or p.get("kind")) in _KIRO_VISIBLE
+                         and isinstance(p.get("text") or p.get("content"), str))
+    return ""
+
+
+#: Sesión V2 (el chat por defecto desde la 2.35, VERIFICADO con una cuenta real
+#: 2026-10-29): `{"version":"v1","kind":"Prompt"|"AssistantMessage"|
+#: "ToolResults","data":{"content":[{"kind":"text"|"thinking"|"toolUse"|
+#: "toolResult","data":…}],"meta":{"timestamp":<epoch s>}}}`. Solo las partes
+#: `text` de Prompt (socio) y AssistantMessage (respuesta).
+_KIRO_V2_ROLES = {"Prompt": "user", "AssistantMessage": "assistant"}
+
+
+def _kiro_v2_text(content):
+    if isinstance(content, list):
+        return "\n".join(c["data"] for c in content
+                         if isinstance(c, dict) and c.get("kind") == "text"
+                         and isinstance(c.get("data"), str))
+    return ""
+
+
+def _kiro_v2_ts(meta):
+    ts = meta.get("timestamp") if isinstance(meta, dict) else None
+    if isinstance(ts, (int, float)) and not isinstance(ts, bool) and ts > 0:
+        import datetime
+        return datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ")
+    return ""
+
+
+def parse_kiro(path):
+    """Sesión de Kiro (V3 o V2) → doc neutral. Solo diálogo VISIBLE: el texto
+    que escribió el socio (sin mensajes sintéticos del motor) y el texto de la
+    respuesta. Jamás razonamiento, llamadas ni resultados de herramientas,
+    lápidas ni resúmenes de compactación."""
+    doc = empty_doc(id="", engine="kiro", source_path=str(path))
+    for n, row in _iter_jsonl(path):
+        doc["session"]["n_source_lines"] = n
+        if not isinstance(row, dict):
+            continue
+        if row.get("type") == KIRO_HEADER:
+            doc["session"]["id"] = str(row.get("id") or "")
+            doc["session"]["title"] = str(row.get("title") or "")
+            doc["session"]["cwd"] = str(row.get("cwd") or "")
+            continue
+        if row.get("type") != KIRO_MESSAGE or not isinstance(row.get("message"), dict):
+            continue
+        m = row["message"]
+        if m.get("kind") in _KIRO_V2_ROLES and isinstance(m.get("data"), dict):
+            d = m["data"]
+            text = _kiro_v2_text(d.get("content"))
+            if m["kind"] == "AssistantMessage":
+                text = _THINK_BLOCK.sub("", text)
+            text = text.strip()
+            if text:
+                doc["turns"].append(make_turn(_KIRO_V2_ROLES[m["kind"]], text,
+                                              _kiro_v2_ts(d.get("meta"))))
+            continue
+        p = m.get("payload")
+        if not isinstance(p, dict):
+            continue
+        kind = p.get("type")
+        if kind == "user":
+            if p.get("syntheticUserMessageReason"):
+                continue
+            text = _kiro_text(p.get("content")).strip()
+            role = "user"
+        elif kind == "assistant":
+            text = _THINK_BLOCK.sub("", _kiro_text(p.get("content"))).strip()
+            role = "assistant"
+        else:
+            continue
+        if text:
+            doc["turns"].append(make_turn(role, text, str(m.get("timestamp") or "")))
+    if doc["turns"]:
+        doc["session"]["first_ts"] = doc["turns"][0]["ts"]
+        doc["session"]["last_ts"] = doc["turns"][-1]["ts"]
+    return doc
+
+
+# ── GitHub Copilot CLI ─────────────────────────────────────────────────────
+#: Marca de la cabecera del .jsonl que arma session_continuity.capture_copilot
+#: a partir de `<COPILOT_HOME>/session-state/<id>/events.jsonl`. Cada evento va
+#: ENVUELTO (`copilot_event`) para que ningún consumidor lo confunda con otro
+#: formato y para no depender de su esquema al detectarlo.
+#: Copilot no documenta el esquema. VERIFICADO con sesiones reales de 1.0.105
+#: (proveedor BYOK falso, 2026-10-28): cada línea = {"type", "data", "id",
+#: "timestamp", "parentId"}; type ∈ {session.start, session.resume,
+#: session.model_change, user.message, system.message, assistant.turn_start,
+#: session.usage_record, assistant.message, assistant.turn_end,
+#: session.shutdown…}. El texto que escribió el socio está en data.content de
+#: user.message (data.transformedContent lleva además lo que inyecta Copilot,
+#: p. ej. la fecha: no se usa); la respuesta, en data.content de
+#: assistant.message (las herramientas van en data.toolRequests; según fuentes
+#: públicas el razonamiento va en data.reasoningText). system.message es el
+#: prompt de sistema entero: jamás es diálogo.
+COPILOT_HEADER = "copilot_session"
+COPILOT_EVENT = "copilot_event"
+#: Tipos de evento conocidos (para distinguir «sin diálogo» de «esquema que no
+#: entendemos»).
+COPILOT_KNOWN_TYPES = ("session.start", "session.resume", "session.model_change",
+                       "user.message", "system.message", "assistant.turn_start",
+                       "session.usage_record", "assistant.message",
+                       "assistant.turn_end", "session.shutdown",
+                       "tool.execution_start", "tool.execution_complete",
+                       "session.compaction_complete")
+
+
+def _copilot_events(path):
+    """(n, fila, evento) de un respaldo envuelto de Copilot; evento = dict o None."""
+    for n, row in _iter_jsonl(path):
+        ev = row.get("event") if isinstance(row, dict) and row.get("type") == COPILOT_EVENT else None
+        yield n, row, (ev if isinstance(ev, dict) else None)
+
+
+def copilot_known_events(path):
+    """¿El respaldo trae al menos un evento de un tipo conocido? False = el
+    esquema cambió o no es el esperado (la captura lo marca
+    unsupported-format, sin inventar diálogo)."""
+    try:
+        return any(ev is not None and ev.get("type") in COPILOT_KNOWN_TYPES
+                   for _n, _row, ev in _copilot_events(path))
+    except OSError:
+        return False
+
+
+def parse_copilot(path):
+    """Respaldo envuelto de Copilot CLI → doc neutral. Solo diálogo VISIBLE:
+    data.content de user.message y de assistant.message. Jamás razonamiento,
+    herramientas, mensajes de sistema ni eventos de la sesión."""
+    doc = empty_doc(id="", engine="copilot", source_path=str(path))
+    for n, row, ev in _copilot_events(path):
+        doc["session"]["n_source_lines"] = n
+        if isinstance(row, dict) and row.get("type") == COPILOT_HEADER:
+            doc["session"]["id"] = str(row.get("id") or "")
+            doc["session"]["cwd"] = str(row.get("cwd") or "")
+            continue
+        if ev is None:
+            continue
+        t = ev.get("type")
+        if t not in ("user.message", "assistant.message"):
+            continue
+        data = ev.get("data") if isinstance(ev.get("data"), dict) else {}
+        text = data.get("content")
+        if not isinstance(text, str) or not text.strip():
+            continue                      # p. ej. una respuesta solo con herramientas
+        ts = ev.get("timestamp")
+        doc["turns"].append(make_turn("user" if t == "user.message" else "assistant",
+                                      text.strip(), ts if isinstance(ts, str) else ""))
+    if doc["turns"]:
+        doc["session"]["first_ts"] = doc["turns"][0]["ts"]
+        doc["session"]["last_ts"] = doc["turns"][-1]["ts"]
+    return doc
+
+
+# ── Cursor ─────────────────────────────────────────────────────────────────
+#: Marca de la cabecera del .jsonl que arma session_continuity.capture_cursor
+#: a partir del transcript que escribe el CLI de Cursor (sin doc del formato;
+#: forma vista en vivo con cuenta —capturas y maleta del e2e v6, 2026-11-02—
+#: y que tests/e2e/cursor_caja_negra.py vuelve a mirar: {"role":
+#: "user"|"assistant", "message": {"content": [{"type": "text", "text"},
+#: {"type": "tool_use", "name", "input"}]}} y {"type": "turn_ended",
+#: "status"}). Cada línea va ENVUELTA
+#: (`cursor_message`): su forma {"role","message"} se parece a la de Claude Code.
+CURSOR_HEADER = "cursor_session"
+CURSOR_MESSAGE = "cursor_message"
+_CURSOR_QUERY = re.compile(r"<user_query>\s*(.*?)\s*</user_query>", re.S | re.I)
+
+
+def parse_cursor(path):
+    """Transcript de Cursor → doc neutral. Solo diálogo VISIBLE: las partes
+    `text` de user/assistant; jamás herramientas (`tool_use`), cierres de turno
+    ni mensajes de sistema (el CLI ya no los escribe). Del socio, si el pedido
+    viene envuelto en `<user_query>`, solo lo de adentro.
+    Hueco conocido (A-VERIFICAR con una sesión real): en una respuesta con
+    razonamiento, el CLI escribe el razonamiento en la MISMA parte `text`,
+    después de la respuesta; aquí no se puede separar. La maleta solo usa lo
+    que escribió el socio."""
+    doc = empty_doc(id="", engine="cursor", source_path=str(path))
+    for n, row in _iter_jsonl(path):
+        doc["session"]["n_source_lines"] = n
+        if not isinstance(row, dict):
+            continue
+        if row.get("type") == CURSOR_HEADER:
+            doc["session"]["id"] = str(row.get("id") or "")
+            doc["session"]["cwd"] = str(row.get("cwd") or "")
+            continue
+        if row.get("type") != CURSOR_MESSAGE or not isinstance(row.get("message"), dict):
+            continue
+        m = row["message"]
+        role = m.get("role")
+        if role not in ("user", "assistant"):
+            continue
+        parts = (m.get("message") or {}).get("content") if isinstance(m.get("message"), dict) \
+            else None
+        text = "\n".join(p.get("text", "") for p in parts or []
+                         if isinstance(p, dict) and p.get("type") == "text"
+                         and isinstance(p.get("text"), str))
+        if role == "user":
+            hits = [h for h in _CURSOR_QUERY.findall(text) if h.strip()]
+            if hits:
+                text = "\n\n".join(hits)
+        else:
+            text = _THINK_BLOCK.sub("", text)
+        text = text.strip()
+        if text:
+            doc["turns"].append(make_turn(role, text))
+    return doc
+
+
 # ── detección + entrada única ──────────────────────────────────────────────
-_CODEX_TYPES = {"session_meta", "response_item", "event_msg", "turn_context",
+_CODEX_TYPES ={"session_meta", "response_item", "event_msg", "turn_context",
                 "compacted"}
 _CLAUDE_TYPES = {"user", "assistant", "custom-title", "file-history-snapshot",
                  "attachment", "queue-operation", "last-prompt", "system",
@@ -606,6 +838,12 @@ def detect_format(path, probe_lines=25):
                 return "opencode"
             if t == HERMES_HEADER:
                 return "hermes"
+            if t == KIRO_HEADER:
+                return "kiro"
+            if t == COPILOT_HEADER:
+                return "copilot"
+            if t == CURSOR_HEADER:
+                return "cursor"
             if _is_openclaw_header(d):
                 return "openclaw"
             if (t in {"USER_INPUT", "PLANNER_RESPONSE", "GENERIC", "SYSTEM_MESSAGE"}
@@ -629,7 +867,8 @@ def detect_format(path, probe_lines=25):
 
 PARSERS = {"claude-code": parse_claude_code, "codex": parse_codex,
            "antigravity": parse_antigravity, "opencode": parse_opencode,
-           "openclaw": parse_openclaw, "hermes": parse_hermes}
+           "openclaw": parse_openclaw, "hermes": parse_hermes,
+           "kiro": parse_kiro, "copilot": parse_copilot, "cursor": parse_cursor}
 
 
 def ingest(path):

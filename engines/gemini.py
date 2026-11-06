@@ -45,6 +45,7 @@ import sys
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
+import arbol_procesos  # noqa: E402  (Windows: al vencer el tiempo muere el árbol entero)
 
 META = {"name": "gemini", "needs": ["gemini"], "auth": "subscription"}
 
@@ -173,8 +174,8 @@ def run_turn(prompt, *, model=None, cwd=None, timeout=120,
             r = runner(cmd, cwd=cwd or None, env=env, timeout=timeout,
                        input=prompt or "")
         else:
-            r = subprocess.run(cmd, cwd=cwd or None, env=env, timeout=timeout,
-                               input=(prompt or "").encode("utf-8"),
+            r = arbol_procesos.run(cmd, cwd=cwd or None, env=env, timeout=timeout,
+                                   input=(prompt or "").encode("utf-8"),
                                capture_output=True)
         rc = getattr(r, "returncode", 1)
         raw_out = getattr(r, "stdout", b"") or b""

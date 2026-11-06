@@ -175,7 +175,7 @@ _DIAL_SRC = (
      "eje": ("ninguno", "muchos"),
      "niveles": {
          1: "Cero emojis.",
-         2: "Emojis solo donde el formato del harness ya los usa.",
+         2: "Emojis solo donde el formato de Workspace ya los usa.",
          4: "Usa emojis para marcar estados y secciones.",
          5: "Emojis generosos en títulos, listas y estados."}},
 )

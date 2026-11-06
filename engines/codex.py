@@ -59,6 +59,7 @@ import time
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
+import arbol_procesos  # noqa: E402  (Windows: al vencer el tiempo muere el árbol entero)
 
 import legacy  # noqa: E402  (literales de la instalación anterior)
 
@@ -178,7 +179,7 @@ def session_active(exe_override=None, runner=None):
             if runner is not None:
                 r = runner([exe, "login", "status"])
             else:
-                r = subprocess.run([exe, "login", "status"],
+                r = arbol_procesos.run([exe, "login", "status"],
                                    capture_output=True, text=True, timeout=15,
                                    encoding="utf-8", errors="replace",
                                    env=_env_motor(), **_DETACHED)
@@ -304,8 +305,8 @@ def run_turn(prompt, *, model=None, cwd=None, timeout=120, sandbox=None,
             r = runner(cmd, cwd=cwd or None, env=env, timeout=timeout,
                        input=prompt or "")
         else:
-            r = subprocess.run(cmd, cwd=cwd or None, env=env, timeout=timeout,
-                               input=(prompt or "").encode("utf-8"),
+            r = arbol_procesos.run(cmd, cwd=cwd or None, env=env, timeout=timeout,
+                                   input=(prompt or "").encode("utf-8"),
                                capture_output=True)
         rc = getattr(r, "returncode", 1)
         if rc != 0:

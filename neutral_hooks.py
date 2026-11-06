@@ -384,7 +384,8 @@ def publish_status(brain, task, agent=None, state=DEFAULT_STATE):
             json.dump({"agent": a, "task": t, "state": st, "since": since,
                        "updated": now}, fh, ensure_ascii=False, indent=2)
             fh.write("\n")
-        os.replace(tmp, path)
+        import atomico          # reintento en Windows; si no, sin `.tmp` en STATE/
+        atomico.reemplazar(tmp, path)
         try:   # espejo al rastro N10 — best-effort, jamás levanta
             events.record("agent_step",
                           payload={"event": "agent_status",
@@ -476,6 +477,18 @@ def _vigia_notice(brain):
     try:
         import vigia_aviso
         return vigia_aviso.notice(agent_for_brain(brain))
+    except Exception:
+        return ""
+
+
+def _maquinas_notice(brain):
+    """Sesiones v2 · C: UNA línea si el cerebro no está llegando entre las
+    máquinas (otra sin noticias, pestañas distintas, Obsidian cerrado,
+    conflictos); '' si todo bien. Lee la constancia que dispatch dejó al
+    abrir: aquí no se pregunta por procesos. Falla-suave → ''."""
+    try:
+        import maquinas
+        return maquinas.aviso_linea(brain, sondear=False)
     except Exception:
         return ""
 
@@ -577,6 +590,13 @@ def run_event(event, payload=None, brain=None, behaviors=None, raw=None):
             vigia = _vigia_notice(b)
             if vigia:
                 parts.append(vigia)
+
+        # constancia por máquina: una línea, solo si hay aviso (todos los motores)
+        if fresh and "memory_context" in beh and b:
+            sync = _maquinas_notice(b)
+            if sync:
+                parts.append(sync)
+                ran.append("maquinas")
 
         if "status" in beh and event in ("session_start", "user_prompt",
                                          "session_end", "pre_compact"):

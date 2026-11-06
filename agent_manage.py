@@ -216,6 +216,47 @@ def cycle_engine(agent_id, expected_brain=None):
                   e=r["engine"]))
 
 
+def _quedan():
+    """(cerebros, nombres) de los agentes que siguen registrados en esta
+    máquina (los cargados y los del registro del equipo), o None si no se
+    pueden leer: entonces no se toca la confianza de nadie."""
+    try:
+        import dispatch
+        cerebros, nombres = [], []
+        for e in (dispatch.load_registry() or {}).get("agents") or []:
+            if not isinstance(e, dict) or not e.get("name"):
+                continue
+            n = str(e["name"]).strip().lower()
+            nombres.append(n)
+            try:
+                b = dispatch.resolve_brain(n, dispatch.load_agent_cfg(e))
+            except Exception:
+                b = e.get("brain") or ""    # sin resolver: lo que diga el registro
+            if b:
+                cerebros.append(str(b))
+        return cerebros, nombres
+    except Exception:
+        return None
+
+
+def _quitar_confianza(name, brain):
+    """motor_confianza.quitar_de_agente para el agente que se acaba de quitar.
+    Falla-suave: → lo quitado ([] si nada o si algo falló)."""
+    if not brain:
+        return []
+    quedan = _quedan()
+    if quedan is None:
+        return []
+    cerebros, nombres = quedan
+    try:
+        import motor_confianza
+        return motor_confianza.quitar_de_agente(
+            brain, name, otros_cerebros=cerebros,
+            otros_agentes=[n for n in nombres if n != name])
+    except Exception:
+        return []
+
+
 def unregister(agent_id, expected_brain=None):
     """Quita el agente del registro de ESTA máquina. Conserva cerebro,
     sesiones y preferencias. Committeado → se oculta (y se explica)."""
@@ -242,6 +283,18 @@ def unregister(agent_id, expected_brain=None):
     cur = _hidden()
     if name in cur:
         _set_hidden([x for x in cur if x != name])
+    # Lo que Workspace escribió en el cerebro para la herramienta de memoria
+    # de Cursor y Kiro (`.cursor/`, `.kiro/agents/workspace.json`; solo lo
+    # nuestro): es de esta máquina y ya nadie lo usa. Falla-suave.
+    try:
+        import memoria_mcp
+        memoria_mcp.limpiar_cerebro(a.get("brain") or "")
+    except Exception:
+        pass
+    # La confianza que Workspace le dio a su cerebro en Codex y Antigravity
+    # (solo la suya, tal cual la escribió; lo que puso el socio se queda). Si
+    # otro agente registrado usa el mismo cerebro, se queda (la usa ese otro).
+    _quitar_confianza(name, a.get("brain") or "")
     _invalidate()
     return _ok(_t("agentes.mg.removed",
                   "{n} quitado del registro · cerebro y sesiones intactos "

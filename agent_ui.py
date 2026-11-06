@@ -58,14 +58,19 @@ def heading(name, tagline, cols):
         lines += ['', ' ' * max(0,(cols-1-H.vis(text))//2) + p.DIM + text + p.R]
     return lines + ['']
 
-def picker_frame(items, selected, width, height, box_w=None, left=None):
+def picker_frame(items, selected, width, height, box_w=None, left=None,
+                 notice='', title=None, hints=None):
     """Caja de sesiones: nombre a la IZQUIERDA y estado alineado al borde
     DERECHO del cuadro (la caja ancha se aprovecha completa), título
     CENTRADO en el marco, caja CENTRADA. Es EL formato del picker para
     todos los agentes. `box_w`/`left` (los pasa session_screen) ALINEAN la
     caja con la del banner: MISMO ancho y MISMO borde izquierdo → los dos
-    marcos quedan apilados como un bloque único."""
-    cap = max(1,height-20)
+    marcos quedan apilados como un bloque único. Sesiones v2: `notice` = una
+    línea bajo la caja («Archivada … · u para deshacer»), `title` = otro
+    título («ARCHIVADAS») y `hints` = los atajos del pie ((tecla, acción), …)
+    en lugar de los de siempre."""
+    avisos = _lineas_aviso(notice, max(4, width - 3)) if notice else []
+    cap = max(1, height - 20 - max(0, len(avisos) - 1))   # el aviso partido no empuja el pie
     start = max(0,min(selected-cap//2,len(items)-cap))
     lw = min(max([H.vis(l) for l,_,_ in items] + [8]), 28)   # col. nombre
     sw = min(max([H.vis(s) for _,s,_ in items] + [0]), 26)   # col. estado
@@ -92,10 +97,24 @@ def picker_frame(items, selected, width, height, box_w=None, left=None):
         body.append(_t('greeter.sessions.more_down', '↓ más sesiones'))
     if left is None or not box_w or pw != int(box_w):
         left = max(0, (width - 1 - pw) // 2)     # centrada a la terminal
-    rows = [' '*left+x for x in UI.box(_t('greeter.sessions.title', 'SESIONES'),
+    rows = [' '*left+x for x in UI.box(title or _t('greeter.sessions.title', 'SESIONES'),
                                        body, pw, True, title_align='center')]
+    if avisos:                                   # el aviso de archivar/deshacer
+        p = tuitheme.palette()
+        for txt in avisos:                       # centrado bajo la caja, sin salirse
+            al = left + (pw - H.vis(txt)) // 2   # más ancho que la caja: centrado igual
+            rows.append(' '*max(0, min(al, width - 1 - H.vis(txt))) + p.B2 + txt + p.R)
     # los atajos salen del título y bajan AQUÍ, legibles (tecla en acento,
     # acción en gris — H.keyline, el mismo lenguaje de hints de todo el hub)
+    if hints:
+        # atajos propios (menú con archivar): son más, así que usan el ancho
+        # de la terminal, centrados bajo la caja — en la caja compacta de 40
+        # columnas `a`/`u` no cabían y nadie los descubría
+        hint = H.keyline(H.cols(tuitheme.palette()), tuple(hints), max(10, width - 3))
+        if hint:
+            hl = left + (pw - H.vis(hint)) // 2
+            rows.append(' '*max(0, min(hl, width - 1 - H.vis(hint))) + hint)
+        return rows
     hint = H.keyline(H.cols(tuitheme.palette()),
                      (('↑↓', _t('greeter.hint.choose', 'elige')),
                       ('Enter', _t('greeter.hint.open', 'abre')),
@@ -105,6 +124,27 @@ def picker_frame(items, selected, width, height, box_w=None, left=None):
     if hint:
         rows.append(' '*(left + max(0, (pw - H.vis(hint)) // 2)) + hint)
     return rows
+
+def _lineas_aviso(notice, w):
+    """El aviso bajo la caja en ≤2 líneas de ≤w columnas (ancho visual: el
+    coreano cuenta doble). Lo que va tras el último « · » es CÓMO deshacer
+    («u para deshacer»): jamás se recorta. Si todo no cabe en una línea, se
+    parte en dos (la acción arriba, el deshacer abajo); si la acción sola
+    tampoco cabe, se acorta ella, nunca el deshacer. Usa el ancho de la
+    terminal, no el de la caja (la caja compacta mide 40 columnas)."""
+    notice = str(notice or '')
+    if H.vis(notice) <= w:
+        return [notice]
+    accion, sep, deshacer = notice.rpartition(' · ')
+    if not sep:
+        return [H.clip(notice, w)]
+    pegado = w - H.vis(sep + deshacer)
+    if H.vis(accion) <= w and H.vis(deshacer) <= w:
+        return [accion, deshacer]                # dos líneas enteras
+    if pegado >= 12:                             # una línea: se acorta la acción
+        return [H.clip(accion, pegado) + sep + deshacer]
+    return [H.clip(accion, w), H.clip(deshacer, w)]
+
 
 def draw_picker(out, items, selected, state):
     try:
@@ -151,7 +191,8 @@ def title_only(lines):
 BACK = "BACK"
 
 
-def session_screen(items, selected, width, height, context, banner=''):
+def session_screen(items, selected, width, height, context, banner='',
+                   notice='', title=None, hints=None):
     # Keep a full illustration only when both dimensions allow the picker.
     illustrated = title_only(banner.splitlines())
     bw = max(map(H.vis,illustrated),default=0)
@@ -165,7 +206,8 @@ def session_screen(items, selected, width, height, context, banner=''):
     else:
         top = heading(context['name'],'',width)       # solo el título
     spare = max(1,height-1-len(top)-4)
-    rows = picker_frame(items,selected,width,spare+20,box_w=box_w,left=box_left)
+    rows = picker_frame(items,selected,width,spare+20,box_w=box_w,left=box_left,
+                        notice=notice,title=title,hints=hints)
     return [H.clip(x,width-1) for x in (top+rows)[:height-1]]
 
 def _apply_theme_osc(palette):
@@ -181,8 +223,13 @@ def _apply_theme_osc(palette):
         theme.reset()
 
 
-def live_picker(items, script):
-    """TTY picker with idle theme/size refresh and an unchanged selected row."""
+def live_picker(items, script, keys='', notice='', selected=0, title=None, hints=None):
+    """TTY picker with idle theme/size refresh and an unchanged selected row.
+    Devuelve el índice elegido, BACK (Esc/Ctrl+C) o None sin terminal.
+    Sesiones v2 (opcional; sin estos argumentos es el de siempre): una tecla
+    de `keys` (p. ej. 'au') devuelve (tecla, índice marcado); `notice`,
+    `title` y `hints` van a la caja (picker_frame); `selected` = la fila
+    marcada al entrar."""
     import json, time, subprocess, sys
     try:
         if sys.platform == 'win32':
@@ -198,7 +245,8 @@ def live_picker(items, script):
         return None
     context = json.loads(os.environ.get('WORKSPACE_AGENT_UI','{}'))
     context.setdefault('name',Path(script).stem.replace('-dashboard','').capitalize())
-    selected, signature, banner = 0, None, ''
+    selected = max(0, min(int(selected or 0), len(items) - 1))
+    signature, banner = None, ''
     redraw = True
     old = None
     try:
@@ -221,7 +269,8 @@ def live_picker(items, script):
                 # se releen de disco en cada get) y aquí se repinta todo.
                 _apply_theme_osc(palette)
             if current != signature or redraw:
-                UI.paint(out,session_screen(items,selected,size.columns,size.lines,context,banner),first=signature is None)
+                UI.paint(out,session_screen(items,selected,size.columns,size.lines,context,banner,
+                                            notice=notice,title=title,hints=hints),first=signature is None)
                 signature = current
             redraw = False
             if sys.platform == 'win32':
@@ -250,6 +299,8 @@ def live_picker(items, script):
                 selected = (selected+1)%len(items)
             elif key in '123456789' and key and int(key) <= len(items):
                 return int(key)-1
+            elif keys and len(key) == 1 and key.lower() in keys:
+                return (key.lower(), selected)
             else:
                 continue
             redraw = True
@@ -259,3 +310,136 @@ def live_picker(items, script):
         if sys.platform != 'win32':
             inp.close()
         out.close()
+
+
+# ── sesiones v2: el menú de pestañas con ARCHIVAR (todos los dashboards) ─────
+#: kinds de las filas que agrega este menú (los dashboards no las conocen)
+ARCHIVADAS = 'ARCH'
+VOLVER = 'LIST'
+
+
+def _hints_lista():
+    # a/u antes de 1-9: si no caben, keyline cede primero los del medio
+    # desde el final (1-9), y conserva ↑↓ y Esc
+    return (('↑↓', _t('greeter.hint.choose', 'elige')),
+            ('Enter', _t('greeter.hint.open', 'abre')),
+            ('a', _t('sesiones.hint.archive', 'archiva')),
+            ('u', _t('sesiones.hint.undo', 'deshace')),
+            ('1-9', _t('greeter.hint.direct', 'directo')),
+            ('Esc', _t('greeter.hint.back', 'regresa')))
+
+
+def _hints_archivadas():
+    return (('↑↓', _t('greeter.hint.choose', 'elige')),
+            ('Enter', _t('sesiones.hint.restore', 'recupera y abre')),
+            ('u', _t('sesiones.hint.undo', 'deshace')),
+            ('Esc', _t('sesiones.hint.back', 'vuelve')))
+
+
+def _t_kw(key, es, **kw):
+    s = _t(key, es)
+    try:
+        return s.format(**kw)
+    except Exception:
+        return es.format(**kw)
+
+
+def filas_archivadas(brain, agent):
+    """[(nombre, «archivada <fecha>», ("WS", id, nombre))] de las pestañas
+    archivadas, la más reciente primero, y al final «← Volver»."""
+    import sessions_registry as reg
+    out = []
+    for t in reg.archivadas(brain, agent):
+        wid = reg.resume_id(brain, agent, t['name'], 'claude-code') or None
+        out.append((t['name'],
+                    _t_kw('sesiones.menu.sub', 'archivada {fecha}', fecha=t.get('archivada') or '—'),
+                    ('WS', wid, t['name'])))
+    out.append((_t('sesiones.menu.volver', '← Volver'),
+                _t('sesiones.menu.volver_sub', 'a tus pestañas'), (VOLVER, None, None)))
+    return out
+
+
+def _aviso_recuperadas(nombres):
+    if not nombres:
+        return _t('sesiones.menu.nada', 'Nada que deshacer')
+    if len(nombres) == 1:
+        return _t_kw('sesiones.menu.recuperada', 'Recuperé «{name}»', name=nombres[0])
+    return _t_kw('sesiones.menu.recuperadas', 'Recuperé {n} pestañas', n=len(nombres))
+
+
+def menu_sesiones(brain, agent, menu_items, script, fallback=None, picker=None):
+    """El menú de pestañas de un agente con ARCHIVAR (sesiones v2): UNA sola
+    implementación para todos los dashboards (repo, plantilla y los que
+    viven en un cerebro y la llamen).
+
+      · `a` archiva la pestaña marcada: sale del menú en todas tus máquinas,
+        nada se borra (sessions_registry.archivar); queda una línea
+        «Archivada «x» · u para deshacer»;
+      · `u` deshace el último archivo, también el automático;
+      · la fila «Archivadas (N)», al final, lista las archivadas: Enter la
+        recupera y la abre, Esc vuelve.
+
+    `menu_items()` = las filas del dashboard [(etiqueta, estado, kind)]; se
+    vuelve a pedir tras cada cambio. `fallback(items)` = el picker propio del
+    dashboard sin terminal (índice o BACK): ahí no hay teclas de archivar.
+    `picker` = live_picker (las pruebas lo sustituyen). Devuelve el kind
+    elegido (("WS", id, nombre) / ("NEW", None, None)) o BACK."""
+    import sessions_registry as reg
+    picker = picker or live_picker
+    sel, vista = 0, 'lista'
+    try:                       # «archivé N pestañas…» del archivo automático
+        aviso = reg.aviso_pendiente(brain, menu=True)
+    except Exception:
+        aviso = ''
+    while True:
+        if vista == 'lista':
+            items = list(menu_items())
+            try:
+                n = len(reg.archivadas(brain, agent))
+            except Exception:
+                n = 0
+            if n:
+                items.append((_t_kw('sesiones.menu.fila', 'Archivadas ({n})', n=n),
+                              _t('sesiones.menu.fila_sub', 'las que quitaste del menú'),
+                              (ARCHIVADAS, None, None)))
+            r = picker(items, script, keys='au', notice=aviso, selected=sel,
+                       hints=_hints_lista())
+        else:
+            items = filas_archivadas(brain, agent)
+            r = picker(items, script, keys='u', notice=aviso, selected=sel,
+                       title=_t('sesiones.menu.titulo', 'ARCHIVADAS'), hints=_hints_archivadas())
+        aviso = ''
+        if r is None:                    # sin terminal: el picker de siempre
+            base = [it for it in items if it[2][0] not in (ARCHIVADAS, VOLVER)] \
+                if vista == 'lista' else list(menu_items())
+            if fallback is None or not base:
+                return BACK
+            k = fallback(base)
+            return BACK if k == BACK else base[k][2]
+        if r == BACK:
+            if vista == 'lista':
+                return BACK
+            vista, sel = 'lista', 0
+            continue
+        if isinstance(r, tuple):
+            tecla, i = r
+            sel = i
+            kind = items[i][2] if 0 <= i < len(items) else (None,)
+            if tecla == 'a' and vista == 'lista' and kind[0] == 'WS':
+                aviso = (_t_kw('sesiones.menu.archivada', 'Archivada «{name}» · u para deshacer',
+                               name=kind[2])
+                         if reg.archivar(brain, agent, kind[2]) else
+                         _t_kw('sesiones.menu.no_pude', 'No pude archivar «{name}»', name=kind[2]))
+            elif tecla == 'u':
+                aviso = _aviso_recuperadas(reg.desarchivar_ultimas(brain, agent))
+            continue
+        kind = items[r][2]
+        if kind[0] == ARCHIVADAS:
+            vista, sel = 'archivadas', 0
+            continue
+        if kind[0] == VOLVER:
+            vista, sel = 'lista', 0
+            continue
+        if vista == 'archivadas' and kind[0] == 'WS':
+            reg.desarchivar(brain, agent, kind[2])     # Enter = recupera y abre
+        return kind

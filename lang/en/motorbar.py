@@ -1,10 +1,20 @@
 """WORKSPACE · lang/en/motorbar — wrapper-engine bars and permissions (Codex ·
-Antigravity). Same keys as lang/es/motorbar.py."""
+Antigravity · Copilot · Cursor). Same keys as lang/es/motorbar.py."""
 STRINGS = {
     'motorbar.active': 'up {d}',
     'motorbar.agy_no_quota': 'Quota: no data from the provider',
     'motorbar.codex_waiting': 'Quotas: waiting for Codex data',
     'motorbar.context': 'context {pct}%',
+    'motorbar.context_pending': 'context after the first message',
+    'motorbar.copilot.ai_used': '{n} AI credits',
+    'motorbar.copilot.premium': '{n} premium requests',
+    'motorbar.copilot.allow_all': 'all allowed',
+    'motorbar.copilot.ask': 'ask — asks before creating or editing, also in the brain',
+    'motorbar.copilot.brain': 'brain — writes in its brain without asking (`write(<brain>/**)` per run); outside the brain, the terminal and its Copilot config (.github/, .mcp.json, .claude/settings…) ask or are denied',
+    'motorbar.copilot.socio': 'your Copilot write permissions win (Workspace adds none of its own)',
+    'motorbar.copilot.largo': "the brain path is so long that the rules don't fit in the Windows command line: it asks before writing, also in the brain",
+    'motorbar.copilot.ruta': 'the brain path has characters that do not fit in a Copilot rule (parentheses; on Windows with the .cmd launcher, also " % ^ ! < > | &): it asks before writing, also in the brain',
+    'motorbar.cursor.autorun': 'auto-run',
     'motorbar.data_ago': 'data {d}',
     'motorbar.dirty': 'changes',
     'motorbar.footer_nodata': 'Workspace · no quota data',
@@ -41,7 +51,18 @@ STRINGS = {
                                   'before editing it).',
     'motorbar.agy.full_unavailable': "couldn't set up full autonomy in Antigravity: commands will "
                                      'ask for permission.',
+    'motorbar.agy.sin_deny': "Antigravity will ask before editing your brain: I couldn't deny it the engines', git's and Obsidian's config (your own --settings, or agy's settings.json is a link or unreadable).",
+    # la herramienta de memoria y la config de proyecto del socio (memoria_mcp)
+    'motorbar.memoria_mcp.cursor_sin_deny': "WORKSPACE: without {rel}, Cursor isn't denied the engines', git's and Obsidian's config in your brain: check that file.",
+    'motorbar.memoria_mcp.enlace': 'WORKSPACE: {rel} in your brain (or a folder on its path) is a link: I leave it alone and memory will ask for permission.',
+    'motorbar.memoria_mcp.ilegible': "WORKSPACE: {rel} in your brain isn't JSON I can read: I leave it alone and memory will ask for permission until you fix it.",
+    'motorbar.memoria_mcp.ocupado': "WORKSPACE: where {rel} goes in your brain there's something that isn't a file: I leave it alone and memory will ask for permission.",
+    'motorbar.memoria_mcp.escritura': "WORKSPACE: couldn't write {rel} in your brain: memory will ask for permission.",
+    'motorbar.memoria_mcp.restaurada': "WORKSPACE: {rel} in your brain: Workspace's entry (`workspace-memoria`) had been changed; I restored it and yours stays as is (backup in {respaldo}).",
     'motorbar.agy.commands_free': 'commands without asking',
+    'motorbar.agy.acct_full': 'API key or business account: full integration',
+    'motorbar.agy.acct_exp': "Google sign-in: experimental (Google doesn't support wrapping "
+                             'agy on consumer plans: {u})',
     'motorbar.agy.tokens_in_bar': "in Antigravity's bar",
     'motorbar.hermes.created': "created its «{p}» profile (with your model, without copying your "
                                "keys; your personal Hermes doesn't change)",

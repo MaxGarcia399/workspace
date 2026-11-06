@@ -15,15 +15,15 @@ Workspace **has no server of its own** and sends telemetry to no one. This is th
 list of connections it can make, where to and when.
 
 <!-- List verified against the code shipped to clients (everything make-dist.sh keeps):
-urllib, smtplib, socket, webbrowser, git fetch/pull, curl/irm and subprocesses to gh, brew
-and npm. If you add a connection, add it here and in ../es/privacidad.md. -->
+urllib, smtplib, socket, webbrowser, git fetch/pull, curl/irm and subprocesses to gh, brew,
+npm and winget. If you add a connection, add it here and in ../es/privacidad.md. -->
 
 **Always (you can turn it off):**
 
 | Connection | Where to | When | How to turn it off |
 |---|---|---|---|
 | Automatic update (`git fetch` / `git pull`) | Workspace's repository on GitHub | when you open an agent, at most once every 6 h (in "notify", once a day and without installing) | `workspace update --auto off` (or the «automatic» row in Updates) |
-| Your engine's program | that engine's vendor (Anthropic, OpenAI, Google) | while you use the agent; also when Workspace asks it whether you're logged in | it's the official program with your account; governed by that vendor's terms |
+| Your engine's program | that engine's vendor (Anthropic, OpenAI, Google, AWS, GitHub, Cursor or the one you connect in OpenCode, OpenClaw or Hermes) | while you use the agent; also when Workspace asks it whether you're logged in | it's the official program with your account; governed by that vendor's terms |
 
 **When you ask for it or turn it on:**
 
@@ -32,7 +32,7 @@ and npm. If you add a connection, add it here and in ../es/privacidad.md. -->
 | `workspace update` and the **Updates** section | GitHub, and the git remote of each brain that has one | when you ask; it also pulls the brains you keep in git |
 | `workspace doctor` (without `--check`) | GitHub (`git fetch`) | checks for a new version of Workspace (and of the brains you declared as git) |
 | Finding *skills* in **Add agent** | `api.github.com` and `raw.githubusercontent.com` (public repositories from Anthropic and OpenAI, plus any you add); `skills.sh` only if you type a community search | when you reach the new agent's plan, only if you turn it on (off by default; you can turn it on on that same screen). GitHub sees which repositories and files are fetched; your agent's profile is matched on your machine |
-| Installing an engine | the official installer: `claude.ai`, `chatgpt.com`, `antigravity.google` or npm | only when you ask to install it |
+| Installing an engine | the official installer: `claude.ai`, `chatgpt.com`, `antigravity.google`, `opencode.ai`, `openclaw.ai`, `hermes-agent.nousresearch.com`, `cli.kiro.dev`, `cursor.com`, npm (OpenCode on Windows; GitHub Copilot on Mac and Linux) or WinGet (GitHub Copilot on Windows) | only when you ask to install it |
 | Skill review (when the next session opens) | the vendor of the agent's engine, inside that visible session (like any message) | only for agents where you turned it on (it ships off); the agent reads the copy of the previous session that Workspace saved in the brain when it closed |
 | Google Calendar | `calendar.google.com` (iCal link) or Google's APIs (`accounts.google.com`, `oauth2.googleapis.com`, `www.googleapis.com`), read-only | if you connect your calendar; then it refreshes on its own, in the background |
 | Mail (`workspace mail`) | the SMTP server you configure | each time you send |

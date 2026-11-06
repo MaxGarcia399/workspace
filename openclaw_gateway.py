@@ -427,10 +427,12 @@ def _kill_tree(pid):
 def _official_stop(exe, profile):
     """`gateway stop --force` (oficial; VERIFICADO 2026.9.33: con un gateway
     lanzado por `gateway run` dice «stop signal sent to unmanaged process»)."""
+    import arbol_procesos   # Windows: al vencer muere el árbol (.cmd → node)
     try:
-        subprocess.run([exe, "--profile", profile, "gateway", "stop", "--force"],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace",
-                       stdin=subprocess.DEVNULL, timeout=90, env=_clean_env())
+        arbol_procesos.run([exe, "--profile", profile, "gateway", "stop", "--force"],
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", stdin=subprocess.DEVNULL, timeout=90,
+                           env=_clean_env())
     except Exception:
         pass
 

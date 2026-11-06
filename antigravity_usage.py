@@ -98,46 +98,52 @@ SHIM_NAME='workspace-agy-statusline'
 _SHIM_MARK='# WORKSPACE · statusLine de Antigravity'
 
 
-def shim_path(home=None):
-    return Path(home or Path.home())/'.local'/'bin'/SHIM_NAME
+def shim_path(home=None,name=SHIM_NAME):
+    return Path(home or Path.home())/'.local'/'bin'/name
 
 
-def shim_text(root=None,python=None):
+def shim_text(root=None,python=None,script='antigravity_usage.py',mark=_SHIM_MARK,motor='Antigravity',args=()):
     """Script POSIX del shim (sh). Bake: raíz del harness y Python actuales,
     como respaldo de $WORKSPACE_ROOT / python3 del PATH. Siempre sale con 0
-    (una barra rota jamás debe ensuciar la UI de agy)."""
+    (una barra rota jamás debe ensuciar la UI del motor). `script`/`mark`/
+    `motor`/`args`: el mismo shim sirve a otras statusLine nativas
+    (motor_statusline: Copilot, Cursor); con los defaults sale idéntico al de
+    siempre."""
+    import re
     import shlex
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+\.py',script): raise ValueError('script')
+    if any(not re.fullmatch(r'[A-Za-z0-9_-]+',str(a)) for a in args): raise ValueError('args')
     root=str(root or Path(__file__).resolve().parent)
     python=str(python or sys.executable or 'python3')
     return '\n'.join([
         '#!/bin/sh',
-        _SHIM_MARK+' (generado; se reescribe al abrir un agente en Antigravity).',
+        mark+' (generado; se reescribe al abrir un agente en %s).' % motor,
         'root="${WORKSPACE_ROOT:-}"',
-        '[ -n "$root" ] && [ -f "$root/antigravity_usage.py" ] || root=%s' % shlex.quote(root),
-        'if [ ! -f "$root/antigravity_usage.py" ]; then cat >/dev/null; exit 0; fi',
+        '[ -n "$root" ] && [ -f "$root/%s" ] || root=%s' % (script,shlex.quote(root)),
+        'if [ ! -f "$root/%s" ]; then cat >/dev/null; exit 0; fi' % script,
         'py=%s' % shlex.quote(python),
         '[ -x "$py" ] || py="$(command -v python3 2>/dev/null)"',
         'if [ -z "$py" ]; then cat >/dev/null; exit 0; fi',
-        '"$py" "$root/antigravity_usage.py" || true',
+        '"$py" "$root/%s"%s || true' % (script,''.join(' '+str(a) for a in args)),
         'exit 0',''])
 
 
-def ensure_shim(home=None):
+def ensure_shim(home=None,name=SHIM_NAME,text=None,mark=_SHIM_MARK):
     """Escribe/actualiza el shim (solo POSIX). Devuelve su ruta o None. No
-    pisa un archivo con ese nombre que no sea nuestro."""
+    pisa un archivo con ese nombre que no sea nuestro (sin `mark`)."""
     if os.name=='nt': return None
-    p=shim_path(home)
+    p=shim_path(home,name)
     try:
         if p.is_symlink(): return None
-        want=shim_text()
+        want=shim_text() if text is None else text
         if p.exists():
             cur=p.read_text(encoding='utf-8',errors='replace')
-            if _SHIM_MARK not in cur: return None
+            if mark not in cur: return None
             if cur==want:
                 if not os.access(str(p),os.X_OK): os.chmod(str(p),0o755)
                 return p
         p.parent.mkdir(parents=True,exist_ok=True)
-        fd,tmp=tempfile.mkstemp(prefix='.'+SHIM_NAME+'-',dir=str(p.parent))
+        fd,tmp=tempfile.mkstemp(prefix='.'+name+'-',dir=str(p.parent))
         try:
             with os.fdopen(fd,'w',encoding='utf-8') as f: f.write(want)
             os.chmod(tmp,0o755)
@@ -148,14 +154,58 @@ def ensure_shim(home=None):
     except OSError: return None
 
 
+# Windows: agy y Cursor corren la statusLine con cmd.exe, y una ruta con
+# espacios entre comillas la rompe. VERIFICADO 2026-11-06 en caja negra
+# (Windows 11, agy 1.5.2 y cursor-agent 2026.11.05, usuario y Workspace en
+# carpetas con espacios):
+#   · la sonda `echo %ComSpec% $($PSVersionTable.PSVersion)` pinta
+#     `C:\Windows\system32\cmd.exe` y el `$(…)` literal: es cmd, no PowerShell;
+#   · `"…\python.exe" "…\antigravity_usage.py"`: agy escapa cada comilla como
+#     `\"` y cmd responde «"\"C:\…\python.exe\"" no se reconoce como un
+#     comando…» (a las 30 fallas la apaga); Cursor no pinta nada (ni error);
+#   · anteponer `call ` falla igual en los dos;
+#   · SIN comillas, con los nombres cortos 8.3, se pinta en los dos.
+# Por eso, en Windows, una CARPETA con espacios va con su nombre corto 8.3
+# (GetShortPathNameW) y el archivo con su nombre largo: is_ours y el
+# desinstalador reconocen la barra por él. Sin nombres 8.3 en ese disco, va
+# entre comillas como antes. Una ruta sin espacios no cambia.
+def win_cmdline(partes):
+    """Línea de comandos de la statusLine en Windows SIN comillas cuando se
+    puede (ver arriba): cada parte con espacios pasa a carpeta corta 8.3 +
+    nombre largo; si no hay nombre corto, list2cmdline la entrecomilla."""
+    out=[]
+    for p in partes:
+        p=str(p)
+        if ' ' in p or '\t' in p:
+            carpeta,nombre=os.path.split(p)
+            corta=_ruta_corta(carpeta)
+            if corta and nombre and not any(c in corta+nombre for c in ' \t"'):
+                p=corta.rstrip('\\')+'\\'+nombre
+        out.append(p)
+    return subprocess.list2cmdline(out)
+
+
+def _ruta_corta(path):
+    """Nombre corto 8.3 de `path` (Windows; debe existir) o '' si no hay."""
+    if os.name!='nt' or not path: return ''
+    try:
+        import ctypes
+        f=ctypes.windll.kernel32.GetShortPathNameW
+        n=f(str(path),None,0)
+        if not n: return ''
+        buf=ctypes.create_unicode_buffer(n)
+        return buf.value if f(str(path),buf,n) else ''
+    except Exception: return ''
+
+
 def bridge_config(home=None):
     """statusLine que Workspace quiere: el shim (POSIX) o, en Windows / sin
-    shim, Python + este archivo."""
+    shim, Python + este archivo (win_cmdline: sin comillas si se puede)."""
     shim=ensure_shim(home)
     if shim is not None:
         command=__import__('shlex').join([str(shim)])
     else:
-        command=subprocess.list2cmdline([sys.executable,str(Path(__file__).resolve())]) if os.name=='nt' else __import__('shlex').join([sys.executable,str(Path(__file__).resolve())])
+        command=win_cmdline([sys.executable,str(Path(__file__).resolve())]) if os.name=='nt' else __import__('shlex').join([sys.executable,str(Path(__file__).resolve())])
     return {'type':'command','command':command,'stack_with_default':True}
 
 

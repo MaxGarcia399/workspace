@@ -28,6 +28,7 @@ se borra: lo que sobra va a `STATE/users/_archivo/` o a `history/`.
 
 Cero dependencias (stdlib, 3.9+). Mac y Windows.
 """
+import contextlib
 import datetime
 import hashlib
 import json
@@ -443,7 +444,8 @@ def _locales(brain, cs):
     """El usuario de ESTA máquina (socio.local o WORKSPACE_SOCIO) y su nombre
     actual si dice uno viejo: lo suyo nunca se toma por relleno."""
     out = set()
-    for s in (_leer(_socio_local(brain)) or "", os.environ.get("WORKSPACE_SOCIO") or ""):
+    for s in (_leer(_socio_local(brain)) or "", os.environ.get("WORKSPACE_SOCIO") or "",
+              _yo_identidad(brain)):
         s = re.sub(r"[^a-z0-9_-]", "", s.strip().lower())
         if s:
             out.add(s)
@@ -516,6 +518,16 @@ def _socio_local(brain):
     return os.path.join(brain, ".claude", "socio.local")
 
 
+def _yo_identidad(brain):
+    """Quién eres en este cerebro según la identidad de ESTA máquina
+    (identidad.json; '' si la máquina no lo sabe). Falla-suave."""
+    try:
+        import identidad
+        return identidad.socio(brain)
+    except Exception:
+        return ""
+
+
 def socio_actual(brain, arreglar=True):
     """Quién es el socio en esta máquina para este cerebro. Si su
     `.claude/socio.local` todavía dice un nombre viejo (alias), se corrige
@@ -535,11 +547,20 @@ def socio_actual(brain, arreglar=True):
 
 
 def elegir(brain, quien):
-    """«Soy yo» en esta PC: escribe el nombre actual en .claude/socio.local
+    """«Soy yo» en esta PC: lo guarda la identidad de esta máquina
+    (identidad.json: override de este cerebro, o tu persona si la máquina no
+    sabía quién eres) y, para las versiones anteriores, `.claude/socio.local`
     (solo de esta máquina; nunca se escribe a mano)."""
     nombre = resolver(brain, quien) or str(quien or "").lower()
     if not valido(nombre) or (nombre not in carpetas(brain) and not resolver(brain, nombre)):
         raise ValueError("No hay un usuario «%s» en este agente" % quien)
+    try:
+        import identidad
+        identidad.elegido(brain, nombre)
+    except ImportError:
+        pass
+    except (OSError, TimeoutError) as e:
+        raise ValueError("No pude guardar quién eres en esta máquina (%s)" % e)
     _atomic(_socio_local(brain), nombre)
     return nombre
 
@@ -677,17 +698,24 @@ def _marcar_pestanas(brain, nombre, ced_id, validas=()):
     return n
 
 
-def asegurar(brain):
+def asegurar(brain, lote=None):
     """Idempotente y sin preguntar: (1) cada perfil sin cédula recibe una;
     (2) cada carpeta de sesiones sin perfil (y que no sea un nombre viejo de
     nadie) recibe perfil + cédula; (3) las pestañas reciben `socio_id`.
     DETERMINISTA (regla 4): otra máquina con el mismo cerebro escribe los
     mismos bytes, aunque lo haga otro día y antes de sincronizarse.
+    Las pestañas de un nombre viejo que pasan a su dueño quedan en un
+    respaldo con deshacer (identidad.Lote), tomado ANTES de moverlas: el
+    `lote` de la apertura si lo dan (usuarios.al_abrir: la unión de
+    identidad cae en el mismo y se deshace junto), o uno propio.
     → {"cedulas": [nombres], "perfiles": [nombres], "marcadas": n}."""
     rep = {"cedulas": [], "perfiles": [], "marcadas": 0}
     if not os.path.isdir(os.path.join(brain, "STATE")):
         return rep
-    with _lock(brain):
+    propio = lote is None
+    if propio:
+        lote = _lote_nuevo(brain)
+    with _lock(brain), _cerrar_al_final(lote if propio else None):
         cs = cedulas(brain)
         if _unir_duplicados(brain, cs, rep):
             cs = cedulas(brain)
@@ -717,9 +745,11 @@ def asegurar(brain):
         for nombre in carpetas(brain):
             dueno = next((c for c in cs if nombre in c["alias"] and nombre != c["nombre"]), None)
             if dueno:
+                if _alias_vetado(brain, nombre, dueno, cs):
+                    continue               # lo separaste con deshacer: no se vuelve a juntar
                 # una máquina con el nombre viejo volvió a crear la carpeta: el
-                # alias prueba que es la misma persona → se une sola
-                r = _mover_sesiones(brain, nombre, dueno["nombre"])
+                # alias prueba que es la misma persona → se une sola (con deshacer)
+                r = _mover_viejo(brain, nombre, dueno, cs, lote)
                 rep.setdefault("unidas", []).append((nombre, dueno["nombre"], len(r["movidas"])
                                                      + len(r["dobles"])))
                 continue
@@ -743,7 +773,8 @@ def asegurar(brain):
             cs.append(c)
         for nombre in _carpetas_memoria_claude(brain):
             dueno = next((c for c in cs if nombre in c["alias"] and nombre != c["nombre"]), None)
-            if dueno and _mover_memoria_claude(brain, nombre, dueno["nombre"]):
+            if dueno and not _alias_vetado(brain, nombre, dueno, cs) \
+                    and _mover_memoria_claude(brain, nombre, dueno["nombre"]):
                 # un Claude Code abierto en otra máquina siguió escribiendo con el
                 # nombre viejo: su memoria pasa a la persona
                 rep.setdefault("memoria_unida", []).append((nombre, dueno["nombre"]))
@@ -751,6 +782,65 @@ def asegurar(brain):
             if c["id"] and c["nombre"] in carpetas(brain):
                 rep["marcadas"] += _marcar_pestanas(brain, c["nombre"], c["id"], usados)
     return rep
+
+
+def _lote_nuevo(brain):
+    """El respaldo con deshacer de una apertura (identidad.Lote), o None si
+    no se puede (entonces se mueve como siempre: nada se pierde, pero sin
+    deshacer)."""
+    try:
+        import identidad
+        return identidad.Lote(brain)
+    except Exception:
+        return None
+
+
+def _alias_vetado(brain, nombre, dueno, cs):
+    """¿Deshiciste la unión de `nombre` con `dueno`? El veto `no_unir:` de
+    las cédulas (viaja con el cerebro) o el de esta máquina (identidad.json).
+    Sin él, la siguiente apertura volvía a juntar lo que acababas de
+    separar."""
+    try:
+        import identidad
+        propia = next((c for c in cs if c["nombre"] == nombre), None)
+        if nombre in identidad._veto(dueno) or \
+                (propia is not None and dueno["nombre"] in identidad._veto(propia)):
+            return True
+        data = identidad.cargar()
+        return any(nombre in (data["no_unir"].get(k) or []) for k in identidad.claves(brain))
+    except Exception:
+        return False
+
+
+def _mover_viejo(brain, nombre, dueno, cs, lote):
+    """Las pestañas del nombre viejo `nombre` pasan a `dueno`, con la foto
+    del lote tomada ANTES del primer movimiento."""
+    registro = None
+    if lote is not None:
+        propia = next((c for c in cs if c["nombre"] == nombre), None)
+        ruta = propia["ruta"] if propia else os.path.join(_users_dir(brain), nombre + ".md")
+        try:
+            lote.abrir([{"nombre": nombre, "ruta": ruta}, dueno])
+            lote.unida(nombre, dueno["nombre"], propia["id"] if propia else "",
+                       os.path.relpath(ruta, brain).replace(os.sep, "/"))
+            registro = lote.registro
+        except Exception:
+            registro = None
+    return _mover_sesiones(brain, nombre, dueno["nombre"], registro)
+
+
+@contextlib.contextmanager
+def _cerrar_al_final(lote):
+    """Cierra (guarda el manifiesto de) el lote propio de asegurar al salir,
+    aunque algo falle a medias: deshacer sabe qué pasó."""
+    try:
+        yield
+    finally:
+        if lote is not None:
+            try:
+                lote.cerrar()
+            except Exception:
+                pass
 
 
 def _unir_duplicados(brain, cs, rep):
@@ -807,13 +897,36 @@ def _archivar_perfil(brain, ruta):
     return arch
 
 
+def _identidad_al_abrir(brain, lote=None):
+    """Sesiones v2: tus cédulas duplicadas en este cerebro (dos nombres tuyos
+    que aquí siguen separados) se unen solas (identidad.al_abrir), en el
+    mismo `lote` que lo que asegurar ya movió. Falla-suave."""
+    try:
+        import identidad
+        return identidad.al_abrir(brain, lote=lote)
+    except Exception:
+        return []
+
+
+def _deshacer_cmd():
+    try:
+        import identidad
+        return identidad.comando("deshacer")
+    except Exception:
+        return "workspace identidad deshacer"
+
+
 def al_abrir(brain):
-    """Lo que corre solo al abrir un agente: cédulas al día y el nombre de
-    esta máquina corregido si quedó uno viejo. → aviso de una línea o ''."""
+    """Lo que corre solo al abrir un agente: cédulas al día, el nombre de
+    esta máquina corregido si quedó uno viejo y tus nombres duplicados unidos
+    (identidad entre cerebros). → aviso de una línea o ''."""
+    lote = _lote_nuevo(brain)       # UN respaldo y UN deshacer para toda la apertura
     try:
         antes = (_leer(_socio_local(brain)) or "").strip().lower()
-        rep = asegurar(brain)
+        rep = asegurar(brain, lote=lote)
         ahora = socio_actual(brain, arreglar=True)
+        de_identidad = _identidad_al_abrir(brain, lote)
+        con_deshacer = any("deshacer" in p for p in de_identidad)
         partes = []
         if antes and ahora and antes != ahora:
             partes.append("en esta PC «%s» ahora se llama «%s»" % (antes, ahora))
@@ -821,7 +934,11 @@ def al_abrir(brain):
         if nuevos:
             partes.append("usuario(s) con cédula: %s" % ", ".join(nuevos))
         for viejo, nombre, n in rep.get("unidas") or []:
-            partes.append("%d pestaña(s) de «%s» (nombre viejo) pasaron a «%s»" % (n, viejo, nombre))
+            txt = "%d pestaña(s) de «%s» (nombre viejo) pasaron a «%s»" % (n, viejo, nombre)
+            if not con_deshacer and lote is not None and lote.tiene(viejo, nombre):
+                txt += " · deshacer: %s" % _deshacer_cmd()
+                con_deshacer = True
+            partes.append(txt)
         for viejo, nombre in rep.get("duplicadas") or []:
             partes.append("«%s» y «%s» eran la misma persona (renombrada en dos máquinas a la vez): "
                           "quedó «%s» y nada se borró" % (viejo, nombre, nombre))
@@ -835,9 +952,16 @@ def al_abrir(brain):
             partes.append("quité %s: eran carpetas de ejemplo vacías de la plantilla, no usuarios "
                           "de este agente (el perfil quedó en STATE/users/_archivo/)"
                           % ", ".join("«%s»" % n for n in rep["plantilla"]))
+        partes += de_identidad
         return ("WORKSPACE · usuarios: " + "; ".join(partes) + " (sección Usuarios)") if partes else ""
     except Exception:
         return ""
+    finally:
+        if lote is not None:
+            try:
+                lote.cerrar()
+            except Exception:
+                pass
 
 
 # ── acciones de la sección Usuarios ─────────────────────────────────────────
@@ -918,6 +1042,7 @@ def renombrar(brain, quien, nuevo, revision=None):
         _socio_en_pestanas(brain, nuevo, c["id"])
         if (_leer(_socio_local(brain)) or "").strip().lower() == viejo:
             _atomic(_socio_local(brain), nuevo)
+    _aprender(brain)
     return c
 
 
@@ -955,10 +1080,20 @@ def _nota_en_historial(path, texto):
     _reescribir_ficha(path, cambio)            # error de lectura → no se escribe nada
 
 
-def _mover_sesiones(brain, origen, destino):
+def _mov(x, y, registro=None):
+    """os.replace(x, y) que, si se le da `registro`, anota (x, y): la unión
+    automática (identidad.unir_persona) lo usa para que deshacer sepa de
+    dónde vino cada archivo."""
+    os.replace(x, y)
+    if registro is not None:
+        registro.append((x, y))
+
+
+def _mover_sesiones(brain, origen, destino, registro=None):
     """Las pestañas de la carpeta `origen` pasan a la de `destino` (sin
     candado: lo toma quien llama). Una pestaña en las dos: se queda la más
-    nueva y la otra va ENTERA a `history/`, con una nota que dice dónde."""
+    nueva y la otra va ENTERA a `history/`, con una nota que dice dónde.
+    `registro` (lista): cada movimiento (origen, destino), ver _mov."""
     src = os.path.join(_sess_dir(brain), origen)
     dst = os.path.join(_sess_dir(brain), destino)
     rep = {"movidas": [], "dobles": [], "otros": [], "iguales": []}
@@ -972,7 +1107,7 @@ def _mover_sesiones(brain, origen, destino):
             # mover una pestaña con los candados de las notas de origen y destino
             with memoria._lock(a), memoria._lock(b):
                 if not os.path.exists(b):
-                    os.replace(a, b)
+                    _mov(a, b, registro)
                     rep["movidas"].append(f)
                     continue
                 if _no_aporta(a, b, _copias_en_historia(dst, f)):
@@ -984,17 +1119,17 @@ def _mover_sesiones(brain, origen, destino):
                 guardada = _destino_libre(os.path.join(dst, "history", "%s-de-%s.md" % (
                     os.path.splitext(f)[0], destino if gana_a else origen)))
                 os.makedirs(os.path.dirname(guardada), exist_ok=True)
-                os.replace(pierde, guardada)
+                _mov(pierde, guardada, registro)
                 if gana_a:
-                    os.replace(a, b)
+                    _mov(a, b, registro)
             rep["dobles"].append(f)
             _nota_en_historial(b, "se unió con la copia de «%s»; la otra versión quedó entera en "
                                   "history/%s" % (origen if not gana_a else destino,
                                                   os.path.basename(guardada)))
         elif os.path.isdir(a):
-            _unir_carpeta(a, os.path.join(dst, f), rep)
+            _unir_carpeta(a, os.path.join(dst, f), rep, registro)
         else:
-            os.replace(a, _destino_libre(b))
+            _mov(a, _destino_libre(b), registro)
             rep["otros"].append(f)
     try:
         os.rmdir(src)
@@ -1009,23 +1144,43 @@ def unir(brain, origen, destino):
     origen queda de alias de destino y su perfil va a STATE/users/_archivo/.
     Nada se borra."""
     with _lock(brain):
-        o = _buscar(brain, origen)
-        d = _buscar(brain, destino)
-        if o["nombre"] == d["nombre"]:
-            raise ValueError("Es el mismo usuario")
-        _editable(d)
-        rep = _mover_sesiones(brain, o["nombre"], d["nombre"])
-        _mover_memoria_claude(brain, o["nombre"], d["nombre"])
-        d["alias"] = sorted(set(d["alias"]) | {o["nombre"]} | set(o["alias"]))
-        d["revision"] += 1
-        if not d["id"]:
-            d["id"] = _nuevo_id({x["id"] for x in cedulas(brain) if x["id"]}, d["nombre"])
-        _guardar_cedula(d)
-        _archivar_perfil(brain, o["ruta"])
-        _socio_en_pestanas(brain, d["nombre"], d["id"])
-        if (_leer(_socio_local(brain)) or "").strip().lower() == o["nombre"]:
-            _atomic(_socio_local(brain), d["nombre"])
+        rep = _unir(brain, origen, destino)
+    _aprender(brain)
     return rep
+
+
+def _unir(brain, origen, destino, registro=None):
+    """unir() sin el candado: lo toma quien llama (unir, o la unión
+    automática entre cerebros de identidad.unir_persona, que pasa `registro`
+    para poder deshacerla, ver _mov)."""
+    o = _buscar(brain, origen)
+    d = _buscar(brain, destino)
+    if o["nombre"] == d["nombre"]:
+        raise ValueError("Es el mismo usuario")
+    _editable(d)
+    rep = _mover_sesiones(brain, o["nombre"], d["nombre"], registro)
+    _mover_memoria_claude(brain, o["nombre"], d["nombre"])
+    d["alias"] = sorted(set(d["alias"]) | {o["nombre"]} | set(o["alias"]))
+    d["revision"] += 1
+    if not d["id"]:
+        d["id"] = _nuevo_id({x["id"] for x in cedulas(brain) if x["id"]}, d["nombre"])
+    _guardar_cedula(d)
+    _archivar_perfil(brain, o["ruta"])
+    _socio_en_pestanas(brain, d["nombre"], d["id"])
+    if (_leer(_socio_local(brain)) or "").strip().lower() == o["nombre"]:
+        _atomic(_socio_local(brain), d["nombre"])
+    return rep
+
+
+def _aprender(brain):
+    """Tras renombrar o unir (a mano, en la sección): si fue a la persona de
+    esta máquina, su identidad (identidad.json) sigue el cambio y lo lleva a
+    sus otros cerebros. Falla-suave."""
+    try:
+        import identidad
+        identidad.aprender(brain, seguir=True)
+    except Exception:
+        pass
 
 
 def _copias_en_historia(carpeta, f):
@@ -1058,7 +1213,7 @@ def _mover_memoria_claude(brain, origen, destino):
         return 0
 
 
-def _unir_carpeta(a, b, rep):
+def _unir_carpeta(a, b, rep, registro=None):
     """checkpoints/, maleta/, archivo/, history/…: se mueve todo; lo que choca
     entra con sufijo. En checkpoints gana la revisión más alta. Una copia
     idéntica (otra máquina ya la movió) no se duplica."""
@@ -1066,10 +1221,10 @@ def _unir_carpeta(a, b, rep):
     for f in sorted(os.listdir(a)):
         x, y = os.path.join(a, f), os.path.join(b, f)
         if os.path.isdir(x):
-            _unir_carpeta(x, y, rep)
+            _unir_carpeta(x, y, rep, registro)
             continue
         if not os.path.exists(y):
-            os.replace(x, y)
+            _mov(x, y, registro)
             continue
         if _bytes(x) == _bytes(y):
             os.remove(x)
@@ -1084,12 +1239,12 @@ def _unir_carpeta(a, b, rep):
         if os.path.basename(a) == "checkpoints" and f.endswith(".md"):
             os.makedirs(os.path.join(b, "history"), exist_ok=True)
             if _rev(x) > _rev(y):
-                os.replace(y, _destino_libre(os.path.join(b, "history", f)))
-                os.replace(x, y)
+                _mov(y, _destino_libre(os.path.join(b, "history", f)), registro)
+                _mov(x, y, registro)
             else:
-                os.replace(x, _destino_libre(os.path.join(b, "history", f)))
+                _mov(x, _destino_libre(os.path.join(b, "history", f)), registro)
             continue
-        os.replace(x, _destino_libre(y))
+        _mov(x, _destino_libre(y), registro)
         rep["otros"].append(f)
     try:
         os.rmdir(a)
@@ -1107,7 +1262,7 @@ def resumen(brain):
     """[{nombre, id, alias, pestanas, yo, revision, parecido}] para la
     sección. `parecido` = otro usuario que probablemente es la misma persona
     (un nombre empieza con el otro y comparten pestañas): se ofrece Unir."""
-    yo = socio_actual(brain, arreglar=False)
+    yo = _yo_identidad(brain) or socio_actual(brain, arreglar=False)
     cs = cedulas(brain)
     locales = _locales(brain, cs)
     cs = [c for c in cs if not _de_plantilla(brain, c, locales)]   # aunque asegurar() no corriera

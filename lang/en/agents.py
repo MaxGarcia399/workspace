@@ -115,7 +115,7 @@ STRINGS = {
     "agents.x.model.where": "settings agentes.<name>.model (per machine).",
     "agents.x.model.effect": "Claude Code gets --model <value> at launch (engines/claude_code.model_args); an explicit --model or ANTHROPIC_MODEL win.",
     "agents.x.model.edit": "settings agentes.<name>.model.",
-    "agents.x.brain": "The folder that IS the agent: identity, rules, memory, wiki and skills. The harness is replaceable; the brain is not.",
+    "agents.x.brain": "The folder that IS the agent: identity, rules, memory, wiki and skills. Workspace and the engine can be replaced; the brain can't.",
     "agents.x.brain.where": "paths.local.json → brains.<name> if present (per machine); otherwise the brain field of agent.json, relative to the WORKSPACE root (dispatch.resolve_brain).",
     "agents.x.brain.effect": "At launch the engine starts with its working directory in this folder: that is where it finds its identity (BRAIN.md; in older brains, CLAUDE.md) through that engine's pointer.",
     "agents.x.brain.edit": "~/.claude/workspace/paths.local.json → brains.<name>.",

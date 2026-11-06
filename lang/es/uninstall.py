@@ -27,7 +27,7 @@ STRINGS = {
     "uninstall.kept_inside": "conservado: {p}",
     "uninstall.label.state": "estado per-máquina",
     "uninstall.label.state_item": "estado",
-    "uninstall.no_root": "no encuentro la carpeta del harness en {p} (nada que borrar "
+    "uninstall.no_root": "no encuentro la carpeta de Workspace en {p} (nada que borrar "
                          "ahí; usa --workspace <ruta> si está en otro lado)",
     "uninstall.nothing": "Nada fue borrado.",
     "uninstall.plan.app": "app de escritorio: {p}",
@@ -43,8 +43,8 @@ STRINGS = {
     "uninstall.plan.engines_clean": "las conversaciones de los perfiles de Workspace en "
                                     "OpenClaw y Hermes, en una carpeta de respaldo al lado de "
                                     "cada perfil (ver abajo)",
-    "uninstall.plan.harness": "carpeta del harness: {p}",
-    "uninstall.plan.harness_kept": "carpeta del harness (--keep-folder): {p}",
+    "uninstall.plan.harness": "carpeta de Workspace: {p}",
+    "uninstall.plan.harness_kept": "carpeta de Workspace (--keep-folder): {p}",
     "uninstall.plan.keep": "SE CONSERVA (no se toca)",
     "uninstall.plan.no_backup": "sin respaldo (--no-backup)",
     "uninstall.plan.nothing_to_backup": "nada que respaldar (no hay estado)",
@@ -73,12 +73,13 @@ STRINGS = {
     "uninstall.x.reset_theme.2": "theme {th} removido de ~/.claude/settings.json",
     "uninstall.x.restore_retention.1": "restauraría cleanupPeriodDays={prior!r} en {sp}",
     "uninstall.x.restore_retention.2": "cleanupPeriodDays restaurado ({v})",
-    "uninstall.x.main.1": "\n  {b}{c}Desinstalador de WORKSPACE{r}  {dim}· {v} · {root}{r}",
+    "uninstall.x.main.1": "\n  {b}{c}Desinstalador de Workspace{r}  {dim}· {v} · {root}{r}",
     "uninstall.x.main.2": "app de escritorio",
-    "uninstall.x.main.3": "{dim}carpeta del harness conservada (--keep-folder): {root}{r}",
-    "uninstall.x.main.4": "{dim}aviso: {root} no parece un harness WORKSPACE (sin front.py/dispatch.py/install.py) — NO borro la carpeta. Usa --workspace <ruta> si es otra.{r}",
-    "uninstall.x.main.5": "carpeta del harness",
-    "uninstall.x.main.6": "\n  {c}Listo.{r} WORKSPACE desinstalado de esta máquina.",
+    "uninstall.x.main.3": "{dim}carpeta de Workspace conservada (--keep-folder): {root}{r}",
+    "uninstall.x.main.4": "{dim}aviso: {root} no parece una carpeta de Workspace (sin front.py/dispatch.py/install.py) — NO borro la carpeta. Usa --workspace <ruta> si es otra.{r}",
+    "uninstall.x.main.5": "carpeta de Workspace",
+    "uninstall.x.main.6": "\n  {c}Listo.{r} Workspace desinstalado de esta máquina.",
+    "uninstall.x.main.6_dry": "\n  {c}Simulacro.{r} No se tocó nada: arriba está lo que haría.",
     "uninstall.x.main.7": "  {dim}Los CEREBROS (carpetas de agentes) y los transcripts NO se tocaron.{r}",
     "uninstall.x.main.8": "  {dim}Abre una terminal NUEVA para soltar el PATH/greeter viejos.{r}",
     "uninstall.x.main.9": "  {dim}Si vuelves a instalar Workspace, carga de nuevo cada agente (Agregar agente → cargar su carpeta) para que apunte a la instalación nueva; si restauraste tu respaldo, basta con `workspace doctor`.{r}",
@@ -93,9 +94,9 @@ STRINGS = {
     "uninstall.git.changes": "{n} cambio(s) sin commit",
     "uninstall.git.commits": "{n} commit(s) sin push",
     "uninstall.git.stashes": "{n} stash(es) guardado(s)",
-    "uninstall.plan.harness_git": "carpeta del harness: {p} — es un checkout de git con trabajo "
+    "uninstall.plan.harness_git": "carpeta de Workspace: {p} — es un checkout de git con trabajo "
                                   "sin publicar ({w}); bórrala tú cuando lo hayas guardado",
-    "uninstall.x.main.git": "{dim}carpeta del harness conservada: {root} — tiene trabajo de git "
+    "uninstall.x.main.git": "{dim}carpeta de Workspace conservada: {root} — tiene trabajo de git "
                             "sin publicar ({w}).{r}",
     "uninstall.need_yes": "Sin terminal interactiva no puedo pedirte confirmación. Nada fue "
                           "borrado. Para desinstalar así, añade --yes (y mira antes qué pasaría "
@@ -122,6 +123,16 @@ STRINGS = {
     "uninstall.clean.agy_rules": "reglas de archivos del cerebro ({k})",
     "uninstall.clean.agy_memoria": "reglas `workspace memoria …` ({k})",
     "uninstall.clean.agy_project": "Antigravity: proyecto {p}",
+    "uninstall.clean.copilot": "GitHub Copilot: {p}",
+    "uninstall.clean.cursor": "Cursor: {p}",
+    "uninstall.clean.memoria_permiso": "permiso de `workspace-memoria`",
+    "uninstall.clean.kiro_agent": "Kiro: agente de Workspace {p}",
+    "uninstall.clean.memoria_mcp": "cerebro «{n}»: herramienta de memoria en {p}",
+    "uninstall.clean.kiro_settings": "Kiro: {p}",
+    "uninstall.clean.kiro_segments": "segmentos de la barra que prendió Workspace",
+    "uninstall.clean.copilot_backup": "GitHub Copilot: respaldo de Workspace {p}",
+    "uninstall.clean.motor_shim": "barra de un motor: {p}",
+    "uninstall.clean.cursor_trust": "Cursor: confianza que dio Workspace {p}",
     "uninstall.clean.openclaw": "OpenClaw: perfil de Workspace {p} → se aparta (no se borra) "
                                 "a {b}, con sus conversaciones y el proveedor que conectaste "
                                 "ahí; tu OpenClaw personal no se toca",

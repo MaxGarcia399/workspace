@@ -9,31 +9,77 @@ agentes. Créalos o cárgalos desde el hub con **Agregar agente**; revísalos co
 
 ## El motor
 
-El motor es el programa de IA que conversa con el modelo. Workspace **no reescribe** esa
-parte: usa el programa oficial de cada proveedor, con **tu cuenta**.
+El motor es el programa de IA que conversa con el modelo. Workspace **configura y abre tus
+motores oficiales**: no reescribe esa parte, usa el programa oficial de cada proveedor con
+**tu cuenta**.
 
 | Motor | Programa | Cuenta | Cómo entras |
 |---|---|---|---|
 | **Claude Code** | `claude` (Anthropic) | tu suscripción | corre `claude` una vez y sigue el login |
 | **Codex** | `codex` (OpenAI) | tu suscripción de ChatGPT | `codex login` |
 | **Antigravity** | `agy` (Google) | tu cuenta Google | el propio `agy` te pide entrar |
-| **OpenCode** | `opencode` (código abierto) | el proveedor que conectes (OpenRouter, Anthropic, OpenAI…) | `opencode auth login` |
-| **OpenClaw** | `openclaw` (código abierto) | el proveedor y el modelo que elijas | Motores › **cuenta y proveedor** (`openclaw --profile workspace configure --section model`, el selector oficial de OpenClaw) |
+| **OpenCode** | `opencode` (Anomaly, código abierto) | el proveedor que conectes (OpenRouter, Anthropic, OpenAI…) | `opencode auth login` |
+| **OpenClaw** | `openclaw` (OpenClaw Foundation, código abierto) | el proveedor y el modelo que elijas | Motores › **cuenta y proveedor** (`openclaw --profile workspace configure --section model`, el selector oficial de OpenClaw) |
 | **Hermes** | `hermes` (Nous Research, código abierto) | el proveedor y el modelo que elijas | Motores › **cuenta y proveedor** (`hermes --profile workspace model`, el selector oficial de Hermes) |
+| **Kiro** | `kiro-cli` (AWS, antes Amazon Q Developer CLI) | tu cuenta de Kiro (Builder ID, Identity Center, Google o GitHub) | `kiro-cli login` |
+| **GitHub Copilot** | `copilot` (GitHub) | tu suscripción de Copilot | `copilot login` (Motores › **cuenta y proveedor**) |
+| **Cursor** | `cursor-agent` (Anysphere, la empresa de Cursor) | tu cuenta de Cursor | `cursor-agent login` (también en Motores › **cuenta y proveedor**) |
 
 Workspace **nunca lee ni toca** las credenciales de estos programas: el login lo hace cada uno.
-Con OpenCode, OpenClaw y Hermes, el modelo lo eliges tú en su propia configuración; Workspace no lo cambia.
+Con OpenCode, OpenClaw, Hermes, Kiro y Cursor, el modelo lo eliges tú en su propia configuración; Workspace no lo cambia.
+
+**Marcas.** Workspace es independiente: no está afiliado a Anthropic, OpenAI, Google, Anomaly
+(OpenCode), la OpenClaw Foundation, Nous Research (Hermes), Amazon Web Services (Kiro), GitHub ni
+Anysphere (Cursor), ni cuenta con su respaldo. Las marcas son de sus dueños. Cada motor se usa con
+tu propia cuenta y bajo sus propios términos.
 
 **Tu cuenta, tu proveedor y la configuración de cada motor son tuyos.** Workspace no tiene un
-sistema de proveedores, no guarda llaves y no cambia ajustes del motor: en **Motores**, cada
+sistema de proveedores, no guarda llaves y no cambia tu cuenta, tu proveedor ni tu modelo (lo
+poco que sí escribe en la configuración de GitHub Copilot, Cursor y Kiro, para su barra y para
+guardar la memoria, está abajo, motor por motor, y se quita al desinstalar): en **Motores**, cada
 motor tiene siempre la opción **cuenta y proveedor**, que abre el selector oficial de cuenta,
 proveedor y modelo de ese motor (`claude auth login`, `codex login`, `agy`, `opencode auth login`,
-`openclaw --profile workspace configure --section model` o `hermes --profile workspace model`). Ahí
+`openclaw --profile workspace configure --section model`, `hermes --profile workspace model`,
+`kiro-cli login`, `copilot login` o `cursor-agent login`). Ahí
 entras, cambias de cuenta o conectas otro proveedor. El resto de la configuración del motor sigue
 siendo tuya, con sus propias herramientas.
 
+**GitHub Copilot** se instala desde Motores con el paquete oficial de npm (`@github/copilot`,
+necesita Node.js 22 o más nuevo) en macOS y Linux, y con WinGet (`GitHub.Copilot`) en Windows. En
+la Mac no uses el de Homebrew (`brew install --cask copilot-cli`): macOS retiene ese programa y
+abre un aviso «No se abrió copilot» que no se puede cerrar. Copilot ya lee tu cerebro sin
+preguntar; la terminal y escribir fuera del cerebro te los pregunta él. Lo que pone y escribe
+Workspace:
+
+- **En cada arranque, sin escribir nada en Copilot:** la herramienta de memoria de Workspace
+  (`--additional-mcp-config=@~/.claude/workspace/copilot-mcp.json`) y el permiso para usar
+  **solo** sus herramientas (`--allow-tool=workspace-memoria(guardar_nota)`, `…(guardar_resumen)`
+  y `…(ver_memoria)`): tu agente guarda sus notas sin que Copilot te pregunte, sin pasar por la
+  terminal, y solo en la memoria de su pestaña; la terminal y lo demás siguen preguntando. Y
+  `--excluded-tools=session_store_sql` (apaga el buscador de conversaciones viejas de Copilot:
+  es uno para toda tu cuenta y un agente podía leer las de otro; la memoria de la pestaña cubre
+  lo que daba). Si pasas tus propios `--excluded-tools` o `--available-tools`, ganan los tuyos y
+  Workspace te avisa al abrir.
+- **Escribir en su cerebro sin preguntar** (con «su cerebro sin preguntar» encendido, lo de
+  fábrica), también en cada arranque: `--allow-tool=write(<cerebro>/**)` con la ruta real del
+  cerebro, y `--deny-tool` para salir por `..` y para la config de Copilot del cerebro que corre
+  comandos o aprueba herramientas (`.github/`, `.mcp.json`, `.claude/settings.json` y
+  `settings.local.json`, `.claude/skills/`, `.claude/agents/` y `.agents/`): esa no la escribe,
+  ni preguntando. Fuera del cerebro te pregunta. Apagado, no pasa nada de esto. Si pasas tus
+  propios permisos de Copilot (`--allow-tool`, `--deny-tool` de `write`, `--allow-all-tools`,
+  `--yolo` o `COPILOT_ALLOW_ALL`), ganan los tuyos. Con paréntesis en la ruta del cerebro Copilot
+  no acepta la regla: te pregunta, y te lo dice al abrir.
+- **Su barra:** la `statusLine` de tu `~/.copilot/settings.json` (o `$COPILOT_HOME`) apunta a
+  `~/.local/bin/workspace-copilot-statusline`; antes de la primera vez guarda una copia del
+  archivo en `settings.workspace-statusline-backup.json`. Una `statusLine` tuya no se toca. Para
+  quitarla: `WORKSPACE_COPILOT_NO_STATUSLINE=1`.
+- Al desinstalar se quitan la barra, esa copia y su comando. Si la herramienta no está (por
+  ejemplo, si quitas las herramientas con tus propios `--available-tools`), tu agente guarda con
+  `workspace memoria nota` y Copilot te pide permiso. Si eliges «Yes, and don't ask again for `workspace` in this
+  directory», Copilot aprueba **todos** los comandos `workspace` en ese cerebro, no solo las notas.
+
 **Versiones.** Workspace usa siempre la versión más nueva de cada motor. En **Motores**, OpenCode,
-OpenClaw y Hermes muestran la suya: **probada** (Workspace ya la probó), **nueva** (lo normal: cada
+OpenClaw, Hermes, Kiro, GitHub Copilot y Cursor muestran la suya: **probada** (Workspace ya la probó), **nueva** (lo normal: cada
 versión nueva se prueba sola a diario y, si algo falla, `workspace update` trae el ajuste),
 **vieja** o **muy vieja** (actualízala) o **con falla** (un problema comprobado en tu sistema: Enter
 te dice cuál y qué hacer, y aun así puedes abrir el agente). Claude Code, Codex y Antigravity no
@@ -105,6 +151,76 @@ saber:
 - Si abres dos pestañas nuevas del mismo agente a la vez y no aprobaste el hook, Workspace no
   adivina de cuál es cada conversación: no ata ninguna (la recuperas desde el historial de Hermes).
 
+Kiro corre con **tu misma cuenta y tu misma configuración** de Kiro: Workspace no le crea perfil.
+Fuera de tu cerebro (en `~/.kiro`, o en `KIRO_HOME`) **no escribe nada**: todo va en el agente
+`workspace` de tu cerebro (`.kiro/agents/workspace.json`: el agente de fábrica de Kiro sin su
+personalidad, más la herramienta de memoria y los permisos de abajo). Su barra es la suya, sin
+tocar: el uso y los créditos se prenden en `/settings display` dentro de Kiro. Si una versión
+anterior de Workspace había dejado su agente en `~/.kiro` o prendido esos segmentos, se quitan
+solos al actualizar (con copia; `workspace migrate --undo 202611052341_kiro_config_en_el_cerebro`
+devuelve la barra como estaba). Lo que conviene saber:
+
+- **Inicia sesión antes.** Sin sesión, Kiro abre su propio inicio de sesión en el navegador.
+  Workspace te lo ofrece al abrir el agente (`kiro-cli login`) y no abre a ciegas si dices que no.
+- **Abre tu cerebro sin preguntar si confías en la carpeta.** Workspace usa la opción oficial de
+  Kiro que confía **solo** en esa carpeta y **solo** en ese arranque; no guarda nada en tu
+  configuración. Para que Kiro vuelva a preguntar: `WORKSPACE_KIRO_NO_AUTOTRUST=1`.
+- **Lee tu cerebro sin pedir permiso**, como hace Kiro con la carpeta donde lo abres, y **escribe
+  en él sin preguntar** si el agente tiene «su cerebro sin preguntar» (lo normal; se cambia en
+  Agentes): fuera del cerebro Kiro te sigue preguntando y la terminal pregunta como siempre. Con
+  Kiro 2 y Kiro 3, cada arranque elige el agente `workspace` (`--agent workspace`), que Workspace
+  deja en tu cerebro (`.kiro/agents/workspace.json`) con esos permisos y con su herramienta de
+  memoria aprobada por nombre; tu agente guarda sus notas con ella, sin pasar por la terminal y
+  sin que Kiro pregunte. Ese
+  agente no puede escribir en `.kiro/` (ni darse permisos) y Workspace lo rehace al abrir cada
+  pestaña: si alguien lo cambió, lo respalda en `~/.claude/workspace/respaldos/` y te avisa. Si eliges
+  tú el agente o el motor de Kiro (`--agent`, `--v3`, `chat.defaultAgent`…), gana lo tuyo y la
+  memoria pide permiso (`workspace memoria nota`).
+- **Pestañas:** Kiro crea la conversación con el mensaje de arranque y Workspace la ata a la
+  pestaña al cerrar; al reabrirla, retoma la misma (`--resume-id`). Una conversación solo puede
+  estar abierta en una ventana a la vez (regla de Kiro).
+- **Al cerrar**, Workspace copia la conversación de Kiro (`~/.kiro/sessions/`) para la maleta.
+- **Instalación en Mac:** el instalador oficial abre la app «Kiro CLI» una vez para terminar de
+  instalarse. Si lo instalaste con Homebrew, ábrela tú una vez; si no, Workspace te lo dice.
+- Una carpeta `.kiro/` en la raíz del cerebro competiría con la identidad común: `workspace
+  doctor` la avisa (salvo si solo trae el agente de Workspace).
+
+Cursor corre con **tu cuenta de Cursor** (`cursor-agent login`) y el modelo que elijas dentro de
+Cursor. No usa perfil propio: lee el mismo `AGENTS.md` del cerebro. Lo que conviene saber:
+
+- **Confía en tu cerebro por ti.** Cursor pregunta si confías en cada carpeta nueva; Workspace lo
+  abre con `--trust`, que deja la marca `.workspace-trusted` en `~/.cursor/projects/<carpeta>/`
+  (fuera de tu cerebro). Solo en la carpeta del cerebro: cuando Workspace le pide algo sin
+  ventana, confía únicamente si es el cerebro de un agente tuyo. Para que vuelva a preguntarte:
+  `WORKSPACE_CURSOR_NO_AUTOTRUST=1`. Al desinstalar se quitan solo las marcas que dejó Workspace.
+- **Lee y edita dentro de tu cerebro sin preguntar** (lo normal en Cursor); los comandos de la
+  terminal te los pide aprobar, salvo guardar la memoria: tu agente guarda con la herramienta de
+  memoria de Workspace, sin pasar por la terminal y solo en la pestaña de esa ventana. Va en la
+  configuración de **proyecto** de tu cerebro: el servidor en `.cursor/mcp.json`, el permiso de
+  sus tres herramientas en `.cursor/cli.json` (`Mcp(workspace-memoria:guardar_nota)`…) y, al
+  abrir, `cursor-agent mcp enable workspace-memoria`, que aprueba **solo** ese servidor (si
+  alguien cambia su comando, Cursor vuelve a preguntar). Esos dos archivos son tu config de
+  proyecto: Workspace solo agrega lo suyo (su servidor y sus reglas) y tus servidores y permisos
+  quedan tal cual. `cli.json` también le niega al agente escribir en `.cursor/`
+  (`Write(**/.cursor/**)`, para que no se dé permisos). Si alguien cambió lo de Workspace, al
+  abrir se restaura solo eso, con una copia en `~/.claude/workspace/respaldos/` y un aviso de una
+  línea. Si `.cursor` es un enlace o un archivo no se puede leer, no lo toca: la memoria te pide
+  permiso y te lo dice al abrir. La regla de una versión
+  anterior en tu `cli-config.json` (`Shell(…/workspace-memoria)`) se quita al abrir.
+- **Su barra:** la `statusLine` de ese mismo archivo apunta a
+  `~/.local/bin/workspace-cursor-statusline` y reemplaza la fila del pie de Cursor (modelo, %,
+  carpeta y rama siguen en la de Workspace). Una tuya no se toca; para quitarla:
+  `WORKSPACE_CURSOR_NO_STATUSLINE=1`. El resto del archivo (incluida tu cuenta, `authInfo`) queda
+  igual: se reescribe de una vez y con los mismos permisos, y al abrir no se copia a ningún
+  respaldo. Al desinstalar se quitan la barra y la regla (el desinstalador deja una copia del
+  archivo al lado, legible solo por ti).
+- **Cursor también lee el `CLAUDE.md` del cerebro** y corre los *hooks* de Claude Code que
+  encuentre. Los de Workspace no hacen nada dentro de Cursor; los tuyos, como Cursor decida.
+- **La pestaña se retoma** con su conversación de Cursor (`--resume`). Al cerrar, Workspace copia
+  la conversación que escribe Cursor y arma la maleta.
+- Con el cask de Homebrew `cursor-cli` en macOS, el programa puede no arrancar (el sistema bloquea
+  sus partes sin notarizar). Instálalo desde Motores, que usa el instalador oficial de Cursor.
+
 ## Permisos
 
 Al crear o cargar un agente eliges si **lee y escribe en su cerebro sin preguntarte**: viene
@@ -123,11 +239,15 @@ Con Claude Code queda en `.claude/settings.local.json` del cerebro: reglas que l
 editar su carpeta, y nada más. Ninguna opción desactiva las protecciones del motor. Tus reglas propias en ese archivo se
 respetan.
 
-Con OpenCode, OpenClaw y Hermes, Workspace **todavía no aplica** este interruptor: cada uno pregunta según
+Con GitHub Copilot va en cada arranque, sin escribir su configuración: encendido escribe en su
+cerebro sin preguntar (menos su config de Copilot, ver [GitHub Copilot](#el-motor)); fuera
+del cerebro y la terminal te los pregunta.
+
+Con OpenCode, OpenClaw, Hermes, Kiro y Cursor, Workspace **todavía no aplica** este interruptor: cada uno pregunta según
 sus propios permisos (su configuración).
 
 **Cambiarlo después:** en el hub, **Agentes** → elige el agente → **Enter**. Dos interruptores, por agente, que aplican desde su próxima sesión en
-Claude Code, Codex y Antigravity:
+Claude Code, Codex, Antigravity y GitHub Copilot:
 
 | Interruptor | De entrada | Qué hace |
 |---|---|---|
@@ -172,7 +292,7 @@ línea del bloque del final de su respuesta.
 
 Cambiar de motor **no** cambia la identidad ni el cerebro del agente. La conversación en sí
 es de cada proveedor (una empezada en un motor no aparece en otro), pero **la pestaña sí
-viaja**: su memoria es de Workspace y es la misma en los seis motores.
+viaja**: su memoria es de Workspace y es la misma en los nueve motores.
 
 ## La memoria de cada pestaña
 
@@ -182,8 +302,8 @@ Funciona igual en todos los motores y no tienes que hacer nada:
   decisión, pendiente, hecho, nota, dato o preferencia (`workspace memoria nota`). Los pendientes
   llevan un número (P-3) y se cierran cuando quedan hechos.
 - **Al cerrar**, Workspace (sin IA) arma la **maleta** de la pestaña: lo último que pediste, la
-  última respuesta y los archivos que tocó. Ordena el diario, archiva lo viejo y sube tus datos y
-  preferencias a la memoria del agente. También si cerraste la ventana con la X.
+  última respuesta y, en Claude Code y Codex, los archivos que tocó. Ordena el diario, archiva lo
+  viejo y sube tus datos y preferencias a la memoria del agente. También si cerraste la ventana con la X.
 - **Al abrir** la pestaña, en ese u otro motor, el agente recibe un solo paquete: el resumen, lo
   que sigue abierto, las notas nuevas y la maleta si vienes de otro motor. Si toca, actualiza su
   resumen a la vista, en una respuesta corta.
@@ -195,8 +315,14 @@ compartido, el de cada quien carga solo la suya. Se apaga en Ajustes si prefiere
 máquina.
 Para verla: `workspace memoria ver` (con la pestaña activa).
 
+Las pestañas que ves salen del cerebro, así que son las mismas en todas tus máquinas. En el menú
+de pestañas, `a` archiva la marcada (sin borrar nada) y `u` deshace; las que no abres en 15 días
+se archivan solas (ajuste `sesiones.archivar_dias`; 0 lo apaga) y «Archivadas (N)», al final, las
+recupera. Si otra máquina lleva días sin sincronizar el cerebro, Workspace te lo dice en una
+línea al abrir el agente.
+
 ## No todos los motores pueden lo mismo
 
 La memoria de cada pestaña es la misma en todos. Claude Code es hoy el más integrado (avisos en
-vivo, barra de estado propia, su memoria propia en el cerebro). Codex, Antigravity, OpenCode, OpenClaw y Hermes funcionan envueltos por Workspace, con algunas
+vivo, barra de estado propia, su memoria propia en el cerebro). Codex, Antigravity, OpenCode, OpenClaw, Hermes, Kiro, GitHub Copilot y Cursor funcionan envueltos por Workspace, con algunas
 funciones de menos. La lista exacta, por motor y por sistema: [Compatibilidad](compatibilidad.md).

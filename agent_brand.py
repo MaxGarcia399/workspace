@@ -6,9 +6,11 @@ vive (y sincroniza por Obsidian) DENTRO del cerebro, para que SIGAN al socio ent
 máquinas:
 
   • la LISTA de pestañas — de las memorias de sesión `STATE/sessions/<socio>/*.md`
-    (frontmatter sesión/workspace/titulo/actualizada/estado), MERGEADA con el
-    `.claude/<agente>-workspaces.json` per-máquina (gitignored) que aporta el
-    enriquecimiento vivo: id de pestaña, last_opened, conteo de eventos del .jsonl.
+    (frontmatter sesión/workspace/titulo/actualizada/estado), la ÚNICA fuente
+    (sesiones v2: `pestanas`, el núcleo que comparte con sessions_registry.tabs).
+    El `.claude/<agente>-workspaces.json` per-máquina (gitignored) solo
+    ENRIQUECE (id de pestaña, last_opened, conteo de eventos del .jsonl): ya no
+    agrega filas. Las archivadas (`estado: archivada`) no se listan.
   • la IDENTIDAD de marca — de `BOOT/01-IDENTITY.md` (Nombre/Emoji/Color/Rol) y de
     `.workspace/agent.json` (display/color/tagline), para que el banner/dashboard
     genéricos (agentes CARGADOS como Turing) muestren una marca real, no el stub.
@@ -75,10 +77,19 @@ def slug(s):
 def parse_frontmatter(path):
     """Frontmatter YAML-lite (claves `k: v` de nivel 0) de un .md. Salta líneas
     indentadas (continuaciones de bloques '>-') y para en el segundo '---'.
-    Falla-suave → {}."""
+    Lee SOLO la cabecera (hasta ese '---'), no el .md completo: los menús y
+    la constancia por máquina leen todas las pestañas al abrir. Falla-suave → {}."""
     fm = {}
+    lines = []
     try:
-        lines = open(path, encoding="utf-8").read().splitlines()
+        with open(path, "rb") as fh:                # cerrado ya: en Windows un
+            for raw in fh:                          # handle vivo frena os.replace
+                ln = raw.decode("utf-8").rstrip("\r\n")   # el cuerpo ni se decodifica
+                lines.append(ln)
+                if len(lines) == 1 and ln.strip() != "---":
+                    break                           # sin frontmatter: no se lee más
+                if len(lines) > 1 and ln.strip() == "---":
+                    break
     except Exception:
         return fm
     if not lines or lines[0].strip() != "---":
@@ -202,26 +213,99 @@ def brain_sessions(brain, socio):
             "workspace": (fm.get("workspace") or "").strip(),
             "actualizada": (fm.get("actualizada") or "").strip(),
             "estado": (fm.get("estado") or "").strip(),
+            "archivada": (fm.get("archivada") or "").strip(),
+            "usada": (fm.get("usada") or "").strip(),
+            "archivo": path,
         })
     return out
 
 
-def merged_sessions(brain, socio, workspaces, session_dir=None, last_human=None):
-    """Une las sesiones del cerebro (autoritativas — siguen al socio entre máquinas)
-    con el workspaces.json per-máquina (enriquecimiento vivo). Reglas:
+# ── sesiones v2: UNA sola lista (el núcleo de todos los menús) ───────────────
+#: `estado:` del frontmatter que saca a una pestaña del menú sin borrarla.
+ESTADOS_ARCHIVADA = ("archivada", "archivado", "archived")
 
-      • una sesión en el cerebro AUSENTE del workspaces local SIGUE apareciendo
-        (id = el workspace del frontmatter si lo trae, o None → 'sin iniciar' local);
-      • un workspace local SIN memoria en el cerebro (p. ej. una pestaña recién creada
-        que aún no guardó su .md) también se conserva;
+
+def es_archivada(estado):
+    """¿El `estado:` de una pestaña la marca como archivada?"""
+    return str(estado or "").strip().lower() in ESTADOS_ARCHIVADA
+
+
+def socio_comun(brain, socio=""):
+    """El socio con el que se lee la lista: el de sessions_registry.socio (el
+    MISMO que usan las escrituras y los motores) y, si no resuelve, el que
+    pasa quien llama. Así los cuatro menús ven la misma carpeta."""
+    try:
+        import sessions_registry
+        return sessions_registry.socio(brain) or (socio or "")
+    except Exception:
+        return socio or ""
+
+
+def pestanas(brain, socio, archivadas=False):
+    """EL núcleo de la lista de pestañas (sesiones v2, frente B). Lo usan
+    `merged_sessions` (dashboards y panel) y `sessions_registry.tabs` (motores
+    y vista simple del hub): los cuatro menús ven lo mismo.
+
+    Fuente ÚNICA: los `.md` de `STATE/sessions/<socio>/` (viajan con el
+    cerebro). El `.claude/<agente>-workspaces.json` per-máquina ya NO agrega
+    filas: solo enriquece (id, last_opened) a quien lo lea.
+
+    `archivadas`: False → solo las activas (default) · True → todas ·
+    "solo" → solo las archivadas (`estado: archivada`). Una por slug, en el
+    orden de los archivos. Falla-suave → []."""
+    out, seen = [], set()
+    try:
+        filas = brain_sessions(brain, socio)
+    except Exception:
+        return out
+    for bs in filas:
+        sl = bs.get("slug")
+        if not sl or sl in seen:      # dos .md que colapsan al mismo slug
+            continue                  # (conflicto de sync) = UNA pestaña
+        seen.add(sl)
+        arch = es_archivada(bs.get("estado"))
+        if archivadas == "solo":
+            if not arch:
+                continue
+        elif not archivadas and arch:
+            continue
+        out.append(bs)
+    return out
+
+
+def _local_slots(brain):
+    """{slug: slot} del store per-máquina (sessions-local.json) para este
+    cerebro: lo local de cada pestaña (ids del motor, last_opened). {} si no."""
+    try:
+        import sessions_registry
+        m = sessions_registry._local_load().get("map") or {}
+        slots = m.get(sessions_registry._brain_key(brain)) or {}
+        return slots if isinstance(slots, dict) else {}
+    except Exception:
+        return {}
+
+
+def merged_sessions(brain, socio, workspaces, session_dir=None, last_human=None,
+                    archivadas=False):
+    """La lista de pestañas para los dashboards y el panel: el núcleo común
+    (`pestanas`, los `.md` del cerebro) enriquecido con lo per-máquina.
+
+      • una sesión del cerebro AUSENTE del workspaces local SIGUE apareciendo
+        (id = el del workspaces local, el del store local o el `workspace:` del
+        frontmatter; None → 'sin iniciar' aquí);
+      • sesiones v2: un workspace local SIN `.md` en el cerebro YA NO aparece
+        (era de una sola máquina: pruebas viejas que en la otra no existen); el
+        motor siembra el `.md` de toda pestaña que se abre (ensure_tab);
+      • las archivadas no aparecen (archivadas=True → todas; "solo" → solo ellas);
       • el match cerebro↔workspace es por id (`workspace` del frontmatter == `id`) y,
         si no, por slug del nombre.
 
     Devuelve dicts workspace-like (SUPERSET del workspace, + claves `_brain/_slug/
-    _estado/_actualizada`) ORDENADOS por interacción humana desc, con fallback a
-    `actualizada` del cerebro. `last_human(w)` lo pasa cada dashboard (last_opened →
-    mtime .jsonl → created). Falla-suave."""
-    ws_list = list(workspaces or [])
+    _estado/_actualizada/_archivada`) ORDENADOS por interacción humana desc, con
+    fallback a `actualizada` del cerebro y al last_opened del store local.
+    `last_human(w)` lo pasa cada dashboard (last_opened → mtime .jsonl → created).
+    Falla-suave."""
+    ws_list = [w for w in (workspaces or []) if isinstance(w, dict)]
     ws_by_id, ws_by_slug = {}, {}
     for i, w in enumerate(ws_list):
         wid = w.get("id")
@@ -239,30 +323,27 @@ def merged_sessions(brain, socio, workspaces, session_dir=None, last_human=None)
         except Exception:
             return 0.0
 
-    merged, used = [], set()
-    for bs in brain_sessions(brain, socio):
+    slots = _local_slots(brain)
+    merged = []
+    for bs in pestanas(brain, socio_comun(brain, socio), archivadas):
         wid = bs.get("workspace")
         idx = ws_by_id.get(wid) if wid else None
         if idx is None:
             idx = ws_by_slug.get(bs["slug"])
         base = dict(ws_list[idx]) if idx is not None else {}
-        if idx is not None:
-            used.add(idx)
+        slot = slots.get(bs["slug"]) if isinstance(slots.get(bs["slug"]), dict) else {}
         base["name"] = bs["name"]
-        base.setdefault("id", (wid or None))       # del frontmatter o None
+        # id: workspaces local → store local (pestaña abierta aquí con otro
+        # motor) → frontmatter → None
+        base.setdefault("id", (slot.get("claude-code") or wid or None))
         base["_brain"] = True
         base["_slug"] = bs["slug"]
         base["_estado"] = bs["estado"]
         base["_actualizada"] = bs["actualizada"]
-        base["_sort"] = max(_lh(base), _epoch(bs["actualizada"]))
+        base["_archivada"] = bs.get("archivada", "")
+        base["_sort"] = max(_lh(base), _epoch(bs["actualizada"]),
+                            _epoch(slot.get("last_opened", "")))
         merged.append(base)
-    for i, w in enumerate(ws_list):                # workspaces locales sin .md
-        if i in used:
-            continue
-        e = dict(w)
-        e["_brain"] = False
-        e["_sort"] = _lh(w)
-        merged.append(e)
     merged.sort(key=lambda e: e.get("_sort", 0.0), reverse=True)
     return merged
 
@@ -562,7 +643,8 @@ def refresh_brand_dashboards(brain, dashboard, dry_run=False, backup_dir=None):
         with open(tmp, "w", encoding="utf-8") as fh:
             fh.write("".join(lineas))
         shutil.copymode(path, tmp)
-        os.replace(tmp, path)                     # atómico: nunca a medias
+        import atomico                            # atómico + reintento en Windows
+        atomico.reemplazar(tmp, path)
         return [(rel, "actualizado")]
     except Exception as e:
         try:

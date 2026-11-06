@@ -251,8 +251,17 @@ def session_exists(wid):
 NOMBRE = {}  # mapeo socio→display, se llena por instalación
 
 def socio():
-    # El dueño sale de .claude/socio.local (lo escribe el harness) — cualquier slug,
-    # no solo el trío del equipo: un agente vendido tiene su propio dueño. Sin guess horneado.
+    # Quién eres lo decide Workspace (sessions_registry.socio → la identidad de ESTA
+    # máquina, sesiones v2): el mismo usuario que el registro de pestañas, la memoria
+    # y el panel, aunque el cerebro no traiga .claude/socio.local (no viaja por
+    # Obsidian). Sin eso, .claude/socio.local — cualquier slug, sin guess horneado.
+    try:
+        import sessions_registry
+        s = sessions_registry.socio(BRAIN)
+        if s:
+            return s
+    except Exception:
+        pass
     try:
         s = open(os.path.join(BRAIN, ".claude", "socio.local"), encoding="utf-8").read().strip().lower()
         if s:
@@ -411,6 +420,20 @@ def _picker_windows(items):
     return idx
 
 def run_picker(items):
+    # sesiones v2: el menú con archivar (a archiva · u deshace · fila
+    # «Archivadas (N)»), común a todos los dashboards → devuelve el kind
+    # elegido (tupla) o "BACK". Con un Workspace que no lo trae, el de siempre
+    # (índice de items).
+    try:
+        import agent_ui
+        menu = getattr(agent_ui, "menu_sesiones", None)
+    except Exception:
+        menu = None
+    if menu is not None:
+        return menu(BRAIN, AGENT_NAME, menu_items, __file__, fallback=_picker_terminal)
+    return _picker_terminal(items)
+
+def _picker_terminal(items):
     import agent_ui
     choice = agent_ui.live_picker(items, __file__)
     if choice is not None:
@@ -492,11 +515,11 @@ def main():
         except Exception:
             tout.write("\n" + "\n".join(header_lines()) + "\n"); tout.flush()
         items = menu_items()
-        idx = run_picker(items)
+        idx = run_picker(items)          # índice de items, o el kind que eligió el menú
         if idx == "BACK":                # Esc: el motor reabre el hub
             sys.stdout.write("BACK")
             return
-        kind = items[idx][2]
+        kind = idx if isinstance(idx, tuple) else items[idx][2]
         if kind[0] == "NEW":
             tout.write(f"\r\n  {MUTE}{_t('banner.dash.name_prompt', 'Nombre de la sesión: ')}{R}"); tout.flush()
             try:

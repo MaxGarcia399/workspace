@@ -46,7 +46,8 @@ STRINGS = {
                              "IA: cada agente vive en su propio cerebro (una "
                              "carpeta de archivos tuya) y corre sobre un motor "
                              "CLI que ya tengas instalado — Claude Code, Codex, "
-                             "Antigravity, OpenCode, OpenClaw o Hermes.",
+                             "Antigravity, OpenCode, OpenClaw, Hermes, Kiro, "
+                             "GitHub Copilot o Cursor.",
     "onboarding.welcome.p2": "Todo pasa en tu máquina: cero dependencias, sin "
                              "cuentas nuevas, y Workspace nunca ve ni guarda "
                              "tus credenciales (el login es de cada CLI).",
@@ -145,6 +146,28 @@ STRINGS = {
                                        "Hermes personal no cambia) con la identidad "
                                        "de tu agente y sin la memoria propia de "
                                        "Hermes; nunca lee tu credencial.",
+    "onboarding.motor.kiro.what": "Kiro — el agente de terminal de AWS (binario "
+                                  "`kiro-cli`), antes Amazon Q Developer CLI.",
+    "onboarding.motor.kiro.login": "Entra con tu cuenta de Kiro: `kiro-cli login` "
+                                   "(Builder ID, Identity Center, Google o GitHub).",
+    "onboarding.motor.kiro.changes": "Workspace lo envuelve sobre tu mismo cerebro: el modelo es el que "
+                                     "elijas en Kiro y nunca lee tu credencial. Su config va en el cerebro "
+                                     "(.kiro/agents/workspace.json): nada en tu ~/.kiro.",
+    "onboarding.motor.copilot.what": "GitHub Copilot — el CLI oficial de GitHub "
+                                     "(binario `copilot`), con tu suscripción de "
+                                     "Copilot.",
+    "onboarding.motor.copilot.login": "Entra con `copilot login` en tu terminal (o "
+                                      "desde Motores › cuenta y proveedor).",
+    "onboarding.motor.copilot.changes": "Workspace lo envuelve: el modelo es el de tu cuenta y nunca lee tu "
+                                        "token. Escribe solo su barra en ~/.copilot/settings.json; la memoria y "
+                                        "el aislamiento entre agentes van en cada arranque.",
+    "onboarding.motor.cursor.what": "Cursor — el CLI de Cursor (binario "
+                                    "`cursor-agent`), con tu cuenta de Cursor.",
+    "onboarding.motor.cursor.login": "Entra con `cursor-agent login` (o desde "
+                                     "Motores › cuenta y proveedor).",
+    "onboarding.motor.cursor.changes": "Workspace lo envuelve: el modelo es el que elijas en Cursor y nunca "
+                                       "lee tu credencial. En ~/.cursor/cli-config.json escribe su barra y el "
+                                       "permiso de guardar la memoria, y confía en la carpeta de tu cerebro.",
 
     # paso 2: APARIENCIA
     "onboarding.apariencia.title_l": "TEMA Y FONDO",
@@ -187,7 +210,7 @@ STRINGS = {
                                      "resumen.",
     "onboarding.agente.crear.label": "crear agente nuevo",
     "onboarding.agente.crear.desc": "Un agente desde cero: formulario corto → "
-                                    "ves el CEREBRO que va a nacer y el harness "
+                                    "ves el CEREBRO que va a nacer y el motor "
                                     "con el que corre → se crea EN VIVO, paso "
                                     "por paso. Nace autocontenido en "
                                     "~/Desktop/<NOMBRE> - BRAIN, usable al "
@@ -204,8 +227,8 @@ STRINGS = {
                                         "buscando carpetas con "
                                         ".workspace/agent.json y te deja "
                                         "conectarlas — ves cuáles son nuevas y "
-                                        "cuáles ya están. Acción MANUAL — el "
-                                        "harness jamás conecta nada solo.",
+                                        "cuáles ya están. Acción MANUAL — "
+                                        "Workspace jamás conecta nada solo.",
     "onboarding.agente.ninguno.label": "terminar sin agente",
     "onboarding.agente.ninguno.desc": "También puedes agregarlo cuando quieras "
                                       "desde el hub (Agentes › «+ agregar agente») — "

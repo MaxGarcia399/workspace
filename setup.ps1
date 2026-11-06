@@ -55,7 +55,7 @@ function Assert-WsLocation([string]$Path) {
   $lbl = Get-WsRedirect $Path
   if ($lbl) {
     Write-Host "X  $Path vive en una ruta redirigida a la nube ($lbl)."
-    Write-Host "   OneDrive sincroniza y BLOQUEA los archivos del harness (locks, latencia)."
+    Write-Host "   OneDrive sincroniza y BLOQUEA los archivos de Workspace (locks, latencia)."
     Write-Host "   Usa una ruta local, p.ej.:  `$env:WORKSPACE_DIR=`"$env:LOCALAPPDATA\Workspace`""
     exit 3
   }
@@ -164,7 +164,7 @@ if ($env:WORKSPACE_SETUP_PREFLIGHT_ONLY -eq "1") { Write-Host "ok  $dest ($pyExe
 $cleanUrl = "https://$repo"
 if ($env:WORKSPACE_TOKEN) { $url = "https://$($env:WORKSPACE_TOKEN)@$repo" } else { $url = $cleanUrl }
 
-Write-Host "Workspace (harness) -> $dest"
+Write-Host "Workspace -> $dest"
 if (Test-Path (Join-Path $dest ".git")) {
   Write-Host "Ya esta instalado; actualizando..."
   try { git -C "$dest" pull --ff-only }

@@ -88,7 +88,7 @@ def _touch_workspace_updated(brain, sid):
                 tmp = wf + ".tmp"
                 with open(tmp, "w", encoding="utf-8") as f:
                     json.dump(ws, f, indent=2, ensure_ascii=False)
-                os.replace(tmp, wf)
+                _reemplazar(tmp, wf)
                 return
     except Exception:
         pass
@@ -100,7 +100,28 @@ def _atomic_write(path, text):
     tmp = "%s.tmp%d" % (path, os.getpid())
     with open(tmp, "w", encoding="utf-8") as fh:
         fh.write(text)
-    os.replace(tmp, path)
+    _reemplazar(tmp, path)
+
+
+def _reemplazar(tmp, path):
+    """os.replace con el reintento de Windows (atomico, en la raíz del harness)
+    y sin dejar el `.tmp` si no se logra. Sin el helper (copia rota): el de
+    siempre, borrando el temporal igual."""
+    try:
+        if _ROOT not in sys.path:
+            sys.path.insert(0, _ROOT)
+        import atomico
+    except Exception:
+        try:
+            os.replace(tmp, path)
+        except OSError:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+        return
+    atomico.reemplazar(tmp, path)
 
 
 def _wt_log(agent, reason, res):

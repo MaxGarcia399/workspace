@@ -627,7 +627,7 @@ def _tinted(txt):
         return "%s\n" % txt
 
 
-def maybe_autoupdate():
+def maybe_autoupdate(avisar=None):
     """Auto-update silencioso al arrancar (canal git del equipo y de clientes).
 
     Diseñado para ser INOFENSIVO: es NO-OP si la carpeta no es un repo git
@@ -688,6 +688,14 @@ def maybe_autoupdate():
             sys.stderr.write(_tinted(txt))
             sys.stderr.flush()
 
+        def _linea(txt):
+            # el resultado (no el progreso): con `avisar`, sale después del
+            # banner del motor, que limpia la pantalla (engines/_ui)
+            if avisar is not None:
+                avisar(_tinted(txt).rstrip("\n"))
+            else:
+                sys.stderr.write(_tinted(txt))
+
         res = updater.update_harness(ROOT, mode="auto", fetch_timeout=20, notify=_notify,
                                      apply=(modo == "auto"))
         st, why = res.get("status"), res.get("reason")
@@ -706,34 +714,34 @@ def maybe_autoupdate():
         _seal()
         if st == updater.AVAILABLE:
             v = res.get("to_version")
-            sys.stderr.write(_tinted(updater._t(
+            _linea(updater._t(
                 "updater.auto.available",
                 "Hay una versión nueva de Workspace{v}. Para instalarla: `workspace update` "
                 "(elegiste solo avisar; se cambia en Actualizaciones).",
-                v=(" (v%s)" % v) if v else "")))
+                v=(" (v%s)" % v) if v else ""))
         elif st == updater.UPDATED:
             v = res.get("to_version")
-            sys.stderr.write(_tinted(updater._t(
-                "updater.auto.updated", "✓ Workspace actualizado a v{v}.", v=v or "?")))
+            _linea(updater._t(
+                "updater.auto.updated", "✓ Workspace actualizado a v{v}.", v=v or "?"))
             mig = res.get("migrations") or {}
             if mig.get("failed"):
                 import migrate
-                sys.stderr.write(_tinted(migrate.summary_line(mig)))
+                _linea(migrate.summary_line(mig))
             # P0-3 · self-healing: el pull trajo código nuevo (quizá renombró un
             # hook o sumó un listener) → recablear settings.local.json de cada
             # cerebro. Fire-and-forget, jamás bloquea el arranque (ver _spawn_repair).
             _spawn_repair()
         elif st == updater.ROLLBACK_FAILED:
-            sys.stderr.write(_tinted(updater._t(
+            _linea(updater._t(
                 "updater.auto.rollback_failed",
                 "⚠ La versión nueva de Workspace no arrancó y no pude volver limpio a la "
                 "anterior. Corre `workspace doctor` (y si sigue, `workspace doctor "
-                "--bundle` para pedir ayuda).")))
+                "--bundle` para pedir ayuda)."))
         elif st == updater.ROLLED_BACK:
-            sys.stderr.write(_tinted(updater._t(
+            _linea(updater._t(
                 "updater.auto.rolled_back",
                 "⚠ Llegó una versión nueva de Workspace que no arranca en esta máquina; "
-                "sigues en la anterior. No tienes que hacer nada.")))
+                "sigues en la anterior. No tienes que hacer nada."))
     except Exception:
         return  # offline / timeout / lo que sea → seguir normal
 
@@ -849,8 +857,13 @@ def main():
         except Exception:
             pass
 
+    avisar = print
     if not plan and not pick_only:
-        maybe_autoupdate()
+        # Los avisos de una línea de la apertura se juntan y el motor los
+        # suelta DESPUÉS de su banner/menú (engines/_ui.soltar_avisos):
+        # impresos aquí, la limpieza de pantalla del banner los borraba.
+        avisar = _avisos_al_arrancar()
+        maybe_autoupdate(avisar=avisar)
 
     entry = find_agent(name)
     if not entry:
@@ -976,8 +989,10 @@ def main():
         except Exception:
             pass
     if not plan:
-        _usuarios_al_abrir(brain)
-        _reconcile_pending(brain)
+        _usuarios_al_abrir(brain, avisar=avisar)
+        _maquinas_al_abrir(brain, avisar=avisar)
+        _reconcile_pending(brain, avisar=avisar)
+        _sesiones_al_abrir(brain, entry["name"], preselect, avisar=avisar)
     mod.launch(cfg, passthrough, plan=plan, preselect=preselect, show_banner=show_banner)
 
 
@@ -996,7 +1011,28 @@ def _cargar_al_abrir(plan, pick_only, show_banner, passthrough):
     return not any(str(a) in _SIN_CARGA for a in (passthrough or ()))
 
 
-def _usuarios_al_abrir(brain):
+_SOLTAR_AL_SALIR = []
+
+
+def _avisos_al_arrancar():
+    """→ la función con que los pasos de la apertura dejan su aviso de una
+    línea: lo guarda para que el motor lo imprima después de limpiar la
+    pantalla (engines/_ui). Si el motor termina sin llegar a su chat (un
+    error), se imprimen al salir: nunca se pierden. Sin engines/_ui, print
+    (lo de siempre)."""
+    try:
+        from engines import _ui
+        _ui.avisos_nuevos()
+        if not _SOLTAR_AL_SALIR:
+            import atexit
+            atexit.register(_ui.soltar_avisos)
+            _SOLTAR_AL_SALIR.append(True)
+        return _ui.guardar_aviso
+    except Exception:
+        return print
+
+
+def _usuarios_al_abrir(brain, avisar=print):
     """Usuarios con cédula (2026-10-17): perfiles y pestañas con su ID, y el
     nombre de esta máquina corregido si quedó uno viejo — solo, sin preguntar;
     una línea si hizo algo. Jamás frena la apertura."""
@@ -1004,12 +1040,49 @@ def _usuarios_al_abrir(brain):
         import usuarios
         msg = usuarios.al_abrir(brain)
         if msg:
-            print(msg)
+            avisar(msg)
     except Exception:
         pass
 
 
-def _reconcile_pending(brain):
+def _maquinas_al_abrir(brain, avisar=print):
+    """Constancia por máquina (sesiones v2 · C): esta máquina deja su
+    `STATE/maquinas/<id>.md` SOLO en el cerebro que se abre (los demás los
+    recorre el hilo del hub) y, si el cerebro no está llegando entre tus
+    máquinas, lo dice en UNA línea. Sin red, tope total de 300 ms; jamás
+    frena la apertura."""
+    try:
+        import maquinas
+        msg = maquinas.al_abrir_agente(brain)
+        if msg:
+            avisar(msg)
+    except Exception:
+        pass
+
+
+def _sesiones_al_abrir(brain, agent, preselect=None, avisar=print):
+    """Sesiones v2: las pestañas sin usar en `sesiones.archivar_dias` días se
+    archivan solas (salen del menú, nada se borra), nunca la que se está
+    abriendo ni una abierta en otra ventana. Una línea si archivó algo, con
+    su deshacer. Va DESPUÉS de reconcile (la corrida que se cierra ahí cuenta
+    como uso) y antes del menú. Jamás frena la apertura.
+    Con `avisar` diferido (dispatch.main), la línea se decide al soltarla: si
+    el menú de pestañas ya la mostró (con su `u`), no se repite."""
+    try:
+        import sessions_registry
+        abiertas = [preselect.get("name")] if isinstance(preselect, dict) \
+            and preselect.get("name") else []
+        msg = sessions_registry.al_abrir(brain, agent, abiertas=abiertas)
+        if msg:
+            if avisar is print:
+                print(msg)
+            else:
+                avisar(lambda: sessions_registry.aviso_pendiente(brain))
+    except Exception:
+        pass
+
+
+def _reconcile_pending(brain, avisar=print):
     """Red de seguridad del cierre (pending_runs, 2026-10-16): una corrida
     anterior de ESTE cerebro que murió sin cerrar (la X en Windows, un crash)
     se cierra aquí, ANTES de elegir pestaña — así su conversación ya está
@@ -1017,7 +1090,7 @@ def _reconcile_pending(brain):
     try:
         import pending_runs
         for s in pending_runs.reconcile(brain, budget=8.0, notify=print):
-            print("  respaldo: %s · conversación %s" % (
+            avisar("  respaldo: %s · conversación %s" % (
                 s.get("capture_state") or "—",
                 "atada a «%s»" % s.get("tab") if s.get("bound") else "sin cambios"))
     except Exception:

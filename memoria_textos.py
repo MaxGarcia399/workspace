@@ -195,7 +195,8 @@ def actualizar(brain, root=ROOT, state_dir=None, name=None, dry_run=False):
         if _read_bytes(src) != crudo:           # llegó una edición mientras tanto
             os.remove(tmp)
             continue
-        os.replace(tmp, src)
+        import atomico                          # reintento en Windows; sin `.tmp` si falla
+        atomico.reemplazar(tmp, src)
         hechos.append(rel)
         _avisar_formato_v2(brain, rel, crudo, src, state_dir)
     return hechos

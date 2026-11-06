@@ -15,7 +15,7 @@ STRINGS = {
     # ── acciones (menú): label · tag · descripción (3 líneas) ───────────────
     "actualizaciones.act.check.label": "revisar",
     "actualizaciones.act.check.tag": "solo lectura",
-    "actualizaciones.act.check.d1": "Diagnóstico completo del harness: motores, cerebros registrados, hooks, launchers y prerequisitos.",
+    "actualizaciones.act.check.d1": "Diagnóstico completo de Workspace: motores, cerebros registrados, hooks, launchers y prerequisitos.",
     "actualizaciones.act.check.d2": "NO escribe ni cambia nada — ves cada fase correr en vivo y al final la tabla de salud.",
     "actualizaciones.act.check.d3": "También consulta si hay actualización disponible.",
     "actualizaciones.act.repair.label": "revisar y reparar",
@@ -25,7 +25,7 @@ STRINGS = {
     "actualizaciones.act.repair.d3": "Al final te dice si hay actualización para traer.",
     "actualizaciones.act.update.label": "actualizar todo",
     "actualizaciones.act.update.tag": "recomendado",
-    "actualizaciones.act.update.d1": "Trae lo nuevo del harness Y de cada cerebro registrado (cada repo en su rama actual) y repara al final.",
+    "actualizaciones.act.update.d1": "Trae lo nuevo de Workspace Y de cada cerebro registrado (cada repo en su rama actual) y repara al final.",
     "actualizaciones.act.update.d2": "Seguro: repo sucio / sin red → avisa y sigue con los demás.",
     "actualizaciones.act.update.d3": "Al final: resumen de qué llegó y qué quedó pendiente.",
 
@@ -126,7 +126,7 @@ STRINGS = {
 
     # ── chequeo final (revisar/reparar) ─────────────────────────────────────
     "actualizaciones.chk.available": "hay versión nueva — «actualizar» la trae",
-    "actualizaciones.chk.harness_uptodate": "harness al día con origin (rama {branch})",
+    "actualizaciones.chk.harness_uptodate": "Workspace al día con origin (rama {branch})",
     "actualizaciones.chk.cannot_verify": "no pude verificar updates ({reason})",
 
     # ── razones de «sin update» (interpoladas como {reason}) ────────────────

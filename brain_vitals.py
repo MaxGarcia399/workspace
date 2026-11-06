@@ -68,7 +68,7 @@ PRUNE_DIRS = (".git", ".obsidian", "BOOT")
 MAX_FINDINGS = 40              # tope de hallazgos por cerebro (fail-soft)
 
 SYNC_HINT = ("agrégalo a .gitignore Y exclúyelo en Obsidian Ajustes→Sync — "
-             "el harness NO puede excluirlo de Sync por código")
+             "Workspace NO puede excluirlo de Sync por código")
 
 _MANIFEST_LINE = re.compile(r"^-\s+(boot|session)\s+(.+?)\s*$")
 

@@ -47,7 +47,7 @@ SOURCES = (SOURCE_OVERRIDE, SOURCE_LOADED, SOURCE_COMMITTED, SOURCE_NONE)
 SOURCE_LABELS = {
     SOURCE_OVERRIDE: "override por máquina (paths.local.json)",
     SOURCE_LOADED: "registro por máquina (agents.local.json)",
-    SOURCE_COMMITTED: "definición committeada (relativa al harness)",
+    SOURCE_COMMITTED: "definición committeada (relativa a la carpeta de Workspace)",
     SOURCE_NONE: "sin ruta declarada",
 }
 

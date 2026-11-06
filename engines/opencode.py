@@ -44,6 +44,7 @@ import time
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
+import arbol_procesos  # noqa: E402  (Windows: al vencer el tiempo muere el árbol entero)
 
 META = {"name": "opencode", "needs": ["opencode"], "auth": "api-key"}
 
@@ -117,9 +118,9 @@ def _auth_signal(runner=None, exe=None):
         if runner is not None:
             r = runner(cmd)
         else:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=15,
-                               encoding="utf-8", errors="replace",
-                               stdin=subprocess.DEVNULL, env=_env_motor())
+            r = arbol_procesos.run(cmd, capture_output=True, text=True, timeout=15,
+                                   encoding="utf-8", errors="replace",
+                                   stdin=subprocess.DEVNULL, env=_env_motor())
         if getattr(r, "returncode", 0) != 0:
             return None
         lines = [_ANSI.sub("", ln).strip()
@@ -209,9 +210,9 @@ def _list_sessions(exe, cwd=None, runner=None, n=30, strict=False):
         if runner is not None:
             r = runner(cmd, cwd=cwd)
         else:
-            r = subprocess.run(cmd, cwd=cwd or None, capture_output=True, text=True,
-                               encoding="utf-8", errors="replace", timeout=30,
-                               stdin=subprocess.DEVNULL, env=_env_motor(), **_sin_consola())
+            r = arbol_procesos.run(cmd, cwd=cwd or None, capture_output=True, text=True,
+                                   encoding="utf-8", errors="replace", timeout=30,
+                                   stdin=subprocess.DEVNULL, env=_env_motor(), **_sin_consola())
         out = getattr(r, "stdout", "") or ""
         if strict and (getattr(r, "returncode", 1) != 0 or "[" not in out):
             return None
@@ -296,10 +297,10 @@ def find_new_session(exe, find, cwd=None, runner=None):
             if runner is not None:
                 r = runner(cmd, cwd=cwd)
             else:
-                r = subprocess.run(cmd, cwd=cwd or None, capture_output=True, text=True,
-                                   encoding="utf-8", errors="replace", timeout=60,
-                                   stdin=subprocess.DEVNULL, env=_env_motor(),
-                                   **_sin_consola())
+                r = arbol_procesos.run(cmd, cwd=cwd or None, capture_output=True, text=True,
+                                       encoding="utf-8", errors="replace", timeout=60,
+                                       stdin=subprocess.DEVNULL, env=_env_motor(),
+                                       **_sin_consola())
             out = getattr(r, "stdout", "") or ""
             data = json.loads(out[out.find("{"):]) if "{" in out else {}
             if marker in _first_user_text(data):
@@ -397,8 +398,8 @@ def run_turn(prompt, *, model=None, cwd=None, timeout=120,
             r = runner(cmd, cwd=cwd or None, env=env, timeout=timeout,
                        input=prompt or "")
         else:
-            r = subprocess.run(cmd, cwd=cwd or None, env=env, timeout=timeout,
-                               input=(prompt or "").encode("utf-8"),
+            r = arbol_procesos.run(cmd, cwd=cwd or None, env=env, timeout=timeout,
+                                   input=(prompt or "").encode("utf-8"),
                                capture_output=True)
         rc = getattr(r, "returncode", 1)
         raw_out = getattr(r, "stdout", b"") or b""
@@ -776,7 +777,7 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
         print("  motor       : opencode  (CLI oficial · agnóstico de modelo; "
               "login del socio por `opencode auth`; WORKSPACE nunca ve el token)")
         print("  modelo      : lo fija el SOCIO en su config de opencode "
-              "(el harness no pasa -m)")
+              "(Workspace no pasa -m)")
         print("  cerebro     : %s" % brain)
         print("  identidad   : AGENTS.md puntero → %s (inject_context; marca "
               "WORKSPACE:GENERATED compartida con codex)" % _identity_doc(cfg))

@@ -97,7 +97,8 @@ def _atomic_write(path, data):
             fh.write(data)
             fh.flush()
             os.fsync(fh.fileno())
-        os.replace(tmp, path)
+        import atomico                       # reintento en Windows (antivirus/Obsidian)
+        atomico.reemplazar(tmp, path)
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)

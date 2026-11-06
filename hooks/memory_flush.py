@@ -154,6 +154,10 @@ def main():
     _log({"ts": datetime.datetime.now().isoformat(timespec="seconds"),
           "session_id": sid, "trigger": trigger, "brain": brain,
           "transcript": transcript, "backup": backup, "journal": journal})
+    # Nivel 2 (sesiones.llevar_conversacion, apagado de fábrica): al final, para
+    # que comprimir y revisar llaves no le gane el tiempo a la maleta.
+    if _tb:
+        _tb.llevar_conversacion(transcript, brain, data)
 
 
 if __name__ == "__main__":

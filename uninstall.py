@@ -27,6 +27,7 @@ import os, re, sys, json, shutil, platform
 import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 
 HOME = os.path.expanduser("~")
+_REAL_HOME = HOME   # snapshot AL IMPORTAR: los tests parchan HOME, no esto
 IS_WIN = platform.system() == "Windows"
 DRY = "--dry-run" in sys.argv
 KEEP_FOLDER = "--keep-folder" in sys.argv
@@ -101,9 +102,12 @@ def workspace_root():
 #:   @echo off
 #:   "<python>" "<harness>\front.py" %*              → workspace.cmd
 #:   "<python>" "<harness>\dispatch.py" <agente> %*  → <agente>.cmd
+#:   "<python>" -E "<harness>\memoria_permiso.py" %* → workspace-memoria.cmd
+#:     (versión anterior; ya no se instala: Windows pendiente de verificar)
 #: No llevan la marca WORKSPACE: antes solo se borraban si la ruta del harness
 #: la contenía (una carpeta `workspace-personal` no la tiene en mayúsculas).
-_CMD_SHIM_RX = re.compile(r'@echo off\r?\n"[^"\r\n]+" "([^"\r\n]+[\\/](?:front|dispatch)\.py)"'
+_CMD_SHIM_RX = re.compile(r'@echo off\r?\n"[^"\r\n]+"(?: -[EI])? '
+                          r'"([^"\r\n]+[\\/](?:front|dispatch|memoria_permiso)\.py)"'
                           r'(?: (?:"[^"\r\n]+"|[^\s"%]+))? %\*(?:\r?\n)?')
 
 
@@ -207,14 +211,20 @@ def strip_profile_windows():
     'workspace' — eso borraba líneas del usuario). Quirúrgico, espejo de strip_zshrc."""
     rm_path(os.path.join(HOME, ".claude", "workspace-cmds.ps1"), _t("uninstall.x.ps_cmds", "comandos PowerShell"))
     prof = ""
-    try:
-        import subprocess
-        r = subprocess.run(["powershell", "-NoProfile", "-Command", "$PROFILE"],
-                           capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=10)
-        prof = r.stdout.strip()
-    except Exception:
-        prof = ""
+    if _home_de_prueba():
+        # PowerShell respondería con el $PROFILE REAL (ignora HOME/USERPROFILE):
+        # con un HOME temporal se limpia el perfil de ESE HOME, como install
+        prof = os.path.join(HOME, "Documents", "WindowsPowerShell",
+                            "Microsoft.PowerShell_profile.ps1")
+    else:
+        try:
+            import subprocess
+            r = subprocess.run(["powershell", "-NoProfile", "-Command", "$PROFILE"],
+                               capture_output=True, text=True, encoding="utf-8",
+                               errors="replace", timeout=10)
+            prof = r.stdout.strip()
+        except Exception:
+            prof = ""
     if not prof or not os.path.exists(prof):
         return
     src = open(prof, encoding="utf-8").read()
@@ -495,7 +505,28 @@ def trabajo_sin_publicar(root):
     return ", ".join(partes)
 
 
+def _home_de_prueba():
+    """True si HOME no es la carpeta real del socio (la parchó un test, o el
+    proceso arrancó con HOME/USERPROFILE temporales). Windows contesta el
+    $PROFILE y el Escritorio REALES aunque HOME sea temporal: con un HOME de
+    prueba, desinstalar --dry-run anunciaba limpiar el perfil y respaldar en el
+    Escritorio del socio (VERIFICADO 2026-11-05). Mismo criterio que
+    install._home_de_prueba."""
+    if os.path.normcase(HOME) != os.path.normcase(_REAL_HOME):
+        return True
+    try:
+        import install
+        perfil = install._os_profile_dir()
+    except Exception:
+        perfil = ""
+    return bool(perfil) and (os.path.normcase(os.path.realpath(HOME))
+                             != os.path.normcase(os.path.realpath(perfil)))
+
+
 def _desktop():
+    if _home_de_prueba():
+        d = os.path.join(HOME, "Desktop")
+        return d if os.path.isdir(d) else HOME
     try:
         import diag_bundle
         return diag_bundle.escritorio()
@@ -581,7 +612,7 @@ def _plan_print(root, state, app, cerebros, backup, clean=False, sin_publicar=""
     if os.path.isdir(app):
         item(_t("uninstall.plan.app", "app de escritorio: {p}").replace("{p}", app))
     if not KEEP_FOLDER and not sin_publicar and os.path.isdir(root):
-        item(_t("uninstall.plan.harness", "carpeta del harness: {p}").replace("{p}", root))
+        item(_t("uninstall.plan.harness", "carpeta de Workspace: {p}").replace("{p}", root))
     print(f"  {B}" + _t("uninstall.plan.keep", "SE CONSERVA (no se toca)") + R)
     for n, b in cerebros:
         item(_t("uninstall.plan.brain", "cerebro «{n}»: {b}").replace("{n}", n)
@@ -589,10 +620,10 @@ def _plan_print(root, state, app, cerebros, backup, clean=False, sin_publicar=""
     if not cerebros:
         item(_t("uninstall.plan.brains", "tus cerebros (carpetas de agentes), estén donde estén"))
     if KEEP_FOLDER:
-        item(_t("uninstall.plan.harness_kept", "carpeta del harness (--keep-folder): {p}")
+        item(_t("uninstall.plan.harness_kept", "carpeta de Workspace (--keep-folder): {p}")
              .replace("{p}", root))
     elif sin_publicar:
-        item(_t("uninstall.plan.harness_git", "carpeta del harness: {p} — es un checkout de "
+        item(_t("uninstall.plan.harness_git", "carpeta de Workspace: {p} — es un checkout de "
                 "git con trabajo sin publicar ({w}); bórrala tú cuando lo hayas guardado",
                 p=root, w=sin_publicar))
     tb = os.path.join(state, STATE_KEEP[0])
@@ -691,14 +722,20 @@ def clean_brain_settings(data, roots, themes):
             gone.append(_t("uninstall.clean.statusline", "barra (statusLine)"))
     mark = new.get(_PERM_MARKER)
     if isinstance(mark, dict):
-        ours = [r for r in (mark.get("allow") or []) if isinstance(r, str)]
         perms, k = new.get("permissions"), 0
-        if isinstance(perms, dict) and isinstance(perms.get("allow"), list):
-            before = perms["allow"]
-            perms["allow"] = [r for r in before if r not in ours]
-            k = len(before) - len(perms["allow"])
-            if perms == {"allow": []}:
-                del new["permissions"]
+        # allow (la autonomía) y deny (las rutas protegidas, desde 2026-11-06)
+        for clave in ("allow", "deny"):
+            ours = [r for r in (mark.get(clave) or []) if isinstance(r, str)]
+            if not ours or not isinstance(perms, dict) \
+                    or not isinstance(perms.get(clave), list):
+                continue
+            before = perms[clave]
+            perms[clave] = [r for r in before if r not in ours]
+            k += len(before) - len(perms[clave])
+            if clave == "deny" and not perms[clave]:
+                del perms[clave]
+        if isinstance(perms, dict) and perms in ({"allow": []}, {}):
+            del new["permissions"]
         del new[_PERM_MARKER]
         gone.append(_t("uninstall.clean.perms", "permisos de Workspace ({k} reglas)", k=k))
     th = new.get("theme")
@@ -709,31 +746,11 @@ def clean_brain_settings(data, roots, themes):
 
 
 def strip_codex_trust(text, brain_roots, escape):
-    """(texto nuevo, [cerebros]) del config.toml de Codex sin los bloques
-    `[projects."<cerebro>"]` que agregó Workspace: solo si el bloque dice
-    EXACTAMENTE `trust_level = "trusted"` (otra clave o un comentario = del
-    socio, se deja)."""
-    heads = {'[projects."%s"]' % escape(r): r for r in brain_roots}
-    lines = (text or "").splitlines(True)
-    out, gone, i, at_end = [], [], 0, False
-    while i < len(lines):
-        h = lines[i].strip()
-        if h in heads:
-            j = i + 1
-            while j < len(lines) and not lines[j].lstrip().startswith("["):
-                j += 1
-            body = [ln.strip() for ln in lines[i + 1:j] if ln.strip()]
-            if body == ['trust_level = "trusted"']:
-                gone.append(heads[h])
-                at_end = j >= len(lines)
-                i = j
-                continue
-        out.append(lines[i])
-        i += 1
-    new = "".join(out)
-    if gone and at_end and new.strip():
-        new = new.rstrip("\n") + "\n"
-    return new, gone
+    """(texto nuevo, [cerebros]) del config.toml de Codex sin los bloques que
+    agregó Workspace. La regla vive en motor_confianza (la comparte quitar un
+    agente desde Agentes)."""
+    import motor_confianza
+    return motor_confianza.strip_codex_trust(text, brain_roots, escape)
 
 
 def clean_agy_settings(data, brain_roots, memoria_rules, is_ours):
@@ -742,22 +759,19 @@ def clean_agy_settings(data, brain_roots, memoria_rules, is_ours):
     `workspace memoria …` y la statusLine de Workspace."""
     if not isinstance(data, dict):
         return data, []
-    new, gone = json.loads(json.dumps(data)), []
-    trusted = new.get("trustedWorkspaces")
-    if isinstance(trusted, list):
-        kept = [t for t in trusted if t not in brain_roots]
-        if len(kept) != len(trusted):
-            new["trustedWorkspaces"] = kept
-            gone.append(_t("uninstall.clean.agy_trust", "cerebros en trustedWorkspaces ({k})",
-                           k=len(trusted) - len(kept)))
+    import motor_confianza          # la misma regla que quitar un agente
+    new, cuenta = motor_confianza.limpiar_agy_cerebros(data, brain_roots)
+    gone = []
+    if cuenta["confianza"]:
+        gone.append(_t("uninstall.clean.agy_trust", "cerebros en trustedWorkspaces ({k})",
+                       k=cuenta["confianza"]))
+    n_f = cuenta["reglas"]
     perms = new.get("permissions")
     allow = perms.get("allow") if isinstance(perms, dict) else None
     if isinstance(allow, list):
-        files = {"%s(%s)" % (k, r) for r in brain_roots for k in ("write_file", "read_file")}
-        n_f = sum(1 for r in allow if r in files)
         n_m = sum(1 for r in allow if r in memoria_rules)
-        if n_f or n_m:
-            perms["allow"] = [r for r in allow if r not in files and r not in memoria_rules]
+        if n_m:
+            perms["allow"] = [r for r in allow if r not in memoria_rules]
         if n_f:
             gone.append(_t("uninstall.clean.agy_rules", "reglas de archivos del cerebro ({k})",
                            k=n_f))
@@ -769,6 +783,40 @@ def clean_agy_settings(data, brain_roots, memoria_rules, is_ours):
         del new["statusLine"]
         gone.append(_t("uninstall.clean.statusline", "barra (statusLine)"))
     return new, gone
+
+
+def clean_motor_statusline(data, engine, msl):
+    """(dict nuevo, [lo quitado]) de la config de usuario de GitHub Copilot o
+    Cursor: solo la statusLine de Workspace (motor_statusline) y, en Cursor, su
+    regla `Shell(workspace-memoria)` (memoria_permiso); la del socio y el resto
+    quedan."""
+    new, gone = msl.clean_settings(engine, data)
+    out = [_t("uninstall.clean.statusline", "barra (statusLine)")] if gone else []
+    if engine == "cursor":
+        try:
+            import memoria_permiso
+            new, quito = memoria_permiso.clean_cursor(new)
+        except Exception:
+            quito = False
+        if quito:
+            out.append(_t("uninstall.clean.memoria_permiso",
+                          "permiso de `workspace-memoria`"))
+    return new, out
+
+
+def _clean_kiro_bar(data, segs, kr):
+    """(dict nuevo, [lo quitado]) de la config global de Kiro: solo los
+    segmentos de la barra que prendió Workspace y siguen prendidos."""
+    new, quito = kr.clean_statusline(data, segs)
+    return new, ([_t("uninstall.clean.kiro_segments",
+                     "segmentos de la barra que prendió Workspace")] if quito else [])
+
+
+def _shim_con_marca(path, mark):
+    """¿`path` es un shim de barra de Workspace (archivo con su marca en las
+    primeras líneas, no un enlace)?"""
+    head = _read_text(path)
+    return head is not None and any(ln.startswith(mark) for ln in head.splitlines()[:3])
 
 
 def _read_json_strict(path):
@@ -796,12 +844,21 @@ def _read_text(path):
 
 
 def _rewrite(path, text, stamp):
-    """Respaldo al lado (copia exacta) + escritura atómica. → ruta del respaldo."""
+    """Respaldo al lado (copia exacta, legible solo por el dueño: la config de
+    un motor puede traer datos de la cuenta, como `authInfo` de Cursor) +
+    escritura atómica que CONSERVA los permisos del original (antes quedaba
+    con los del umask: un 0600 salía 0644). → ruta del respaldo."""
+    mode = os.stat(path).st_mode & 0o777
     bak = path + _BAK + stamp
     shutil.copy2(path, bak)
+    if os.name != "nt":
+        os.chmod(bak, mode & 0o700)
     tmp = "%s.tmp-%d" % (path, os.getpid())
-    with open(tmp, "w", encoding="utf-8", newline="") as fh:
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
         fh.write(text)
+    if os.name != "nt":
+        os.chmod(tmp, mode)
     os.replace(tmp, path)
     return bak
 
@@ -840,15 +897,72 @@ def _which(binary):
 
 def _run_quiet(cmd, timeout=300):
     import subprocess
+    import arbol_procesos   # Windows: al vencer muere el árbol (.cmd → node)
     env = None
     try:                                         # el motor no hereda la bóveda
         import secret_store
         env = secret_store.engine_env()
     except Exception:
         pass
-    return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                          errors="replace", timeout=timeout, stdin=subprocess.DEVNULL,
-                          env=env)
+    return arbol_procesos.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", timeout=timeout, stdin=subprocess.DEVNULL,
+                              env=env)
+
+
+def _plan_memoria_mcp(mm, n, b, json_item, rm_item):
+    """La herramienta de memoria (memoria_mcp) en el cerebro `b`: el servidor
+    y las reglas de `.cursor/`, el agente `.kiro/agents/workspace.json` y el
+    servidor de `.agents/mcp_config.json` (Antigravity), solo lo nuestro (lo
+    del socio queda; un archivo que solo traía lo nuestro se borra, y su
+    carpeta si quedó vacía). Una ruta con un enlace dentro del cerebro (p. ej.
+    `.agents` compartida) no se toca."""
+    def enlace(p):
+        try:
+            return mm._enlace_en_ruta(b, os.path.relpath(p, b))
+        except (ValueError, OSError):
+            return True
+    mcp, cli = mm.cursor_paths(b)
+    for p, quitar in ((mcp, mm.sin_servidor), (cli, mm.sin_reglas_cursor)):
+        if enlace(p):
+            continue
+        data = _read_json_strict(p)
+        if data is None:
+            continue
+        new, quito = quitar(data)
+        if not quito:
+            continue
+        label = _t("uninstall.clean.memoria_mcp", "cerebro «{n}»: herramienta de memoria en {p}",
+                   n=n, p=p)
+
+        def sigue(p=p, quitar=quitar):
+            d = _read_json_strict(p)
+            return d is not None and quitar(d)[1] and mm.esqueleto(quitar(d)[0])
+        if mm.esqueleto(new):
+            rm_item(p, label, check=sigue, vaciar=(os.path.dirname(p),))
+        else:
+            json_item(p, label, lambda d, quitar=quitar: (
+                quitar(d)[0], [mm.SERVIDOR] if quitar(d)[1] else []))
+    kp = mm.kiro_agente_path(b)
+    data = None if enlace(kp) else _read_json_strict(kp)
+    if data is not None and mm._kiro_es_nuestro(data):
+        rm_item(kp, _t("uninstall.clean.kiro_agent", "Kiro: agente de Workspace {p}", p=kp),
+                check=lambda kp=kp: mm._kiro_es_nuestro(_read_json_strict(kp)),
+                vaciar=(os.path.dirname(kp), os.path.dirname(os.path.dirname(kp))))
+    # Antigravity: el servidor en `.agents/mcp_config.json` (los del socio quedan)
+    ap = mm.agy_mcp_path(b)
+    data = None if enlace(ap) else _read_json_strict(ap)
+    if data is not None and mm.sin_servidor(data)[1]:
+        label = _t("uninstall.clean.memoria_mcp", "cerebro «{n}»: herramienta de memoria en {p}",
+                   n=n, p=ap)
+        if mm.esqueleto(mm.sin_servidor(data)[0]):
+            rm_item(ap, label, check=lambda ap=ap: (
+                _read_json_strict(ap) is not None
+                and mm.sin_servidor(_read_json_strict(ap))[1]
+                and mm.esqueleto(mm.sin_servidor(_read_json_strict(ap))[0])),
+                vaciar=(os.path.dirname(ap),))
+        else:
+            json_item(ap, label, lambda d: (
+                mm.sin_servidor(d)[0], [mm.SERVIDOR] if mm.sin_servidor(d)[1] else []))
 
 
 def plan_clean_all(cerebros, stamp=None):
@@ -885,10 +999,19 @@ def plan_clean_all(cerebros, stamp=None):
             return ""
         items.append(("%s → %s" % (label, ", ".join(gone)), path, "edit", act))
 
-    def rm_item(path, label, check=None):
+    def rm_item(path, label, check=None, vaciar=()):
+        """`vaciar` = carpetas que se borran DESPUÉS, solo si quedaron vacías
+        (y no son un enlace)."""
         def act():
             if check is None or check():
                 rm_path(path, os.path.basename(path))
+                for d in vaciar:
+                    try:
+                        if not DRY and not os.path.islink(d) and os.path.isdir(d) \
+                                and not os.listdir(d):
+                            os.rmdir(d)
+                    except OSError:
+                        break
             return ""
         items.append((label, path, "rm", act))
 
@@ -904,10 +1027,16 @@ def plan_clean_all(cerebros, stamp=None):
         gemini_marks = (_agy._GEMINI_MARK, _agy._GEMINI_MARK_LEGACY)
     except Exception:
         _agy, gemini_marks = None, ()
+    try:
+        import memoria_mcp as _mm
+    except Exception:
+        _mm = None
     for n, b in cerebros:
         sp = os.path.join(b, ".claude", "settings.local.json")
         json_item(sp, _t("uninstall.clean.brain", "cerebro «{n}»: {p}", n=n, p=sp),
                   lambda d: clean_brain_settings(d, roots, themes))
+        if _mm is not None:
+            _plan_memoria_mcp(_mm, n, b, json_item, rm_item)
         for fn, marks in (("AGENTS.md", agents_marks), ("GEMINI.md", gemini_marks)):
             p = os.path.join(b, fn)
             if not marks or not os.path.isfile(p):
@@ -974,6 +1103,76 @@ def plan_clean_all(cerebros, stamp=None):
                         check=lambda p=p, pid=f[:-5]: _agy_project_ours(p, pid, _agy.FULL_GRANT))
             else:
                 kept.append(p)
+    # GitHub Copilot y Cursor: solo la statusLine de Workspace de su config de
+    # usuario (una del socio, y el resto del archivo, no se tocan)
+    try:
+        import motor_statusline as _msl
+        cp_home = os.path.expanduser(str(os.environ.get("COPILOT_HOME") or "").strip()) \
+            or os.path.join(HOME, ".copilot")
+        cu_dir = os.path.expanduser(str(os.environ.get("CURSOR_CONFIG_DIR") or "").strip())
+        if not cu_dir:
+            xdg = str(os.environ.get("XDG_CONFIG_HOME") or "").strip()
+            cu_dir = os.path.join(xdg, "cursor") if xdg else os.path.join(HOME, ".cursor")
+        for eng, key, label, path in (
+                ("copilot", "uninstall.clean.copilot", "GitHub Copilot: {p}",
+                 os.path.join(os.path.abspath(cp_home), "settings.json")),
+                ("cursor", "uninstall.clean.cursor", "Cursor: {p}",
+                 os.path.join(os.path.abspath(cu_dir), "cli-config.json"))):
+            json_item(path, _t(key, label, p=path),
+                      lambda d, eng=eng: clean_motor_statusline(d, eng, _msl))
+        # el respaldo que guardó Workspace antes de su primera escritura en la
+        # config de Copilot (motor_statusline): es suyo, no del socio
+        cp_bak = os.path.join(os.path.abspath(cp_home),
+                              "settings" + _msl._BACKUP_SUFFIX + ".json")
+        if os.path.isfile(cp_bak) and not os.path.islink(cp_bak):
+            rm_item(cp_bak, _t("uninstall.clean.copilot_backup",
+                               "GitHub Copilot: respaldo de Workspace {p}", p=cp_bak))
+    except Exception:
+        pass
+    # Los shims de las barras nativas (Antigravity, Copilot, Cursor) en
+    # ~/.local/bin: solo con su marca (uno ajeno con el mismo nombre se queda)
+    try:
+        import motor_statusline as _msl
+        import antigravity_usage as _au
+        shims = [(_au.SHIM_NAME, _au._SHIM_MARK)] + [
+            (s["shim"], s["mark"]) for s in _msl.SPECS.values()]
+        for name, mark in shims:
+            p = os.path.join(HOME, ".local", "bin", name)
+            if _shim_con_marca(p, mark):
+                rm_item(p, _t("uninstall.clean.motor_shim", "barra de un motor: {p}", p=p),
+                        check=lambda p=p, mark=mark: _shim_con_marca(p, mark))
+    except Exception:
+        pass
+    # Cursor: las marcas de confianza que dejó un `--trust` de Workspace (las
+    # que el socio aceptó en Cursor no están anotadas y se quedan)
+    try:
+        from engines import cursor as _cu
+        for d in _cu.confianzas_de_workspace(home=HOME):
+            m = os.path.join(d, _cu.TRUST_MARK)
+            if os.path.isfile(m) and not os.path.islink(m):
+                rm_item(m, _t("uninstall.clean.cursor_trust",
+                              "Cursor: confianza que dio Workspace {p}", p=m))
+    except Exception:
+        pass
+    # Kiro: lo que dejaba una versión anterior en su config global (la
+    # migración 202611052341 ya lo quita; esto cubre una máquina que no la
+    # corrió): el agente GLOBAL `workspace` con nuestra marca (uno del socio con
+    # ese nombre no se toca) y los segmentos de la barra que prendió Workspace
+    # según su registro (solo esos; respeta KIRO_HOME).
+    try:
+        import memoria_permiso as _mp
+        from engines import kiro as _kr
+        kp = _mp.clean_kiro_agente(os.path.join(_kr._kiro_dir(home=HOME), "agents",
+                                                _mp.KIRO_AGENTE + ".json"))
+        if kp is not None:
+            rm_item(str(kp), _t("uninstall.clean.kiro_agent", "Kiro: agente de Workspace {p}",
+                                p=str(kp)),
+                    check=lambda kp=kp: _mp.clean_kiro_agente(kp) is not None)
+        for sp, segs in _kr.statusline_de_workspace(home=HOME).items():
+            json_item(sp, _t("uninstall.clean.kiro_settings", "Kiro: {p}", p=sp),
+                      lambda d, segs=segs: _clean_kiro_bar(d, segs, _kr))
+    except Exception:
+        pass
     # OpenClaw y Hermes: sus perfiles PROPIOS de Workspace (el personal, jamás).
     # Guardan las conversaciones del socio: se APARTAN al lado, nunca se borran.
     try:
@@ -1036,25 +1235,10 @@ def plan_clean_all(cerebros, stamp=None):
 
 
 def _agy_project_ours(path, pid, grant):
-    """¿El proyecto de agy es el que crea Workspace, sin nada agregado? (mismo
-    id que su nombre, sin recursos y como mucho la regla de autonomía full)."""
-    d = _read_json_strict(path)
-    if d is None or d.get("id") != pid:
-        return False
-    # Cualquier cosa que no escribió Workspace (otra clave, reglas deny/ask,
-    # recursos) = el socio lo editó → no se borra (Greptile, 2026-10-17).
-    if set(d) - {"id", "name", "projectResources", "permissionGrants"}:
-        return False
-    if d.get("projectResources"):
-        return False
-    pg = d.get("permissionGrants") or {}
-    if not isinstance(pg, dict) or set(pg) - {"permissionGrants", "v2Migrated"}:
-        return False
-    inner = pg.get("permissionGrants") or {}
-    if not isinstance(inner, dict) or set(inner) - {"allow"}:
-        return False
-    allow = inner.get("allow") or []
-    return isinstance(allow, list) and all(r == grant for r in allow)
+    """¿El proyecto de agy es el que crea Workspace, sin nada agregado? La
+    regla vive en motor_confianza (la comparte quitar un agente)."""
+    import motor_confianza
+    return motor_confianza.agy_project_ours(path, pid, grant)
 
 
 def _clean_print(items, kept, stamp):
@@ -1113,7 +1297,7 @@ def main():
     root = workspace_root()
     state = _paths.state_dir(HOME)
     app = os.path.join(HOME, "Desktop", "WORKSPACE.app")
-    print(_t("uninstall.x.main.1", "\n  {b}{c}Desinstalador de WORKSPACE{r}  {dim}· {v} · {root}{r}", b=B, c=C, r=R, dim=DIM, v=platform.system(), root=root)
+    print(_t("uninstall.x.main.1", "\n  {b}{c}Desinstalador de Workspace{r}  {dim}· {v} · {root}{r}", b=B, c=C, r=R, dim=DIM, v=platform.system(), root=root)
           + (f"  {DIM}(DRY-RUN){R}" if DRY else "") + "\n")
 
     # 1) GUARDAS antes de todo: si una carpeta a borrar no prueba ser de
@@ -1143,7 +1327,7 @@ def main():
             print()
             return 2
     if not KEEP_FOLDER and not os.path.lexists(root):
-        info(f"{DIM}" + _t("uninstall.no_root", "no encuentro la carpeta del harness en {p} "
+        info(f"{DIM}" + _t("uninstall.no_root", "no encuentro la carpeta de Workspace en {p} "
              "(nada que borrar ahí; usa --workspace <ruta> si está en otro lado)")
              .replace("{p}", root) + R)
 
@@ -1220,15 +1404,18 @@ def main():
     rm_path(app, _t("uninstall.x.main.2", "app de escritorio"))       # ya pasó guard_dir (o no existe)
 
     if KEEP_FOLDER:
-        info(_t("uninstall.x.main.3", "{dim}carpeta del harness conservada (--keep-folder): {root}{r}", dim=DIM, root=root, r=R))
+        info(_t("uninstall.x.main.3", "{dim}carpeta de Workspace conservada (--keep-folder): {root}{r}", dim=DIM, root=root, r=R))
     elif sin_publicar:
-        info(_t("uninstall.x.main.git", "{dim}carpeta del harness conservada: {root} — tiene trabajo de git sin publicar ({w}).{r}", dim=DIM, root=root, w=sin_publicar, r=R))
+        info(_t("uninstall.x.main.git", "{dim}carpeta de Workspace conservada: {root} — tiene trabajo de git sin publicar ({w}).{r}", dim=DIM, root=root, w=sin_publicar, r=R))
     elif not _is_harness(root):   # SEC-06: no borrar una carpeta que no sea el harness
-        info(_t("uninstall.x.main.4", "{dim}aviso: {root} no parece un harness WORKSPACE (sin front.py/dispatch.py/install.py) — NO borro la carpeta. Usa --workspace <ruta> si es otra.{r}", dim=DIM, root=root, r=R))
+        info(_t("uninstall.x.main.4", "{dim}aviso: {root} no parece una carpeta de Workspace (sin front.py/dispatch.py/install.py) — NO borro la carpeta. Usa --workspace <ruta> si es otra.{r}", dim=DIM, root=root, r=R))
     else:
-        rm_path(root, _t("uninstall.x.main.5", "carpeta del harness"))
+        rm_path(root, _t("uninstall.x.main.5", "carpeta de Workspace"))
 
-    print(_t("uninstall.x.main.6", "\n  {c}Listo.{r} WORKSPACE desinstalado de esta máquina.", c=C, r=R))
+    if DRY:
+        print(_t("uninstall.x.main.6_dry", "\n  {c}Simulacro.{r} No se tocó nada: arriba está lo que haría.", c=C, r=R))
+    else:
+        print(_t("uninstall.x.main.6", "\n  {c}Listo.{r} Workspace desinstalado de esta máquina.", c=C, r=R))
     if clean:
         print(_t("uninstall.clean.final", "  {dim}De los cerebros y los motores solo se quitó lo que escribió Workspace, con respaldo al lado; el contenido de tus cerebros no se tocó.{r}", dim=DIM, r=R))
         for _p, bak in moved:

@@ -699,10 +699,10 @@ def detect():
         seen.add(_norm(c))
         if _looks_like_harness(c):
             harness_roots.append(c)
-            items.append(_item("harness", "retirar", c, "carpeta del harness viejo"))
+            items.append(_item("harness", "retirar", c, "carpeta de la instalación anterior"))
         else:
             items.append(_item("harness", "avisar", c,
-                               "existe pero NO parece un harness — no la toco"))
+                               "existe pero NO parece una instalación de Workspace — no la toco"))
 
     # (h) env viva: solo aviso (no editamos el entorno persistente del usuario)
     for var in legacy.ENV_VARS:
@@ -778,6 +778,8 @@ def _registry_covered(old, new):
 
 # ── 2. PLAN ─────────────────────────────────────────────────────────────────
 _VERB = {"migrar": "MIGRAR", "reapuntar": "REAPUNTAR", "retirar": "RETIRAR", "avisar": "REVISAR"}
+# Etiqueta visible de cada tipo; el tipo interno («kind») no cambia (va en el --json).
+_KIND_LABEL = {"harness": "instalación"}
 
 
 def plan_text(det=None):
@@ -797,7 +799,7 @@ def plan_text(det=None):
                                   else "  ← con --apply" if act in ("migrar", "reapuntar")
                                   else "  ← manual, no se toca"))
         for i in sel:
-            L.append("    · [%s] %s" % (i["kind"], i["path"]))
+            L.append("    · [%s] %s" % (_KIND_LABEL.get(i["kind"], i["kind"]), i["path"]))
             if i["dest"]:
                 L.append("        → %s" % i["dest"])
             L.append("        %s" % i["detail"])

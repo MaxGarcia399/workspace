@@ -29,6 +29,11 @@ STRINGS = {
     'settings_ui.label.otros.auto_update': 'Automatic updates',
     'settings_ui.label.otros.update_channel': 'Update channel',
     'settings_ui.label.otros.notify_on_done': 'Notify when done',
+    'settings_ui.label.sesiones.archivar_dias': 'Archive unused tabs (days)',
+    'settings_ui.label.sesiones.llevar_conversacion': 'Carry the conversation to your other machines',
+    'settings_ui.label.sesiones.conversacion_max_mb': 'Size cap for the travelling conversation (MB)',
+    'settings_ui.help.sesiones.llevar_conversacion':
+        "Each brain decides whether its Claude Code conversation travels with it, for every machine and person who uses it: `workspace sesiones conversacion on|off --agente X`. This setting is this machine's choice for brains that haven't decided. claude-code = when you close a tab, its conversation is saved compressed in the brain (motores/claude-code/conversaciones/<socio>/) and your other machine resumes it with --resume; opening only brings back yours. In a shared brain, everyone who uses it can see those conversations: for privacy, use a separate brain. It isn't uploaded if it's over the cap or contains something that looks like a key, and it never goes to the git mirror. With Obsidian Sync, turn on «Sync all other types» on each device. off (default) = it stays on each machine; the tab still travels with its memory.",
 
     'settings_ui.choice.ui.background.tema': 'theme',
     'settings_ui.choice.ui.background.negro': 'black',

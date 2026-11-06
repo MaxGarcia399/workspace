@@ -55,6 +55,7 @@ import datetime as _dt
 import os
 import re
 import sys
+import time
 
 sys.dont_write_bytecode = True
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -246,11 +247,12 @@ def _emit(action, m):
 
 def _atomic_write(path, text):
     """Escribe `text` en `path` vía tmp + os.replace (atómico en el mismo dir):
-    nunca queda un mensaje a medias aunque el proceso muera escribiendo."""
-    tmp = "%s.tmp%d" % (path, os.getpid())
-    with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(text)
-    os.replace(tmp, path)
+    nunca queda un mensaje a medias aunque el proceso muera escribiendo. Con
+    el helper común (atomico): reintenta si Windows tiene el archivo abierto
+    un instante (antivirus, Obsidian) y, si no se logra, borra el temporal,
+    lo dice en stderr y relanza — el bus ya no falla en silencio."""
+    import atomico
+    atomico.escribir(path, text, avisar=True)
 
 
 def _bus_secret_block(subj, body, strict=False):

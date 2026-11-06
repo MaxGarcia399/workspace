@@ -7,8 +7,10 @@ Necesitas tres cosas:
 1. **Python 3.9 o más nuevo.** En Windows el comando es `python`; en Mac/Linux, `python3`.
 2. **Git.**
 3. **Al menos un motor** instalado y con tu sesión iniciada: **Claude Code** (`claude`),
-   **Codex** (`codex`) o **Antigravity** (`agy`). Si todavía no tienes ninguno, el primer
-   arranque te ayuda a instalarlo.
+   **Codex** (`codex`), **Antigravity** (`agy`), **OpenCode** (`opencode`), **OpenClaw**
+   (`openclaw`), **Hermes** (`hermes`), **Kiro** (`kiro-cli`), **GitHub Copilot** (`copilot`) o
+   **Cursor** (`cursor-agent`). Si todavía no tienes ninguno, el primer arranque te ayuda a
+   instalarlo.
 
 No hace falta `pip install` ni nada más: Workspace no tiene dependencias.
 

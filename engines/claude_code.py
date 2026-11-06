@@ -15,6 +15,7 @@ import sys, os, re, shutil, subprocess
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
+import arbol_procesos  # noqa: E402  (Windows: al vencer el tiempo muere el árbol entero)
 from session_paths import session_dir as _session_dir  # noqa: E402
 
 META = {"name": "claude-code", "needs": ["claude"], "auth": "subscription"}
@@ -84,6 +85,28 @@ def auto_mode_args(passthrough, cfg=None):
     except Exception:
         pass
     return ["--permission-mode", "acceptEdits"] if on else []
+
+
+def escribe_sin_preguntar(cfg, passthrough=()):
+    """¿Claude Code escribe en el cerebro sin preguntar? Con autonomía «brain»
+    (la de fábrica) sí: el `Edit(<cerebro>/**)` del settings.local.json del
+    cerebro (install.brain_rules) y, con agentes.auto_mode, acceptEdits.
+    Entonces la pestaña niega la config de los motores, git y Obsidian
+    (memoria.claude_deny_protegidas), como respaldo del mismo deny que ya
+    vive en el settings.local.json junto al allow (install.render_permissions:
+    también para un `claude` abierto fuera del lanzador o con su propio
+    --settings). Con «ask» pregunta todo (sin deny). Si
+    el socio pasa --dangerously-skip-permissions o --permission-mode
+    bypassPermissions, su elección gana (como en Copilot)."""
+    if str((cfg or {}).get("autonomy") or "").strip().lower() == "ask":
+        return False
+    args = [str(a) for a in passthrough or []]
+    for i, a in enumerate(args):
+        if a.startswith("--dangerously-skip-permissions") \
+                or a == "--permission-mode=bypassPermissions" \
+                or (a == "--permission-mode" and args[i + 1:i + 2] == ["bypassPermissions"]):
+            return False
+    return True
 
 
 def model_args(cfg, passthrough):
@@ -459,7 +482,8 @@ def launch(cfg, passthrough, plan=False, preselect=None, show_banner=True):
     import memoria as _memoria
     cmd = ([shutil.which("claude") or "claude"]
            + auto_mode_args(passthrough, cfg) + model_args(cfg, passthrough)
-           + _memoria.claude_settings_args(brain, passthrough)
+           + _memoria.claude_settings_args(brain, passthrough,
+                                           protegidas=escribe_sin_preguntar(cfg, passthrough))
            + list(passthrough))
     parts = choice.split("\t")
     if len(parts) >= 3 and parts[0] == "WS":
@@ -471,6 +495,17 @@ def launch(cfg, passthrough, plan=False, preselect=None, show_banner=True):
         env["WORKSPACE_WS"] = wname
         env["WORKSPACE_WID"] = wid
         jsonl = os.path.join(_session_dir(brain), wid + ".jsonl")
+        # Nivel 2 (sesiones.llevar_conversacion, apagado de fábrica): si la
+        # conversación viajó en el cerebro y aquí no está (o la del cerebro es
+        # más nueva), se trae ANTES de decidir. Si falla, avisa en una línea y
+        # sigue lo de siempre: jamás bloquea la apertura.
+        try:
+            import conversaciones as _conv
+            for _aviso in _conv.al_abrir(brain, wid, wname):
+                sys.stdout.write("WORKSPACE: %s\n" % _aviso)
+            sys.stdout.flush()
+        except Exception:
+            pass
         if os.path.exists(jsonl):
             cmd += ["--resume", wid]
         else:
@@ -489,6 +524,13 @@ def launch(cfg, passthrough, plan=False, preselect=None, show_banner=True):
         except Exception:
             pass
 
+    # Los avisos de una línea que dispatch juntó al abrir: aquí, después del
+    # banner y del menú (los dos limpian la pantalla y los borraban).
+    try:
+        from engines import _ui
+        _ui.soltar_avisos()
+    except Exception:
+        pass
     os.chdir(brain)
     _exec(cmd, env)
 
@@ -520,7 +562,7 @@ def session_active(runner=None):
     exe = shutil.which("claude")
     if not exe:
         return None
-    run = runner or subprocess.run
+    run = runner or arbol_procesos.run
     extra = {} if runner else {"env": _env_motor()}
     try:
         r = run([exe, "auth", "status", "--json"], capture_output=True, text=True,

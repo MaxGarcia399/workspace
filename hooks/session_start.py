@@ -90,8 +90,8 @@ def _secret_warning(brain):
         return ""
     shown = findings[:_SECRET_SCAN_MAX_FINDINGS]
     lines = ["⚠ SECRETO(S) POSIBLE(S) EN EL CEREBRO (%d) — Obsidian Sync los "
-             "sube SIN barrera; el gate duro solo cubre las escrituras del "
-             "harness, no lo que pegas a mano:" % len(findings)]
+             "sube SIN barrera; el gate duro solo cubre las escrituras de "
+             "Workspace, no lo que pegas a mano:" % len(findings)]
     for x in shown:
         lines.append("  · %s:%s [%s] %s" % (x.get("path", "?"),
                                             x.get("line", "?"),

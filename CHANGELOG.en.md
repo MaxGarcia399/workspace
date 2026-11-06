@@ -8,6 +8,210 @@ How to read this: every version has a number (`MAJOR.MINOR.PATCH`). A PATCH
 change fixes things; a MINOR one brings new features without breaking
 anything; a MAJOR one warns you well in advance if something changes shape.
 
+## 0.6.0 — 2026-11-06
+
+**New**
+- **Three new engines: GitHub Copilot, Cursor and Kiro.** Install them from
+  Engines; they open your agents with your account, on the same brain as
+  your other engines: they read the same `AGENTS.md`, each tab resumes its
+  conversation and, on close, Workspace packs the handoff like with the
+  others. Tested live on a Mac and on Windows 11 (Linux is still to be
+  tested).
+  - **GitHub Copilot** (`copilot`, GitHub's official CLI) runs with your
+    subscription and your account's model. In Copilot's settings Workspace
+    only writes its bar (with a copy of the file first); the rest goes on
+    each launch. One agent doesn't read another's conversations: Copilot's
+    session search is one for your whole account and Workspace turns it off
+    on each launch (if you pass your own `--excluded-tools`, yours win). It
+    installs with npm on Mac and Linux and with WinGet on Windows (on the
+    Mac, not the Homebrew one: macOS holds it back and shows a warning that
+    won't close). On Windows, Copilot also runs the hooks Workspace sets up
+    in your brain, so each hook now carries a PowerShell version too: they're
+    rewritten on their own when you update (if not, `workspace doctor` does
+    it).
+  - **Cursor** (`cursor-agent`) uses the model you pick in Cursor. In its
+    settings (`cli-config.json`) Workspace only adds its bar, and on each
+    launch it tells Cursor to trust your brain's folder (the mark stays in
+    Cursor's folder, not in your brain). On a Mac, install it from Engines:
+    the Homebrew package doesn't start. On Windows it boots and uses its
+    tools even if you open Workspace from Git Bash. What Workspace assumes
+    about Cursor comes from its official docs or from running the program,
+    never from its code (Cursor's terms ask for that).
+  - **Kiro**, AWS's terminal agent (`kiro-cli`, formerly Amazon Q Developer
+    CLI), versions 2 and 3, uses the model you pick in Kiro. On each launch
+    it tells Kiro to trust your brain's folder, without saving it, and it
+    writes nothing in `~/.kiro`: its agent lives in your brain
+    (`.kiro/agents/workspace.json`). If you haven't signed in, it offers that
+    before opening. Kiro's bar is its own, untouched: if you want to see your
+    usage and credits, turn them on in `/settings display` inside Kiro.
+- **Copilot, Cursor, Kiro and Antigravity save memory without asking you,
+  and the terminal still asks.** The agent saves with a Workspace **memory
+  tool** (MCP: `guardar_nota`, `guardar_resumen` and `ver_memoria`), not a
+  terminal command: the engine approves it by name and no terminal reads the
+  note's text, so there's no way to sneak another command into it. The tool
+  only writes in the tab of the window that opened it: no other brain, no
+  other tab. Copilot gets it on each launch (nothing written in its
+  settings); Cursor and Antigravity, in your brain's project settings
+  (`.cursor/` and `.agents/mcp_config.json`); and Kiro, in your brain's
+  `workspace` agent, picked on launch (if you pick another agent in Kiro,
+  yours wins). In Antigravity it replaces the memory command Workspace used
+  to approve: since its version 1.5.1, Antigravity approves by the start of
+  the command, so that permission also ran whatever was written after it.
+  That permission is removed on its own when you open the agent, and your
+  Antigravity rules are kept as they are; if you pass your own `--settings`,
+  yours wins and memory asks you first. If the tool fails, the agent tells
+  you instead of writing the memory by hand, and it works even if Workspace
+  runs from a Python virtual environment you later delete. Tested live on a
+  Mac and, with Copilot, Cursor and Kiro, on Windows 11 (Antigravity on
+  Windows is still to be tested).
+- **Your tabs are the same on every machine.** Each machine now knows who you
+  are across all your brains: you tell it once (or it takes it from what you
+  already had) and it never guesses with someone else's folder. The tab list
+  comes only from the brain, so what a machine kept on the side (old tests,
+  removed tabs) no longer shows up or comes back. If you were two users in a
+  brain (an old name and a new one), they merge on their own without deleting
+  anything; `workspace identidad deshacer` puts everything back, the tabs
+  from your previous name included, and the next launch doesn't merge them
+  again.
+- **Archive tabs without deleting them.** In the tab menu, `a` archives the
+  highlighted tab and `u` undoes; «Archived (N)» at the end brings them back.
+  Tabs you don't open for 15 days archive on their own (setting
+  `sesiones.archivar_dias`; 0 turns it off), with a one-line notice that
+  always shows «u to undo». Archiving travels: the tab leaves the menu on all
+  your machines, and opening it brings it back. After updating there are 15
+  days of grace before the first automatic archive, and a machine that
+  arrives with an out-of-date brain archives nothing. From the terminal too:
+  `workspace sesiones lista|archivar|desarchivar`.
+- **Workspace tells you when your brain isn't syncing.** Each machine leaves a
+  small record in the brain (`STATE/maquinas/`); if another machine has been
+  silent for days, Obsidian is closed or there are conflicted files, you get
+  one line when opening the agent and in `workspace doctor`.
+- **Carry your Claude Code conversation to your other machine (optional, off
+  by default).** It's turned on per brain with `workspace sesiones
+  conversacion on` (and applies to every machine and person who uses that
+  brain): closing a tab saves its conversation compressed in the brain and your
+  other machine resumes it as is; opening only brings back yours. In a shared
+  brain, everyone who uses it can see those conversations: for privacy, use a
+  separate brain. It isn't uploaded if it's over the cap
+  (`sesiones.conversacion_max_mb`, 4 MB) or if it contains something that looks
+  like a key, and it never goes to git. With Obsidian Sync, turn on «Sync all
+  other types» on each device.
+- **GitHub Copilot and Kiro write in their agent's brain without asking
+  you**, like the other engines, when the agent has "its brain without
+  asking" (the default; you change it in Agents). Outside the brain (also in
+  a sibling folder with a similar name) they still ask, and the terminal
+  asks as always; with the option off, they ask before every file. Nothing
+  is written in Copilot's or Kiro's settings: in Copilot it goes on each
+  launch (if you pass your own permissions, `--allow-tool`, `--yolo`…, yours
+  win) and in Kiro, in your brain's agent. If the brain's path has
+  parentheses, Copilot rejects the rule and keeps asking (it tells you on
+  launch). Tested live on a Mac; Windows is still to be tested.
+- **The agent can't touch the settings of any engine, or of git or Obsidian,
+  inside its brain.** Your brain is shared by all your engines, git and
+  Obsidian, and each one loads its settings from there on launch (hooks, MCP
+  servers, agents, plugins): an engine writing another's could grant itself
+  permissions or leave a command that runs later. Now, when the agent writes
+  in its brain without asking, none of its engines (Claude Code, Antigravity,
+  Copilot, Cursor or Kiro) can write with its file tools in `.git/`,
+  `.github/`, `.agents/`, `.cursor/`, `.kiro/`, `.codex/`, `.gemini/`,
+  `.vscode/`, `.obsidian/`, `.opencode/`, `opencode.json`, `.mcp.json` or in
+  the settings, skills, agents, commands and hooks in `.claude/` (not with
+  capital letters either, like `.KIRO/`). It's denied, not asked (in Claude
+  Code it used to ask): if you want to change those settings, do it
+  yourself. Your notes, skills and documents in the brain are written as
+  always, and Workspace still writes its own files there. In Claude Code the
+  rule lives in the brain's settings, next to the permission to write in
+  it: it also holds if you open it outside Workspace (VS Code, the desktop
+  app or plain `claude`), and your existing brains get it on their own when
+  you update. If Antigravity can't get it (you pass your own `--settings` or
+  its settings file can't be read), it asks before editing and tells you on
+  launch. On Windows, with a very long brain path, GitHub Copilot asks
+  before writing (the rules wouldn't fit in the command line) and tells you
+  on launch. Codex, opencode, OpenClaw and Hermes don't change: they use
+  their own protection. Tested live on a Mac; Windows is still to be tested.
+- **Your project settings are respected: Workspace only adds its own.** In
+  your brain's `.agents/mcp_config.json` (Antigravity) and `.cursor/mcp.json`
+  and `.cursor/cli.json` (Cursor), Workspace only puts its memory server and
+  its rules: your servers (for example, `github`) and your permissions stay
+  as they are, and the file keeps its permissions. If someone changed
+  Workspace's part, only that is restored (with a backup) and you get a
+  one-line note. If that folder is a link (for example, to your shared
+  skills) or the file can't be read, it's left alone: memory asks you for
+  permission and you're told on launch. Your `.gitignore` ignores those
+  files.
+- **Engines says whether Antigravity is full or "experimental".** Google
+  doesn't support using Antigravity inside other apps on a consumer plan
+  (https://antigravity.google/docs/faq/). With a Gemini API key or a business
+  account (Google Cloud project), Engines says "full". If you sign in with your
+  Google account, since Antigravity doesn't say whether the plan is personal,
+  it says "experimental" and explains why. Everything works the same: it's
+  just the notice.
+- **Clearer wording about engines.** The README, the manual and the Engines
+  help (`i` key) say what Workspace does: it sets up and opens your official
+  engines, with your account. They also note that Workspace isn't affiliated
+  with the companies behind the engines, and the README map now shows all
+  nine. Screens and messages now just say "engine" or "Workspace" instead
+  of a technical term.
+
+**Fixes**
+- **On Windows, the Antigravity and Cursor bars show up even if your user name
+  has spaces** (for example "Ana Lopez"). Before, the terminal cut the
+  quotes off the command and the bar didn't appear; now the folder goes by its
+  Windows short name. Mac and Linux are unchanged.
+- **On Windows, an engine that hangs no longer leaves processes running.** When
+  Workspace has to stop an engine that isn't responding (checking your account,
+  its version or a windowless turn), it now also closes the programs that
+  engine started underneath, instead of waiting forever. Mac and Linux are
+  unchanged.
+- **The one-line notices when you open an agent now show up** (for example,
+  "Workspace updated to v…", and the new ones about merged users, a brain
+  not syncing and archived tabs): they appear under the banner, right before
+  the chat. Before, the banner cleared the screen and wiped them. Works for
+  every engine.
+- **A Codex tab resumes again after an abrupt close.** If Workspace was
+  killed (a crash or `kill -9`; not closing the window), the engine stayed
+  open in the background, and Codex won't resume a conversation while
+  another process holds it: reopening the tab started from scratch. Now
+  Workspace closes that engine right away, as if you closed the window (it
+  gets a few seconds to save), and if that didn't happen, on reopen it first
+  closes every engine left running and then resumes. This applies to every
+  engine. Mac and Linux; Windows is still to be tested.
+- **Claude Code: the handoff is no longer lost if the program closes
+  abruptly.** Workspace built it only when the session closed; after a crash
+  (a `kill -9`, a frozen machine, a power cut) the tab had no handoff until the
+  next normal close. Now it's refreshed at the end of every reply (no AI, and
+  you won't notice: it takes milliseconds), so it carries up to the last one.
+  The usual close still does the rest.
+- **Hermes 0.22.5 works as before again.** Since that version Hermes names
+  its conversations differently and Workspace couldn't find them on close:
+  the tab started from scratch and the handoff stayed empty. Now it resumes
+  each tab and fills its handoff; each tab saves its memory in its own tab
+  (Hermes runs every conversation in a single background process, and a note
+  from another tab, or another agent, could land in the first one), and a
+  `/resume` inside Hermes, after chatting, is respected on close.
+- **Removing an agent or uninstalling cleans up what Workspace left in your
+  engines, and only that.** Removing an agent from Agents now also removes
+  the trust Workspace gave its brain in Codex and Antigravity (until now
+  only uninstalling did it) and the memory tool in its brain. Uninstalling
+  also removes Copilot's and Cursor's bars with their commands, the copy of
+  Copilot's settings and the trust marks Workspace left. Only what Workspace
+  wrote is removed, exactly as it wrote it: what you added, other agents
+  (even if they share the brain) and your other folders stay; a file or
+  folder is deleted only if it's left empty, and edited files keep their
+  permissions.
+- **On Windows, installing an engine from Engines is no longer blocked by
+  Microsoft Defender.** Defender flagged as a trojan the one-line command
+  that downloads the installer and runs it at the same time, and nothing got
+  installed. Now Workspace first downloads the official installer (HTTPS
+  only), runs it as a file in the same terminal and deletes it afterwards;
+  if the download fails, it tells you in one line and nothing runs. This
+  covers Claude Code, Codex, Antigravity, OpenClaw, Hermes, Kiro and Cursor;
+  nothing changes on Mac and Linux. Also, the installer's closing line names
+  all nine engines.
+- On Windows, saving to the brain no longer fails silently when the antivirus
+  or Obsidian has the file open: it retries and, if it can't, it tells you
+  (before, a message or a note could be lost).
+
 ## 0.5.1 — 2026-10-21
 
 **Fixes**

@@ -5,6 +5,9 @@
 .claude/skill-review/
 # Candados de la memoria (olock.local_lock) cuando el motor corre en sandbox — per-máquina
 .claude/locks/
+# Sesiones v2 (nivel 2): las conversaciones de los motores viajan por el sync del
+# cerebro, NUNCA al espejo de git (pueden traer llaves pegadas)
+motores/*/conversaciones/
 
 # macOS
 .DS_Store

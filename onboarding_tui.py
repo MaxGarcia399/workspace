@@ -83,9 +83,9 @@ def _t(key, es):
         return es
 
 #: Harnesses OFRECIDOS en el onboarding — los soportados de verdad hoy.
-#: harnesses.py puede listar más engines instalados; aquí solo estos seis.
+#: harnesses.py puede listar más engines instalados; aquí solo estos nueve.
 SOPORTADOS = ("claude-code", "codex", "antigravity", "opencode", "openclaw",
-              "hermes")
+              "hermes", "kiro", "copilot", "cursor")
 
 #: Copy honesto por motor: qué es, de quién, cómo se entra. Nada inventado.
 _MOTOR_INFO = {
@@ -125,6 +125,29 @@ _MOTOR_INFO = {
         "Workspace usa un perfil propio de Hermes (copia tu config; tu Hermes "
         "personal no cambia) con la identidad de tu agente y sin la memoria propia "
         "de Hermes; nunca lee tu credencial."),
+    "kiro": (
+        "Kiro — el agente de terminal de AWS (binario `kiro-cli`), antes Amazon Q "
+        "Developer CLI.",
+        "Entra con tu cuenta de Kiro: `kiro-cli login` (Builder ID, Identity Center, "
+        "Google o GitHub).",
+        "Workspace lo envuelve sobre tu mismo cerebro: el modelo es el que "
+        "elijas en Kiro y nunca lee tu credencial. Su config va en el cerebro "
+        "(.kiro/agents/workspace.json): nada en tu ~/.kiro."),
+    "copilot": (
+        "GitHub Copilot — el CLI oficial de GitHub (binario `copilot`), con tu "
+        "suscripción de Copilot.",
+        "Entra con `copilot login` en tu terminal (o desde Motores › cuenta y "
+        "proveedor).",
+        "Workspace lo envuelve: el modelo es el de tu cuenta y nunca lee tu "
+        "token. Escribe solo su barra en ~/.copilot/settings.json; la memoria y "
+        "el aislamiento entre agentes van en cada arranque."),
+    "cursor": (
+        "Cursor — el CLI de Cursor (binario `cursor-agent`), con tu cuenta de "
+        "Cursor.",
+        "Entra con `cursor-agent login` (o desde Motores › cuenta y proveedor).",
+        "Workspace lo envuelve: el modelo es el que elijas en Cursor y nunca "
+        "lee tu credencial. En ~/.cursor/cli-config.json escribe su barra y el "
+        "permiso de guardar la memoria, y confía en la carpeta de tu cerebro."),
 }
 
 #: Fondos del onboarding = las opciones de ui.background MENOS `personalizado`
@@ -772,7 +795,8 @@ def _b_bienvenida(S, K, iw, full=2):
            "Workspace es un hub local para tus agentes de IA: cada agente vive "
            "en su propio cerebro (una carpeta de archivos tuya) y corre sobre "
            "un motor CLI que ya tengas instalado — Claude Code, Codex, "
-           "Antigravity, OpenCode, OpenClaw o Hermes."),
+           "Antigravity, OpenCode, OpenClaw, Hermes, Kiro, GitHub Copilot o "
+           "Cursor."),
         _t("onboarding.welcome.p2",
            "Todo pasa en tu máquina: cero dependencias, sin cuentas nuevas, y "
            "Workspace nunca ve ni guarda tus credenciales (el login es de cada "
@@ -824,7 +848,8 @@ def _b_motores(S, K, iw, full=2):
         # el ESTADO en su propia línea: completo, jamás truncado
         for sub in _wrap(txt, max(8, iw - 6)):
             izq.append(HL.clip("      %s%s%s" % (col, sub, K["R"]), iw))
-        izq.append("")
+        if not S.get("_compacto"):           # con poco alto, sin aire entre motores
+            izq.append("")
     izq.append(_divisor(K, _t("onboarding.motores.div_listo", "listo"), iw))
     selc = (S["mi"] == len(SOPORTADOS))
     bar, cur = _foco(K, selc)
@@ -1242,9 +1267,20 @@ def render(S, w, h):
                              state=S["info"], box_w=66)
     sigue = S.get("_desplaza")
     desde = sigue[1] if v in _SOLO_TEXTO and sigue and sigue[0] == v else None
-    out = SB.frame(K, w, h, palabra, t_izq, lambda iw: _cuerpo_ob(S, K, iw), _chips_ob(S),
-                   msg=S.get("msg", ""), cursor_line=lambda: S.get("_cur", 0),
-                   scroll=desde, box_w=_OB_BOX_W)
+    def caja():
+        return SB.frame(K, w, h, palabra, t_izq, lambda iw: _cuerpo_ob(S, K, iw), _chips_ob(S),
+                        msg=S.get("msg", ""), cursor_line=lambda: S.get("_cur", 0),
+                        scroll=desde, box_w=_OB_BOX_W)
+    out = caja()
+    if v == "motores" and (SB.frame.last_max_scroll or SB.frame.last_level[1] < 3):
+        # la lista de motores no cabe con los botones enteros: se quita el aire
+        # entre motores antes de desplazar la caja o de achicar los botones
+        # (así la acción, «continuar» y los botones siguen a la vista)
+        S["_compacto"] = True
+        try:
+            out = caja()
+        finally:
+            S.pop("_compacto", None)
     if v in _SOLO_TEXTO:                          # dónde quedó la caja y su tope
         S["_caja"] = (v, SB.frame.last_start, SB.frame.last_max_scroll)
     return out
@@ -1598,6 +1634,27 @@ def _add_agent(opcion):
             return 0
 
 
+def _identidad_desde(nuevos):
+    """El onboarding guarda quién eres (sesiones v2, identidad.py): si esta
+    máquina todavía no lo sabe, el dueño del agente que acabas de crear o
+    cargar (su socio.local, que escribió esa misma pantalla) pasa a ser tu
+    identidad en esta máquina, para todos tus cerebros. El genérico «owner»
+    no cuenta. Falla-suave: sin esto, la sección Usuarios lo pregunta."""
+    try:
+        import identidad
+        if identidad.persona():
+            return ""
+        for a in _agentes():
+            if a.get("name") not in (nuevos or ()):
+                continue
+            s = identidad._socio_local(a.get("brain") or "")
+            if s and s != identidad._GENERICO:
+                return identidad.fijar_persona(s, origen="onboarding")["nombre"]
+    except Exception:
+        pass
+    return ""
+
+
 def _tono_para(agente):
     """La pantalla REAL del Tono, pre-sembrada en el agente recién nacido."""
     try:
@@ -1717,6 +1774,7 @@ def run(force=False):
                     _add_agent(token)
                     nuevos = sorted({a["name"] for a in _agentes()} - antes)
                     S["nuevos"] += nuevos
+                    _identidad_desde(nuevos)     # quién eres en esta máquina
                     if nuevos:                   # nació/conectó uno → su TONO
                         _tono_para(nuevos[0])
                         S["tono"] = nuevos[0]

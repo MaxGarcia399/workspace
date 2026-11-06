@@ -41,11 +41,13 @@ if _ROOT not in sys.path:
 LANGS = ("es", "en")
 #: Lo que se muestra cuando un dato en vivo no se puede leer.
 NADA = "—"
-#: Los seis motores: (id, nombre, programa). tests/test_docs_hub lo compara
+#: Los nueve motores: (id, nombre, programa). tests/test_docs_hub lo compara
 #: con engines/<id>.py (META «needs»).
 MOTORES = (("claude-code", "Claude Code", "claude"), ("codex", "Codex", "codex"),
            ("antigravity", "Antigravity", "agy"), ("opencode", "OpenCode", "opencode"),
-           ("openclaw", "OpenClaw", "openclaw"), ("hermes", "Hermes", "hermes"))
+           ("openclaw", "OpenClaw", "openclaw"), ("hermes", "Hermes", "hermes"),
+           ("kiro", "Kiro", "kiro-cli"), ("copilot", "GitHub Copilot", "copilot"),
+           ("cursor", "Cursor", "cursor-agent"))
 #: La carpeta de estado tal como se le muestra a la persona (paths.state_dir
 #: con el HOME como «~»; el test lo compara).
 ESTADO_TXT = "~/.claude/workspace"
@@ -267,7 +269,11 @@ def _vivo_usuarios(c):
     if not b:
         return NADA
     import usuarios as U
-    yo = U.socio_actual(b, arreglar=False)
+    try:   # el mismo lector que las pestañas: la identidad de esta máquina
+        import sessions_registry
+        yo = sessions_registry.socio(b)
+    except Exception:
+        yo = ""
     n = len([x for x in U.cedulas(b) if x.get("id")])
     if not yo:
         return _t("docs.vivo.users_none", "esta PC todavía no eligió usuario · con cédula: {n}",
@@ -322,8 +328,19 @@ def _vivo_toca(c):
             ok = any(_norm(x) == _norm(b) for x in (tw or []) if isinstance(x, str))
         except (OSError, ValueError):
             ok = False
-        return _t("docs.vivo.touch_agy", "{f}: tu cerebro, de confianza {m}",
-                  "{f}: your brain, trusted {m}", f=corto(cfg), m=si if ok else NADA)
+        try:                    # la herramienta de memoria vive en el cerebro (.agents/)
+            import memoria_mcp
+            srv = (json.loads(_leer(memoria_mcp.agy_mcp_path(b))).get("mcpServers") or {}).get(
+                memoria_mcp.SERVIDOR)
+            regla = memoria_mcp._es_nuestro(srv)
+        except (OSError, ValueError, AttributeError):
+            regla = False
+        return _t("docs.vivo.touch_agy2",
+                  "{f}: tu cerebro, de confianza {m} · en el cerebro, la herramienta de memoria "
+                  "(.agents/mcp_config.json) {r}",
+                  "{f}: your brain, trusted {m} · in the brain, the memory tool "
+                  "(.agents/mcp_config.json) {r}",
+                  f=corto(cfg), m=si if ok else NADA, r=si if regla else NADA)
     if eng in ("openclaw", "hermes"):
         if eng == "openclaw":
             from engines import openclaw
@@ -336,6 +353,46 @@ def _vivo_toca(c):
     if eng == "opencode":
         return _t("docs.vivo.touch_opencode", "OpenCode: nada fuera del cerebro",
                   "OpenCode: nothing outside the brain")
+    if eng == "kiro":
+        # nada en su config global: todo va en el agente del cerebro
+        import memoria_mcp
+        return _t("docs.vivo.touch_kiro",
+                  "Kiro: nada fuera del cerebro · en el cerebro, su agente "
+                  ".kiro/agents/workspace.json {a}",
+                  "Kiro: nothing outside the brain · in the brain, its agent "
+                  ".kiro/agents/workspace.json {a}",
+                  a=si if os.path.isfile(memoria_mcp.kiro_agente_path(b)) else NADA)
+    if eng == "copilot":
+        import motor_statusline as msl
+        f = str(msl.settings_path("copilot"))
+        return _t("docs.vivo.touch_copilot",
+                  "{f}: barra de Workspace {m} (memoria y aislamiento van en cada arranque, "
+                  "sin escribir)",
+                  "{f}: Workspace's bar {m} (memory and isolation go on each launch, "
+                  "nothing written)",
+                  f=corto(f),
+                  m=si if msl.inspect("copilot") == "ours" else NADA)
+    if eng == "cursor":
+        # cli-config.json trae la cuenta (authInfo): solo se mira la barra; la
+        # memoria vive en el cerebro (.cursor/mcp.json y .cursor/cli.json)
+        from engines import cursor
+        import memoria_mcp
+        import motor_statusline as msl
+        f = str(msl.settings_path("cursor"))
+        try:
+            mcp, _cli = memoria_mcp.cursor_paths(b)
+            srv = (json.loads(_leer(mcp)).get("mcpServers") or {}).get(memoria_mcp.SERVIDOR)
+            regla = memoria_mcp._es_nuestro(srv)
+        except (OSError, ValueError, AttributeError):
+            regla = False
+        return _t("docs.vivo.touch_cursor",
+                  "{f}: barra {m} · en el cerebro, la herramienta de memoria (.cursor/) {r} · "
+                  "~/.cursor/projects: tu cerebro, de confianza {t}",
+                  "{f}: bar {m} · in the brain, the memory tool (.cursor/) {r} · "
+                  "~/.cursor/projects: your brain, trusted {t}",
+                  f=corto(f),
+                  m=si if msl.inspect("cursor") == "ours" else NADA,
+                  r=si if regla else NADA, t=si if cursor.trusted(b) else NADA)
     n = _hooks_conectados(b)
     if n is None:
         return _t("docs.vivo.touch_cc_none", ".claude/settings.local.json: todavía no existe",
@@ -476,7 +533,8 @@ CAPITULOS = (
                       "el motor y tu cuenta son tuyos"),
              "puntos": (
                  "Workspace no es el motor: abre el programa oficial que ya usas (Claude Code, "
-                 "Codex, Antigravity, OpenCode, OpenClaw o Hermes) dentro de la carpeta de tu agente.",
+                 "Codex, Antigravity, OpenCode, OpenClaw, Hermes, Kiro, GitHub Copilot o Cursor) "
+                 "dentro de la carpeta de tu agente.",
                  "El motor habla con su proveedor con tu propia cuenta. Esa conversación es del "
                  "motor, no de Workspace.",
                  "Cada agente tiene su motor. En el hub lo cambias con ←→ sobre el agente; se "
@@ -491,8 +549,8 @@ CAPITULOS = (
                       "the engine and your account are yours"),
              "puntos": (
                  "Workspace is not the engine: it opens the official program you already use "
-                 "(Claude Code, Codex, Antigravity, OpenCode, OpenClaw or Hermes) inside your "
-                 "agent's folder.",
+                 "(Claude Code, Codex, Antigravity, OpenCode, OpenClaw, Hermes, Kiro, GitHub "
+                 "Copilot or Cursor) inside your agent's folder.",
                  "The engine talks to its provider with your own account. That conversation "
                  "belongs to the engine, not to Workspace.",
                  "Each agent has its engine. In the hub you change it with ←→ on the agent; it "
@@ -514,7 +572,7 @@ CAPITULOS = (
                  "Al abrirla, Workspace arma un paquete sin IA: el resumen, lo vigente "
                  "(decisiones y pendientes), las notas nuevas y la maleta con lo último que pasó, "
                  "aunque haya sido en otro motor.",
-                 "Es el mismo paquete en los seis motores: Claude Code lo recibe por su hook de "
+                 "Es el mismo paquete en los nueve motores: Claude Code lo recibe por su hook de "
                  "inicio; los demás, en AGENTS.md o GEMINI.md.",
                  "Por eso puedes cerrar en un motor y abrir en otro: el nuevo sabe en qué quedó "
                  "el anterior."),
@@ -529,7 +587,7 @@ CAPITULOS = (
                  "When you open it, Workspace builds a package without AI: the summary, what is "
                  "open (decisions and pending items), the new notes and the handoff with the latest "
                  "that happened, even in another engine.",
-                 "It is the same package on all six engines: Claude Code gets it through its "
+                 "It is the same package on all nine engines: Claude Code gets it through its "
                  "start hook; the others, in AGENTS.md or GEMINI.md.",
                  "That is why you can close in one engine and open in another: the new one "
                  "knows where the last one left off."),
@@ -549,8 +607,8 @@ CAPITULOS = (
                  "Decisiones y pendientes reciben un número (D-3, P-7) y quedan en Vigente "
                  "hasta que se cierran. Datos y preferencias valen para todas las pestañas.",
                  "Una nota que parece una llave o contraseña se rechaza. En Antigravity, el "
-                 "agente escribe sus notas en .claude/memoria-entrada/<pestaña>.md y las guarda "
-                 "con un comando fijo.",
+                 "agente guarda con la herramienta de memoria de Workspace (workspace-memoria), "
+                 "sin pedir permiso.",
                  "El tono que elegiste va en el arranque (en Claude Code y Hermes, también en "
                  "cada mensaje). Si escribe código riesgoso en Claude Code, recibe un aviso que "
                  "no bloquea."),
@@ -566,8 +624,7 @@ CAPITULOS = (
                  "Decisions and pending items get a number (D-3, P-7) and stay open until they "
                  "are closed. Facts and preferences apply to every tab.",
                  "A note that looks like a key or password is rejected. In Antigravity, the "
-                 "agent writes its notes in .claude/memoria-entrada/<tab>.md and saves them with "
-                 "a fixed command.",
+                 "agent saves with Workspace's memory tool (workspace-memoria), without asking.",
                  "The tone you chose goes in at the start (in Claude Code and Hermes, with every "
                  "message too). If it writes risky code in Claude Code, it gets a notice that "
                  "never blocks."),
@@ -722,6 +779,14 @@ CAPITULOS = (
                  "fuera del cerebro.",
                  "OpenClaw y Hermes usan un perfil propio de Workspace. El de Hermes se crea sin "
                  "copiar tu .env: el proveedor se conecta en Motores › «cuenta y proveedor».",
+                 "GitHub Copilot: su barra en ~/.copilot/settings.json (con respaldo); la "
+                 "herramienta de memoria y el aislamiento entre agentes van en cada arranque. "
+                 "Cursor: su barra en ~/.cursor/cli-config.json, confianza en tu cerebro "
+                 "(~/.cursor/projects) y, en el cerebro, la herramienta de memoria (.cursor/). "
+                 "Kiro: nada fuera del cerebro; en el cerebro, su agente "
+                 ".kiro/agents/workspace.json (memoria y, si lo dejas, escribir en el cerebro sin "
+                 "preguntar). Y los comandos de las barras en ~/.local/bin. Al desinstalar se "
+                 "quita solo eso.",
                  "Nunca: tus credenciales, tu modelo (salvo que lo elijas) ni modos que se "
                  "saltan los permisos."),
              "apaga": "no se apaga: es lo mínimo para abrir cada motor"},
@@ -738,6 +803,13 @@ CAPITULOS = (
                  "nothing outside the brain.",
                  "OpenClaw and Hermes use Workspace's own profile. Hermes' is created without "
                  "copying your .env: the provider is connected in Engines › «account and provider».",
+                 "GitHub Copilot: its bar in ~/.copilot/settings.json (with a backup); the "
+                 "memory tool and isolation between agents go on each launch. Cursor: its bar in "
+                 "~/.cursor/cli-config.json, trust for your brain (~/.cursor/projects) and, in "
+                 "the brain, the memory tool (.cursor/). Kiro: nothing outside the brain; in the "
+                 "brain, its agent .kiro/agents/workspace.json (memory and, if you allow it, "
+                 "writing in the brain without asking). Plus the status bar commands in "
+                 "~/.local/bin. Uninstalling removes only that.",
                  "Never: your credentials, your model (unless you pick it) or modes that skip "
                  "permissions."),
              "apaga": "can't be turned off: it is the minimum to open each engine"},
@@ -928,7 +1000,7 @@ MOTOR_RUTAS = {
     "antigravity": {"puntero": "GEMINI.md",
                     "conversacion_dir": "~/.gemini/antigravity-cli/conversations/",
                     "conversacion": "<id>.db", "retoma": "agy --conversation <id>",
-                    "notas": "workspace memoria nota --entrada"},
+                    "notas": "workspace memoria nota"},
     "opencode": {"puntero": "AGENTS.md", "conversacion_dir": "opencode export <id>",
                  "conversacion": "", "retoma": "opencode --session <id>",
                  "notas": "workspace memoria nota"},
@@ -941,6 +1013,18 @@ MOTOR_RUTAS = {
                  "notas": "workspace memoria nota --tab {pestana} --engine openclaw"},
     "hermes": {"puntero": "AGENTS.md", "conversacion_dir": "hermes sessions export <id>",
                "conversacion": "", "retoma": "hermes --resume <id>",
+               "notas": "workspace memoria nota"},
+    # Kiro 2.34 (V3): cada sesión en ~/.kiro/sessions/<huella del cerebro>/sess_<id>/
+    # (engines/kiro.session_dir); se retoma con --resume-id.
+    "kiro": {"puntero": "AGENTS.md", "conversacion_dir": "~/.kiro/sessions/<huella>/<id>/",
+             "conversacion": "messages.jsonl", "retoma": "kiro-cli chat --resume-id <id>",
+             "notas": "workspace memoria nota"},
+    "copilot": {"puntero": "AGENTS.md", "conversacion_dir": "~/.copilot/session-state/<id>/",
+                "conversacion": "events.jsonl", "retoma": "copilot --session-id <id>",
+                "notas": "workspace memoria nota"},
+    "cursor": {"puntero": "AGENTS.md",
+               "conversacion_dir": "~/.cursor/projects/<cerebro>/agent-transcripts/<id>/",
+               "conversacion": "<id>.jsonl", "retoma": "cursor-agent --resume <id>",
                "notas": "workspace memoria nota"},
 }
 
@@ -983,8 +1067,9 @@ MAPA_ARBOL = (
          "who you are on this PC (stays)"),
         ("hooks", "settings.local.json", "los hooks de Claude Code", "Claude Code's hooks",
          "claude-code"),
-        ("entrada", "memoria-entrada/{pestana}.md", "donde Antigravity deja sus notas",
-         "where Antigravity leaves its notes", "antigravity"))),
+        ("entrada", "memoria-entrada/{pestana}.md",
+         "el respaldo de Antigravity si su herramienta de memoria no está",
+         "Antigravity's fallback when its memory tool isn't there", "antigravity"))),
 )
 
 #: Lo que vive FUERA del cerebro (no viaja): esta PC y el almacén del motor.
@@ -1106,8 +1191,6 @@ MAPA_PASOS = (
                          "guarda como skill.",
               "ruta": (
                   ("pestana", "①", "escribe", "tu agente anota: decisiones, pendientes, datos"),
-                  ("entrada", "①", "escribe", "Antigravity escribe aquí y un comando lo guarda",
-                   "antigravity"),
                   ("cmem", "②", "escribe", "Claude Code guarda lo que decide recordar",
                    "claude-code"),
                   ("skill", "③", "escribe", "si aprende algo, lo guarda como skill"))},
@@ -1118,8 +1201,6 @@ MAPA_PASOS = (
                          "saves it as a skill.",
               "ruta": (
                   ("pestana", "①", "escribe", "your agent notes decisions, pending items, facts"),
-                  ("entrada", "①", "escribe", "Antigravity writes here and a command saves it",
-                   "antigravity"),
                   ("cmem", "②", "escribe", "Claude Code keeps what it decides to remember",
                    "claude-code"),
                   ("skill", "③", "escribe", "if it learns something, it saves it as a skill"))}),
@@ -1205,9 +1286,9 @@ MAPA_PASOS = (
 
     _paso("motores", "6", ("cerebro", ".workspace/agent.json"),
           es={"titulo": "los motores", "corto": "motores",
-              "explica": "Los seis motores leen el mismo cerebro y la misma memoria; solo cambia por "
+              "explica": "Los nueve motores leen el mismo cerebro y la misma memoria; solo cambia por "
                          "dónde entra el resumen y dónde guarda cada uno su conversación. En el árbol, "
-                         "{motor}; abajo, los seis:",
+                         "{motor}; abajo, los nueve:",
               "ruta": (
                   ("puntero", "①", "lee", "{motor} entra por aquí"),
                   ("hooks", "②", "lee", "el resumen entra por el hook de inicio", "claude-code"),
@@ -1218,9 +1299,9 @@ MAPA_PASOS = (
                   ("cmem", "·", "compartido", "solo Claude Code tiene memoria propia aquí",
                    "claude-code"))},
           en={"titulo": "the engines", "corto": "engines",
-              "explica": "All six engines read the same brain and the same memory; only where the "
+              "explica": "All nine engines read the same brain and the same memory; only where the "
                          "summary comes in and where each keeps its conversation change. In the tree, "
-                         "{motor}; below, all six:",
+                         "{motor}; below, all nine:",
               "ruta": (
                   ("puntero", "①", "lee", "{motor} comes in here"),
                   ("hooks", "②", "lee", "the summary comes in through the start hook", "claude-code"),
@@ -1284,7 +1365,7 @@ MAPA_INTRO = {
            "abre": "Enter or m: opens the map"},
 }
 
-#: El paso «los motores» del mapa: cómo vive la memoria cada uno de los seis,
+#: El paso «los motores» del mapa: cómo vive la memoria cada uno de los nueve,
 #: en el orden de MOTORES. Columnas («largo|corto»; la tabla usa la corta): abre
 #: (cómo recibe el paquete) · notas (cómo guarda) · cierra (de dónde lee
 #: Workspace su conversación al cerrar) · retoma; `detalle` = la explicación.
@@ -1321,21 +1402,22 @@ MAPA_MOTORES = (
                           "notes from its protected terminal. On close, Workspace finds the log "
                           "of that session and packs the handoff."}),
     _motor("antigravity", "Antigravity",
-           es={"abre": "bloque en GEMINI.md", "notas": "bandeja + comando fijo|bandeja",
+           es={"abre": "bloque en GEMINI.md", "notas": "herramienta de memoria|herramienta",
                "cierra": "su conversación guardada|su conversación",
                "retoma": "--conversation <id>",
                "detalle": "Workspace le arma GEMINI.md al abrir, con la ruta de tu cerebro y el "
-                          "paquete, y lo deja como estaba al cerrar. Escribe sus notas en "
-                          ".claude/memoria-entrada/<pestaña>.md y las guarda con un comando "
-                          "fijo. Al cerrar, Workspace copia su conversación y arma la maleta."},
-           en={"abre": "block in GEMINI.md", "notas": "tray + fixed command|tray",
+                          "paquete, y lo deja como estaba al cerrar. Guarda sus notas con la "
+                          "herramienta de memoria de Workspace (servidor en .agents/ del "
+                          "cerebro), sin pedir permiso; la terminal sigue preguntando. Al "
+                          "cerrar, Workspace copia su conversación y arma la maleta."},
+           en={"abre": "block in GEMINI.md", "notas": "memory tool|tool",
                "cierra": "its saved conversation|its conversation",
                "retoma": "--conversation <id>",
                "detalle": "Workspace builds its GEMINI.md on open, with your brain's path and "
-                          "the package, and leaves it as it was on close. It writes its notes "
-                          "in .claude/memoria-entrada/<tab>.md and saves them with a fixed "
-                          "command. On close, Workspace copies its conversation and packs the "
-                          "handoff."}),
+                          "the package, and leaves it as it was on close. It saves its notes "
+                          "with Workspace's memory tool (server in the brain's .agents/), "
+                          "without asking; the terminal still asks. On close, Workspace copies "
+                          "its conversation and packs the handoff."}),
     _motor("opencode", "OpenCode",
            es={"abre": "bloque en AGENTS.md", "notas": "workspace memoria nota",
                "cierra": "su exportación oficial|exportación", "retoma": "--session <id>",
@@ -1378,6 +1460,47 @@ MAPA_MOTORES = (
                           "the package while the tab is open; if its safety filter stops it, it "
                           "starts without it. It gets your tone with each message. On close, "
                           "Workspace exports the session and packs the handoff."}),
+    _motor("kiro", "Kiro",
+           es={"abre": "bloque en AGENTS.md", "notas": "workspace memoria nota",
+               "cierra": "su conversación (messages.jsonl)|su conversación",
+               "retoma": "--resume-id <id>",
+               "detalle": "Lee AGENTS.md con el paquete mientras la pestaña está abierta. "
+                          "Abre tu cerebro sin preguntarte si confías en la carpeta, solo en "
+                          "ese arranque. Guarda notas con workspace memoria nota. Al cerrar, "
+                          "Workspace copia su conversación y arma la maleta."},
+           en={"abre": "block in AGENTS.md", "notas": "workspace memoria nota",
+               "cierra": "its conversation (messages.jsonl)|its conversation",
+               "retoma": "--resume-id <id>",
+               "detalle": "It reads AGENTS.md with the package while the tab is open. It opens "
+                          "your brain without asking whether you trust the folder, for that "
+                          "launch only. It saves notes with workspace memoria nota. On close, "
+                          "Workspace copies its conversation and packs the handoff."}),
+    _motor("copilot", "GitHub Copilot",
+           es={"abre": "bloque en AGENTS.md", "notas": "workspace memoria nota",
+               "cierra": "su registro de eventos|su registro", "retoma": "--session-id <id>",
+               "detalle": "Lee AGENTS.md con el paquete mientras la pestaña está abierta, y "
+                          "también CLAUDE.md, que apunta a BRAIN.md. Guarda notas con workspace "
+                          "memoria nota sin pedir permiso. Al cerrar, Workspace copia su "
+                          "registro de eventos de esa sesión y arma la maleta."},
+           en={"abre": "block in AGENTS.md", "notas": "workspace memoria nota",
+               "cierra": "its event log|its log", "retoma": "--session-id <id>",
+               "detalle": "It reads AGENTS.md with the package while the tab is open, and also "
+                          "CLAUDE.md, which points to BRAIN.md. It saves notes with workspace "
+                          "memoria nota without asking. On close, Workspace copies that "
+                          "session's event log and packs the handoff."}),
+    _motor("cursor", "Cursor",
+           es={"abre": "bloque en AGENTS.md", "notas": "workspace memoria nota",
+               "cierra": "su transcript (.jsonl)|transcript", "retoma": "--resume <id>",
+               "detalle": "Lee AGENTS.md con el paquete mientras la pestaña está abierta. "
+                          "Guarda notas con workspace memoria nota (Cursor te pide "
+                          "aprobar el comando). Al cerrar, Workspace copia el transcript "
+                          "que escribe Cursor y arma la maleta."},
+           en={"abre": "block in AGENTS.md", "notas": "workspace memoria nota",
+               "cierra": "its transcript (.jsonl)|transcript", "retoma": "--resume <id>",
+               "detalle": "It reads AGENTS.md with the package while the tab is open. It "
+                          "saves notes with workspace memoria nota (Cursor asks you to "
+                          "approve the command). On close, Workspace copies the transcript "
+                          "Cursor writes and packs the handoff."}),
 )
 
 def mapa_texto(parte, lg=None):

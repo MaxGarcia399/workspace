@@ -21,6 +21,7 @@ import shutil
 import uuid
 
 from olock import file_lock
+import atomico  # reemplazo con reintento (Windows) para lo que va al cerebro
 
 FIELDS = ("objective", "decision", "blocker", "next_step", "result")
 LABELS = ("Objetivo", "Decisión", "Bloqueo", "Siguiente paso", "Resultado")
@@ -39,7 +40,7 @@ def atomic(path, text):
             f.write(text)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, path)
+        atomico.reemplazar(tmp, path)        # reintento en Windows (checkpoints del cerebro)
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
@@ -357,6 +358,7 @@ def capture_opencode(brain, started, session_id="", exe=None, runner=None):
     transcript legible. `session_id` = el `ses_ws…` que el adapter ató a la
     pestaña (env WORKSPACE_OPENCODE_SESSION). `exe`/`runner`: knobs de test."""
     import subprocess
+    import arbol_procesos
     import session_paths
     import neutral_transcript as nt
     from engines import opencode as _oc
@@ -380,7 +382,7 @@ def capture_opencode(brain, started, session_id="", exe=None, runner=None):
         return st
     if not exe:
         return {"capture_state": "missing", "session_id": sid}
-    run = runner or subprocess.run
+    run = runner or arbol_procesos.run   # Windows: al vencer muere el árbol (.cmd → node)
     extra = {} if runner else dict(_oc._sin_consola(), env=_oc._env_motor())
     r = run(_oc.export_cmd(exe, sid, runner=runner), cwd=str(brain) if brain else None,
             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60, **extra)
@@ -611,17 +613,30 @@ def capture_hermes(brain, started, session_id="", exe=None, runner=None):
         return {"capture_state": "missing"}
     chain, state = _h.session_chain(brain, started, known=known, exe=exe, runner=runner,
                                     run=os.environ.get("WORKSPACE_HERMES_RUN", ""))
+    if state == "partial":
+        # sin tiempo para recorrer las sesiones (la X de Windows): pendiente,
+        # jamás «captured» a medias — pending_runs la reintenta al reabrir
+        return {"capture_state": "failed", "session_id": known or "",
+                "capture_error": "recorrido de sesiones incompleto (sin tiempo)"}
     if not chain or state not in ("resolved", "stale"):
         return {"capture_state": state}
     sid = str(chain[-1]["id"])
     if state == "stale":
         return {"capture_state": "stale", "session_id": sid}
-    chain = _h.ancestors(chain[0], brain, exe=exe, runner=runner) + chain
+    corte = {}
+    chain = _h.ancestors(chain[0], brain, exe=exe, runner=runner, corte=corte) + chain
+    if corte.get("plazo"):
+        return {"capture_state": "failed", "session_id": sid,
+                "capture_error": "ancestros incompletos (sin tiempo)"}
     dest_dir = (Path(_paths.state_dir(str(Path.home()))) / "transcripts-backup"
                 / Path(session_paths.session_dir(brain)).name)
     dest_dir.mkdir(parents=True, exist_ok=True)
     target = dest_dir / ("hermes-%s.jsonl" % sid)
-    header = {"type": nt.HERMES_HEADER, "id": sid, "chain": [str(d["id"]) for d in chain],
+    # nunca más corto que el respaldo que ya existe: un ancestro que Hermes
+    # ya no exporta conserva sus filas de antes (revisión 2026-10-26)
+    previas = _hermes_previas(target, {str(d["id"]) for d in chain})
+    header = {"type": nt.HERMES_HEADER, "id": sid,
+              "chain": [p_id for p_id, _ in previas] + [str(d["id"]) for d in chain],
               "title": chain[-1].get("title") or "", "cwd": chain[0].get("cwd") or str(brain),
               "source": chain[-1].get("source") or "",
               "started_at": chain[0].get("started_at"), "ended_at": chain[-1].get("ended_at")}
@@ -629,6 +644,9 @@ def capture_hermes(brain, started, session_id="", exe=None, runner=None):
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(json.dumps(header, ensure_ascii=False) + "\n")
+            for _p_id, filas in previas:
+                for fila in filas:
+                    fh.write(fila + "\n")
             for d in chain:
                 for m in d.get("messages") or []:
                     if isinstance(m, dict):
@@ -645,6 +663,315 @@ def capture_hermes(brain, started, session_id="", exe=None, runner=None):
     return {"capture_state": "captured", "captured_at": now(), "session_id": sid,
             "backup": str(target), "native_format": "hermes-export-jsonl",
             "transcript_backup": str(target), "dialogue_turns": len(doc["turns"])}
+
+
+def capture_kiro(brain, started, session_id="", root=None):
+    """Transcript de ESTA sesión de Kiro leyendo sus archivos (V2, el chat por
+    defecto desde la 2.35: `<~/.kiro/sessions>/cli/<id>.jsonl`; V3:
+    `<~/.kiro/sessions>/<huella>/sess_<id>/messages.jsonl`), guardado como
+    `kiro-<id>.jsonl` junto a los demás respaldos y legible por
+    neutral_transcript.parse_kiro → revisión de skills y maleta. Sin CLI: sin
+    cuenta, el CLI de Kiro abre el navegador. `session_id` = la sesión que
+    retoma la pestaña (env WORKSPACE_KIRO_SESSION); sin ella, la que creó esta
+    pestaña (env WORKSPACE_KIRO_FIND, se deja en el entorno para atarla).
+    `distillation_state`: «decoded» si se reconoció al menos una respuesta;
+    «unsupported-format» si solo se reconoció lo que escribió el socio.
+    `root`: knob de test."""
+    import session_paths
+    import neutral_transcript as nt
+    from engines import kiro as _k
+    sid = str(session_id or os.environ.get("WORKSPACE_KIRO_SESSION") or "").strip()
+    find = os.environ.get("WORKSPACE_KIRO_FIND")
+    if not sid and find:
+        try:
+            sid = _k.find_new_session(brain, json.loads(find), root=root)
+        except (ValueError, TypeError):
+            sid = ""
+        if sid:
+            os.environ["WORKSPACE_KIRO_SESSION"] = sid
+    if not _k._valid_session_id(sid):
+        st = {"capture_state": "missing"}
+        if find:
+            st["capture_error"] = "no encontré una sesión única de esta pestaña"
+        return st
+    files = _k.session_files(brain, sid, root=root)
+    if not files:
+        return {"capture_state": "missing", "session_id": sid}
+    src, meta_path = Path(files["messages"]), Path(files["meta"])
+    if not src.is_file():
+        return {"capture_state": "missing", "session_id": sid,
+                "capture_error": "sin mensajes"}
+    modified = max(p.stat().st_mtime for p in (src, meta_path) if p.exists())
+    if modified < started - 1:
+        return {"capture_state": "stale", "session_id": sid}
+    meta = _k._read_json(str(meta_path)) or {}
+    dest_dir = (Path(_paths.state_dir(str(Path.home()))) / "transcripts-backup"
+                / Path(session_paths.session_dir(brain)).name)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    target = dest_dir / ("kiro-%s.jsonl" % sid)
+    if files["store"] == "v2":
+        header = {"type": nt.KIRO_HEADER, "id": sid, "store": "v2",
+                  "title": meta.get("title") or "", "cwd": meta.get("cwd") or str(brain),
+                  "created": meta.get("created_at"), "updated": meta.get("updated_at")}
+        native = "kiro-v2-session-jsonl"
+    else:
+        header = {"type": nt.KIRO_HEADER, "id": sid, "title": meta.get("title") or "",
+                  "cwd": ((meta.get("workspacePaths") or [None])[0]) or str(brain),
+                  "created": meta.get("createdAt"), "updated": meta.get("lastModifiedAt")}
+        native = "kiro-v3-messages-jsonl"
+    fd, tmp = tempfile.mkstemp(prefix=target.name + ".", dir=str(dest_dir))
+    try:
+        before = (src.stat().st_size, src.stat().st_mtime_ns)
+        with open(src, encoding="utf-8-sig", errors="replace") as fh:
+            lines = fh.readlines()
+        if (src.stat().st_size, src.stat().st_mtime_ns) != before:
+            raise OSError("Kiro session changed while copying")
+        with os.fdopen(fd, "w", encoding="utf-8") as out:
+            out.write(json.dumps(header, ensure_ascii=False) + "\n")
+            for ln in lines:
+                try:
+                    row = json.loads(ln)
+                except ValueError:
+                    continue          # línea a medio escribir: la próxima captura la toma
+                if isinstance(row, dict):
+                    out.write(json.dumps({"type": nt.KIRO_MESSAGE, "message": row},
+                                         ensure_ascii=False) + "\n")
+        doc = nt.parse_kiro(tmp)
+        if nt.validate(doc) or not doc["turns"]:
+            return {"capture_state": "missing", "session_id": sid,
+                    "capture_error": "sin diálogo visible"}
+        os.replace(tmp, target)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+    decoded = any(t["role"] == "assistant" for t in doc["turns"])
+    return {"capture_state": "captured", "captured_at": now(), "session_id": sid,
+            "backup": str(target), "native_format": native,
+            "transcript_backup": str(target), "dialogue_turns": len(doc["turns"]),
+            "distillation_state": "decoded" if decoded else "unsupported-format"}
+
+
+def capture_copilot(brain, started, session_id="", env=None):
+    """Respaldo de ESTA sesión de GitHub Copilot CLI: su registro de eventos
+    (`<COPILOT_HOME>/session-state/<id>/events.jsonl`, append-only; doc
+    oficial), copiado ENVUELTO (cabecera `copilot_session` + una línea
+    `copilot_event` por evento, como opencode/hermes) como
+    `copilot-<id>.jsonl` junto a los demás respaldos. `session_id` = el UUID
+    que el adapter ató a la pestaña (env WORKSPACE_COPILOT_SESSION). Si el
+    esquema de los eventos no se reconoce, el respaldo queda igual (el crudo
+    no se pierde) con `distillation_state = unsupported-format` y sin
+    transcript legible: nunca se inventa diálogo. `env`: knob de test."""
+    import session_paths
+    import neutral_transcript as nt
+    from engines import copilot as _cp
+    sid = str(session_id or os.environ.get("WORKSPACE_COPILOT_SESSION") or "").strip().lower()
+    if not _cp._valid_session_id(sid):
+        return {"capture_state": "missing"}
+    src = Path(_cp.events_path(sid, env))
+    if not src.is_file():
+        # se abrió y se cerró sin escribir: Copilot no creó la sesión
+        return {"capture_state": "missing", "session_id": sid}
+    if src.stat().st_mtime < started - 1:
+        return {"capture_state": "stale", "session_id": sid}
+    before = (src.stat().st_size, src.stat().st_mtime_ns)
+    events = []
+    with open(str(src), "rb") as fh:
+        for raw in fh:
+            if not raw.endswith(b"\n"):
+                break                      # línea a medio escribir: queda fuera
+            try:
+                ev = json.loads(raw.decode("utf-8-sig"))
+            except ValueError:
+                continue
+            if isinstance(ev, dict):
+                events.append(ev)
+    if (src.stat().st_size, src.stat().st_mtime_ns) != before:
+        raise OSError("El registro de Copilot cambió mientras se copiaba")
+    if not events:
+        return {"capture_state": "missing", "session_id": sid,
+                "capture_error": "registro de eventos vacío"}
+    dest_dir = (Path(_paths.state_dir(str(Path.home()))) / "transcripts-backup"
+                / Path(session_paths.session_dir(brain)).name)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    target = dest_dir / ("copilot-%s.jsonl" % sid)
+    header = {"type": nt.COPILOT_HEADER, "id": sid, "cwd": str(brain),
+              "source": "session-state/events.jsonl"}
+    fd, tmp = tempfile.mkstemp(prefix=target.name + ".", dir=str(dest_dir))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(header, ensure_ascii=False) + "\n")
+            for ev in events:
+                fh.write(json.dumps({"type": nt.COPILOT_EVENT, "event": ev},
+                                    ensure_ascii=False) + "\n")
+        doc = nt.parse_copilot(tmp)
+        known = nt.copilot_known_events(tmp)
+        os.replace(tmp, target)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+    result = {"capture_state": "captured", "captured_at": now(), "session_id": sid,
+              "backup": str(target), "native_format": "copilot-events-jsonl"}
+    if not known:
+        result["distillation_state"] = "unsupported-format"
+    elif nt.validate(doc) or not doc["turns"]:
+        result["capture_error"] = "sin diálogo visible"
+    else:
+        result.update(transcript_backup=str(target), dialogue_turns=len(doc["turns"]))
+    return result
+
+
+def _stable_copy(src, dst):
+    """Copia `src` → `dst` rechazando un archivo que cambió mientras se copiaba."""
+    before = (os.stat(src).st_size, os.stat(src).st_mtime_ns)
+    shutil.copyfile(src, dst)
+    if (os.stat(src).st_size, os.stat(src).st_mtime_ns) != before:
+        raise OSError("El archivo cambió mientras se copiaba; reintenta al cerrar")
+
+
+def _sqlite_snapshot(source, dest):
+    """Copia consistente de un SQLite ajeno (+ su WAL) a `dest`, sin tocar los
+    archivos del motor (mismo método que capture_antigravity)."""
+    source = Path(source)
+    fd, tmp = tempfile.mkstemp(prefix=dest.name + ".", dir=str(dest.parent))
+    os.close(fd)
+    try:
+        with tempfile.TemporaryDirectory(prefix="cursor-snapshot-") as scratch:
+            clone = Path(scratch) / "store.db"
+            wal = Path(str(source) + "-wal")
+            _stable_copy(str(source), str(clone))
+            if wal.exists():
+                _stable_copy(str(wal), str(clone) + "-wal")
+            with closing(sqlite3.connect(str(clone))) as src:
+                with closing(sqlite3.connect(tmp)) as dst:
+                    deadline = time.monotonic() + 5
+
+                    def progress(status, remaining, total):
+                        if time.monotonic() > deadline:
+                            raise TimeoutError("SQLite snapshot timeout")
+                    src.backup(dst, pages=256, progress=progress, sleep=0.05)
+                    if dst.execute("pragma quick_check").fetchone() != ("ok",):
+                        raise sqlite3.DatabaseError("Snapshot integrity check failed")
+        os.replace(tmp, str(dest))
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def capture_cursor(brain, started, session_id="", env=None):
+    """Respaldo de ESTE chat de Cursor al cerrar. Fuente preferida: el
+    transcript legible que escribe el propio CLI en cada turno
+    (`~/.cursor/projects/<ruta>/agent-transcripts/<id>/<id>.jsonl`), guardado
+    ENVUELTO como `cursor-<id>.jsonl` (cabecera `cursor_session` + líneas
+    `cursor_message`: su forma {"role","message"} se parece a la de Claude
+    Code) → neutral_transcript.parse_cursor → maleta y revisión de skills.
+    Sin ese archivo: copia consistente del `store.db` del chat (SQLite de
+    blobs propietario) con `distillation_state="unsupported-format"` — se
+    guarda, pero no se decodifica ni se finge diálogo.
+    `session_id` = el id atado a la pestaña (env WORKSPACE_CURSOR_SESSION); en
+    una pestaña nueva se busca el chat que creó (WORKSPACE_CURSOR_FIND) y se
+    deja en el entorno para que el adapter lo ate."""
+    import session_paths
+    import neutral_transcript as nt
+    from engines import cursor as _cu
+    sid = str(session_id or os.environ.get("WORKSPACE_CURSOR_SESSION") or "").strip()
+    find = os.environ.get("WORKSPACE_CURSOR_FIND")
+    if not sid and find and brain:
+        try:
+            sid = _cu.find_new_session(brain, json.loads(find), env=env)
+        except (ValueError, TypeError):
+            sid = ""
+        if sid:
+            os.environ["WORKSPACE_CURSOR_SESSION"] = sid
+    if not _cu.valid_chat_id(sid):
+        st = {"capture_state": "missing"}
+        if find:
+            st["capture_error"] = "no encontré un chat único de esta pestaña"
+        return st
+    db = _cu.chat_db(brain, sid, env=env)
+    log = _cu.transcript_path(brain, sid, env=env)
+    if not db and not log:
+        return {"capture_state": "missing", "session_id": sid}
+    stamps = [p for p in (db, db + "-wal" if db else "", log) if p and os.path.exists(p)]
+    if stamps and max(os.path.getmtime(p) for p in stamps) < started - 1:
+        return {"capture_state": "stale", "session_id": sid}
+    dest_dir = (Path(_paths.state_dir(str(Path.home()))) / "transcripts-backup"
+                / Path(session_paths.session_dir(brain)).name)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    result = {"session_id": sid}
+    if log:
+        target = dest_dir / ("cursor-%s.jsonl" % sid)
+        fd, raw = tempfile.mkstemp(prefix=target.name + ".src.", dir=str(dest_dir))
+        os.close(fd)
+        fd, tmp = tempfile.mkstemp(prefix=target.name + ".", dir=str(dest_dir))
+        os.close(fd)
+        try:
+            _stable_copy(log, raw)
+            header = {"type": nt.CURSOR_HEADER, "id": sid, "cwd": str(brain),
+                      "source": "agent-transcripts"}
+            with open(tmp, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(header, ensure_ascii=False) + "\n")
+                vistas = {}
+                with open(raw, encoding="utf-8", errors="replace") as src:
+                    for ln in src:
+                        try:
+                            row = json.loads(ln)
+                        except ValueError:
+                            continue
+                        if isinstance(row, dict):
+                            # huella ESTABLE por línea (las del CLI no traen id
+                            # ni hora): chat + hash del contenido + cuántas
+                            # iguales hubo antes. Solo un hash; la usan las
+                            # métricas para no contar dos veces cuando el
+                            # respaldo se reescribe (ni confundir dos chats).
+                            h = hashlib.sha1(ln.strip().encode("utf-8")).hexdigest()[:16]
+                            vistas[h] = vistas.get(h, -1) + 1
+                            fh.write(json.dumps({"type": nt.CURSOR_MESSAGE, "message": row,
+                                                 "huella": "%s:%s#%d" % (sid, h, vistas[h])},
+                                                ensure_ascii=False) + "\n")
+            doc = nt.parse_cursor(tmp)
+            if nt.validate(doc) or not doc["turns"]:
+                result["transcript_error"] = "sin diálogo visible"
+            else:
+                os.replace(tmp, target)
+                result.update(capture_state="captured", captured_at=now(),
+                              backup=str(target), native_format="cursor-transcript-jsonl",
+                              transcript_backup=str(target),
+                              dialogue_turns=len(doc["turns"]),
+                              distillation_state="transcript-jsonl")
+        finally:
+            for p in (raw, tmp):
+                if os.path.exists(p):
+                    os.unlink(p)
+    if "backup" not in result and db:
+        dest = dest_dir / ("cursor-%s.db" % sid)
+        _sqlite_snapshot(db, dest)
+        result.update(capture_state="captured", captured_at=now(), backup=str(dest),
+                      native_format="sqlite", distillation_state="unsupported-format")
+    result.setdefault("capture_state", "missing")
+    return result
+
+
+def _hermes_previas(target, nuevos):
+    """[(id, [filas crudas])] de las sesiones que el respaldo existente tiene y
+    la cadena nueva no (en el orden de su cadena). [] si no hay respaldo."""
+    try:
+        with open(str(target), encoding="utf-8") as fh:
+            lineas = fh.read().splitlines()
+        cab = json.loads(lineas[0]) if lineas else {}
+    except (OSError, ValueError, IndexError):
+        return []
+    faltan = [str(x) for x in (cab.get("chain") or []) if str(x) not in nuevos]
+    if not faltan:
+        return []
+    por = {f: [] for f in faltan}
+    for ln in lineas[1:]:
+        try:
+            ses = str(json.loads(ln).get("session") or "")
+        except ValueError:
+            continue
+        if ses in por:
+            por[ses].append(ln)
+    return [(f, por[f]) for f in faltan]
 
 
 def close_payload(brain, engine, started, payload, run_id):
@@ -696,13 +1023,37 @@ def close_payload(brain, engine, started, payload, run_id):
         # legible es la copia del log de diálogo (no el .db propietario).
         if result.get("transcript_backup"):
             result["transcript_path"] = result["transcript_backup"]
+    elif engine == "kiro":
+        try:
+            result.update(capture_kiro(brain, started))
+        except (OSError, ValueError) as exc:
+            result.update(capture_state="failed", capture_error=type(exc).__name__)
+            print("WORKSPACE: respaldo Kiro falló (%s); consulta workspace memoria status" % type(exc).__name__, file=__import__("sys").stderr)
+        if result.get("transcript_backup"):
+            result["transcript_path"] = result["transcript_backup"]
+    elif engine == "copilot":
+        try:
+            result.update(capture_copilot(brain, started))
+        except (OSError, ValueError) as exc:
+            result.update(capture_state="failed", capture_error=type(exc).__name__)
+            print("WORKSPACE: respaldo GitHub Copilot falló (%s); consulta workspace memoria status" % type(exc).__name__, file=__import__("sys").stderr)
+        if result.get("transcript_backup"):
+            result["transcript_path"] = result["transcript_backup"]
+    elif engine == "cursor":
+        try:
+            result.update(capture_cursor(brain, started))
+        except (OSError, ValueError, TimeoutError, sqlite3.Error) as exc:
+            result.update(capture_state="failed", capture_error=type(exc).__name__)
+            print("WORKSPACE: respaldo Cursor falló (%s); consulta workspace memoria status" % type(exc).__name__, file=__import__("sys").stderr)
+        if result.get("transcript_backup"):
+            result["transcript_path"] = result["transcript_backup"]
     else:
         result["capture_state"] = "unsupported"
     result.setdefault("cwd", brain)
     record(brain, run_id, engine=engine, tab=tab,
            session_id=result.get("session_id", ""),
            capture_state=result["capture_state"], **{k: result[k] for k in
-               ("backup", "captured_at", "native_format", "capture_error", "transcript_backup", "transcript_error", "dialogue_turns") if k in result})
+               ("backup", "captured_at", "native_format", "capture_error", "transcript_backup", "transcript_error", "dialogue_turns", "distillation_state") if k in result})
     return result
 
 

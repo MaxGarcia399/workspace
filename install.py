@@ -140,19 +140,97 @@ def brain_rules(brain, windows=None):
     return out
 
 
+#: Comodines de gitignore que se escapan en la ruta del cerebro (doc de
+#: permisos de Claude Code: las reglas Read/Edit usan la sintaxis de gitignore;
+#: «Claude Code escapes gitignore pattern characters […] such as [, ], and *»).
+_GITIGNORE_COMODINES = "\\[]*?"
+
+
+def deny_protegidas(brain, windows=None):
+    """Las reglas `deny` de Claude Code para la config de los motores, git y
+    Obsidian del cerebro (rutas_protegidas). Doc oficial
+    (https://code.claude.com/docs/en/permissions, «Read and Edit»): `Edit(…)`
+    cubre Write y NotebookEdit; deny gana a cualquier allow. Dos formas:
+      · relativa a la carpeta donde abre (Workspace abre en el cerebro): una
+        carpeta de un solo nivel como deny cubre ese nombre a cualquier
+        profundidad (`Edit(.kiro/**)`), y un archivo pelado también
+        (`Edit(.mcp.json)`);
+      · absoluta (`//` + la ruta, como brain_rules; Windows `//c/…`), con la
+        ruta pedida y la real, por si la sesión abre en otra carpeta.
+    Van en el settings.local.json del cerebro, JUNTO al allow de la autonomía
+    (render_permissions), y en el `--settings` de cada pestaña
+    (memoria.claude_settings_args) como respaldo: así también las respeta un
+    `claude` abierto fuera del lanzador (VS Code, Desktop, `claude` a secas).
+    Claude Code ya PREGUNTA por `.git`, `.claude`, `.vscode` y `.mcp.json`
+    (doc «protected paths», https://code.claude.com/docs/en/permission-modes);
+    el deny lo vuelve un no, como en los demás motores.
+    MAYÚSCULAS: VERIFICADO 2026-11-06 en macOS (claude 2.1.319, proveedor
+    Anthropic falso, HOME temporal; Write y Edit, modos default y
+    acceptEdits): estas reglas tal cual niegan `.KIRO/agents/x.json`,
+    `.Kiro/Agents/…`, `.OBSIDIAN/…` y `OpenCode.json`, relativas y absolutas
+    (Claude Code compara sin distinguir mayúsculas en un disco que no las
+    distingue). Las clases por letra (`.[kK][iI][rR][oO]/**`,
+    rutas_protegidas.sin_mayusculas) también funcionan y quedan como
+    respaldo si en Windows (A-VERIFICAR en la PC) no fuera así.
+    LÍMITES documentados (sin verificar en caja negra): acceptEdits aprueba
+    también `cp`/`mv`/`touch`… dentro de la carpeta (doc permission-modes) y
+    no se sabe si esos comandos respetan los deny de `Edit`; un
+    `bypassPermissions` puesto por settings recibe este deny igual (deny gana
+    en todos los modos: falla del lado seguro)."""
+    import rutas_protegidas as R
+    try:
+        cands = [brain] if windows else [os.path.abspath(brain), os.path.realpath(brain)]
+        raices = []
+        for p in cands:
+            r = _rule_root(p, windows)
+            if r not in raices:
+                raices.append(r)
+    except Exception:
+        raices = []
+    out = []
+    for base in [""] + ["".join("\\" + c if c in _GITIGNORE_COMODINES else c for c in r) + "/"
+                        for r in raices]:
+        for d in R.CARPETAS:
+            out.append("Edit(%s%s/**)" % (base, d))
+        for f in R.ARCHIVOS + R.EXACTAS:
+            out.append("Edit(%s%s)" % (base, f))
+    return out
+
+
 def claude_permissions(autonomy, brain):
-    """El bloque `permissions` que WORKSPACE quiere para esa autonomía."""
+    """El bloque `permissions` que WORKSPACE quiere para esa autonomía. Con
+    «brain» el allow del cerebro va SIEMPRE con su deny (deny_protegidas):
+    el allow es permanente (settings.local.json) y el deny vive en el mismo
+    archivo, no solo en la sesión del lanzador."""
     if autonomy == "ask":
-        return {"allow": []}
-    return {"allow": brain_rules(brain)}
+        return {"allow": [], "deny": []}
+    return {"allow": brain_rules(brain), "deny": deny_protegidas(brain)}
+
+
+def _render_deny(new, cur, prev, want_deny):
+    """`new["deny"]` = nuestro deny (`want_deny`) + el del usuario (lo que no
+    está anotado en el marcador `prev`). Sin ninguno, sin la clave. Un `deny`
+    que no es lista es del usuario: no se toca (→ False)."""
+    ours = set(prev.get("deny") or []) if isinstance(prev, dict) else set()
+    cur_deny = cur.get("deny", [])
+    if not isinstance(cur_deny, list):
+        return False
+    extra = [r for r in cur_deny if not (isinstance(r, str) and (r in ours or r in want_deny))]
+    deny = list(want_deny) + extra
+    if deny:
+        new["deny"] = deny
+    else:
+        new.pop("deny", None)
+    return True
 
 
 def render_permissions(settings, cfg, brain):
     """Escribe en `settings` (dict de settings.local.json) los permisos de la
-    autonomía del agente. Conserva lo que el usuario agregó: reglas propias en
-    allow, deny/ask/additionalDirectories y un defaultMode que no sea el
-    nuestro. Lo que WORKSPACE escribió antes (marcador, o la lista amplia de
-    0.2.x si no hay marcador) se reemplaza. Devuelve `settings`."""
+    autonomía del agente: el allow y, con «brain», el deny de las rutas
+    protegidas (deny_protegidas). Conserva lo que el usuario agregó: reglas
+    propias en allow y deny, ask/additionalDirectories y un defaultMode que no
+    sea el nuestro. Lo que WORKSPACE escribió antes (marcador, o la lista
+    amplia de 0.2.x si no hay marcador) se reemplaza. Devuelve `settings`."""
     autonomy = autonomy_of(cfg)
     want = claude_permissions(autonomy, brain)
     cur = settings.get("permissions")
@@ -168,9 +246,36 @@ def render_permissions(settings, cfg, brain):
     elif mode and mode != "dontAsk":        # un modo elegido por ti se respeta
         new["defaultMode"] = mode
     new["allow"] = list(want["allow"]) + extra
+    deny_ok = _render_deny(new, cur, prev, want["deny"])
     settings["permissions"] = new
-    settings[_PERM_MARKER] = {"autonomy": autonomy, "allow": list(want["allow"])}
+    settings[_PERM_MARKER] = {"autonomy": autonomy, "allow": list(want["allow"]),
+                              "deny": list(want["deny"]) if deny_ok else []}
     return settings
+
+
+def completar_deny(settings, brain):
+    """Si `settings` (settings.local.json) trae los permisos de la autonomía
+    «brain» que escribió Workspace (su marcador), deja su deny al día
+    (deny_protegidas) sin tocar nada más: ni el allow, ni el modo, ni lo del
+    usuario. Para los cerebros que recibieron el allow antes de que el deny
+    viviera en el archivo: migración 202611062300_claude_deny_protegidas y
+    configure_brain (reinstalar, cargar un agente). → True si cambió algo."""
+    prev = settings.get(_PERM_MARKER) if isinstance(settings, dict) else None
+    if not isinstance(prev, dict) or prev.get("autonomy") != "brain":
+        return False
+    cur = settings.get("permissions")
+    if not isinstance(cur, dict):
+        return False
+    want = deny_protegidas(brain)
+    new = dict(cur)
+    if not _render_deny(new, cur, prev, want):
+        return False
+    mark = dict(prev, deny=list(want))
+    if new == cur and mark == prev:
+        return False
+    settings["permissions"] = new
+    settings[_PERM_MARKER] = mark
+    return True
 
 
 def apply_permissions(brain, cfg):
@@ -189,9 +294,20 @@ def apply_permissions(brain, cfg):
     try:
         os.makedirs(os.path.dirname(spath), exist_ok=True)
         tmp = "%s.tmp-%d" % (spath, os.getpid())
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(settings, fh, ensure_ascii=False, indent=2)
-        os.replace(tmp, spath)
+        try:
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(settings, fh, ensure_ascii=False, indent=2)
+            try:
+                import atomico          # reintenta si Windows tiene el archivo abierto
+                atomico.reemplazar(tmp, spath)
+            except ImportError:
+                os.replace(tmp, spath)
+        finally:
+            if os.path.exists(tmp):     # nunca queda el temporal en el cerebro
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
     except OSError as e:
         return False, str(e)
     return True, ""
@@ -320,7 +436,7 @@ def expand(scripts, brain):
         if _within(p, brain, WORKSPACE):
             out[k] = p
         else:
-            say(f"{DIM}aviso seguridad: script '{k}' fuera del cerebro/harness — ignorado: {p}{R}")
+            say(f"{DIM}aviso seguridad: script '{k}' fuera del cerebro o de Workspace — ignorado: {p}{R}")
     return out
 
 
@@ -359,6 +475,23 @@ def write_machine_socio(socio):
     Respeta --dry-run vía write_text."""
     if socio and SOCIO_RE.match(socio):
         write_text(machine_socio_path(), socio)
+
+
+def write_identity(socio):
+    """`--socio` también dice quién eres en ESTA máquina para todos tus
+    cerebros (sesiones v2: identidad.json, identidad.py). Respeta --dry-run;
+    falla-suave (un aviso, la instalación sigue)."""
+    if not socio or not SOCIO_RE.match(socio):
+        return
+    if DRY:
+        dry(f"guardaría quién eres en esta máquina ({socio}) en identidad.json")
+        return
+    try:
+        import identidad
+        identidad.fijar_persona(socio, origen="install --socio",
+                                state_dir=_paths.state_dir(HOME))
+    except Exception as e:
+        say(f"{DIM}aviso: no pude guardar quién eres en esta máquina ({e}){R}")
 
 
 #: El socio genérico que se pone cuando nadie dijo uno («Crear agente» sin
@@ -475,7 +608,9 @@ def hook_cmd(*parts):
 # ── runner shell-agnóstico (P0-1) ──
 # RUNNER = el único entrypoint de hooks. Cada hook nativo se cabla a UNA
 # invocación de ejecutable (`"PY" "RUNNER" <evento>`), sin control-flow de shell
-# → parsea idéntico en cmd.exe, git-bash, PowerShell o sh. Reemplaza al viejo
+# → parsea idéntico en cmd.exe, git-bash o sh. PowerShell NO: ahí una cadena
+# entre comillas al inicio es un valor, no un comando (ParserError «Token
+# inesperado»); para él va la forma `powershell` (runner_cmd_powershell). Reemplaza al viejo
 # soft_hook_cmd (que elegía sintaxis por OS — `if exist`/`test -f` — y tronaba
 # cuando el shell de hooks de Windows no era el asumido). Existencia del script,
 # falla-suave, gate `requires`, fan-out y merge de stdout viven AHORA en el
@@ -495,6 +630,34 @@ def runner_cmd(event):
     return hook_cmd(PY, RUNNER, event)
 
 
+#: Caracteres que PowerShell toma como comilla simple (la recta y las
+#: tipográficas): dentro de un literal '…' se escriben dobles.
+_PS_QUOTES = "'\u2018\u2019\u201a\u201b"
+
+
+def _ps_literal(s):
+    """`s` como literal de PowerShell entre comillas simples: nada se expande
+    (ni `$` ni la comilla invertida) y cada comilla simple va doble."""
+    return "'" + "".join(c * 2 if c in _PS_QUOTES else c for c in str(s)) + "'"
+
+
+def runner_cmd_powershell(event):
+    """El MISMO comando del runner en sintaxis de PowerShell:
+        & '<PY>' '<WORKSPACE>\\workspace_hook.py' <event>
+    Va en la clave `powershell` de cada hook, SOLO en Windows (build_hooks).
+
+    VERIFICADO 2026-11-05 (Windows 11, GitHub Copilot CLI 1.0.105 de WinGet,
+    PowerShell 7.6.9): Copilot también corre los hooks de
+    `.claude/settings*.json` del cerebro («repo settings»), en Windows con
+    PowerShell: con solo `command` cada hook moría en «ParserError: Token
+    inesperado» y, como `preToolUse` falla cerrado, TODA terminal salía
+    «Denied by preToolUse hook from "repo settings" (hook errored)». Con esta
+    clave Copilot la usa en lugar de `command` (la terminal corre y el hook
+    recibe su JSON por stdin), y Claude Code 2.1.318 la ignora y sigue
+    corriendo `command` con Git Bash (proveedores falsos locales, sin cuenta)."""
+    return "& %s %s %s" % (_ps_literal(PY), _ps_literal(RUNNER), event)
+
+
 GITIGNORE_LINES = [".claude/settings.local.json", ".claude/socio.local",
                    ".claude/zenith-workspaces.json",
                    # N12: el sidecar .usage.json SÍ se versiona (conteo de
@@ -504,10 +667,19 @@ GITIGNORE_LINES = [".claude/settings.local.json", ".claude/socio.local",
                    # que el agente revisa al abrir — per-máquina, fuera de git
                    ".claude/skill-review/",
                    # memoria v1: candados y bandeja de notas — per-máquina
-                   ".claude/locks/", ".claude/memoria-entrada/"]
+                   ".claude/locks/", ".claude/memoria-entrada/",
+                   # sesiones v2 (nivel 2): las conversaciones viajan por el
+                   # sync del cerebro, NUNCA al espejo de git (pueden traer
+                   # llaves pegadas). = conversaciones.GITIGNORE_LINE
+                   "motores/*/conversaciones/",
+                   # la herramienta MCP de memoria de Cursor, Kiro y Antigravity
+                   # (memoria_mcp): Workspace pone ahí su entrada al abrir, con rutas de ESTA
+                   # máquina (lo del socio en esos archivos queda tal cual)
+                   ".cursor/mcp.json", ".cursor/cli.json", ".kiro/agents/workspace.json",
+                   ".agents/mcp_config.json"]
 
 
-def build_hooks(cfg, brain):
+def build_hooks(cfg, brain, launch=False):
     """Construye el bloque `hooks` de settings.local.json para un cerebro,
     DERIVADO del contrato de eventos (N9 · events.py / engines/EVENTS.md).
 
@@ -522,11 +694,17 @@ def build_hooks(cfg, brain):
     cabla); el runner REAPLICA el gate en runtime (self-healing de settings
     viejos). El dashboard de session_start lo inyecta el runner, no un comando
     aparte. Separado de configure_brain para que `workspace doctor` repare SOLO
-    los hooks sin tocar permissions/theme."""
+    los hooks sin tocar permissions/theme.
+
+    `launch=True`: el bloque de los eventos que se cablean POR ARRANQUE
+    (events.POR_ARRANQUE: el Stop de la maleta), con el mismo runner, cotas y
+    gate; lo mete memoria.claude_settings_args en el `--settings` de la
+    pestaña. Por defecto (el cerebro) esos eventos no entran."""
     setup = events.setup_of(cfg)
-    has_dashboard = bool(expand(cfg.get("scripts"), brain).get("dashboard"))
+    has_dashboard = bool(expand((cfg or {}).get("scripts"), brain).get("dashboard"))
     out = {}
-    for ev in events.wired_events("claude-code"):
+    eventos = events.launch_events if launch else events.wired_events
+    for ev in eventos("claude-code"):
         native = events.native_event(ev)
         active = [l for l in events.listeners_for(ev) if not events.gated(l, setup)]
         # session_start se cabla también si el agente declara dashboard, aunque
@@ -552,9 +730,10 @@ def build_hooks(cfg, brain):
         if dash_here and None not in matchers:
             matchers.append(None)   # session_start (dashboard) va sin matcher
         for m in matchers:
-            group = {"hooks": [{"type": "command",
-                                "command": runner_cmd(ev),
-                                "timeout": budget}]}
+            hook = {"type": "command", "command": runner_cmd(ev), "timeout": budget}
+            if IS_WIN:      # Copilot corre estos hooks con PowerShell (runner_cmd_powershell)
+                hook["powershell"] = runner_cmd_powershell(ev)
+            group = {"hooks": [hook]}
             if m:
                 group = {"matcher": m, "hooks": group["hooks"]}
             out.setdefault(native, []).append(group)
@@ -819,6 +998,10 @@ def configure_brain(name, cfg, brain, socio, apply_autonomy=False):
     # se pisan — el socio pudo ajustarlos (espejo de la regla dura del doctor).
     if apply_autonomy or not isinstance(settings.get("permissions"), dict):
         render_permissions(settings, cfg, brain)
+    else:
+        # el allow «brain» de una versión anterior sin su deny: se completa
+        # (solo el deny de Workspace; lo demás queda como lo ajustaste)
+        completar_deny(settings, brain)
     # Tema in-app POR-AGENTE (DEPLOY-1): cada agente usa SU tema, no uno
     # horneado para todos. Si no hay tema instalable, no forzamos ninguno →
     # Claude usa su default (sin fuga de marca de ningún agente).
@@ -867,6 +1050,15 @@ def configure_brain(name, cfg, brain, socio, apply_autonomy=False):
         import uuid
         ws = [{"name": n, "id": str(uuid.uuid4())} for n in seed_tabs if isinstance(n, str)]
         write_json(wf, ws)
+        # sesiones v2: la lista de pestañas son los .md del cerebro (el json
+        # local ya no agrega filas) → cada pestaña inicial lleva su .md
+        if socio and not DRY:
+            try:
+                import sessions_registry
+                for w in ws:
+                    sessions_registry._seed_md(brain, w["name"], claude_wid=w["id"], soc=socio)
+            except Exception:
+                pass
         ok(f"[{name}] pestañas iniciales sembradas ({len(ws)})")
     ok(f"[{name}] cerebro configurado: {brain}")
 
@@ -1938,8 +2130,19 @@ def install_desktop_app():
         say(f"{DIM}app de escritorio: {e}{R}")
 
 
-# CLIs de los motores soportados (claude-code, codex, antigravity, gemini).
-ENGINE_CLIS = ("claude", "codex", "agy", "gemini", "opencode", "openclaw", "hermes")
+#: Motores soportados: (nombre que ve el socio, su CLI). Los avisos de
+#: prerrequisitos y el cierre del instalador los nombran de aquí.
+ENGINES = (("Claude Code", "claude"), ("Codex", "codex"), ("Antigravity", "agy"),
+           ("OpenCode", "opencode"), ("OpenClaw", "openclaw"), ("Hermes", "hermes"),
+           ("Kiro", "kiro-cli"), ("GitHub Copilot", "copilot"), ("Cursor", "cursor-agent"))
+# CLIs de los motores (+ gemini, que ya no es motor: su lanzador viejo se reconoce).
+ENGINE_CLIS = tuple(cli for _n, cli in ENGINES) + ("gemini",)
+
+
+def engine_names():
+    """«Claude Code, Codex, …, GitHub Copilot o Cursor» (los de ENGINES)."""
+    nombres = [n for n, _cli in ENGINES]
+    return ", ".join(nombres[:-1]) + " o " + nombres[-1]
 
 
 def check_prereqs():
@@ -1951,8 +2154,7 @@ def check_prereqs():
         miss.append("git (clónalo/instálalo: en Mac, las Command Line Tools)")
     # Motor: cualquiera de los que Workspace soporta (no siempre Claude Code).
     if not any(shutil.which(b) for b in ENGINE_CLIS):
-        miss.append("el CLI del motor que vayas a usar (Claude Code, Codex, "
-                    "Antigravity, OpenCode, OpenClaw o Hermes), con sesión iniciada")
+        miss.append(f"el CLI del motor que vayas a usar ({engine_names()}), con sesión iniciada")
     for m in miss:
         say(f"{C}!{R} falta: {m}")
     if miss:
@@ -2058,11 +2260,11 @@ def offer_retire_legacy(info=None, *, assume_yes=False):
     if not legacy_present(info):
         return False
     say("")
-    say(f"{B}Encontré restos de la instalación anterior (el harness con el nombre viejo).{R}")
+    say(f"{B}Encontré restos de la instalación anterior (Workspace con el nombre viejo).{R}")
     removable = []
     for d in info["folders"]:
-        say(f"    · carpeta del harness viejo:  {d}")
-        removable.append(("carpeta del harness viejo", d))
+        say(f"    · carpeta anterior:           {d}")
+        removable.append(("carpeta de la instalación anterior", d))
     if info["state"]:
         say(f"    · estado per-máquina viejo:   {info['state']}")
         removable.append(("estado per-máquina viejo", info["state"]))
@@ -2070,12 +2272,12 @@ def offer_retire_legacy(info=None, *, assume_yes=False):
         say(f"    · comando anterior:           {p}")
         removable.append(("comando anterior", p))
     for d in info["ambiguous"]:
-        say(f"    · {DIM}(no parece un harness — NO lo toco, solo aviso): {d}{R}")
+        say(f"    · {DIM}(no parece una instalación de Workspace — NO lo toco, solo aviso): {d}{R}")
     if not removable:
         say(f"{DIM}  Nada seguro que retirar automáticamente. Revísalo a mano si quieres.{R}")
         return False
-    say(f"{DIM}  WORKSPACE ya lo reemplaza. Puedo RETIRARLO: borro SOLO esos artefactos del "
-        f"harness viejo.{R}")
+    say(f"{DIM}  WORKSPACE ya lo reemplaza. Puedo RETIRARLO: borro SOLO esos artefactos de la "
+        f"instalación anterior.{R}")
     say(f"{DIM}  Tus CEREBROS (carpetas de agentes) y tus transcripts NO se tocan.{R}")
     if DRY:
         for lbl, p in removable:
@@ -2116,7 +2318,7 @@ def offer_retire_legacy(info=None, *, assume_yes=False):
 
 
 def main():
-    print(f"\n  {B}{C}Instalador de WORKSPACE{R}  {DIM}· {platform.system()} · {WORKSPACE}{R}"
+    print(f"\n  {B}{C}Instalador de Workspace{R}  {DIM}· {platform.system()} · {WORKSPACE}{R}"
           + (f"  {DIM}(DRY-RUN){R}" if DRY else "") + "\n")
     check_prereqs()
 
@@ -2144,7 +2346,7 @@ def main():
     _fresh = (not _prior and not os.path.isdir(_paths.state_dir(HOME))
               and not os.path.isdir(os.path.join(HOME, ".claude", legacy.STATE_SUBDIR)))
     if _prior:
-        say(f"Ya tenías WORKSPACE instalado{f' ({_ver})' if _ver else ''} "
+        say(f"Ya tenías Workspace instalado{f' ({_ver})' if _ver else ''} "
             f"en esta máquina.")
         say(f"{DIM}Re-ejecutar es seguro: actualizo lo que cambió, nada se duplica "
             f"({', '.join(l for l, _ in _prior)}).{R}\n")
@@ -2166,13 +2368,14 @@ def main():
                       if a.get("_loaded")]
         except Exception:
             loaded = []
-        print("  Harness vacío — instalo la base (comando `workspace`, greeter)."
+        print("  Workspace sin agentes — instalo la base (comando `workspace`, greeter)."
               + (" %d agente(s) cargado(s) ya operativo(s)." % len(loaded) if loaded
                  else " Después: abre `workspace` → Agregar agente."))
     socio = ask_socio()          # "" salvo `--socio <slug>` explícito
     if socio:
         ok(f"socio: {socio}")
         write_machine_socio(socio)   # identidad per-máquina (chat desde el menú)
+        write_identity(socio)        # quién eres en todos tus cerebros (sesiones v2)
 
     # P0-4 · guard de OneDrive/known-folders (SOLO detección, jamás auto-move).
     # El harness bajo una ruta sincronizada a la nube = locks/latencia/estado
@@ -2180,11 +2383,11 @@ def main():
     # sobre una base inestable. (Mac/Linux: redirected_root devuelve "" → no-op.)
     root_redir = pathguard.redirected_root(WORKSPACE)
     if root_redir:
-        print(f"\n  {C}✗{R} WORKSPACE vive en una ruta redirigida a la nube ({root_redir}):")
+        print(f"\n  {C}✗{R} Workspace vive en una ruta redirigida a la nube ({root_redir}):")
         print(f"    {WORKSPACE}")
         print(f"  Muévelo FUERA de OneDrive — a %LOCALAPPDATA%\\Workspace o C:\\Workspace — "
               f"y vuelve a correr el instalador.")
-        print(f"  {DIM}OneDrive sincroniza y BLOQUEA los archivos del harness (locks, "
+        print(f"  {DIM}OneDrive sincroniza y BLOQUEA los archivos de Workspace (locks, "
               f"latencia, estado per-máquina) → fallos intermitentes.{R}\n")
         sys.exit(2)
 
@@ -2282,8 +2485,8 @@ def main():
     print(f"\n  {C}Listo.{R} Abre una terminal nueva y escribe {B}workspace{R}{_direct}.")
     if not _names:
         print(f"  {DIM}El menú sale vacío → 'Agregar agente' (crear o cargar un cerebro).{R}")
-    print(f"  {DIM}Requiere: Python 3 y el CLI del motor que vayas a usar (Claude Code, "
-          f"Codex, Antigravity, OpenCode, OpenClaw o Hermes) con sesión iniciada.{R}")
+    print(f"  {DIM}Requiere: Python 3 y el CLI del motor que vayas a usar "
+          f"({engine_names()}) con sesión iniciada.{R}")
     if zenith_brain:
         print(f"\n  {DIM}¿Vienes de Cowork? Corre {R}{B}{zenith_brain[0]} migrar{R}{DIM} y luego di "
               f'"listo, procesa mi migración". Guía: assets/brand/MIGRACION.md en tu cerebro{R}')

@@ -24,9 +24,24 @@ PERMISOS por la AUTONOMÍA del agente (agent.json "autonomy", contrato común)
   · Nunca `--add-dir` (ensancharía la escritura libre) ni
     `--dangerously-skip-permissions`. El `--mode`/`--project` del socio gana.
 
+MEMORIA SIN PEDIR PERMISO (2026-11-06): la herramienta MCP de Workspace
+(memoria_mcp: `guardar_nota`, `guardar_resumen`, `ver_memoria`), con el
+servidor en `.agents/mcp_config.json` del cerebro (config de proyecto
+documentada) y sus tres herramientas aprobadas por nombre en el `--settings`
+de la corrida, que también niega escribir `.agents/`. La terminal sigue
+preguntando. Ya no se aprueba ningún comando `command(…)` de memoria (ver
+MEMORIA_RULES).
+
+CUENTA (plan §3.5, camino A): Motores dice «experimental» con el inicio de
+sesión con Google y «completa» con API key o cuenta empresarial
+(account_kind / integration).
+
 BARRA: la statusLine NATIVA de agy (settings.json) apunta a un shim estable
-(`~/.local/bin/workspace-agy-statusline`, ver antigravity_usage); se apila
-debajo de la de agy. TEMA: agy no tiene temas in-app propios (colorScheme
+(`~/.local/bin/workspace-agy-statusline`, ver antigravity_usage) en Mac/Linux;
+en Windows no hay shim (a propósito: `ensure_shim` devuelve None) y apunta
+directo a `python.exe …\antigravity_usage.py`, sin comillas (agy la corre con
+cmd.exe y una ruta entre comillas la rompe: carpetas con espacios en 8.3,
+antigravity_usage.win_cmdline; VERIFICADO 2026-11-06 en Windows 11). Se apila debajo de la de agy. TEMA: agy no tiene temas in-app propios (colorScheme
 fijos); con "terminal" (su default) su UI usa colores ANSI básicos, que
 Workspace recolorea por corrida (OSC 4) desde la paleta del hub y restaura al
 salir (OSC 104). Si el socio eligió otro colorScheme, no se toca nada.
@@ -59,6 +74,7 @@ import sys
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
+import arbol_procesos  # noqa: E402  (Windows: al vencer el tiempo muere el árbol entero)
 
 import legacy  # noqa: E402  (literales de la instalación anterior)
 
@@ -81,20 +97,23 @@ AGY_MODE = "accept-edits"
 #: Regla de agy que deja correr cualquier comando sin preguntar — solo en el
 #: proyecto del agente, solo con autonomía full.
 FULL_GRANT = "command(*)"
-#: Reglas de agy para la memoria. agy solo deja pasar sin preguntar un
-#: comando IDÉNTICO a su regla `command(…)` (VERIFICADO 2026-10-17 con su log:
-#: `command(workspace.cmd memoria vigente)` corre solo; el mismo comando con un
-#: argumento de más pide permiso). Una nota trae su texto, así que en agy el
-#: agente la escribe en su bandeja del cerebro y corre un comando FIJO
-#: (memoria.ENTRADA_ARCHIVO): esos fijos son los que se permiten, con y sin
-#: `.cmd` (Windows).
+#: Reglas `command(…)` de memoria que Workspace ya NO pone: la memoria va por
+#: la herramienta MCP `workspace-memoria` (memoria_mcp: servidor en
+#: `.agents/mcp_config.json` del cerebro y sus tres herramientas aprobadas por
+#: nombre en el `--settings` de la corrida). Hasta 2026-11-06 se aprobaban
+#: comandos FIJOS (`workspace memoria nota --entrada`, memoria.ENTRADA_ARCHIVO)
+#: porque agy 1.3/1.4 comparaba la regla con el comando ENTERO; agy 1.5.1
+#: compara por PREFIJO palabra por palabra (doc
+#: https://antigravity.google/docs/permissions?tab=cli: «Matches command
+#: prefixes word-by-word literally by default»; caja negra 5-nov: `<fijo>
+#: --tipo nota "texto libre"` corrió sin preguntar en la 1.5.1 y en Windows,
+#: con la 1.4.5, se negó). agy se actualiza solo: no se depende de cómo compare.
+MEMORIA_RULES = ()
 _MEMORIA_FIJOS = ("nota --entrada", "checkpoint --entrada", "ver", "vigente", "maleta", "status")
-MEMORIA_RULES = tuple("command(%s memoria %s)" % (b, s)
-                      for b in ("workspace", "workspace.cmd") for s in _MEMORIA_FIJOS)
-#: Las de versiones anteriores (no servían): se quitan al abrir.
+#: Las de versiones anteriores: se quitan del settings.json al abrir.
 _MEMORIA_RULES_VIEJAS = (("command(workspace memoria)", "command(workspace.cmd memoria)")
                          + tuple("command(%s memoria %s)" % (b, s) for b in ("workspace", "workspace.cmd")
-                                 for s in ("nota", "checkpoint", "context")))
+                                 for s in ("nota", "checkpoint", "context") + _MEMORIA_FIJOS))
 #: Prefijo de los proyectos de agy que crea Workspace (marca de propiedad).
 PROJECT_PREFIX = "workspace-"
 
@@ -149,7 +168,7 @@ def session_active(runner=None):
     exe = shutil.which("agy")
     if not exe:
         return None
-    run = runner or subprocess.run
+    run = runner or arbol_procesos.run
     extra = {} if runner else {"env": _env_motor()}
     try:
         r = run([exe, "models"], capture_output=True, text=True, timeout=40,
@@ -162,6 +181,70 @@ def session_active(runner=None):
         return None
 
 
+# ── tipo de cuenta (plan §3.5, camino A) ────────────────────────────────────
+# FAQ de Google (https://antigravity.google/docs/faq/), «Can I use Antigravity
+# CLI headless mode in third-party coding agents…?»: «Wrapping `agy` inside
+# third-party coding agents or applications … is not supported under consumer
+# plans». Con una cuenta empresarial o una API key esa restricción no aplica.
+# Se detecta SOLO con lo documentado, sin correr agy y sin credenciales (agy las
+# guarda en el llavero del sistema; de settings.json solo se miran dos claves):
+#   · API key: `modelProvider: "gemini"` (doc https://antigravity.google/docs/install/
+#     «Using a Gemini API key»: sin esa clave, GEMINI_API_KEY sola no hace nada);
+#   · empresarial: la clave `gcp` (doc https://antigravity.google/docs/cli/reference/:
+#     «Saved by the Use a Google Cloud project sign-in»; la licencia de Gemini
+#     Enterprise, https://antigravity.google/docs/enterprise/) o `AGY_ADC_AUTH=true`
+#     (doc enterprise: credenciales ADC de un proyecto de Google Cloud);
+#   · lo demás es el inicio de sesión con Google: agy no documenta cómo saber si
+#     la cuenta es personal o de una empresa → «experimental».
+FAQ_URL = "https://antigravity.google/docs/faq/"
+CUENTA_API_KEY, CUENTA_EMPRESA, CUENTA_GOOGLE = "api_key", "business", "google"
+
+
+def account_kind(settings_path=None, env=None):
+    """'api_key' | 'business' | 'google' (inicio de sesión con Google: personal
+    o de empresa, no se puede saber). Solo lee; falla-suave → 'google'."""
+    env = os.environ if env is None else env
+    data = {}
+    try:
+        p = settings_path or os.path.join(_agy_home(), "settings.json")
+        if not os.path.islink(p) and os.path.getsize(p) <= 1024 * 1024:
+            with open(p, encoding="utf-8") as fh:
+                data = json.load(fh)
+    except (OSError, ValueError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    if str(data.get("modelProvider") or "").strip().lower() == "gemini":
+        return CUENTA_API_KEY
+    gcp = data.get("gcp")
+    if (isinstance(gcp, dict) and gcp) or \
+            str(env.get("AGY_ADC_AUTH") or "").strip().lower() == "true":
+        return CUENTA_EMPRESA
+    return CUENTA_GOOGLE
+
+
+def integration(settings_path=None, env=None):
+    """Hook de Motores (engines_tui): {'kind', 'level': 'full'|'experimental',
+    'url'}. Experimental con el inicio de sesión con Google (puede ser un plan
+    personal y no se puede saber de forma documentada); completa con API key o
+    cuenta empresarial."""
+    kind = account_kind(settings_path, env)
+    return {"kind": kind, "level": "experimental" if kind == CUENTA_GOOGLE else "full",
+            "url": FAQ_URL}
+
+
+def _integration_plan_text():
+    info = integration()
+    if info["level"] == "full":
+        return _t("motorbar.agy.acct_full", "API key o cuenta empresarial: integración completa",
+                  "API key or business account: full integration")
+    return _t("motorbar.agy.acct_exp",
+              "inicio de sesión con Google: experimental (Google no soporta envolver agy con "
+              "planes personales: {u})",
+              "Google sign-in: experimental (Google doesn't support wrapping agy on consumer "
+              "plans: {u})", u=FAQ_URL)
+
+
 def _has_flag(args, *names):
     for a in args or ():
         a = str(a)
@@ -170,12 +253,15 @@ def _has_flag(args, *names):
     return False
 
 
-def _policy_argv(cfg, args, project_id=""):
+def _policy_argv(cfg, args, project_id="", con_deny=True):
     """Flags de permisos según la autonomía (ver docstring del módulo):
-    `--mode accept-edits` salvo en "ask"; `--project <id>` solo si hay
-    proyecto del agente (full). Lo que el socio pase (--mode / --project) gana."""
+    `--mode accept-edits` salvo en "ask" o sin deny (`con_deny` False: la
+    corrida no lleva el `--settings` de Workspace que niega la config de los
+    motores, git y Obsidian del cerebro; memoria_mcp._preparar_antigravity);
+    `--project <id>` solo si hay proyecto del agente (full). Lo que el socio
+    pase (--mode / --project) gana."""
     out = []
-    if _autonomy(cfg) != "ask" and not _has_flag(args, "--mode"):
+    if _autonomy(cfg) != "ask" and con_deny and not _has_flag(args, "--mode"):
         out += ["--mode", AGY_MODE]
     if project_id and not _has_flag(args, "--project", "--new-project"):
         out += ["--project", project_id]
@@ -183,7 +269,7 @@ def _policy_argv(cfg, args, project_id=""):
 
 
 def _interactive_argv(cfg, passthrough, resume_cid="", first_prompt="",
-                      project_id=""):
+                      project_id="", extra=(), con_deny=True):
     """argv para `agy`: permisos (`--mode accept-edits` [+ `--project`]) y
     luego el arranque. Con pestaña:
       · `resume_cid` → `--conversation <id>` (VERIFICADO en agy --help) y SIN
@@ -192,9 +278,10 @@ def _interactive_argv(cfg, passthrough, resume_cid="", first_prompt="",
       · `first_prompt` → SOLO el fallback visible (GEMINI.md propio del
         socio); el camino normal inyecta la memoria en el doc de proyecto.
     Prompts/resume explícitos del socio en el passthrough SIEMPRE ganan.
-    Jamás `--add-dir`."""
+    `extra`: lo que pone Workspace por corrida (el `--settings` de la
+    herramienta de memoria, memoria_mcp), va con los permisos. Jamás `--add-dir`."""
     args = list(passthrough or [])
-    pre = _policy_argv(cfg, args, project_id)
+    pre = _policy_argv(cfg, args, project_id, con_deny) + list(extra or ())
     # Bootstrap only a new interactive session; preserve explicit prompts/resume.
     owns_prompt = any(str(a).split("=", 1)[0] in (
         "-p", "--print", "--prompt", "-i", "--prompt-interactive",
@@ -307,13 +394,9 @@ def ensure_brain_access(brain, settings_path=None, write=True):
             allowed[:] = [r for r in allowed if r != legacy_rule]
         if rule not in allowed:
             allowed.append(rule)
-        # memoria v1: el agente guarda con `workspace memoria …` sin que agy
-        # pregunte en cada nota (como Claude Code con su --settings). Solo ese
-        # subcomando: escribe con validación y solo en la memoria del cerebro.
+        # La memoria ya no se aprueba por comando de terminal (ver
+        # MEMORIA_RULES): se quitan las reglas que dejaron versiones anteriores.
         allowed[:] = [r for r in allowed if r not in _MEMORIA_RULES_VIEJAS]
-        for r in MEMORIA_RULES:
-            if r not in allowed:
-                allowed.append(r)
         if original != json.dumps(data,sort_keys=True):
             if path.exists():
                 backup = path.with_name('settings.workspace-brain-access-backup.json')
@@ -643,6 +726,12 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
                             _autonomy_text(auto)))
         print("  argumentos: " + repr(_interactive_argv(cfg, passthrough,
                                                         project_id=pid)))
+        try:
+            import memoria_mcp
+            print("  memoria: " + memoria_mcp.plan_line("antigravity", brain, passthrough))
+        except Exception:
+            pass
+        print("  cuenta: " + _integration_plan_text())
         print("  pestañas: picker compartido + registro neutral — resume: "
               "--conversation <id> (validado); memoria de la pestaña va "
               "INVISIBLE en el GEMINI.md generado; id atado post-hoc "
@@ -665,6 +754,23 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
     # bloquea el arranque; jamás se pasa --project.
     ensure_agent_project(agent, "brain", cfg.get("display") or agent)
     pid = ""
+    # Memoria sin pedir permiso: la herramienta MCP de Workspace (servidor en
+    # `.agents/mcp_config.json` del cerebro + `--settings` de la corrida con
+    # sus tres herramientas aprobadas), ANTES del bloque de la pestaña (sus
+    # instrucciones nombran la herramienta solo si quedó lista). Falla-suave:
+    # sin ella, la bandeja + `workspace memoria nota --entrada`, pidiendo permiso.
+    mcp_extra = []
+    try:
+        import memoria_mcp
+        mcp_extra = memoria_mcp.preparar("antigravity", brain=brain, passthrough=passthrough)
+    except Exception:
+        mcp_extra = []
+    # El deny de la config de los motores, git y Obsidian del cerebro va en
+    # ese `--settings` (aunque la herramienta no haya quedado). Sin él (tu
+    # propio --settings, el settings.json de agy ilegible o un enlace), NO va
+    # `--mode accept-edits`: agy pregunta antes de editar.
+    con_deny = "--settings" in [str(a) for a in mcp_extra]
+    aviso_deny = (auto != "ask" and not con_deny and not _has_flag(passthrough, "--mode"))
 
     # Motor+modelo REAL en el banner (dinámico — regla del socio). El modelo
     # sale del --model del socio si lo pasó; si no, lo elige agy.
@@ -685,6 +791,24 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
         except Exception:
             print("  WORKSPACE · %s · Antigravity CLI"
                   % cfg.get("display", cfg.get("name", "")))
+    # Lo que la herramienta de memoria restauró o no pudo tocar en el cerebro
+    # (config de proyecto): una línea cada uno, DESPUÉS del banner (que limpia
+    # la pantalla).
+    try:
+        import memoria_mcp
+        for aviso in memoria_mcp.avisos():
+            print(aviso)
+    except Exception:
+        pass
+    if aviso_deny:
+        print("WORKSPACE: " + _t(
+            "motorbar.agy.sin_deny",
+            "Antigravity preguntará antes de editar tu cerebro: no pude negarle la config de "
+            "los motores, git y Obsidian (tu propio --settings, o el settings.json de agy "
+            "es un enlace o no se puede leer).",
+            "Antigravity will ask before editing your brain: I couldn't deny it the engines', "
+            "git's and Obsidian's config (your own --settings, or agy's settings.json is a "
+            "link or unreadable)."))
 
     # Pestañas neutrales: mismo picker, registro compartido entre motores.
     # El resume-id local se VALIDA contra el store de agy (conversación
@@ -743,7 +867,8 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
             first_prompt = ""
 
     args = _interactive_argv(cfg, passthrough, resume_cid=resume_cid,
-                             first_prompt=first_prompt, project_id=pid)
+                             first_prompt=first_prompt, project_id=pid, extra=mcp_extra,
+                             con_deny=con_deny)
 
     import interactive
     import antigravity_usage

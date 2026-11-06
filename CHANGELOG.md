@@ -8,6 +8,209 @@ Cómo leer esto: cada versión tiene su número (`MAYOR.MENOR.PARCHE`). Un
 cambio de PARCHE arregla cosas; uno de MENOR trae funciones nuevas sin romper
 nada; uno de MAYOR avisa con tiempo si algo cambia de forma.
 
+## 0.6.0 — 2026-11-06
+
+**Novedades**
+- **Tres motores nuevos: GitHub Copilot, Cursor y Kiro.** Se instalan desde
+  Motores y abren tus agentes con tu cuenta, sobre el mismo cerebro que tus
+  otros motores: leen el mismo `AGENTS.md`, cada pestaña retoma su
+  conversación y, al cerrar, Workspace arma la maleta como con los demás.
+  Probados en vivo en la Mac y en Windows 11 (en Linux falta probarlos).
+  - **GitHub Copilot** (`copilot`, el CLI oficial de GitHub) corre con tu
+    suscripción y el modelo de tu cuenta. En su configuración Workspace solo
+    escribe su barra (con una copia del archivo antes); lo demás va en cada
+    arranque. Un agente no lee las conversaciones de otro: el buscador de
+    sesiones de Copilot es uno para toda tu cuenta y Workspace lo apaga en
+    cada arranque (si pasas tus propias `--excluded-tools`, ganan las tuyas).
+    Se instala con npm en Mac y Linux y con WinGet en Windows (en la Mac, no
+    con el de Homebrew: macOS lo retiene y muestra un aviso que no se
+    cierra). En Windows, Copilot también corre los ganchos que Workspace deja
+    en tu cerebro, así que cada gancho trae ahora su versión para PowerShell:
+    al actualizar se reescriben solos (si no, `workspace doctor` lo hace).
+  - **Cursor** (`cursor-agent`) usa el modelo que elijas en Cursor. En sus
+    ajustes (`cli-config.json`) Workspace solo agrega su barra, y en cada
+    arranque le dice que confíe en la carpeta de tu cerebro (la marca queda
+    en la carpeta de Cursor, no en tu cerebro). En la Mac, instálalo desde
+    Motores: el paquete de Homebrew no arranca. En Windows arranca y usa sus
+    herramientas aunque abras Workspace desde Git Bash. Lo que Workspace
+    supone de Cursor sale de su documentación oficial o de probar el
+    programa, nunca de su código (los términos de Cursor lo piden).
+  - **Kiro**, el agente de terminal de AWS (`kiro-cli`, antes Amazon Q
+    Developer CLI), versiones 2 y 3, usa el modelo que elijas en Kiro. En
+    cada arranque le pide confiar en la carpeta de tu cerebro, sin
+    guardarlo, y en `~/.kiro` no escribe nada: su agente vive en tu cerebro
+    (`.kiro/agents/workspace.json`). Si no has iniciado sesión, te lo ofrece
+    antes de abrir. Su barra es la suya, sin tocar: si quieres ver tu uso y
+    tus créditos, préndelos en `/settings display` dentro de Kiro.
+- **Copilot, Cursor, Kiro y Antigravity guardan la memoria sin pedirte
+  permiso, y la terminal sigue preguntando.** El agente guarda con una
+  **herramienta de memoria** de Workspace (MCP: `guardar_nota`,
+  `guardar_resumen` y `ver_memoria`), no con un comando de terminal: el
+  motor la aprueba por su nombre y ninguna terminal lee el texto de la nota,
+  así que no hay forma de colar otro comando en él. La herramienta solo
+  escribe en la pestaña de la ventana que la abrió: ni otro cerebro ni otra
+  pestaña. Copilot la recibe en cada arranque (nada se escribe en su
+  configuración); Cursor y Antigravity, en la configuración de proyecto de
+  tu cerebro (`.cursor/` y `.agents/mcp_config.json`); y Kiro, en el agente
+  `workspace` de tu cerebro, que se elige al abrir (si eliges otro agente en
+  Kiro, gana el tuyo). En Antigravity reemplaza el comando de memoria que
+  Workspace aprobaba hasta ahora: desde su versión 1.5.1, Antigravity
+  aprueba por el principio del comando, así que ese permiso también corría
+  lo que se escribiera detrás. Ese permiso se quita solo al abrir, y tus
+  reglas de Antigravity se quedan tal cual; si pasas tu propio
+  `--settings`, gana el tuyo y la memoria te pide permiso. Si la
+  herramienta falla, el agente te avisa en vez de escribir la memoria a
+  mano, y funciona aunque Workspace corra desde un entorno virtual de
+  Python que luego borres. Probado en vivo en la Mac y, con Copilot, Cursor
+  y Kiro, en Windows 11 (Antigravity en Windows falta probarlo).
+- **Tus pestañas son las mismas en todas tus máquinas.** Ahora cada máquina
+  sabe quién eres en todos tus cerebros: se lo dices una vez (o lo toma de lo
+  que ya tenías) y no adivina con la carpeta de otra persona. La lista de
+  pestañas sale solo del cerebro, así que lo que una máquina tenía guardado
+  aparte (pruebas viejas, pestañas quitadas) ya no aparece ni regresa. Si en
+  un cerebro eras dos usuarios (un nombre viejo y uno nuevo), se juntan solos
+  sin borrar nada; `workspace identidad deshacer` lo devuelve todo, también
+  las pestañas de tu nombre anterior, y la siguiente apertura no vuelve a
+  juntarlos.
+- **Archivar pestañas sin borrarlas.** En el menú de pestañas, `a` archiva la
+  marcada y `u` deshace; al final queda «Archivadas (N)» para recuperarlas.
+  Las que no abres en 15 días se archivan solas (ajuste
+  `sesiones.archivar_dias`; 0 lo apaga), con un aviso de una línea que
+  siempre muestra «u para deshacer». El archivado viaja: sale del menú en
+  todas tus máquinas, y abrirla la regresa. Después de actualizar hay 15
+  días de gracia antes del primer archivado, y una máquina que llega con el
+  cerebro desactualizado no archiva nada. También desde la terminal:
+  `workspace sesiones lista|archivar|desarchivar`.
+- **Workspace avisa si tu cerebro no está sincronizando.** Cada máquina deja
+  una constancia pequeña en el cerebro (`STATE/maquinas/`), y si otra máquina
+  lleva días sin noticias, si Obsidian está cerrado o si hay archivos en
+  conflicto, te lo dice en una línea al abrir el agente y en `workspace doctor`.
+- **Llevar la conversación de Claude Code a tu otra máquina (opcional,
+  apagado de fábrica).** Se prende por cerebro con `workspace sesiones
+  conversacion on` (y vale para todas las máquinas y personas que lo usan): al
+  cerrar una pestaña su conversación se guarda comprimida en el cerebro y en
+  tu otra máquina se retoma tal cual; al abrir solo se trae la tuya. En un
+  cerebro compartido, todos los que lo usan pueden ver esas conversaciones:
+  para privacidad, usa un cerebro aparte. No sube si pesa más del tope
+  (`sesiones.conversacion_max_mb`, 4 MB) o si trae algo que parece una llave,
+  y nunca va a git. Con Obsidian Sync, prende «Sync all other types» en cada
+  dispositivo.
+- **GitHub Copilot y Kiro escriben en el cerebro de su agente sin
+  preguntarte**, como los demás motores, si el agente tiene «su cerebro sin
+  preguntar» (lo de fábrica; se cambia en Agentes). Fuera del cerebro
+  (también en una carpeta hermana de nombre parecido) siguen preguntando, y
+  la terminal pregunta como siempre; con la opción apagada, preguntan antes
+  de cada archivo. No se escribe nada en la configuración de Copilot ni de
+  Kiro: en Copilot va en cada arranque (si pasas tus propios permisos,
+  `--allow-tool`, `--yolo`…, ganan los tuyos) y en Kiro, en el agente de tu
+  cerebro. Si la ruta del cerebro lleva paréntesis, Copilot no acepta la
+  regla y sigue preguntando (te lo dice al abrir). Probado en vivo en la
+  Mac; en Windows falta probarlo.
+- **El agente no puede tocar la configuración de ningún motor ni de git u
+  Obsidian dentro de su cerebro.** Tu cerebro lo comparten todos tus motores,
+  git y Obsidian, y cada uno carga su configuración de ahí al abrir (hooks,
+  servidores MCP, agentes, plugins): un motor que escribiera la de otro
+  podría darse permisos o dejar un comando que corre después. Ahora, cuando
+  el agente escribe en su cerebro sin preguntar, ninguno de sus motores
+  (Claude Code, Antigravity, Copilot, Cursor ni Kiro) puede escribir con sus
+  herramientas de archivos en `.git/`, `.github/`, `.agents/`, `.cursor/`,
+  `.kiro/`, `.codex/`, `.gemini/`, `.vscode/`, `.obsidian/`, `.opencode/`,
+  `opencode.json`, `.mcp.json` ni en los ajustes, skills, agentes, comandos y
+  hooks de `.claude/` (tampoco con mayúsculas, como `.KIRO/`). Se niega, no
+  te pregunta (en Claude Code, antes te preguntaba): si quieres cambiar esa
+  configuración, hazlo tú. Tus notas, skills y documentos del cerebro se
+  escriben igual, y Workspace sigue escribiendo lo suyo ahí. En Claude Code
+  la regla queda en la configuración del cerebro, junto al permiso de
+  escribir en él: vale también si lo abres fuera de Workspace (VS Code, la
+  app de escritorio o `claude` a secas), y tus cerebros la reciben solos al
+  actualizar. Si en Antigravity no se puede poner (pasas tu propio
+  `--settings` o su archivo de ajustes no se puede leer), te pregunta antes
+  de editar y te lo dice al abrir. En Windows, con una ruta de cerebro muy
+  larga, GitHub Copilot pregunta antes de escribir (las reglas no cabrían en
+  la línea de comandos) y te lo dice al abrir. Codex, opencode, OpenClaw y
+  Hermes no cambian: usan su propia protección. Probado en vivo en la Mac;
+  en Windows falta probarlo.
+- **Tu configuración de proyecto se respeta: Workspace solo agrega lo suyo.**
+  En `.agents/mcp_config.json` (Antigravity) y en `.cursor/mcp.json` y
+  `.cursor/cli.json` (Cursor) de tu cerebro, Workspace pone solo su servidor
+  de memoria y sus reglas: tus servidores (por ejemplo, `github`) y tus
+  permisos se quedan tal cual, y el archivo conserva sus permisos. Si alguien
+  cambió lo de Workspace, se restaura solo eso (con respaldo) y te avisa en
+  una línea. Si esa carpeta es un enlace (por ejemplo, a tus skills
+  compartidas) o el archivo no se puede leer, no lo toca: la memoria te pide
+  permiso y te lo dice al abrir. Tu `.gitignore` ignora esos archivos.
+- **Motores dice si Antigravity va completo o «experimental».** Google no
+  soporta usar Antigravity dentro de otras apps con un plan personal
+  (https://antigravity.google/docs/faq/). Con una API key de Gemini o una
+  cuenta empresarial (proyecto de Google Cloud), Motores dice «completa». Si
+  entras con tu cuenta de Google, como Antigravity no dice si el plan es
+  personal, dice «experimental» y explica por qué. Todo funciona igual: es
+  solo el aviso.
+- **Textos más claros sobre los motores.** El README, el manual y la ayuda de
+  Motores (tecla `i`) dicen lo que hace Workspace: configura y abre tus
+  motores oficiales, con tu cuenta. También avisan que Workspace no está
+  afiliado a las empresas de los motores, y el mapa del README ya muestra los
+  nueve. Las pantallas y los mensajes ya solo dicen «motor» o «Workspace»
+  (antes usaban un término técnico en inglés).
+
+**Arreglos**
+- **En Windows, la barra de Antigravity y la de Cursor se ven aunque tu
+  usuario de Windows tenga espacios** (por ejemplo «Ana Lopez»). Antes la
+  terminal recortaba las comillas del comando y la barra no salía; ahora la
+  carpeta va con su nombre corto de Windows. En Mac y Linux nada cambia.
+- **En Windows, un motor que se cuelga ya no deja procesos vivos.** Si Workspace
+  tiene que cortar a un motor que no responde (al revisar tu cuenta, su versión
+  o un turno sin ventana), ahora cierra también los programas que ese motor
+  abrió por debajo, en vez de quedarse esperando. En Mac y Linux nada cambia.
+- **Los avisos de una línea al abrir un agente ya se ven** (por ejemplo,
+  «Workspace actualizado a v…», y los nuevos de usuarios juntados, cerebro
+  sin sincronizar y pestañas archivadas): salen debajo del banner, justo
+  antes del chat. Antes el banner limpiaba la pantalla y los borraba. Vale
+  para todos los motores.
+- **Una pestaña de Codex vuelve a retomar después de un cierre a la mala.**
+  Si Workspace se cerraba de golpe (un crash o un `kill -9`; no al cerrar la
+  ventana), el motor se quedaba abierto en segundo plano, y Codex no deja
+  retomar una conversación mientras otro proceso la tiene abierta: al
+  reabrir la pestaña empezabas de cero. Ahora Workspace cierra ese motor al
+  momento, como si cerraras la ventana (le da unos segundos para guardar), y
+  si no alcanzó, al reabrir cierra primero todos los motores que quedaron
+  vivos y después retoma. Vale para todos los motores. Mac y Linux; en
+  Windows falta probarlo.
+- **Claude Code: la maleta ya no se pierde si el programa se cierra de
+  golpe.** Workspace la armaba solo al cerrar la sesión; con un crash (un
+  `kill -9`, la máquina colgada, se fue la luz) la pestaña se quedaba sin
+  maleta hasta el siguiente cierre normal. Ahora se refresca al terminar cada
+  respuesta (sin IA y sin que lo notes: tarda milisegundos), así que trae
+  hasta la última. El cierre de siempre sigue haciendo lo demás.
+- **Hermes 0.22.5 vuelve a funcionar como antes.** Desde esa versión Hermes
+  nombra distinto sus conversaciones y Workspace no las encontraba al
+  cerrar: la pestaña empezaba de cero y la maleta quedaba vacía. Ahora
+  retoma cada pestaña y arma su maleta; cada pestaña guarda su memoria en la
+  suya (Hermes corre todas las conversaciones en un solo proceso de fondo y
+  una nota de otra pestaña, u otro agente, podía caer en la primera), y un
+  `/resume` dentro de Hermes, después de conversar, se respeta al cerrar.
+- **Quitar un agente o desinstalar limpia lo que Workspace dejó en tus
+  motores, y solo eso.** Quitar un agente desde Agentes ahora también quita
+  la confianza que Workspace le dio a su cerebro en Codex y en Antigravity
+  (antes solo lo hacía la desinstalación) y la herramienta de memoria de su
+  cerebro. Desinstalar quita además las barras de Copilot y Cursor con sus
+  comandos, la copia de la configuración de Copilot y las marcas de
+  confianza que dejó Workspace. Se quita solo lo que escribió Workspace, tal
+  cual lo escribió: lo que pusiste tú, otros agentes (también si comparten
+  el cerebro) y tus otras carpetas se quedan; un archivo o carpeta se borra
+  solo si queda vacío, y lo que se edita conserva sus permisos.
+- **En Windows, instalar un motor desde Motores ya no lo bloquea Microsoft
+  Defender.** Defender marcaba como troyano el comando de una línea que baja
+  el instalador y lo corre al mismo tiempo, y no se instalaba nada. Ahora
+  Workspace baja primero el instalador oficial (solo por HTTPS), lo corre
+  como archivo en la misma terminal y lo borra al terminar; si no se pudo
+  bajar, te lo dice en una línea y no corre nada. Vale para Claude Code,
+  Codex, Antigravity, OpenClaw, Hermes, Kiro y Cursor; en Mac y Linux nada
+  cambia. Además, el cierre del instalador nombra los nueve motores.
+- En Windows, guardar en el cerebro ya no falla en silencio cuando el
+  antivirus u Obsidian tienen el archivo abierto: se reintenta y, si no se
+  puede, avisa (antes podía perderse un mensaje o una nota).
+
 ## 0.5.1 — 2026-10-21
 
 **Arreglos**

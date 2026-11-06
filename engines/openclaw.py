@@ -66,6 +66,7 @@ import tempfile
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
+import arbol_procesos  # noqa: E402  (Windows: al vencer el tiempo muere el árbol entero)
 
 META = {"name": "openclaw", "needs": ["openclaw"], "auth": "api-key"}
 
@@ -145,9 +146,9 @@ def _env_motor():
 def _run(cmd, runner=None, timeout=60, cwd=None):
     if runner is not None:
         return runner(cmd, cwd=cwd, timeout=timeout)
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
-                          encoding="utf-8", errors="replace", cwd=cwd,
-                          stdin=subprocess.DEVNULL, env=_env_motor())
+    return arbol_procesos.run(cmd, capture_output=True, text=True, timeout=timeout,
+                              encoding="utf-8", errors="replace", cwd=cwd,
+                              stdin=subprocess.DEVNULL, env=_env_motor())
 
 
 def _json_out(text):
@@ -1345,7 +1346,7 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
         print(line)
         print("  motor       : openclaw tui, cliente del gateway del perfil propio `%s` "
               "(aparte del OpenClaw personal; varias pestañas a la vez)" % _profile())
-        print("  modelo      : lo fija el SOCIO en OpenClaw (el harness no pasa --model)")
+        print("  modelo      : lo fija el SOCIO en OpenClaw (Workspace no pasa --model)")
         print("  cerebro     : %s  (workspace del agente OpenClaw `%s`)" % (brain, aid))
         print("  identidad   : AGENTS.md puntero → %s (el mismo de codex/opencode); "
               "skipBootstrap=true y memoria nativa apagada: OpenClaw no crea "

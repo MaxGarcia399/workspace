@@ -143,6 +143,13 @@ EVENTS = {
                 "estado final (done/failed/rejected/paused_human), duración "
                 "total (ms) y resumen de conteos; lo emite el harness",
     },
+    "turn_end": {
+        "mode": OBSERVER,
+        "desc": "el agente terminó UNA respuesta (no corre si el socio la "
+                "interrumpe); observer puro, la salida se ignora — la maleta "
+                "de la pestaña se refresca aquí para que un cierre a la mala "
+                "(kill -9, se fue la luz) no la pierda",
+    },
 }
 
 # ── mapping evento WORKSPACE → mecanismo nativo, POR MOTOR ──────────────────
@@ -174,6 +181,10 @@ ENGINE_MAP = {
         # cablea a ningún hook del motor. wf_run ídem, por pasada (v1.5).
         "wf_step": INTERNAL,
         "wf_run": INTERNAL,
+        # hook oficial Stop (corre al terminar cada respuesta; doc:
+        # https://code.claude.com/docs/en/hooks#stop). Va POR ARRANQUE, en el
+        # --settings de la pestaña (ver POR_ARRANQUE), no en settings.local.json.
+        "turn_end": "Stop",
     },
     # ollama (motor #2, corrida E-2): WORKSPACE posee el loop — el motor emite
     # los eventos él mismo (events.emit) en vez de cablearse a hooks nativos
@@ -199,6 +210,7 @@ ENGINE_MAP = {
         "post_tool": None,
         "wf_step": INTERNAL,         # lo emite el harness, no el motor
         "wf_run": INTERNAL,          # ídem — pasada del runner (v1.5)
+        "turn_end": None,            # el loop no lo emite
     },
     # codex y antigravity (wrapper, 2026-10-13): WORKSPACE envuelve el TUI
     # oficial y emite ÉL MISMO inicio/cierre (interactive.run_official_cli_
@@ -213,14 +225,14 @@ ENGINE_MAP = {
         "pre_compact": None, "post_tool_write": None, "pre_prompt": None,
         "user_prompt": None, "headless_ingest": INTERNAL,
         "model_fallback": None, "pre_tool": None, "post_tool": None,
-        "wf_step": INTERNAL, "wf_run": INTERNAL,
+        "wf_step": INTERNAL, "wf_run": INTERNAL, "turn_end": None,
     },
     "antigravity": {
         "session_start": INTERNAL, "session_end": INTERNAL,
         "pre_compact": None, "post_tool_write": None, "pre_prompt": None,
         "user_prompt": None, "headless_ingest": None,
         "model_fallback": None, "pre_tool": None, "post_tool": None,
-        "wf_step": INTERNAL, "wf_run": INTERNAL,
+        "wf_step": INTERNAL, "wf_run": INTERNAL, "turn_end": None,
     },
     # opencode y openclaw (wrapper, 2026-10-15): mismo ciclo neutral que
     # codex/antigravity. headless_ingest None igual que agy: su transcript SÍ es
@@ -231,14 +243,14 @@ ENGINE_MAP = {
         "pre_compact": None, "post_tool_write": None, "pre_prompt": None,
         "user_prompt": None, "headless_ingest": None,
         "model_fallback": None, "pre_tool": None, "post_tool": None,
-        "wf_step": INTERNAL, "wf_run": INTERNAL,
+        "wf_step": INTERNAL, "wf_run": INTERNAL, "turn_end": None,
     },
     "openclaw": {
         "session_start": INTERNAL, "session_end": INTERNAL,
         "pre_compact": None, "post_tool_write": None, "pre_prompt": None,
         "user_prompt": None, "headless_ingest": None,
         "model_fallback": None, "pre_tool": None, "post_tool": None,
-        "wf_step": INTERNAL, "wf_run": INTERNAL,
+        "wf_step": INTERNAL, "wf_run": INTERNAL, "turn_end": None,
     },
     # hermes (wrapper, 2026-10-15): mismo ciclo neutral; transcript legible por
     # el export oficial de la sesión. Sus hooks nativos no se cablean.
@@ -247,7 +259,37 @@ ENGINE_MAP = {
         "pre_compact": None, "post_tool_write": None, "pre_prompt": None,
         "user_prompt": None, "headless_ingest": None,
         "model_fallback": None, "pre_tool": None, "post_tool": None,
-        "wf_step": INTERNAL, "wf_run": INTERNAL,
+        "wf_step": INTERNAL, "wf_run": INTERNAL, "turn_end": None,
+    },
+    # kiro (wrapper, 2026-10-28): mismo ciclo neutral; transcript legible por
+    # la copia de messages.jsonl de su sesión. Sus hooks nativos (agentSpawn,
+    # userPromptSubmit, preToolUse…) no se cablean (doble disparo).
+    "kiro": {
+        "session_start": INTERNAL, "session_end": INTERNAL,
+        "pre_compact": None, "post_tool_write": None, "pre_prompt": None,
+        "user_prompt": None, "headless_ingest": None,
+        "model_fallback": None, "pre_tool": None, "post_tool": None,
+        "wf_step": INTERNAL, "wf_run": INTERNAL, "turn_end": None,
+    },
+    # copilot (wrapper, 2026-10-28): mismo ciclo neutral; transcript legible
+    # por su registro de eventos (session-state/<id>/events.jsonl). Copilot
+    # trae hooks propios (doc oficial) que no se cablean (doble disparo).
+    "copilot": {
+        "session_start": INTERNAL, "session_end": INTERNAL,
+        "pre_compact": None, "post_tool_write": None, "pre_prompt": None,
+        "user_prompt": None, "headless_ingest": None,
+        "model_fallback": None, "pre_tool": None, "post_tool": None,
+        "wf_step": INTERNAL, "wf_run": INTERNAL, "turn_end": None,
+    },
+    # cursor (wrapper, 2026-10-28): mismo ciclo neutral; transcript legible por
+    # el agent-transcripts que escribe el CLI. Sus hooks (y los de Claude Code
+    # que Cursor importa) no se cablean: el de Workspace se apaga en Cursor.
+    "cursor": {
+        "session_start": INTERNAL, "session_end": INTERNAL,
+        "pre_compact": None, "post_tool_write": None, "pre_prompt": None,
+        "user_prompt": None, "headless_ingest": None,
+        "model_fallback": None, "pre_tool": None, "post_tool": None,
+        "wf_step": INTERNAL, "wf_run": INTERNAL, "turn_end": None,
     },
 }
 
@@ -293,6 +335,12 @@ LISTENERS = (
     # datos/preferencias a MEMORY.md, compactar el diario. Universal y MENOR.
     {"script": "memoria_cierre.py", "event": "session_end", "timeout": 20,
      "severity": MINOR, "requires": None},
+    # …y al terminar CADA respuesta (turn_end = Stop de Claude Code): SOLO la
+    # maleta (el paso 1 de memoria.al_cerrar), en milisegundos. Si Claude Code
+    # muere sin SessionEnd (kill -9), la maleta trae hasta la última respuesta.
+    # Va por arranque (POR_ARRANQUE). MENOR y universal.
+    {"script": "memoria_turno.py", "event": "turn_end", "timeout": 5,
+     "severity": MINOR, "requires": None},
     # memory_flush (N2): flush a disco ANTES de compactar — universal (la
     # maleta solo se rehace si hay pestaña; sin ella igual deja rastro en
     # ~/.claude/workspace/). MENOR: su falta jamás convierte un setup sano en ✗.
@@ -315,6 +363,15 @@ LISTENERS = (
 )
 # hooks/untrusted.py (guard N6) NO va en LISTENERS: es una librería que usan
 # los emisores de headless_ingest, no un script cableado a eventos del motor.
+
+
+# ── wiring POR ARRANQUE ───────────────────────────────────────────────────
+# Estos eventos NO se siembran en el settings.local.json del cerebro: los cablea
+# cada arranque en el `--settings` de la pestaña (memoria.claude_settings_args →
+# install.build_hooks(launch=True)). Así llegan sin `workspace doctor`/repair
+# (el archivo se rehace al abrir), solo los ve Claude Code (Cursor también corre
+# los hooks de `.claude/settings*.json`) y doctor no los exige en el cerebro.
+POR_ARRANQUE = {"claude-code": ("turn_end",)}
 
 
 def native_event(event, engine="claude-code"):
@@ -383,6 +440,7 @@ EVENT_KIND = {
     # que los pasos de audits). wf_run (pasada) ídem.
     "wf_step": "agent_step",
     "wf_run": "agent_step",
+    "turn_end": "agent_step",
 }
 
 _CLIP = 300          # tope por string del payload: actividad, no contenido
@@ -502,12 +560,25 @@ def read_events(limit=100, offset=0):
         return []
 
 
-def wired_events(engine="claude-code"):
-    """Eventos CON listeners que `engine` puede cablear a un hook nativo,
-    en orden estable de declaración (build_hooks itera esto)."""
+def _con_nativo(engine):
     out = []
     for l in LISTENERS:
         ev = l["event"]
         if ev not in out and native_event(ev, engine) not in (None, INTERNAL):
             out.append(ev)
     return out
+
+
+def wired_events(engine="claude-code"):
+    """Eventos CON listeners que `engine` cablea a un hook nativo EN EL
+    CEREBRO (settings.local.json), en orden estable de declaración
+    (build_hooks y doctor iteran esto). Los de POR_ARRANQUE van aparte."""
+    arranque = POR_ARRANQUE.get(engine, ())
+    return [ev for ev in _con_nativo(engine) if ev not in arranque]
+
+
+def launch_events(engine="claude-code"):
+    """Eventos CON listeners que `engine` cablea en cada ARRANQUE (el
+    `--settings` de la pestaña), no en el cerebro. Ver POR_ARRANQUE."""
+    arranque = POR_ARRANQUE.get(engine, ())
+    return [ev for ev in _con_nativo(engine) if ev in arranque]

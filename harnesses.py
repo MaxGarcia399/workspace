@@ -52,7 +52,7 @@ _DEFAULT_CAPS = {
 
 #: Orden de PRESENTACIÓN en selectores (los demás van después, alfabético).
 _PREFERRED_ORDER = ("claude-code", "codex", "antigravity", "opencode", "openclaw",
-                    "hermes")
+                    "hermes", "kiro", "copilot", "cursor")
 
 
 def _dispatch():
@@ -204,7 +204,7 @@ def set_binding(agent_name, engine_id, agent_default="", actor="hub"):
         return {"ok": False, "error": "agente sin nombre"}
     eid = str(engine_id or "").strip()
     if eid not in installed():
-        return {"ok": False, "error": "harness desconocido: %r" % eid}
+        return {"ok": False, "error": "motor desconocido: %r" % eid}
     key = "agentes.%s.engine" % n
     try:
         import config_engine
@@ -221,7 +221,7 @@ def cycle(agent_name, agent_default="", step=1):
     'error'?} — pensado para el gesto del hub (una tecla = otro motor,
     guardado al instante)."""
     if not selectable():
-        return {"ok": False, "error": "sin harnesses instalados"}
+        return {"ok": False, "error": "sin motores instalados"}
     opts = cycle_options()
     if not opts:
         return {"ok": False, "error": "ningún motor habilitado para M — "

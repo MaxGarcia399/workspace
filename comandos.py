@@ -289,6 +289,22 @@ COMMANDS = (
         "La usa el agente (nota, checkpoint); a mano, para ver o depurar.",
         "Used by the agent (nota, checkpoint); by hand, to view or debug.",
         args="nota|ver|vigente|maleta|checkpoint|status …", hidden=True, requires_args=True),
+    cmd("sesiones", "sesiones", "sessions", "agentes",
+        "Pestañas de los agentes: listar, archivar y recuperar (nada se borra); y si la "
+        "conversación de Claude Code viaja con cada cerebro.",
+        "Agent tabs: list, archive and restore (nothing is deleted); and whether the "
+        "Claude Code conversation travels with each brain.",
+        "Lo mismo que las teclas a/u del menú de pestañas, desde la terminal.",
+        "Same as the a/u keys in the tab menu, from the terminal.",
+        args="lista [--archivadas] | archivar <nombre> | desarchivar <nombre>|--ultimas "
+             "| conversacion on|off|ver [--agente X]",
+        hidden=True, requires_args=True),
+    cmd("identidad", "identidad", "identity", "agentes",
+        "Quién eres en esta máquina: ver, elegir y deshacer la última unión.",
+        "Who you are on this machine: show, choose and undo the last merge.",
+        "Lo mismo que «soy yo en esta PC» en Usuarios, desde la terminal.",
+        "Same as «this is me on this PC» in Users, from the terminal.",
+        args="ver | soy <nombre> | deshacer", hidden=True, requires_args=True),
     cmd("panel", "panel", "panel", "trabajo",
         "Panel del lado derecho de la terminal partida.",
         "Right-hand pane of the split terminal.",

@@ -4,9 +4,9 @@ La primera vez que escribes `workspace` (y todavía no tienes agentes) se abre u
 **bienvenida guiada**. Son pasos cortos; cualquiera se puede **omitir** y retomar después.
 
 1. **Idioma** — español o inglés.
-2. **Motores** — Workspace busca qué motores tienes (Claude Code, Codex, Antigravity), si
-   tienen sesión iniciada y, si falta alguno, te dice cómo instalarlo. Eliges el motor por
-   defecto.
+2. **Motores** — Workspace busca qué motores tienes (Claude Code, Codex, Antigravity, OpenCode,
+   OpenClaw, Hermes, Kiro, GitHub Copilot, Cursor), si tienen sesión iniciada y, si falta alguno,
+   te dice cómo instalarlo. Eliges el motor por defecto.
 3. **Apariencia** — tema de color y fondo.
 4. **Arranque** (opcional) — si quieres que el menú aparezca al abrir la terminal.
 5. **Agente** — creas tu primer agente (o cargas uno que ya tengas) y, si quieres, ajustas su tono.

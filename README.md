@@ -19,13 +19,15 @@ macOS · Windows · Linux | Python 3.9+ | En desarrollo activo
 
 ### Elige tu motor. Conserva tu agente.
 
-Workspace te permite trabajar con Claude Code, Codex, Antigravity, OpenCode, OpenClaw o Hermes desde un mismo menú. Puedes cambiar de motor conservando la identidad, las skills y la memoria guardada de tu agente.
+Workspace configura y abre tus motores oficiales desde un mismo menú: Claude Code, Codex, Antigravity, OpenCode, OpenClaw, Hermes, Kiro, GitHub Copilot o Cursor. Puedes cambiar de motor conservando la identidad, las skills y la memoria guardada de tu agente.
 
 ![Mapa 1: motores disponibles](assets/readme/motores-es.svg)
 
 Conservas el cerebro y eliges qué programa lo usa. Cada motor necesita su propia instalación y tu cuenta o configuración. No todos ofrecen las mismas funciones: consulta la [compatibilidad por motor y sistema](manual/es/compatibilidad.md).
 
 Workspace organiza el trabajo. Las respuestas las produce el modelo que usa tu motor, y sus límites, herramientas y costos siguen dependiendo de ese proveedor.
+
+> Workspace es independiente: no está afiliado a Anthropic, OpenAI, Google, Anomaly (OpenCode), la OpenClaw Foundation, Nous Research (Hermes), Amazon Web Services (Kiro), GitHub ni Anysphere (Cursor), ni cuenta con su respaldo. Las marcas son de sus dueños. Cada motor se usa con tu propia cuenta y bajo sus propios términos.
 
 ### ¿Para qué sirve?
 
@@ -108,12 +110,13 @@ Después, escribe `workspace`, crea o carga un agente y abre una pestaña. Si al
 
 Las actualizaciones son automáticas por defecto. Puedes cambiarlas a solo avisar o apagarlas desde Actualizaciones. `workspace update` actualiza cuando tú quieras y `workspace update --rollback` vuelve a la anterior. Los ajustes que una actualización deba hacer en el cerebro llevan respaldo. [Cómo funcionan las actualizaciones](manual/es/actualizaciones.md).
 
-### Novedades de la v0.5.1
+### Novedades de la v0.6.0
 
-- El mapa de memoria está en Documentación y deja de ocupar la portada del menú.
-- Las skills que aprende Hermes se guardan en el cerebro para que otros motores también las encuentren.
-- Se corrigieron problemas de memoria entre pestañas y de integración con Hermes y OpenClaw.
-- Se corrigió el movimiento inicial del cursor cuando todavía no hay agentes.
+- Tres motores nuevos: GitHub Copilot, Cursor y Kiro, con tu cuenta y sobre el mismo cerebro que los demás.
+- Copilot, Cursor, Kiro y Antigravity guardan la memoria sin pedirte permiso, con una herramienta de Workspace; la terminal sigue preguntando.
+- Tus pestañas son las mismas en todas tus máquinas, y puedes archivarlas sin borrarlas (`a` archiva, `u` deshace). Si tu cerebro deja de sincronizar, Workspace te avisa.
+- El agente ya no puede tocar la configuración de los motores, de git ni de Obsidian dentro de su cerebro.
+- Se corrigió retomar Codex y Hermes 0.22.5, la maleta de Claude Code tras un cierre de golpe y la instalación de motores en Windows con Microsoft Defender.
 
 ### Historial resumido
 
@@ -121,6 +124,7 @@ Lo que fuimos añadiendo y corrigiendo, de lo más reciente al inicio del proyec
 
 | Versión | Lo que se añadió o cambió | Lo que se corrigió |
 |---|---|---|
+| 0.5.1 | El mapa de memoria pasa a Documentación; las skills que aprende Hermes se guardan en el cerebro | Memoria entre pestañas, integración con Hermes y OpenClaw, y el cursor de la portada sin agentes |
 | 0.5.0 | Pantalla «Cargando…», mapa de memoria y mejor integración con Hermes y OpenClaw | Textos oscuros en los chats y avisos sobre instrucciones antiguas |
 | 0.4.1 | Mantenimiento de Usuarios | Dejaron de aparecer usuarios de ejemplo como personas reales |
 | 0.4.0 | Memoria por pestaña entre motores, Usuarios y Documentación; revisión de skills en la sesión visible | Identificación de usuarios entre máquinas y apertura simultánea de agentes con OpenClaw |
@@ -148,13 +152,15 @@ Workspace está en desarrollo activo. Las funciones y su integración varían po
 
 ### Choose your engine. Keep your agent.
 
-Workspace lets you work with Claude Code, Codex, Antigravity, OpenCode, OpenClaw or Hermes from one menu. Switch engines while keeping your agent’s identity, skills and saved memory.
+Workspace sets up and opens your official engines from one menu: Claude Code, Codex, Antigravity, OpenCode, OpenClaw, Hermes, Kiro, GitHub Copilot or Cursor. Switch engines while keeping your agent’s identity, skills and saved memory.
 
 ![Mapa 1: available engines](assets/readme/motores-en.svg)
 
 Keep the brain and choose which program uses it. Each engine needs its own installation and your account or configuration. Features vary: see [compatibility by engine and operating system](manual/en/compatibility.md).
 
 Workspace organizes the work. Your engine's model generates the responses. Its provider still determines the limits, tools and costs.
+
+> Workspace is independent. It is not affiliated with or endorsed by Anthropic, OpenAI, Google, Anomaly (OpenCode), the OpenClaw Foundation, Nous Research (Hermes), Amazon Web Services (Kiro), GitHub or Anysphere (Cursor). All trademarks belong to their owners. Each engine runs with your own account and under its own terms.
 
 ### What is it for?
 
@@ -237,12 +243,13 @@ Then enter `workspace`, create or load an agent and open a tab. If something fai
 
 Updates are automatic by default. Choose notify-only or turn them off in Updates. `workspace update` updates on demand and `workspace update --rollback` returns to the previous version. Changes an update needs to make inside a brain are backed up first. [How updates work](manual/en/updates.md).
 
-### What's new in v0.5.1
+### What's new in v0.6.0
 
-- The memory map lives in Documentation and no longer occupies the hub's front page.
-- Skills learned by Hermes are saved in the brain so other engines can find them too.
-- Fixes address memory across tabs and integration with Hermes and OpenClaw.
-- The initial cursor movement now works when no agents exist yet.
+- Three new engines: GitHub Copilot, Cursor and Kiro, with your account and on the same brain as the others.
+- Copilot, Cursor, Kiro and Antigravity save memory without asking you, with a Workspace tool; the terminal still asks.
+- Your tabs are the same on every machine, and you can archive them without deleting them (`a` archives, `u` undoes). If your brain stops syncing, Workspace tells you.
+- The agent can no longer touch the settings of your engines, git or Obsidian inside its brain.
+- Fixes for resuming Codex and Hermes 0.22.5, the Claude Code handoff after an abrupt close, and installing engines on Windows with Microsoft Defender.
 
 ### Release history at a glance
 
@@ -250,6 +257,7 @@ What we added and fixed, from recent releases back to the start. These describe 
 
 | Version | Added or changed | Fixed |
 |---|---|---|
+| 0.5.1 | The memory map moves to Documentation; skills Hermes learns are saved in the brain | Memory across tabs, Hermes and OpenClaw integration, and the front-page cursor with no agents |
 | 0.5.0 | A loading screen, a memory map, and better integration with Hermes and OpenClaw | Dark chat text and notices about old template instructions |
 | 0.4.1 | Maintenance of the Users section | Example users stopped appearing as real people |
 | 0.4.0 | Tab memory across engines, Users and Documentation; skill review inside the visible session | User identification across computers and opening multiple OpenClaw agents at once |

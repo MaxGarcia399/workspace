@@ -94,7 +94,7 @@ ws_preflight() {
     printf '  Instalo en una carpeta local en su lugar → %s\n' "$_alt"
     DEST="$_alt"
   elif [ -n "$_nube" ]; then
-    ws_pf_bad "La carpeta elegida ($DEST) está en $_nube: la sincronización bloquea y duplica los archivos del harness." \
+    ws_pf_bad "La carpeta elegida ($DEST) está en $_nube: la sincronización bloquea y duplica los archivos de Workspace." \
       "Arreglo: elige una carpeta local, p. ej.:  WORKSPACE_DIR=\"\$HOME/Workspace\"  y reintenta."
   fi
   # Espacio: el código pesa poco, pero motores, logs y cerebros crecen. 200 MB mínimo.
@@ -127,7 +127,7 @@ if [ "${WORKSPACE_SETUP_PREFLIGHT_ONLY:-}" = "1" ]; then echo "ok  $DEST ($PY)";
 
 if [ -n "${WORKSPACE_TOKEN:-}" ]; then URL="https://${WORKSPACE_TOKEN}@${REPO}"; else URL="https://${REPO}"; fi
 
-echo "WORKSPACE (harness) → $DEST"
+echo "Workspace → $DEST"
 if [ -d "$DEST/.git" ]; then
   echo "· Ya está instalado; actualizando…"
   git -C "$DEST" pull --ff-only

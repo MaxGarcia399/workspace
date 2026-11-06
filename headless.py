@@ -69,6 +69,8 @@ import shutil
 import subprocess
 import tempfile
 
+import arbol_procesos   # tiempo límite que en Windows mata el árbol entero
+
 DEFAULT_TIMEOUT = 300
 DEFAULT_BACKEND = "claude-code"
 
@@ -205,11 +207,11 @@ def _invoke_claude_code(prompt, *, model, timeout, cwd, tools, exe_override,
         return _run_killgroup(cmd, cwd, env, timeout, entrada=entrada)
     try:
         if entrada is not None:
-            r = subprocess.run(cmd, cwd=cwd or None, env=env, timeout=timeout,
-                               capture_output=True, input=entrada)
+            r = arbol_procesos.run(cmd, cwd=cwd or None, env=env, timeout=timeout,
+                                   capture_output=True, input=entrada)
         else:
-            r = subprocess.run(cmd, cwd=cwd or None, env=env, timeout=timeout,
-                               capture_output=True, stdin=subprocess.DEVNULL)
+            r = arbol_procesos.run(cmd, cwd=cwd or None, env=env, timeout=timeout,
+                                   capture_output=True, stdin=subprocess.DEVNULL)
     except Exception as e:
         return False, "fallo al invocar: %s" % e
     out = r.stdout.decode("utf-8", errors="replace")
@@ -237,11 +239,8 @@ def _run_killgroup(cmd, cwd, env, timeout, entrada=None):
     def _kill_tree():
         try:
             os.killpg(os.getpgid(p.pid), signal.SIGKILL)   # mata el grupo
-        except Exception:                                  # Windows / ya muerto
-            try:
-                p.kill()
-            except Exception:
-                pass
+        except Exception:          # Windows (taskkill /T: el árbol) / ya muerto
+            arbol_procesos.matar_arbol(p)
         try:
             p.communicate(timeout=10)      # un nieto fugado no cuelga al daemon
         except Exception:
@@ -302,8 +301,8 @@ def _invoke_codex(prompt, *, model, timeout, cwd, tools, exe_override,
     env["WORKSPACE_REVIEW_RUNNING"] = "1"
     env["WORKSPACE_NO_AUTOUPDATE"] = "1"
     try:
-        r = subprocess.run(cmd, cwd=cwd or None, env=env, timeout=timeout,
-                           capture_output=True, input=(prompt or "").encode("utf-8"))
+        r = arbol_procesos.run(cmd, cwd=cwd or None, env=env, timeout=timeout,
+                               capture_output=True, input=(prompt or "").encode("utf-8"))
         if r.returncode != 0:
             err = r.stderr.decode("utf-8", errors="replace")[:300]
             return False, "exit %d: %s" % (r.returncode, err)
@@ -340,9 +339,9 @@ def _invoke_opencode(prompt, *, model, timeout, cwd, tools, exe_override,
         # el mensaje entra por stdin (opencode.run_turn): jamás como argumento
         env = dict(env or os.environ)
         env["WORKSPACE_REVIEW_RUNNING"] = "1"
-        return subprocess.run((list(wrapper) if wrapper else []) + list(cmd),
-                              cwd=cwd, env=env, timeout=timeout,
-                              capture_output=True, input=(input or "").encode("utf-8"))
+        return arbol_procesos.run((list(wrapper) if wrapper else []) + list(cmd),
+                                  cwd=cwd, env=env, timeout=timeout,
+                                  capture_output=True, input=(input or "").encode("utf-8"))
     return oc.run_turn(prompt, model=model, cwd=cwd, timeout=timeout,
                        exe_override=exe_override, runner=runner)
 
@@ -399,6 +398,71 @@ def _invoke_hermes(prompt, *, model, timeout, cwd, tools, exe_override,
     except Exception as e:
         return False, "engines/hermes.py no importable: %s" % e
     return hm.run_turn(prompt, model=model, cwd=cwd, timeout=timeout,
+                       exe_override=exe_override)
+
+
+def _invoke_kiro(prompt, *, model, timeout, cwd, tools, exe_override,
+                 wrapper=None):
+    """`kiro-cli chat --no-interactive --trust-tools=` vía engines/kiro.run_turn
+    (forma de la doc oficial «headless»; 2.34.0 sin cuenta: A-VERIFICAR el turno
+    real). can_disable_tools=False: `--trust-tools=` no apaga herramientas, solo
+    deja sin aprobar las que piden permiso. El mensaje entra por stdin. El
+    modelo NO se fija salvo override explícito. Sandbox del SO (`wrapper`): sin
+    probar (Kiro arranca un proceso propio de node/bun por sesión), igual que
+    Hermes se rechaza en vez de prometerlo."""
+    if wrapper:
+        return False, "kiro: sandbox del SO (wrapper) aún no soportado"
+    try:
+        from engines import kiro as kr
+    except Exception as e:
+        return False, "engines/kiro.py no importable: %s" % e
+
+    def runner(cmd, cwd=None, env=None, timeout=None, input=""):
+        env = dict(env or os.environ)
+        env["WORKSPACE_REVIEW_RUNNING"] = "1"
+        return arbol_procesos.run(list(cmd), cwd=cwd, env=env, timeout=timeout,
+                                  capture_output=True, input=(input or "").encode("utf-8"))
+    return kr.run_turn(prompt, model=model, cwd=cwd, timeout=timeout,
+                       exe_override=exe_override, runner_turn=runner)
+
+
+def _invoke_copilot(prompt, *, model, timeout, cwd, tools, exe_override,
+                    wrapper=None):
+    """`copilot --prompt=… -s` vía engines/copilot.run_turn (1.0.105, VERIFICADO
+    con un proveedor BYOK falso; con una cuenta de Copilot real, A-VERIFICAR).
+    can_disable_tools=False: hay `--available-tools`/`--excluded-tools`, pero
+    ningún knob VERIFICADO que deje al modelo sin herramientas → el invariante
+    lo excluye de tools="none". Sin ventana, lo que pediría permiso se niega
+    solo. El modelo NO se fija salvo override explícito. run_turn pone
+    WORKSPACE_REVIEW_RUNNING (como codex) y quita `session_store_sql`
+    (aislamiento entre agentes)."""
+    if wrapper:
+        return False, "copilot: sandbox del SO (wrapper) aún no soportado"
+    try:
+        from engines import copilot as cp
+    except Exception as e:
+        return False, "engines/copilot.py no importable: %s" % e
+    return cp.run_turn(prompt, model=model, cwd=cwd, timeout=timeout,
+                       exe_override=exe_override)
+
+
+def _invoke_cursor(prompt, *, model, timeout, cwd, tools, exe_override,
+                   wrapper=None):
+    """`cursor-agent -p --output-format json [--trust] -- <mensaje>` vía
+    engines/cursor.run_turn (2026.10.22: forma de la salida y el error sin
+    cuenta VERIFICADOS; un turno real A-VERIFICAR con cuenta). `--trust` solo
+    si `cwd` es el cerebro de un agente (deja una marca persistente).
+    WORKSPACE_REVIEW_RUNNING lo pone run_turn, como codex.
+    can_disable_tools=False: no hay knob verificado para apagar sus
+    herramientas (`--mode ask` es otro modo, no «sin herramientas»). El modelo
+    NO se fija salvo override explícito."""
+    if wrapper:
+        return False, "cursor: sandbox del SO (wrapper) aún no soportado"
+    try:
+        from engines import cursor as cu
+    except Exception as e:
+        return False, "engines/cursor.py no importable: %s" % e
+    return cu.run_turn(prompt, model=model, cwd=cwd, timeout=timeout,
                        exe_override=exe_override)
 
 
@@ -487,6 +551,21 @@ register_backend("hermes", _invoke_hermes,
                  note="hermes --profile workspace --oneshot (v0.18.2, VERIFICADO con "
                       "OpenRouter: éxito/fallo por el reporte de --usage-file); sesión "
                       "oculta (source tool); modelo = el del perfil de Workspace")
+register_backend("kiro", _invoke_kiro,
+                 can_disable_tools=False, verified=False,
+                 note="kiro-cli chat --no-interactive --trust-tools= (2.34.0, forma de la "
+                      "doc oficial; turno real A-VERIFICAR con cuenta); mensaje por stdin; "
+                      "modelo = el de la cuenta del socio")
+register_backend("copilot", _invoke_copilot,
+                 can_disable_tools=False, verified=False,
+                 note="copilot --prompt=… -s (1.0.105, VERIFICADO con BYOK falso; con "
+                      "cuenta real A-VERIFICAR); sin knob verificado de tools-off; "
+                      "modelo = el de la cuenta del socio")
+register_backend("cursor", _invoke_cursor,
+                 can_disable_tools=False, verified=False,
+                 note="A-VERIFICAR con cuenta: cursor-agent -p --output-format json "
+                      "(2026.10.22: salida y error sin cuenta verificados en el CLI); "
+                      "sin knob de tools-off; modelo = el de la cuenta del socio")
 register_backend("stub", _invoke_stub,
                  can_disable_tools=True, verified=True,
                  note="sin LLM; WORKSPACE_HEADLESS_STUB_OUTPUT/_FILE")

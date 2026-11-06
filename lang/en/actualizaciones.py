@@ -10,7 +10,7 @@ STRINGS = {
     # ── actions (menu): label · tag · description (3 lines) ─────────────────
     "actualizaciones.act.check.label": "check",
     "actualizaciones.act.check.tag": "read-only",
-    "actualizaciones.act.check.d1": "Full harness diagnostic: engines, registered brains, hooks, launchers and prerequisites.",
+    "actualizaciones.act.check.d1": "Full Workspace diagnostic: engines, registered brains, hooks, launchers and prerequisites.",
     "actualizaciones.act.check.d2": "Writes and changes NOTHING — you watch each phase run live, and the health table at the end.",
     "actualizaciones.act.check.d3": "Also checks whether an update is available.",
     "actualizaciones.act.repair.label": "check and repair",
@@ -20,7 +20,7 @@ STRINGS = {
     "actualizaciones.act.repair.d3": "At the end it tells you whether there's an update to pull.",
     "actualizaciones.act.update.label": "update everything",
     "actualizaciones.act.update.tag": "recommended",
-    "actualizaciones.act.update.d1": "Pulls what's new from the harness AND from every registered brain (each repo on its current branch) and repairs at the end.",
+    "actualizaciones.act.update.d1": "Pulls what's new from Workspace AND from every registered brain (each repo on its current branch) and repairs at the end.",
     "actualizaciones.act.update.d2": "Safe: dirty repo / no network → warns and moves on to the rest.",
     "actualizaciones.act.update.d3": "At the end: a summary of what arrived and what's still pending.",
 
@@ -121,7 +121,7 @@ STRINGS = {
 
     # ── final check (check/repair) ──────────────────────────────────────────
     "actualizaciones.chk.available": "a new version is out — «update» brings it",
-    "actualizaciones.chk.harness_uptodate": "harness up to date with origin (branch {branch})",
+    "actualizaciones.chk.harness_uptodate": "Workspace up to date with origin (branch {branch})",
     "actualizaciones.chk.cannot_verify": "couldn't verify updates ({reason})",
 
     # ── «no update» reasons (interpolated as {reason}) ──────────────────────

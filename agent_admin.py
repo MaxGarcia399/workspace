@@ -65,7 +65,7 @@ def _t(key, es, **kw):
 #: _prog: un solo punto, cero cambios en cada llamada.
 _NOTE_KEYS = {
     "nombre inválido": "addagent.note.bad_name",
-    "harness inválido": "addagent.note.bad_harness",
+    "motor inválido": "addagent.note.bad_harness",
     "ya existe": "addagent.note.exists",
     "sin template": "addagent.note.no_template",
     "carpeta ya existe": "addagent.note.folder_exists",
@@ -654,8 +654,8 @@ def create(name, tagline="", display=None, owner="", scope="", soul="",
         _prog(progress, "validar", "fail", "nombre inválido")
         return False, err
     if not re.match(r"^[a-z0-9][a-z0-9_-]{0,31}$", engine):
-        _prog(progress, "validar", "fail", "harness inválido")
-        return False, _t("addagent.err.bad_harness", "harness inválido: {v}",
+        _prog(progress, "validar", "fail", "motor inválido")
+        return False, _t("addagent.err.bad_harness", "motor inválido: {v}",
                          v=repr(engine))
     if dispatch.find_agent(name) or agentsreg.find(name):
         _prog(progress, "validar", "fail", "ya existe")
@@ -936,6 +936,27 @@ def inspect_brain(folder):
     return info
 
 
+def _socio_maquina(folder):
+    """Quién eres en ESTA máquina, visto desde el cerebro `folder`: la
+    identidad de la máquina (sesiones v2, identidad.py: tu persona resuelta
+    contra las cédulas de ese cerebro, o su «soy yo en esta PC») y, si la
+    máquina no tiene, el `socio.local` de la máquina (`install --socio`).
+    '' si no se sabe. Falla-suave."""
+    try:
+        import identidad
+        s = identidad.socio(folder)
+        if s:
+            return s
+    except Exception:
+        pass
+    try:
+        import install
+        with open(install.machine_socio_path(), encoding="utf-8") as fh:
+            return fh.read()
+    except Exception:
+        return ""
+
+
 def _socio_for_load(folder, cfg, machine=""):
     """Qué socio deja `load` en `<cerebro>/.claude/socio.local` (agentes-N2:
     antes se escribía encima el de la máquina o «owner» → el menú de sesiones
@@ -1060,12 +1081,7 @@ def load(folder, name=None, out=print, progress=None, autonomy=None,
             cfg = dict(cfg, autonomy=norm_autonomy(autonomy))
         # el socio.local que el cerebro ya tiene manda; si falta, el socio de
         # ESTA máquina; sin él, sus sesiones u owner; sin nada, «owner»
-        try:
-            with open(install.machine_socio_path(), encoding="utf-8") as fh:
-                machine = fh.read()
-        except Exception:
-            machine = ""
-        socio, sin_dueno = _socio_for_load(folder, cfg, machine)
+        socio, sin_dueno = _socio_for_load(folder, cfg, _socio_maquina(folder))
         if sin_dueno:
             out("AGENT: WARN: el cerebro de %s %s" % (intended, sin_dueno))
         _prog(progress, "cableado", "run")

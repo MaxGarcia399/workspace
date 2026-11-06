@@ -91,7 +91,7 @@ STRINGS = {
     "tono.dial.emojis.pole.lo": "none",
     "tono.dial.emojis.pole.hi": "many",
     "tono.dial.emojis.lvl.1": "Zero emojis.",
-    "tono.dial.emojis.lvl.2": "Emojis only where the harness format already uses them.",
+    "tono.dial.emojis.lvl.2": "Emojis only where Workspace's format already uses them.",
     "tono.dial.emojis.lvl.4": "Use emojis to mark states and sections.",
     "tono.dial.emojis.lvl.5": "Generous emojis in titles, lists and states.",
 

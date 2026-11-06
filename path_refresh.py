@@ -38,6 +38,17 @@ WINDOWS_KNOWN = (
     r"%LOCALAPPDATA%\hermes\bin",    # Hermes
     r"%USERPROFILE%\.local\bin",     # Claude Code (instalador nativo)
     r"%APPDATA%\npm",                # npm -g (codex, opencode, openclaw)
+    # Kiro CLI: el MSI de cli.kiro.dev/install.ps1 instala POR USUARIO, sin
+    # administrador (VERIFICADO 2026-11-05, Windows 11: kiro-cli.exe en
+    # %LOCALAPPDATA%\Kiro-Cli; no en Archivos de programa)
+    r"%LOCALAPPDATA%\Kiro-Cli",
+    r"%ProgramFiles%\Kiro-Cli",      # por si una versión lo instala para la máquina
+    # GitHub Copilot por winget (GitHub.Copilot): VERIFICADO 2026-11-05 deja
+    # copilot.exe en %LOCALAPPDATA%\GitHubCopilotCLI (paquete MSIX), no en Links
+    r"%LOCALAPPDATA%\GitHubCopilotCLI",
+    r"%LOCALAPPDATA%\Microsoft\WinGet\Links",   # winget por usuario
+    r"%ProgramFiles%\WinGet\Links",             # winget para la máquina
+    r"%LOCALAPPDATA%\cursor-agent",  # Cursor (instalador oficial cursor.com/install)
 )
 
 

@@ -9,7 +9,9 @@ hook-system propio.
 > Esto **NO reemplaza** los hooks de Claude Code: es una capa declarativa FINA encima.
 > La tabla de este documento existe también **como datos** en `events.py` (raíz de WORKSPACE):
 > `install.build_hooks` deriva de ahí el bloque `hooks` que siembra en cada cerebro, y
-> `doctor` (fase 5) valida contra ese mismo contrato. Una sola fuente de verdad: agregar o
+> `doctor` (fase 5) valida contra ese mismo contrato. Los eventos de `events.POR_ARRANQUE`
+> (hoy `turn_end`) no van al cerebro: `memoria.claude_settings_args` los mete, con el mismo
+> runner, en el `--settings` que se rehace en cada arranque (`build_hooks(launch=True)`). Una sola fuente de verdad: agregar o
 > quitar un listener se hace en `events.LISTENERS` y install/doctor lo siguen solos.
 
 ## Los eventos (vocabulario v1)
@@ -23,6 +25,7 @@ hook-system propio.
 | `pre_prompt` | el prompt/contexto ensamblado está por mandarse al modelo | **middleware** (único evento que puede MUTAR: reescribir/filtrar el payload antes del modelo — el modo middleware de Hermes) | **pendiente motor #2** (ver honestidad abajo) | — |
 | `user_prompt` | el socio mandó un prompt en una sesión interactiva | observer puro (el payload trae el texto; los listeners miran, no mutan — la degradación observer honesta de `UserPromptSubmit`, "otro evento, no `pre_prompt`") | hook `UserPromptSubmit` ⚠ *en este hook, stdout se inyecta al contexto — los listeners NO imprimen nada* | — (disponible; sin listeners) |
 | `headless_ingest` | el harness entrega un transcript a un proceso headless | observer (interno) | **interno** — lo emite el propio WORKSPACE, no el motor. Desde 2026-10-16 ningún flujo del cliente lo emite (la revisión de skills y la memoria corren en la sesión visible); queda para herramientas de desarrollo (`skill_audit`) | — · **guard N6**: todo emisor pasa el contenido por `hooks/untrusted.py` (ver abajo) |
+| `turn_end` | el agente terminó UNA respuesta (no corre si el socio la interrumpe) | observer **cleanup-only** (la salida se ignora; jamás bloquea el fin del turno) | hook `Stop` ([doc](https://code.claude.com/docs/en/hooks#stop)), cableado **por arranque** en el `--settings` de la pestaña (`events.POR_ARRANQUE`), no en el `settings.local.json` del cerebro · en los envueltos: `None` (su cierre a la mala lo recoge `pending_runs`) | `memoria_turno.py` (solo la maleta, el paso 1 de `memoria.al_cerrar`: sin IA, idempotente, en milisegundos — si Claude Code muere con `kill -9` la maleta ya trae hasta la última respuesta) |
 | `model_fallback` | el failover (E-3, `failover.py`; fuera de `main` desde la 0.5) cambió de modelo, se recuperó tras fallos, o agotó la cadena | observer (interno) | **None** — el failover del motor #1 lo hace el VENDOR por dentro (opaco, honestidad) · en `ollama` es `INTERNAL`: lo emitía `failover.py` por transición | — (diagnóstico al rastro N10: `from_model`/`to_model`/`reason`/`strategy`, y campos planos `fallbackStep1..N` al agotarse la cadena) |
 
 ## Observer vs middleware (la distinción de Hermes)
@@ -50,6 +53,7 @@ es el MÍNIMO común que un listener puede asumir en cualquier motor:
 | `post_tool_write` | `tool_name`, `tool_input`, `tool_response`, `cwd` | `session_id`, … |
 | `pre_prompt` | `prompt`, `session_id`, `cwd` | (pendiente motor #2) |
 | `user_prompt` | `prompt`, `session_id`, `cwd` | `hook_event_name`, `transcript_path`, … |
+| `turn_end` | `session_id`, `cwd`, `transcript_path` | `last_assistant_message` (la respuesta final: el transcript puede no traerla todavía en ese momento), `stop_hook_active`, … |
 | `headless_ingest` | `transcript_path`, `brain` (vía cwd/env del proceso headless) | n/a (interno) |
 
 Un listener portable parsea stdin con tolerancia (basura/vacío → exit 0, contrato probado en

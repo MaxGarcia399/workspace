@@ -40,7 +40,8 @@ STRINGS = {
                              "each agent lives in its own brain (a folder of "
                              "files you own) and runs on a CLI engine you "
                              "already have installed — Claude Code, Codex, "
-                             "Antigravity, OpenCode, OpenClaw or Hermes.",
+                             "Antigravity, OpenCode, OpenClaw, Hermes, Kiro, "
+                             "GitHub Copilot or Cursor.",
     "onboarding.welcome.p2": "Everything happens on your machine: zero "
                              "dependencies, no new accounts, and Workspace "
                              "never sees or stores your credentials (login is "
@@ -141,6 +142,29 @@ STRINGS = {
                                        "your personal Hermes doesn't change) with "
                                        "your agent's identity and without Hermes' own "
                                        "memory; it never reads your credential.",
+    "onboarding.motor.kiro.what": "Kiro — AWS's terminal agent (`kiro-cli` binary), "
+                                  "formerly Amazon Q Developer CLI.",
+    "onboarding.motor.kiro.login": "Sign in with your Kiro account: `kiro-cli login` "
+                                   "(Builder ID, Identity Center, Google or GitHub).",
+    "onboarding.motor.kiro.changes": "Workspace wraps it on your same brain: the model is the one you choose "
+                                     "in Kiro and it never reads your credential. Its config goes in the brain "
+                                     "(.kiro/agents/workspace.json): nothing in your ~/.kiro.",
+    "onboarding.motor.copilot.what": "GitHub Copilot — GitHub's official CLI "
+                                     "(`copilot` binary), with your Copilot "
+                                     "subscription.",
+    "onboarding.motor.copilot.login": "Sign in with `copilot login` in your terminal "
+                                      "(or from Engines › account and provider).",
+    "onboarding.motor.copilot.changes": "Workspace wraps it: the model is your account's and it never reads "
+                                        "your token. It writes only its bar in ~/.copilot/settings.json; memory "
+                                        "and isolation between agents go on each launch.",
+    "onboarding.motor.cursor.what": "Cursor — Cursor's CLI (`cursor-agent` "
+                                    "binary), with your Cursor account.",
+    "onboarding.motor.cursor.login": "Sign in with `cursor-agent login` (or from "
+                                     "Engines › account and provider).",
+    "onboarding.motor.cursor.changes": "Workspace wraps it: the model is the one you pick in Cursor and it "
+                                       "never reads your credential. In ~/.cursor/cli-config.json it writes "
+                                       "its bar and the permission to save memory, and it trusts your brain's "
+                                       "folder.",
 
     # step 2: APPEARANCE
     "onboarding.apariencia.title_l": "THEME & BACKGROUND",
@@ -181,7 +205,7 @@ STRINGS = {
     "onboarding.agente.crear.label": "create a new agent",
     "onboarding.agente.crear.desc": "An agent from scratch: a short form → you "
                                     "see the BRAIN about to be born and the "
-                                    "harness it runs on → it's created LIVE, "
+                                    "engine it runs on → it's created LIVE, "
                                     "step by step. It's born self-contained in "
                                     "~/Desktop/<NAME> - BRAIN, usable when "
                                     "done.",
@@ -198,7 +222,7 @@ STRINGS = {
                                         ".workspace/agent.json and lets you "
                                         "connect them — you see which are new "
                                         "and which are already set. A MANUAL "
-                                        "action — the harness never connects "
+                                        "action — Workspace never connects "
                                         "anything on its own.",
     "onboarding.agente.ninguno.label": "finish without an agent",
     "onboarding.agente.ninguno.desc": "You can also add one anytime from the "

@@ -102,6 +102,7 @@ import uuid
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
+import arbol_procesos  # noqa: E402  (Windows: al vencer el tiempo muere el árbol entero)
 
 META = {"name": "hermes", "needs": ["hermes"], "auth": "api-key"}
 
@@ -123,8 +124,10 @@ BINARY = "hermes"
 #: Versiones del CLI oficial con las que se VERIFICARON las lecturas de este
 #: adapter (engine_versions: doctor avisa si la instalada es de otra línea).
 #: Al verificar una versión nueva, agrégala aquí (runbooks/agregar-motor.md).
-#: 0.18.2 (`status` completo) · 0.22.2 (`status --full`; export rc=1 «No session»).
-VERIFIED_VERSIONS = ("0.18.2", "0.22.2")
+#: 0.18.2 (`status` completo) · 0.22.2 (`status --full`; export rc=1 «No session»)
+#: · 0.22.5 (ids `local-<hex>` sin hora, source=local + created_source; prueba
+#: real 2026-10-26: captura al cerrar, atado a la pestaña y --resume).
+VERIFIED_VERSIONS = ("0.18.2", "0.22.2", "0.22.5")
 LABEL = "Hermes · modelo de tu config"
 
 #: Orígenes de sesión que NO son del socio en su REPL: los turnos headless de
@@ -139,6 +142,25 @@ _FOREIGN_SOURCES = ("tool", "subagent", "cron")
 #: de cualquier plataforma del gateway), `oneshot`, `acp` o `desktop` jamás se
 #: toma como la de una pestaña, aunque alguna vez grabe el cwd del cerebro.
 _TAB_SOURCES = ("cli", "tui", "")
+
+#: Desde v0.22.5 las superficies locales graban `source="local"` y la que
+#: creó la sesión en `created_source` (VERIFICADO v0.22.5:
+#: gateway/session_policy.py SURFACES/STORED_AS_LOCAL,
+#: hermes_state_local.commit_local_session; el REPL de una pestaña exporta
+#: `local` + `cli`). `local` a secas NO basta: Desktop (`desktop`) y ACP
+#: (`acp`) también se guardan como `local`. Sin `created_source` (o con el
+#: marcador `unknown`) no se sabe de qué superficie es: no se ata. `tool` y
+#: `oneshot` conservan su propio `source` y quedan fuera como antes.
+_LOCAL_SOURCE = "local"
+_TAB_CREATED = ("cli", "tui")
+
+
+def _tab_source(d):
+    """¿El registro exportado es de una sesión que puede ser de una pestaña?"""
+    src = str(d.get("source") or "")
+    if src == _LOCAL_SOURCE:
+        return str(d.get("created_source") or "") in _TAB_CREATED
+    return src in _TAB_SOURCES
 
 #: Archivos que Hermes lee ANTES que AGENTS.md (le ganarían a la identidad).
 _OVERRIDES = (".hermes.md", "HERMES.md", "AGENTS.override.md")
@@ -159,9 +181,9 @@ def _run(cmd, runner=None, timeout=60, cwd=None, env=None):
         # que cargó el hub (Greptile, 2026-10-17)
         import secret_store
         env = secret_store.engine_env()
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
-                          encoding="utf-8", errors="replace", cwd=cwd, env=env,
-                          stdin=subprocess.DEVNULL)
+    return arbol_procesos.run(cmd, capture_output=True, text=True, timeout=timeout,
+                              encoding="utf-8", errors="replace", cwd=cwd, env=env,
+                              stdin=subprocess.DEVNULL)
 
 
 def _t(key, es, en=None, **kw):
@@ -175,7 +197,8 @@ def _t(key, es, en=None, **kw):
 
 def _valid_sid(sid):
     """Id de sesión de Hermes con forma segura para argv (los del REPL son
-    `AAAAMMDD_HHMMSS_<6 hex>`; se aceptan otros sin espacios ni guion inicial)."""
+    `AAAAMMDD_HHMMSS_<6 hex>` hasta v0.22.2 y `local-<64 hex>` desde v0.22.5;
+    se aceptan otros sin espacios ni guion inicial)."""
     return bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{3,95}", str(sid or "")))
 
 
@@ -277,6 +300,38 @@ _LEAKY_TOOLSETS = ("session_search", "coding")
 #: menor (un valor mayor del socio se respeta).
 CONTEXT_FILE_CHARS = 48_000
 
+#: Variables de la PESTAÑA con las que `workspace memoria …` (y la corrida)
+#: deciden cerebro, pestaña, motor y socio. Desde la 0.22.5, Hermes corre cada
+#: sesión en un gateway compartido que hereda el entorno de la pestaña que lo
+#: ARRANCÓ (y vive minutos después de cerrarla): sin esto, la nota de la
+#: pestaña B caía en la ficha de A (u otro cerebro) o se rechazaba mandando a
+#: guardar en A (revisión de la candidata, 2026-11-02). La clave oficial
+#: `terminal.client_env_passthrough` (agent/session_client_env.py) hace viajar
+#: estos nombres del cliente de CADA sesión a su terminal y quita los que ese
+#: cliente no exporta. Nada secreto. Los nombres del socio se conservan.
+_CLIENT_ENV_KEY = "client_env_passthrough"
+_CLIENT_ENV = ("WORKSPACE_BRAIN", "WORKSPACE_WS", "ZENITH_WS", "WORKSPACE_ENGINE",
+               "WORKSPACE_SESSION_ID", "WORKSPACE_SOCIO", "WORKSPACE_AGENT_NAME",
+               "WORKSPACE_WID", "WORKSPACE_HERMES_RUN", "WORKSPACE_HERMES_SESSION")
+
+
+def _client_env(text):
+    """Los nombres de `terminal.client_env_passthrough` del config.yaml; [] si
+    no está o tiene una forma que no se entiende."""
+    p = _global_off_parse(text, "terminal", _CLIENT_ENV_KEY)
+    return list(p["items"] or []) if p["state"] == "block" else []
+
+
+def _client_env_ok(text):
+    return set(_CLIENT_ENV) <= set(_client_env(text))
+
+
+def _with_client_env(text):
+    """config.yaml con los nombres de _CLIENT_ENV en
+    `terminal.client_env_passthrough` (los del socio se conservan), o None si
+    no hace falta o `terminal:` tiene una forma que no se edita a mano."""
+    return _with_global_off(text, "terminal", _CLIENT_ENV_KEY, _CLIENT_ENV, _client_env_ok)
+
 #: Skills del CEREBRO en Hermes: las lee del cerebro de la pestaña y las que
 #: crea o parcha las escribe ahí, donde las ven los demás motores. Hermes
 #: conserva su manejo nativo en la sesión visible (`skill_manage`, `/learn`,
@@ -340,10 +395,15 @@ _HOOK_RESERVED = ("output_spill", "outbound")
 #: Hermes escanea su archivo de contexto ANTES de meterlo al system prompt y,
 #: con UN solo hallazgo, bloquea el archivo ENTERO («[BLOCKED: …]»): la
 #: identidad desaparecería. Copia exacta de los patrones de alcance «all» y
-#: «context» de `tools/threat_patterns.py` (v0.18.2), para no incrustar un
-#: documento que dispare el bloqueo. test_motores_hermes compara esta copia
-#: con la del Hermes instalado cuando existe (avisa si Hermes la cambia).
+#: «context» de `tools/threat_patterns.py` (v0.22.5), para no incrustar un
+#: documento que dispare el bloqueo, más las formas más amplias de las
+#: versiones anteriores que se siguen soportando (_SCAN_PATTERNS_PREV): un
+#: documento se incrusta solo si NINGUNA versión verificada lo bloquearía.
+#: test_motores_hermes compara esta copia con la del Hermes instalado cuando
+#: existe (avisa si Hermes la cambia).
 _SCAN_FILLER = r"(?:\w+\s+){0,8}"
+#: v0.22.5: variable de entorno que TERMINA en un sufijo de secreto (\b).
+_SCAN_SECRET_VAR = r"\$\{?\w*(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)S?\b"
 _SCAN_PATTERNS = (
     (r'ignore\s+%s(previous|all|above|prior)\s+%sinstructions' % (_SCAN_FILLER, _SCAN_FILLER), "prompt_injection"),
     (r'system\s+prompt\s+override', "sys_prompt_override"),
@@ -351,7 +411,7 @@ _SCAN_PATTERNS = (
     (r'act\s+as\s+(if|though)\s+%syou\s+%s(have\s+no|don\'t\s+have)\s+%s(restrictions|limits|rules)' % (_SCAN_FILLER, _SCAN_FILLER, _SCAN_FILLER), "bypass_restrictions"),
     (r'<!--[^>]{0,512}(?:ignore|override|system|secret|hidden)[^>]{0,512}-->', "html_comment_injection"),
     (r'<\s*div\s+style\s*=\s*["\'][^>]{0,2048}display\s*:\s*none', "hidden_div"),
-    (r'translate\s+[^\n]{0,512}\s+into\s+[^\n]{0,512}\s+and\s+(execute|run|eval)', "translate_execute"),
+    (r'translate\s+[^\n]{0,512}\s+into\s+\w+(?:[\s-]+\w+){0,2}\s+and\s+(execute|run|eval)\b', "translate_execute"),
     (r'do\s+not\s+%stell\s+%sthe\s+user' % (_SCAN_FILLER, _SCAN_FILLER), "deception_hide"),
     (r'you\s+are\s+%snow\s+(?:a|an|the)\s+' % _SCAN_FILLER, "role_hijack"),
     (r'pretend\s+%s(you\s+are|to\s+be)\s+' % _SCAN_FILLER, "role_pretend"),
@@ -370,20 +430,30 @@ _SCAN_PATTERNS = (
     (r'\b(?:cobalt\s*strike|sliver|havoc|mythic|metasploit|brainworm)\b', "known_c2_framework"),
     (r'\bc2\s+(?:server|channel|infrastructure|beacon)\b', "c2_explicit"),
     (r'\bcommand\s+and\s+control\b', "c2_explicit_long"),
+    (r'curl\s+[^\n]{0,2048}' + _SCAN_SECRET_VAR, "exfil_curl"),
+    (r'wget\s+[^\n]{0,2048}' + _SCAN_SECRET_VAR, "exfil_wget"),
+    (r'cat\s+[^\n]{0,2048}(\.env|credentials|\.netrc|\.pgpass|\.npmrc|\.pypirc)', "read_secrets"),
+)
+#: Formas de v0.18.2 y v0.22.2 que v0.22.5 angostó (exfil: cualquier variable
+#: que CONTENGA el sufijo, «API» incluido; translate: cualquier texto entre
+#: «into» y «and»). Se quitan cuando esas versiones salgan de VERIFIED_VERSIONS.
+_SCAN_PATTERNS_PREV = (
+    (r'translate\s+[^\n]{0,512}\s+into\s+[^\n]{0,512}\s+and\s+(execute|run|eval)', "translate_execute"),
     (r'curl\s+[^\n]{0,2048}\$\{?\w*(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|API)', "exfil_curl"),
     (r'wget\s+[^\n]{0,2048}\$\{?\w*(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|API)', "exfil_wget"),
-    (r'cat\s+[^\n]{0,2048}(\.env|credentials|\.netrc|\.pgpass|\.npmrc|\.pypirc)', "read_secrets"),
 )
 _SCAN_INVISIBLE = frozenset("​‌‍⁠⁢⁣⁤﻿"
                             "‪‫‬‭‮⁦⁧⁨⁩")
 _SCAN_MAX = 65_536
-_SCAN_COMPILED = tuple((re.compile(p, re.IGNORECASE), pid) for p, pid in _SCAN_PATTERNS)
+_SCAN_COMPILED = tuple((re.compile(p, re.IGNORECASE), pid)
+                       for p, pid in _SCAN_PATTERNS + _SCAN_PATTERNS_PREV)
 
 
 def scan_context(text):
     """Hallazgos que el escáner de contexto de Hermes daría para `text` (misma
     normalización: BOM inicial fuera, invisibles sobre el texto crudo, NFKC,
-    sin mayúsculas). [] = Hermes lo carga."""
+    sin mayúsculas), en cualquiera de las versiones soportadas; cada id una
+    vez. [] = Hermes lo carga."""
     import unicodedata
     text = str(text or "")
     if text.startswith("﻿"):
@@ -392,7 +462,9 @@ def scan_context(text):
     found = ["invisible_unicode_U+%04X" % ord(c)
              for c in sorted(set(text) & _SCAN_INVISIBLE)]
     norm = unicodedata.normalize("NFKC", text)
-    found += [pid for rx, pid in _SCAN_COMPILED if rx.search(norm)]
+    for rx, pid in _SCAN_COMPILED:
+        if pid not in found and rx.search(norm):
+            found.append(pid)
     return found
 
 
@@ -965,18 +1037,20 @@ def _with_skills(text):
 
 
 # ── herramientas apagadas en todas las plataformas: `agent.disabled_toolsets`
-def _global_off_parse(text):
-    """`agent.disabled_toolsets` del config.yaml → {state: absent|block|foreign,
+def _global_off_parse(text, section="agent", key=None):
+    """`agent.disabled_toolsets` del config.yaml (o `<section>.<key>`, otra
+    lista de nombres del mismo estilo) → {state: absent|block|foreign,
     items (la lista, o None si la clave no está), y dónde está cada cosa para
     editar sin tocar lo demás}. Lee la lista sangrada (como la vuelca Hermes),
     en una línea (`[a, b]`), vacía/null, un nombre suelto o el texto de una
     lista (`"['memory']"`, como lo lee Hermes: parse_config_string_list).
     Conservador: de `agent:` solo mira esa clave; «foreign» = `agent:` o la
     clave en una forma que no se edita a mano."""
+    key = key or _GLOBAL_OFF_KEY
     lines = (text or "").splitlines(True)
     out = {"lines": lines, "state": "absent", "items": None, "span": None, "ci": "  ",
            "at": None, "end": None, "form": None, "item_lead": None}
-    span = _top_span(lines, "agent")
+    span = _top_span(lines, section)
     if span is None:
         return out
     out["span"] = span
@@ -1000,7 +1074,7 @@ def _global_off_parse(text):
         m = re.match(r"([A-Za-z0-9_.-]+):(.*)$", st)
         if lead != ci or not m:
             return dict(out, state="foreign")
-        if m.group(1) != _GLOBAL_OFF_KEY:
+        if m.group(1) != key:
             k += 1
             continue
         if out["at"] is not None:
@@ -1067,15 +1141,23 @@ def _global_off_ok(text):
     return all(t in off for t in _TOOLSETS_OFF)
 
 
-def _with_global_off(text):
-    """config.yaml con session_search y memory en `agent.disabled_toolsets`, o
-    None si no hace falta o `agent:` tiene una forma que no se edita a mano.
-    La lista del socio se conserva (solo gana las que falten); lo demás de
-    `agent:` y del archivo queda byte a byte."""
-    p = _global_off_parse(text)
+def _with_global_off(text, section="agent", key=None, names=None, ok=None):
+    """config.yaml con session_search y memory en `agent.disabled_toolsets` (o
+    `names` en `<section>.<key>`), o None si no hace falta o la sección tiene
+    una forma que no se edita a mano. La lista del socio se conserva (solo
+    gana las que falten); lo demás de la sección y del archivo queda byte a
+    byte."""
+    key, names, ok = key or _GLOBAL_OFF_KEY, names or _TOOLSETS_OFF, ok or _global_off_ok
+    p = _global_off_parse(text, section, key)
     if p["state"] == "foreign":
         return None
-    falta = [t for t in _TOOLSETS_OFF if t not in (p["items"] or [])]
+    if p["state"] == "absent" and re.search(r"""(?m)^\ufeff?["']?%s["']?[ \t]*:""" % re.escape(section),
+                                            text or ""):
+        # `"terminal":`, `terminal :` o un BOM delante: agregar otra sección
+        # dejaría una clave repetida y Hermes no leería el config entero
+        # (revisión nocturna, B1): se avisa sin escribir
+        return None
+    falta = [t for t in names if t not in (p["items"] or [])]
     if not falta:
         return None
     lines = list(p["lines"])
@@ -1083,25 +1165,25 @@ def _with_global_off(text):
         body = "".join(lines)
         if body and not body.endswith("\n"):
             body += "\n"
-        return body + "agent:\n  %s:\n" % _GLOBAL_OFF_KEY + "".join(
-            "  - %s\n" % t for t in _TOOLSETS_OFF)
+        return body + "%s:\n  %s:\n" % (section, key) + "".join(
+            "  - %s\n" % t for t in names)
     s0, s1, ci = p["span"][0], p["span"][1], p["ci"]
     if lines[s1 - 1:s1] and not lines[s1 - 1].endswith("\n"):
         lines[s1 - 1] += "\n"
-    if _yaml_value(lines[s0].rstrip("\r\n")[len("agent:"):]):
-        lines[s0] = "agent:\n"                       # `agent: {}` / null → bloque
+    if _yaml_value(lines[s0].rstrip("\r\n")[len(section) + 1:]):
+        lines[s0] = "%s:\n" % section               # `agent: {}` / null → bloque
 
     def items(lead, names):
         return ["%s- %s\n" % (lead, _yaml_quote(t)) for t in names]
     if p["at"] is None:
-        lines[s0 + 1:s0 + 1] = ["%s%s:\n" % (ci, _GLOBAL_OFF_KEY)] + items(ci, falta)
+        lines[s0 + 1:s0 + 1] = ["%s%s:\n" % (ci, key)] + items(ci, falta)
     elif p["form"] == "block":
         lines[p["end"]:p["end"]] = items(p["item_lead"], falta)
     else:                                            # vacía o en una línea
-        lines[p["at"]:p["at"] + 1] = (["%s%s:\n" % (ci, _GLOBAL_OFF_KEY)]
+        lines[p["at"]:p["at"] + 1] = (["%s%s:\n" % (ci, key)]
                                       + items(ci, list(p["items"] or []) + falta))
     new = "".join(lines)
-    return new if _global_off_ok(new) else None
+    return new if ok(new) else None
 
 
 def _context_chars(text):
@@ -1249,7 +1331,8 @@ def _quick_ok(d):
             and _context_chars(cfg) >= CONTEXT_FILE_CHARS
             and _hooks_state(cfg) == "ours"
             and _spill_ok(cfg)
-            and _skills_ok(cfg))
+            and _skills_ok(cfg)
+            and _client_env_ok(cfg))
 
 
 def _shown_path(exe, runner=None):
@@ -1353,6 +1436,22 @@ def _ensure_locked(exe, runner):
         if not created:
             avisos.append("restauré %s=false (la memoria del agente vive en su "
                           "cerebro)" % leaf)
+    if not _client_env_ok(_read_text(cfgp)):
+        # un renglón del config.yaml, a mano y en su lugar (como la lista
+        # global): los `config set` de después re-vuelcan el YAML y la conservan
+        new = _with_client_env(_read_text(cfgp) or "")
+        if new is not None:
+            _write_atomic(cfgp, new)
+        if not _client_env_ok(_read_text(cfgp)):
+            # No bloquea: sin esto, una nota puede caer en otra pestaña; se
+            # reintenta en cada arranque (el camino rápido no pasa).
+            avisos.append(_t("motorbar.hermes.client_env",
+                             "no pude darle a cada pestaña de Hermes su propia memoria "
+                             "(terminal.{k} en el perfil «{p}»): con varias pestañas abiertas, "
+                             "una nota podría guardarse en otra",
+                             "couldn't give each Hermes tab its own memory (terminal.{k} in "
+                             "the «{p}» profile): with several tabs open, a note could be "
+                             "saved in another one", k=_CLIENT_ENV_KEY, p=_profile()))
     def _apagar_en_todas():
         """Discord y las demás plataformas del gateway (Telegram, Slack,
         WhatsApp…): la lista global, un renglón del config.yaml, sin llamar al
@@ -1594,7 +1693,7 @@ def _pid_alive(pid):
         return None
 
 
-def run_open(brain, tab="", mem=None, larga=None):
+def run_open(brain, tab="", mem=None, larga=None, agent="", known=(), exe=""):
     """Registra una corrida de Hermes en este cerebro → token (o '' si no se
     pudo: falla-suave, la captura vuelve al criterio de ventana). `mem` =
     {'desde': epoch, 'doc': huella o None}: desde cuándo lo que anote el
@@ -1602,23 +1701,33 @@ def run_open(brain, tab="", mem=None, larga=None):
     si no quedó); lo usa el hook por turno (memoria_turno). `larga` =
     {'modo': 'hook'|'doc', 'tope': caracteres}: quién entrega STATE/MEMORY.md
     (el hook por turno o la copia del AGENTS.md) y el tope del contexto del
-    hook en el perfil (memoria_larga_turno)."""
+    hook en el perfil (memoria_larga_turno). Lo que el hook necesita para
+    saber de quién es una sesión sin leer el entorno (run_de_sesion): el
+    agente (su tono), la terminal (la miga de Hermes) y, ya anotada, la
+    sesión que la pestaña retoma (`known`); `exe` = el binario, por si el
+    PATH del gateway no lo trae."""
     token = uuid.uuid4().hex
     now = time.time()
+    ya = [s for s in dict.fromkeys(str(s or "") for s in known or ()) if _valid_sid(s)]
+    try:
+        import pending_runs
+        marca = pending_runs._proc_mark()  # pid + hora de arranque (también en Windows)
+    except Exception:
+        marca = None
 
     def fn(runs):
         keep = []
         for r in runs:
-            if r.get("t1") is None:
-                alive = _pid_alive(r.get("pid"))
-                if alive is False or (alive is None and now - float(r.get("t0") or 0)
-                                      > _RUN_UNKNOWN_PID_TTL):
-                    r["t1"] = now          # corrida muerta sin cierre: termina ahora
+            if r.get("t1") is None and not _run_viva(r, now):
+                r["t1"] = now              # corrida muerta sin cierre: termina ahora
             if r.get("t1") is not None and now - float(r["t1"]) > _RUN_TTL:
                 continue
             keep.append(r)
         rec = {"id": token, "brain": os.path.realpath(brain or ""), "tab": tab,
-               "pid": os.getpid(), "t0": now, "t1": None, "sessions": []}
+               "pid": os.getpid(), "t0": now, "t1": None, "sessions": list(ya),
+               "agent": str(agent or ""), "terminal": _terminal_id(), "exe": str(exe or "")}
+        if isinstance(marca, dict):
+            rec["proc"] = marca
         if isinstance(mem, dict) and tab:
             rec["mem"] = {"desde": float(mem.get("desde") or now), "doc": mem.get("doc"),
                           "ses": {}}
@@ -1664,6 +1773,327 @@ def run_close(token):
         _runs_update(fn)
     except Exception:
         pass
+
+
+# ── de quién es una sesión, sin el entorno (gateway compartido, v0.22.5) ───
+#: Desde v0.22.5 TODA sesión corre en UN gateway por raíz de Hermes (el
+#: multiplexor de `default` sirve también los perfiles con nombre; cada
+#: cliente lo arranca si no hay y queda 10 min tras el último uso). El hook
+#: por turno corre DENTRO de ese proceso: su entorno es el de la pestaña que
+#: lo arrancó, no el de la sesión del turno (VERIFICADO 2026-10-26 con dos
+#: cerebros: B recibía la memoria y la pestaña de A, y A se quedaba con la
+#: sesión de B). Por eso el hook ya no lee WORKSPACE_*: la corrida sale de la
+#: sesión (`session_id` de la llamada). El `cwd` de la llamada tampoco sirve:
+#: es el del gateway.
+#: Identidad de la terminal como la calcula Hermes para su miga de `-c`
+#: (hermes_cli/terminal_breadcrumbs.py, v0.22.5): el tty (stdin, luego
+#: stdout) o, sin tty, la primera de estas variables.
+_TERMINAL_VARS = ("ZELLIJ_PANE_ID", "TMUX_PANE", "KITTY_WINDOW_ID", "WEZTERM_PANE",
+                  "TERM_SESSION_ID", "WT_SESSION")
+
+
+def _miga_segura(raw):
+    return re.sub(r"[^A-Za-z0-9._-]", "-", str(raw).strip().strip("/"))[:120]
+
+
+def _terminal_id():
+    """La terminal de ESTA pestaña con el nombre que Hermes da a su miga
+    (`tty-dev-ttys008`), o ''. El REPL hereda la terminal del lanzador."""
+    for fh in (sys.stdin, sys.stdout):
+        try:
+            name = os.ttyname(fh.fileno())
+        except Exception:
+            continue
+        if name:
+            return "tty-" + _miga_segura(name)
+    for var in _TERMINAL_VARS:
+        val = os.environ.get(var)
+        if val:
+            return "%s-%s" % (var.lower(), _miga_segura(val))
+    return ""
+
+
+def _miga(terminal, desde=0.0, con_hora=False):
+    """Sesión de esa terminal según la miga de Hermes
+    (`<perfil>/terminal-sessions/<terminal>`, la de `hermes -c`), o ''.
+    VERIFICADO v0.22.5: Hermes la escribe al arrancar el REPL (también con
+    `--resume`) y cuando la compresión rota el id; NO al hacer `/resume`
+    dentro del REPL (esa sesión de arranque queda con end_reason
+    `resumed_other`, ver dueno_de_sesion). Con `desde`, solo una miga escrita
+    desde entonces (la de una pestaña anterior en la misma terminal no
+    cuenta). Sin migas (versión anterior, `session.terminal_continue: false`)
+    da ''. `con_hora` → (sesión, hora de la miga)."""
+    nada = ("", 0.0) if con_hora else ""
+    if not terminal or terminal != _miga_segura(terminal):
+        return nada
+    try:
+        with open(os.path.join(profile_dir(), "terminal-sessions", terminal),
+                  encoding="utf-8-sig") as fh:
+            d = json.load(fh)
+        if not isinstance(d, dict):
+            return nada
+        ts = float(d.get("ts") or 0)
+        if desde and ts < float(desde) - 2:
+            return nada
+        sid = str(d.get("session_id") or "")
+        return (sid, ts) if con_hora else sid
+    except (OSError, ValueError, TypeError):
+        return nada
+
+
+def _run_viva(r, now=None):
+    """¿La corrida sigue abierta? Sin cierre y con su lanzador vivo: con la
+    huella del proceso (pid + hora de arranque, también en Windows, donde
+    olock no sabe) y, en corridas de antes, con el pid; un pid que no se
+    puede mirar vale hasta _RUN_UNKNOWN_PID_TTL."""
+    if r.get("t1") is not None:
+        return False
+    if isinstance(r.get("proc"), dict) and r["proc"].get("pid") == r.get("pid"):
+        try:
+            import pending_runs
+            return bool(pending_runs.proc_alive({"proc": r["proc"]}))
+        except Exception:
+            pass
+    alive = _pid_alive(r.get("pid"))
+    if alive is None:
+        try:
+            return (now or time.time()) - float(r.get("t0") or 0) <= _RUN_UNKNOWN_PID_TTL
+        except (TypeError, ValueError):
+            return False
+    return bool(alive)
+
+
+def en_gateway():
+    """¿Este proceso corre dentro de un gateway de Hermes? El que arranca un
+    cliente (v0.22.5) lleva HERMES_GATEWAY_DETACHED=1 y todo gateway pone
+    HERMES_EXEC_ASK=1 al arrancar (gateway/run_bootstrap.py), también el que
+    corre como servicio. Hasta v0.22.2 el hook corría en el REPL de su pestaña."""
+    return (os.environ.get("HERMES_GATEWAY_DETACHED", "").strip() == "1"
+            or os.environ.get("HERMES_EXEC_ASK", "").strip() == "1")
+
+
+#: «No resuelta» por sesión: sin esto cada turno de una sesión headless o
+#: ajena volvía a exportarla (~0,5 s). Vale mientras no se abra ni cierre una
+#: pestaña (la firma = las corridas vivas) y como mucho _SIN_DUENO_TTL; una
+#: sesión de terminal sin dueña, solo _SIN_DUENO_TTL_TERMINAL (una pestaña
+#: puede retomarla con `/resume` sin abrir ni cerrar nada), y lo mismo si el
+#: export falló (es transitorio).
+_SIN_DUENO_TTL = 600
+_SIN_DUENO_TTL_TERMINAL = 60
+_SIN_DUENO_MAX = 500
+
+
+def _sin_dueno_path():
+    return os.path.join(os.path.dirname(_runs_path()) or ".", "hermes-sin-dueno.json")
+
+
+def _firma(vivas):
+    return ",".join(sorted(str(r.get("id") or "") for r in vivas))
+
+
+def _sin_dueno_leer(sid, firma, now):
+    try:
+        with open(_sin_dueno_path(), encoding="utf-8") as fh:
+            e = (json.load(fh).get("ses") or {}).get(sid)
+        ttl = _SIN_DUENO_TTL_TERMINAL if (isinstance(e, dict) and e.get("terminal")) \
+            else _SIN_DUENO_TTL
+        if isinstance(e, dict) and e.get("firma") == firma \
+                and now - float(e.get("t") or 0) <= ttl:
+            return e
+    except (OSError, ValueError, AttributeError, TypeError):
+        pass
+    return None
+
+
+def _sin_dueno_anotar(sid, firma, brain, now, terminal=False):
+    from olock import file_lock
+    path = _sin_dueno_path()
+    try:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with file_lock(path, timeout=5):
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    ses = dict(json.load(fh).get("ses") or {})
+            except (OSError, ValueError, AttributeError, TypeError):
+                ses = {}
+            ses[sid] = {"firma": firma, "brain": brain, "t": now, "terminal": bool(terminal)}
+            vivas = sorted(((k, v) for k, v in ses.items() if isinstance(v, dict)
+                            and now - float(v.get("t") or 0) <= _SIN_DUENO_TTL),
+                           key=lambda kv: float(kv[1].get("t") or 0))[-_SIN_DUENO_MAX:]
+            _write_atomic(path, json.dumps({"version": 1, "ses": dict(vivas)},
+                                           ensure_ascii=False))
+    except Exception:
+        pass
+
+
+def _reanotar(token, sid, retomada=False):
+    """La sesión `sid` pasa a ser de la corrida `token` y de ninguna otra: el
+    cierre de cada pestaña ata lo suyo (una sesión retomada en otra pestaña
+    deja de ser de la primera). `retomada`: se le atribuyó con evidencia de
+    que la pestaña la retomó con `/resume` (o el hook corre en su REPL); solo
+    esas cuenta el cierre como su conversación aunque naciera antes
+    (session_chain)."""
+    runs = _runs_load()
+    # con `retomada`, `sid` tiene que quedar la ÚLTIMA: volver a una retomada
+    # (K → M → K) la pasa al final (revisión nocturna, M2)
+    if all((sid in (r.get("sessions") or [])) == (r.get("id") == token)
+           and (not retomada or r.get("id") != token or (r.get("retomadas") or [])[-1:] == [sid])
+           for r in runs):
+        return                                   # ya está así: sin lock ni escritura
+
+    def fn(runs):
+        for r in runs:
+            ses = [x for x in (r.get("sessions") or []) if x != sid]
+            ret = [x for x in (r.get("retomadas") or []) if x != sid]
+            if r.get("id") == token:
+                ses.append(sid)
+                if retomada:
+                    ret.append(sid)
+            r["sessions"] = ses
+            if ret or "retomadas" in r:
+                r["retomadas"] = ret
+    _runs_update(fn)
+
+
+#: `/resume` dentro del REPL: hasta cuánto después del cambio llega el primer
+#: turno de la sesión retomada para atribuírsela a esa pestaña.
+_RESUME_VENTANA = 600
+
+
+def _cambio_por_resume(r, sid, nacio, now, exe=None, runner=None):
+    """¿La pestaña `r` acaba de dejar su sesión con `/resume` para ir a `sid`?
+    VERIFICADO v0.22.5: `/resume` dentro del REPL no reescribe la miga ni
+    sella nada en la sesión retomada; la que la pestaña deja queda con
+    end_reason `resumed_other`. Evidencia (todo): la sesión ACTUAL de la
+    pestaña (la última que se le anotó o, sin ninguna, la de su miga) es otra
+    y quedó `resumed_other` mientras la pestaña estaba abierta, hace menos de
+    _RESUME_VENTANA, y `sid` ya existía entonces (se retoma lo que hay). Un
+    cambio se usa una vez: atribuida la retomada, ella es la actual."""
+    ses = r.get("sessions") or []
+    actual = ses[-1] if ses else _miga(r.get("terminal"), desde=r.get("t0") or 0)
+    if not actual or actual == sid:
+        return False
+    try:
+        e = session_record(actual, exe=exe, runner=runner)
+        cambio = float((e or {}).get("ended_at") or 0)
+    except Exception:
+        return False
+    if not e or e.get("end_reason") != "resumed_other" or not cambio:
+        return False
+    return (float(r.get("t0") or 0) - 2 <= cambio <= now + 2
+            and now - cambio <= _RESUME_VENTANA and 0 < nacio <= cambio)
+
+
+def dueno_de_sesion(sid, exe=None, runner=None, pista="", gateway=True, cwd=""):
+    """De quién es la sesión `sid` de Hermes → {'run': token de la corrida
+    VIVA dueña o '', 'brain': su cerebro si se sabe}. Sin dueña, el hook solo
+    manda el tono del agente de `brain` (nunca memoria de una pestaña).
+
+    Fuera de un gateway (`gateway=False`, Hermes hasta v0.22.2) el hook corre
+    en el REPL de su pestaña: la dueña es la corrida del entorno (`pista`) y
+    el cerebro, su `cwd`. En un gateway (v0.22.5) el entorno es de otra
+    pestaña y no cuenta; decide la evidencia, en orden:
+      1. la miga de la terminal (`hermes -c`) de una corrida viva dice que
+         ahí corre `sid` (también si otra pestaña la tenía; con dos, la miga
+         más reciente): esa, y la sesión se re-anota a ella;
+      2. la corrida viva que ya la tiene anotada (la que el hook vio antes o
+         la que la pestaña retoma, anotada al abrir), si su miga no dice otra;
+      3. su registro OFICIAL (`sessions export`, una vez; lo no resuelto se
+         recuerda, _SIN_DUENO_TTL): solo una sesión de terminal (_tab_source);
+         una continuación es de la corrida de su padre; una sesión que una
+         pestaña viva de su cerebro retomó con `/resume` dentro del REPL (la
+         miga no cambia), con la evidencia de _cambio_por_resume. Nada más:
+         sin miga ni otra evidencia positiva no se anota, aunque sea la única
+         pestaña viva del cerebro (mejor nada que lo ajeno: puede ser Hermes
+         abierto a mano ahí)."""
+    out = {"run": "", "brain": ""}
+    if not _valid_sid(sid):
+        return out
+    runs = _runs_load()
+    now = time.time()
+    vivas = [r for r in runs if _run_viva(r, now)]
+    if not gateway:
+        r = next((r for r in vivas if pista and r.get("id") == pista), None)
+        if r is None:
+            out["brain"] = os.path.realpath(cwd) if cwd else ""
+            return out
+        _reanotar(r["id"], sid, retomada=True)       # el hook corre en su REPL
+        out.update(run=r["id"], brain=r.get("brain") or "")
+        return out
+    if not vivas:
+        return out                       # sin pestañas abiertas: no es de Workspace
+
+    def miga(r):
+        return _miga(r.get("terminal"), desde=r.get("t0") or 0)
+
+    def suya(r):
+        return miga(r) in ("", sid)      # su terminal no dice que corre otra sesión
+
+    def dar(r, retomada=False):
+        _reanotar(r["id"], sid, retomada=retomada)
+        out.update(run=r["id"], brain=r.get("brain") or "")
+        return out
+    horas = {}
+    for r in vivas:
+        m, ts = _miga(r.get("terminal"), desde=r.get("t0") or 0, con_hora=True)
+        if m == sid:
+            horas[r["id"]] = ts
+    por_miga = [r for r in vivas if r["id"] in horas]
+    if por_miga:
+        # dos terminales con la misma sesión (una la retomó con `hermes -c`
+        # y la otra se fue con `/resume`, que no reescribe su miga): la más
+        # reciente es la que la tiene (Hermes no deja dos dueños vivos)
+        por_miga.sort(key=lambda r: horas[r["id"]])
+        if len(por_miga) == 1 or horas[por_miga[-1]["id"]] > horas[por_miga[-2]["id"]]:
+            return dar(por_miga[-1])
+    duenas = [r for r in vivas if sid in (r.get("sessions") or []) and suya(r)]
+    if len(duenas) == 1 and (not por_miga or duenas[0] in por_miga):
+        return dar(duenas[0])
+    firma = _firma(vivas)
+    previa = _sin_dueno_leer(sid, firma, now)
+    if previa is not None:
+        out["brain"] = str(previa.get("brain") or "")
+        return out
+    exe = exe or _exe() or next((r.get("exe") for r in vivas if r.get("exe")), None)
+    try:
+        d = session_record(sid, exe=exe, runner=runner)
+    except Exception:
+        d = None
+    cands, cerebro, retomada = [], "", False
+    if d and _tab_source(d):
+        cerebro = os.path.realpath(str(d.get("cwd"))) if d.get("cwd") else ""
+        padre = str(d.get("parent_session_id") or "")
+        if padre:
+            # continuación (compresión): de la corrida viva de su padre
+            cands = [r for r in vivas if padre in (r.get("sessions") or []) and suya(r)]
+        elif cerebro:
+            # Una sesión nueva de una pestaña ya se reconoce por su miga (paso
+            # 1). Sin miga ni otra evidencia NO se anota, aunque sea la única
+            # pestaña viva del cerebro: puede ser Hermes abierto a mano ahí.
+            # Lo único más: una sesión que la pestaña retomó con `/resume`.
+            try:
+                nacio = float(d.get("started_at") or 0)
+            except (TypeError, ValueError):
+                nacio = 0.0
+            cands = [r for r in vivas if r.get("brain") == cerebro
+                     and _cambio_por_resume(r, sid, nacio, now, exe=exe, runner=runner)]
+            retomada = True
+    if len(cands) == 1:
+        return dar(cands[0], retomada=retomada)
+    # un export que falló (d=None) es transitorio: se recuerda poco
+    _sin_dueno_anotar(sid, firma, cerebro, now, terminal=not d or _tab_source(d))
+    out["brain"] = cerebro
+    return out
+
+
+def run_de_sesion(sid, exe=None, runner=None, pista="", gateway=True):
+    """Token de la corrida viva dueña de `sid` (dueno_de_sesion), o ''."""
+    return dueno_de_sesion(sid, exe=exe, runner=runner, pista=pista, gateway=gateway)["run"]
+
+
+def run_info(token):
+    """Registro de la corrida `token` (o {})."""
+    return next((r for r in _runs_load() if r.get("id") == token), {}) if token else {}
 
 
 # ── memoria de la pestaña por el hook por turno (sesión retomada) ──────────
@@ -2329,8 +2759,10 @@ def _same_dir(a, b):
         return False
 
 
-#: Ids de sesión del REPL: `AAAAMMDD_HHMMSS_<hex>` (hora LOCAL de arranque).
-_ID_RE = re.compile(r"\b(\d{8}_\d{6}_[0-9a-f]{4,12})\b")
+#: Ids de sesión del REPL: `AAAAMMDD_HHMMSS_<hex>` (hora LOCAL de arranque)
+#: hasta v0.22.2; desde v0.22.5, `local-<sha256 hex>` (hermes_state_keys.py),
+#: que no trae la hora. Las sesiones viejas migradas conservan su id.
+_ID_RE = re.compile(r"\b(\d{8}_\d{6}_[0-9a-f]{4,12}|local-[0-9a-f]{64})\b")
 
 
 def _list_ids(brain, exe=None, runner=None):
@@ -2349,27 +2781,76 @@ def _list_ids(brain, exe=None, runner=None):
 
 
 def _id_time(sid):
+    """Hora de arranque que trae el id (`AAAAMMDD_HHMMSS_…`), o None si el id
+    no la trae (`local-<hex>` de v0.22.5)."""
     try:
         return time.mktime(time.strptime(str(sid)[:15], "%Y%m%d_%H%M%S"))
     except (ValueError, OverflowError):
         return None
 
 
-def sessions_since(brain, t0, exe=None, runner=None):
+#: Tope del recorrido de sesiones dentro de un cierre (cada export ~0,5 s;
+#: la lista trae hasta 50). Con la X de Windows en curso manda lo que quede de
+#: su gracia (interactive._CLOSE_GRACE), con margen para el resto del cierre.
+_RECORRIDO_MAX_S = 15.0
+_MARGEN_X_S = 1.5
+
+
+def _plazo_recorrido():
+    """Plazo (time.monotonic) para recorrer sesiones en ESTE cierre."""
+    try:
+        import interactive
+        at = interactive._GUARD.get("at")
+        if at:
+            queda = interactive._CLOSE_GRACE - (time.time() - float(at)) - _MARGEN_X_S
+            return time.monotonic() + max(0.5, queda)
+    except Exception:
+        pass
+    return time.monotonic() + _RECORRIDO_MAX_S
+
+
+def sessions_since(brain, t0, exe=None, runner=None, full=False, plazo=None, sigue="",
+                   corte=None):
     """Sesiones del REPL del socio CREADAS en este cerebro desde `t0` (epoch):
     candidatos por la lista (hora del id ≥ t0, con margen) y, de cada uno, su
-    registro exportado con cwd exacto, origen (lista blanca _TAB_SOURCES) y
-    started_at verificados."""
+    registro exportado con cwd exacto, origen (lista blanca, _tab_source) y
+    started_at verificados.
+
+    Un id sin hora (v0.22.5) se exporta y se juzga por su registro. Para no
+    exportar cada sesión del cerebro al cerrar (~0,5 s cada una), el recorrido
+    corta en la primera sin actividad desde t0 (con margen): la lista sale
+    ordenada por arranque, descendente (VERIFICADO v0.22.5,
+    hermes_state_sessions.list_sessions_rich), y lo que viene después es más
+    viejo. La excepción es la continuación reciente de una conversación vieja
+    (compresión: la lista la muestra en el lugar de su raíz); `full=True`
+    recorre todo para seguirla (session_chain lo pide si la pestaña se
+    compactó).
+
+    Topes (revisión 2026-10-26: con `full` se exportaban hasta 50 sesiones
+    dentro del cierre): `plazo` (time.monotonic; por defecto
+    _plazo_recorrido(), que respeta la gracia de la X en Windows) corta el
+    recorrido; y con `sigue` (la sesión compactada de la pestaña) se corta en
+    cuanto su cadena llega a una continuación que ya no se compactó. Un id
+    con hora (hasta v0.22.2) anterior a la pestaña se salta sin exportarlo."""
     if not brain:
         return []
+    if plazo is None:
+        plazo = _plazo_recorrido()
     out = []
+    punta = sigue
     for sid in _list_ids(brain, exe=exe, runner=runner):
         when = _id_time(sid)
-        if when is None or when < float(t0) - 120:
+        if when is not None and when < float(t0) - 120:
             continue
+        if time.monotonic() > plazo:
+            if corte is not None:
+                corte["plazo"] = True     # quien llama decide si alcanza
+            break               # sin tiempo: lo que falte, el cierre tardío
         d = session_record(sid, exe=exe, runner=runner)
         if not d:
             continue
+        if when is None and not full and _last_activity(d) < float(t0) - 120:
+            break
         try:
             started = float(d.get("started_at") or 0)
         except (TypeError, ValueError):
@@ -2378,9 +2859,13 @@ def sessions_since(brain, t0, exe=None, runner=None):
             continue
         # Lista BLANCA: hoy las de Discord graban cwd NULL, pero no se depende
         # de eso; una plataforma nueva tampoco se cuela.
-        if str(d.get("source") or "") not in _TAB_SOURCES:
+        if not _tab_source(d):
             continue
         out.append(d)
+        if full and punta and d.get("parent_session_id") == punta:
+            punta = d["id"]
+            if d.get("end_reason") != "compression":
+                break           # la cadena de la pestaña ya llegó a su punta viva
     return sorted(out, key=lambda d: float(d.get("started_at") or 0))
 
 
@@ -2410,6 +2895,34 @@ def _follow(rows, start_id):
     return chain
 
 
+def _tras_resume(chain, brain, run, rows, t0, exe=None, runner=None):
+    """Si la punta de `chain` se cerró por un `/resume` dentro del REPL
+    (end_reason `resumed_other`) y la corrida tiene retomadas CON evidencia, la
+    conversación con la que cerró la pestaña es la última retomada: (cadena,
+    estado), o None (revisión de la candidata, H2: se capturaba y ataba la
+    abandonada). Si la retomada se compactó durante la corrida, se sigue hasta
+    su continuación como en la rama `known` (revisión nocturna, M3)."""
+    if not (run and chain and chain[-1].get("end_reason") == "resumed_other"):
+        return None
+    mine = _owner_view(brain, run)[0]
+    punta = chain[-1].get("id")
+    orden = [x for x in (run_info(run).get("retomadas") or []) if x in mine and x != punta]
+    if not orden:
+        return None
+    base = session_record(orden[-1], exe=exe, runner=runner)
+    if not (base and _same_dir(base.get("cwd"), brain) and _tab_source(base)):
+        return None
+    if base.get("end_reason") != "compression":
+        return [base] + _follow(rows or [], base["id"]), "resolved"
+    corte = {}
+    filas = sessions_since(brain, t0, exe=exe, runner=runner, full=True, sigue=base["id"],
+                           corte=corte)
+    cadena = [base] + _follow(filas, base["id"])
+    if corte.get("plazo") and cadena[-1].get("end_reason") == "compression":
+        return cadena, "partial"
+    return cadena, "resolved"
+
+
 def session_chain(brain, t0, known="", exe=None, runner=None, run=""):
     """Sesión(es) de Hermes de ESTA corrida en el cerebro → (cadena, estado).
     cadena = [registro…] en orden (la última es la viva); estado ∈ resolved |
@@ -2418,15 +2931,29 @@ def session_chain(brain, t0, known="", exe=None, runner=None, run=""):
     (`run`, token de run_open): nunca la de otra pestaña abierta en el mismo
     cerebro (anotada por su hook, o nacida mientras ella estaba abierta sin
     anotaciones → ambigua)."""
-    rows = sessions_since(brain, t0, exe=exe, runner=runner)
     if known:
         base = session_record(known, exe=exe, runner=runner)
         if base is None:
             return [], "missing"
+        # Compactada (Hermes rotó el id): su continuación puede estar más
+        # abajo en la lista que donde sessions_since dejaría de buscar.
+        full = base.get("end_reason") == "compression"
+        corte = {}
+        rows = sessions_since(brain, t0, exe=exe, runner=runner, full=full,
+                              sigue=known if full else "", corte=corte)
         chain = [base] + _follow(rows, known)
+        otra = _tras_resume(chain, brain, run, rows, t0, exe=exe, runner=runner)
+        if otra:
+            return otra
+        if corte.get("plazo") and chain[-1].get("end_reason") == "compression":
+            # se acabó el tiempo antes de llegar a la punta viva: no se da por
+            # capturada a medias (el cierre tardío la reintenta con más tiempo)
+            return chain, "partial"
         if len(chain) == 1 and _last_activity(base) < float(t0) - 1:
             return chain, "stale"
         return chain, "resolved"
+    corte = {}
+    rows = sessions_since(brain, t0, exe=exe, runner=runner, corte=corte)
     # Sesión NUEVA = sin padre. Una hija cuyo padre no es de esta corrida es
     # la continuación (compresión) de una conversación de otra pestaña.
     roots = [d for d in rows if not d.get("parent_session_id")]
@@ -2437,6 +2964,17 @@ def session_chain(brain, t0, known="", exe=None, runner=None, run=""):
             return {d["id"]} | {c["id"] for c in _follow(rows, d["id"])}
         if mine:
             roots = [d for d in roots if ids_of(d) & mine]
+            if not roots:
+                # `/resume` dentro del REPL: la sesión que el hook le atribuyó
+                # a esta corrida CON evidencia de retome (`retomadas`) nació
+                # antes que ella (no sale entre las nuevas). La última es la
+                # conversación con la que cerró; sin evidencia, nada.
+                nuevas = {d["id"] for d in rows}
+                orden = [x for x in (run_info(run).get("retomadas") or [])
+                         if x in mine and x not in nuevas]
+                base = session_record(orden[-1], exe=exe, runner=runner) if orden else None
+                if base and _same_dir(base.get("cwd"), brain) and _tab_source(base):
+                    return [base] + _follow(rows, base["id"]), "resolved"
         else:
             roots = [d for d in roots if not ids_of(d) & others]
             for d in roots:
@@ -2447,20 +2985,27 @@ def session_chain(brain, t0, known="", exe=None, runner=None, run=""):
                 if any(a <= born <= b for a, b in blind):
                     return [], "ambiguous"
     if not roots:
-        return [], "missing"
+        return [], ("partial" if corte.get("plazo") else "missing")
     if len(roots) > 1:
         return [], "ambiguous"
-    return [roots[0]] + _follow(rows, roots[0]["id"]), "resolved"
+    chain = [roots[0]] + _follow(rows, roots[0]["id"])
+    return _tras_resume(chain, brain, run, rows, t0, exe=exe, runner=runner) or (chain, "resolved")
 
 
-def ancestors(d, brain, exe=None, runner=None, limit=50):
+def ancestors(d, brain, exe=None, runner=None, limit=50, plazo=None, corte=None):
     """Sesiones de las que `d` es continuación (Hermes con compresión
     «legacy» rota el id y deja parent_session_id), de la más vieja a la más
     nueva. Así el respaldo de una pestaña retomada conserva la conversación
     entera aunque su id ya sea el de la hija."""
     out, seen, cur = [], {d.get("id")}, d
+    if plazo is None:
+        plazo = _plazo_recorrido()
     while len(out) < limit:
         pid = cur.get("parent_session_id")
+        if pid and time.monotonic() > plazo:
+            if corte is not None:
+                corte["plazo"] = True     # faltó historia por tiempo
+            break
         if not pid or pid in seen or not _valid_sid(pid):
             break
         p = session_record(pid, exe=exe, runner=runner)
@@ -2732,7 +3277,7 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
         print("  motor       : hermes (REPL oficial, en línea) en su perfil «%s» "
               "(propio de Workspace; el Hermes personal no cambia)" % _profile())
         print("  modelo      : lo fija el SOCIO en el perfil (Motores › cuenta y "
-              "proveedor; el harness no pasa -m)")
+              "proveedor; Workspace no pasa -m)")
         print("  del cerebro : SOUL.md neutral, memoria, %s de Hermes apagados, "
               "context_file_max_chars=%d, hook de tono por turno (re-asegurados "
               "al lanzar)" % (" y ".join(_TOOLSETS_OFF), CONTEXT_FILE_CHARS))
@@ -2867,9 +3412,13 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
     # cada una. Sin corrida (candado ocupado, disco lleno) el hook no sabe de
     # qué pestaña es: la pestaña y la memoria van por el AGENTS.md, como sin
     # hook (revisión de la 0.5.1, P2-8: no llegaban por ningún camino).
+    # La sesión que esta pestaña retoma queda anotada desde ya: el hook (que
+    # en v0.22.5 corre en un gateway con el entorno de otra pestaña) la
+    # reconoce sin adivinar (run_de_sesion).
     run = run_open(brain, tab[1] if tab else "",
                    mem={"desde": mem_desde, "doc": None} if tab else None,
-                   larga={"modo": "hook" if hook_ok else "doc", "tope": _spill_chars(prof_cfg)})
+                   larga={"modo": "hook" if hook_ok else "doc", "tope": _spill_chars(prof_cfg)},
+                   agent=agent, known=[user_sid if user_picked else resume_sid], exe=exe)
     if not run:
         hook_ok = False
     propio = bool(session_blk) and not hook_ok

@@ -406,7 +406,7 @@ def pick_backend(engine):
         b = headless.get_backend(eng)
     except headless.UnknownBackend:
         return None, None, _t("addagent.pers.backend.no_headless",
-                              "el harness %r no tiene modo headless") % eng
+                              "el motor %r no tiene modo headless") % eng
     except Exception as e:
         return None, None, _t("addagent.pers.backend.unavailable",
                               "headless no disponible: %s") % e
@@ -548,7 +548,7 @@ def run(brain, params, progress=None, should_cancel=None, timeout=None,
             _skip("perso-modelo", "skip", res["note"])
             return res
         _prog(progress, "perso-modelo", "run",
-              _t("addagent.pers.note.harness", "harness %s") % backend)
+              _t("addagent.pers.note.harness", "motor %s") % backend)
         import headless
         try:
             tmo = int(timeout or os.environ.get(
@@ -667,7 +667,7 @@ def _write_receipt(brain, res, fields, model):
         data = {
             "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
             "backend": res["backend"], "tools": res["tools"],
-            "model": model or "(default del harness)",
+            "model": model or "(default del motor)",
             "files": res["files"], "skipped": res["skipped"],
             "warns": res["warns"],
             "tokens_est": dict(res["tokens_est"],

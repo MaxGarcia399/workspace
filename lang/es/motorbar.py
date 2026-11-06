@@ -1,11 +1,21 @@
 """WORKSPACE · lang/es/motorbar — barras y permisos de los motores wrapper
-(Codex · Antigravity): pie opt-in de Codex, statusLine de Antigravity y las
+(Codex · Antigravity · Copilot · Cursor): pie opt-in de Codex, statusLine de Antigravity y las
 líneas de autonomía. Consumido vía workspace_status.t (catálogo → inline)."""
 STRINGS = {
     'motorbar.active': 'activa {d}',
     'motorbar.agy_no_quota': 'Cuota: sin datos del proveedor',
     'motorbar.codex_waiting': 'Cuotas: esperando datos de Codex',
     'motorbar.context': 'contexto {pct}%',
+    'motorbar.context_pending': 'contexto tras el 1er mensaje',
+    'motorbar.copilot.ai_used': '{n} créditos IA',
+    'motorbar.copilot.premium': '{n} solicitudes premium',
+    'motorbar.copilot.allow_all': 'todo permitido',
+    'motorbar.copilot.ask': 'ask — pregunta antes de crear o editar, también en el cerebro',
+    'motorbar.copilot.brain': 'brain — escribe en su cerebro sin preguntar (`write(<cerebro>/**)` por corrida); fuera del cerebro, la terminal y su config de Copilot (.github/, .mcp.json, .claude/settings…) piden permiso o se niegan',
+    'motorbar.copilot.socio': 'tus permisos de escritura de Copilot ganan (Workspace no agrega los suyos)',
+    'motorbar.copilot.largo': 'la ruta del cerebro es tan larga que las reglas no caben en la línea de comandos de Windows: pregunta antes de escribir, también en el cerebro',
+    'motorbar.copilot.ruta': 'la ruta del cerebro lleva caracteres que no caben en la regla de Copilot (paréntesis; en Windows con el lanzador .cmd, también " % ^ ! < > | &): pregunta antes de escribir, también en el cerebro',
+    'motorbar.cursor.autorun': 'auto-run',
     'motorbar.data_ago': 'datos {d}',
     'motorbar.dirty': 'cambios',
     'motorbar.footer_nodata': 'Workspace · cuota sin datos',
@@ -42,7 +52,18 @@ STRINGS = {
                                   'permiso para editarlo).',
     'motorbar.agy.full_unavailable': 'no pude preparar la autonomía completa en Antigravity: los '
                                      'comandos pedirán permiso.',
+    'motorbar.agy.sin_deny': 'Antigravity preguntará antes de editar tu cerebro: no pude negarle la config de los motores, git y Obsidian (tu propio --settings, o el settings.json de agy es un enlace o no se puede leer).',
+    # la herramienta de memoria y la config de proyecto del socio (memoria_mcp)
+    'motorbar.memoria_mcp.cursor_sin_deny': 'WORKSPACE: sin {rel}, Cursor no tiene negada la config de los motores, git y Obsidian de tu cerebro: revisa ese archivo.',
+    'motorbar.memoria_mcp.enlace': 'WORKSPACE: {rel} de tu cerebro (o una carpeta de su ruta) es un enlace: no lo toco y la memoria pedirá permiso.',
+    'motorbar.memoria_mcp.ilegible': 'WORKSPACE: {rel} de tu cerebro no es un JSON que entienda: no lo toco y la memoria pedirá permiso hasta que lo arregles.',
+    'motorbar.memoria_mcp.ocupado': 'WORKSPACE: donde va {rel} en tu cerebro hay algo que no es un archivo: no lo toco y la memoria pedirá permiso.',
+    'motorbar.memoria_mcp.escritura': 'WORKSPACE: no pude escribir {rel} en tu cerebro: la memoria pedirá permiso.',
+    'motorbar.memoria_mcp.restaurada': 'WORKSPACE: {rel} de tu cerebro: lo de Workspace (`workspace-memoria`) estaba cambiado; lo restauré y lo tuyo queda igual (respaldo en {respaldo}).',
     'motorbar.agy.commands_free': 'comandos sin preguntar',
+    'motorbar.agy.acct_full': 'API key o cuenta empresarial: integración completa',
+    'motorbar.agy.acct_exp': 'inicio de sesión con Google: experimental (Google no soporta '
+                             'envolver agy con planes personales: {u})',
     'motorbar.agy.tokens_in_bar': 'en la barra de Antigravity',
     'motorbar.hermes.created': 'creé su perfil «{p}» (con tu modelo, sin copiar tus llaves; tu '
                                'Hermes personal no cambia)',
