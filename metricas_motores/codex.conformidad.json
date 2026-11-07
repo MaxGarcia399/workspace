@@ -1,0 +1,73 @@
+{
+ "motor": "codex",
+ "version": "0.164.0",
+ "actualizado": "2026-10-27",
+ "nota": "Cédula de conformidad de las métricas: `version` es la versión certificada (con golden en tests/fixtures/metricas/codex/0.164.0/ y en VERIFIED_VERSIONS). El historial registra cada verificación: nivel kit (fixture), mínimo (headless real) o completo (consola real con la X). runbooks/agregar-motor.md §3b.",
+ "historial": [
+  {
+   "version": "0.164.0",
+   "so": "mac",
+   "nivel": "kit",
+   "veredicto": "reprueba",
+   "fecha": "2026-10-27",
+   "costo_usd_aprox": 0,
+   "fuente": "tests/fixtures/metricas/codex/0.164.0 (sintético desde G1)",
+   "contra": "parsers g2 (VERSION <motor>/2, F1.1); con los parsers g1 de F1 reprueba más, como se espera",
+   "pendientes": [
+    "K5a (núcleo): un 2º cierre de la misma corrida deja otra fila"
+   ],
+   "esqueletos_kit": [
+    "K7b",
+    "K9a",
+    "K9b",
+    "K10a",
+    "K11",
+    "TZ"
+   ],
+   "parser": "codex/2"
+  },
+  {
+   "version": "0.164.0",
+   "so": "mac",
+   "nivel": "minimo",
+   "veredicto": "reprueba",
+   "fecha": "2026-10-27",
+   "costo_usd_aprox": 0,
+   "intentos": 1,
+   "modelo": "el del motor",
+   "fuente": "tests/e2e/metricas_viva.py",
+   "fallos": [
+    "el entregable deliverables/prueba/nota.md"
+   ],
+   "notas": "Intento con el prompt anterior: el modelo escribió la nota con la terminal (printf >), que la COBERTURA declara invisible (escritos «parcial»): no se ve el entregable. El guion ahora exige la herramienta de edición; un intento por la terminal es «invalida».",
+   "parser": "codex/1"
+  },
+  {
+   "version": "0.164.0",
+   "so": "mac",
+   "nivel": "minimo",
+   "veredicto": "pasa",
+   "fecha": "2026-10-27",
+   "costo_usd_aprox": 0,
+   "intentos": 1,
+   "modelo": "el del motor",
+   "fuente": "tests/e2e/metricas_viva.py",
+   "fallos": [],
+   "parser": "codex/1"
+  },
+  {
+   "version": "0.164.0",
+   "so": "mac",
+   "nivel": "minimo",
+   "veredicto": "pasa",
+   "fecha": "2026-10-27",
+   "costo_usd_aprox": 0,
+   "intentos": 1,
+   "modelo": "el del motor",
+   "fuente": "tests/e2e/metricas_viva.py",
+   "fallos": [],
+   "parser": "codex/2",
+   "notas": "parsers g2: el `cat no-existe.txt` cuenta en comandos_no_cero, no en errores"
+  }
+ ]
+}

@@ -1,0 +1,90 @@
+{
+ "motor": "copilot",
+ "version": "1.0.106",
+ "actualizado": "2026-11-06",
+ "nota": "Cédula de conformidad de las métricas: `version` es la versión certificada (con golden en tests/fixtures/metricas/copilot/1.0.106/ (y 1.0.105) y en VERIFIED_VERSIONS). El historial registra cada verificación: nivel kit (fixture), mínimo (headless real) o completo (consola real con la X). runbooks/agregar-motor.md §3b.",
+ "historial": [
+  {
+   "version": "1.0.105",
+   "so": "mac",
+   "nivel": "minimo",
+   "veredicto": "reprueba",
+   "fecha": "2026-11-06",
+   "costo_usd_aprox": 0.08,
+   "intentos": 1,
+   "modelo": "claude-haiku-5.5",
+   "parser": "copilot/1",
+   "fuente": "tests/e2e/metricas_viva.py",
+   "fallos": [
+    "la versión del motor"
+   ],
+   "notas": "La captura de la golden (2 premium requests de Copilot; US$ ≈ a 0.04 por premium request, el precio de exceso). Reprobó con el BORRADOR copilot/1: sin versión en el tramo retomado (session.resume no la trae y la corrida no llenaba la caché), entrada con la caché adentro (inputTokens) y session.usage_checkpoint desconocido. Lo arregla copilot/2. Antes, 3 intentos «invalida»: gpt-5-mini y gpt-5.4-mini no están en la cuenta (0 gasto) y uno sin `mkdir` permitido (1 premium request)."
+  },
+  {
+   "version": "1.0.105",
+   "so": "mac",
+   "nivel": "kit",
+   "veredicto": "pasa",
+   "fecha": "2026-11-06",
+   "costo_usd_aprox": 0,
+   "fuente": "tests/fixtures/metricas/copilot/1.0.105 (captura real G1, mínimo)",
+   "pendientes": [],
+   "esqueletos_kit": [
+    "K7b",
+    "K9a",
+    "K9b",
+    "K10a",
+    "K11",
+    "TZ"
+   ],
+   "parser": "copilot/2"
+  },
+  {
+   "version": "1.0.105",
+   "so": "mac",
+   "nivel": "minimo",
+   "veredicto": "pasa",
+   "fecha": "2026-11-06",
+   "costo_usd_aprox": 0.08,
+   "intentos": 1,
+   "modelo": "claude-haiku-5.5",
+   "parser": "copilot/2",
+   "fuente": "tests/e2e/metricas_viva.py",
+   "fallos": [],
+   "notas": "Segunda corrida viva con copilot/2 (2 premium requests; US$ ≈ a 0.04 por premium request, el precio de exceso). Al retomar aparecieron instruction.update e instruction.update_delivery (2 de 55 líneas, 3.6 %): ahora se reconocen y no cuentan (sin golden propia)."
+  },
+  {
+   "version": "1.0.106",
+   "so": "mac",
+   "nivel": "minimo",
+   "veredicto": "pasa",
+   "fecha": "2026-11-06",
+   "costo_usd_aprox": 0.08,
+   "intentos": 1,
+   "modelo": "claude-haiku-5.5",
+   "parser": "copilot/2",
+   "fuente": "tests/e2e/metricas_viva.py",
+   "fallos": [],
+   "notas": "Tercera corrida viva (copilot/2, con las reglas de escritura del adapter): Copilot se había actualizado solo a 1.0.106 (el cargador de npm no cambia de fecha: la caché de engine_versions puede seguir diciendo 1.0.105 hasta 12 h). Pasa con 0 desconocidas; de esta corrida sale la golden de 1.0.106. 2 premium requests (US$ ≈ a 0.04 c/u)."
+  },
+  {
+   "version": "1.0.106",
+   "so": "mac",
+   "nivel": "kit",
+   "veredicto": "pasa",
+   "fecha": "2026-11-06",
+   "costo_usd_aprox": 0,
+   "fuente": "tests/fixtures/metricas/copilot/1.0.106 (captura real G1, mínimo)",
+   "pendientes": [],
+   "esqueletos_kit": [
+    "K7b",
+    "K9a",
+    "K9b",
+    "K10a",
+    "K11",
+    "TZ"
+   ],
+   "parser": "copilot/2"
+  }
+ ]
+}

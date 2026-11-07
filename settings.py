@@ -319,6 +319,13 @@ SETTINGS_SCHEMA = (
      "label": "Backup de transcripts (Y2b)", "type": "bool", "default": True,
      "help": "Respaldo del .jsonl crudo a ~/.claude/workspace/transcripts-backup/.",
      "applies": "hooks/transcript_backup.py; env WORKSPACE_NO_TRANSCRIPT_BACKUP=1 gana."},
+    {"key": "hooks.metricas", "group": "hooks",
+     "label": "Métricas de desempeño (registro local)", "type": "bool", "default": True,
+     "help": "Al cerrar cada sesión guarda solo números y nombres (tokens, modelo, "
+             "duración, herramientas, errores) en ~/.claude/workspace/metricas/. "
+             "Nunca el contenido de la conversación; Workspace no los envía.",
+     "applies": "hooks/metricas_cierre.py + `workspace metricas importar`; "
+                "env WORKSPACE_NO_METRICAS=1 gana."},
     {"key": "hooks.memory_flush", "group": "hooks",
      "label": "Memory flush (PreCompact, N2)", "type": "bool", "default": True,
      "help": "Antes de compactar: snapshot del crudo + maleta de la pestaña al día + rastro JSONL.",
@@ -1282,6 +1289,14 @@ def set(key, value):   # noqa: A001 — nombre pedido por la API pública
         _write_json_atomic(sp, s)
         return v
     set_stored(key, v)
+    if key == "hooks.metricas":
+        # métricas: lo hecho con ellas apagadas no se mide NUNCA (ni al volver
+        # a encenderlas) → la ventana se marca en el momento del cambio
+        try:
+            import metricas
+            (metricas._marcar_encendido if v else metricas._marcar_apagado)()
+        except Exception:
+            pass
     if key.startswith("latido."):
         _sync_heartbeat_json(key, v)
     if key == "ui.theme":
@@ -1307,6 +1322,15 @@ def reset(key):
             del store["settings"][key]
             _save_store(store)
     _with_store_lock(_rmw)              # G1: RMW serializado
+    if key == "hooks.metricas":
+        # métricas: volver al default cierra (o abre) la ventana de apagado en
+        # este momento, igual que set()
+        try:
+            import metricas
+            (metricas._marcar_encendido if enabled(key, default=True)
+             else metricas._marcar_apagado)()
+        except Exception:
+            pass
 
 
 

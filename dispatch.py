@@ -993,6 +993,7 @@ def main():
         _maquinas_al_abrir(brain, avisar=avisar)
         _reconcile_pending(brain, avisar=avisar)
         _sesiones_al_abrir(brain, entry["name"], preselect, avisar=avisar)
+        _metricas_al_abrir(passthrough, avisar=avisar)
     mod.launch(cfg, passthrough, plan=plan, preselect=preselect, show_banner=show_banner)
 
 
@@ -1078,6 +1079,34 @@ def _sesiones_al_abrir(brain, agent, preselect=None, avisar=print):
                 print(msg)
             else:
                 avisar(lambda: sessions_registry.aviso_pendiente(brain))
+    except Exception:
+        pass
+
+
+def _metricas_al_abrir(passthrough, avisar=print):
+    """El aviso de privacidad de las métricas locales (una línea, UNA vez tras
+    actualizar) también para quien abre sus agentes sin pasar por el hub. Se
+    decide al soltarlo, justo antes del chat, y solo con una persona mirando:
+    una apertura sin terminal o una pregunta suelta (-p) no lo gasta. Solo lee
+    la marca del aviso: las métricas no llegan al agente. Jamás frena."""
+    if any(str(a) in ("-p", "--print") for a in (passthrough or ())):
+        return
+
+    def aviso():
+        try:
+            if not sys.stdout.isatty():
+                return ""
+            import metricas
+            return metricas.aviso_pendiente() or ""
+        except Exception:
+            return ""
+    try:
+        if avisar is print:
+            txt = aviso()
+            if txt:
+                print(txt)
+        else:
+            avisar(aviso)
     except Exception:
         pass
 

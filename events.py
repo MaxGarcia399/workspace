@@ -341,6 +341,12 @@ LISTENERS = (
     # Va por arranque (POR_ARRANQUE). MENOR y universal.
     {"script": "memoria_turno.py", "event": "turn_end", "timeout": 5,
      "severity": MINOR, "requires": None},
+    # métricas F1 (2026-10-26): al cerrar, sin IA ni red — números y nombres de
+    # la sesión a <estado>/metricas/ (metricas.py). Universal y MENOR; va
+    # ÚLTIMO para no demorar la memoria, y se acota solo (PRESUPUESTO_VIVO):
+    # lo que no alcance se mide en el siguiente cierre de esa sesión.
+    {"script": "metricas_cierre.py", "event": "session_end", "timeout": 10,
+     "severity": MINOR, "requires": None},
     # memory_flush (N2): flush a disco ANTES de compactar — universal (la
     # maleta solo se rehace si hay pestaña; sin ella igual deja rastro en
     # ~/.claude/workspace/). MENOR: su falta jamás convierte un setup sano en ✗.
@@ -372,6 +378,53 @@ LISTENERS = (
 # (el archivo se rehace al abrir), solo los ve Claude Code (Cursor también corre
 # los hooks de `.claude/settings*.json`) y doctor no los exige en el cerebro.
 POR_ARRANQUE = {"claude-code": ("turn_end",)}
+
+
+# ── eco de otro motor ─────────────────────────────────────────────────────
+# Copilot y Cursor corren TAMBIÉN los hooks de Claude Code que Workspace cablea
+# en `<cerebro>/.claude/settings.local.json`, con su propio payload. El inicio y
+# el cierre de verdad ya los emite su wrapper (payload con `engine`): sin este
+# filtro cada listener de session_start/session_end (marcador, tono, revisión
+# de skills, memoria, respaldo, métricas) corría dos veces por sesión, y el de
+# user_prompt (el tono) en cada mensaje para nada. Lo aplica el runner
+# (workspace_hook.py) antes de despachar a NINGÚN listener de ECO_DESCARTADO;
+# métricas lo reusa como defensa propia.
+#
+# VERIFICADO 2026-11-06 con los binarios (caja negra, HOME desechable):
+#   · Copilot 1.0.105 (proveedor falso; `-p` y en un pty con `-i`, como lo abre
+#     Workspace): SessionStart {session_id, timestamp, cwd, source,
+#     initial_prompt}, UserPromptSubmit {session_id, timestamp, cwd, prompt} y
+#     SessionEnd {session_id, timestamp, cwd, reason}; NINGUNO trae
+#     transcript_path, y el additionalContext que devuelven esos hooks NO llega
+#     al modelo (descartarlos no le quita nada a Copilot).
+#   · Claude Code 2.1.319 (llave falsa, sin llamar al modelo): SessionStart,
+#     UserPromptSubmit y SessionEnd traen SIEMPRE transcript_path y nunca
+#     timestamp, también con WORKSPACE_SESSION_ENGINE=copilot heredado.
+# Fuera de estos tres no se descarta: pre_tool/post_tool de Copilot solo llegan
+# por aquí (su wrapper no los emite) y su Stop sí trae transcript_path.
+ECO_DESCARTADO = ("session_start", "user_prompt", "session_end")
+
+
+def eco_de_otro_motor(data, env=None):
+    """¿Este hook lo disparó OTRO motor con los ganchos de Claude Code del
+    cerebro? GitHub Copilot (1.0.105) lee `<cerebro>/.claude/settings*.json`
+    («repo settings») y dispara su SessionStart, UserPromptSubmit y SessionEnd
+    con su propio payload (`session_id` de Copilot, `timestamp` ISO, `cwd`;
+    doc oficial de hooks de Copilot, y VERIFICADO arriba), SIN
+    `transcript_path`, que Claude Code manda siempre. Cursor manda
+    `cursor_version`. El inicio y el cierre de verdad de esos motores los emite
+    su wrapper, con `engine`. Un Claude Code abierto desde la terminal de otro
+    motor hereda la marca del entorno (WORKSPACE_SESSION_ENGINE), pero trae
+    `transcript_path`: ese es suyo y corre."""
+    if not isinstance(data, dict) or data.get("engine"):
+        return False
+    if data.get("cursor_version"):
+        return True
+    if data.get("transcript_path"):
+        return False
+    env = _os.environ if env is None else env
+    marca = str(env.get("WORKSPACE_SESSION_ENGINE") or "")
+    return (bool(marca) and marca != "claude-code") or bool(data.get("timestamp"))
 
 
 def native_event(event, engine="claude-code"):

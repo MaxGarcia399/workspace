@@ -1,0 +1,85 @@
+{
+ "motor": "claude-code",
+ "version": "2.1.310",
+ "actualizado": "2026-10-27",
+ "nota": "Cédula de conformidad de las métricas: `version` es la versión certificada (con golden en tests/fixtures/metricas/claude-code/2.1.310/ y en VERIFIED_VERSIONS). El historial registra cada verificación: nivel kit (fixture), mínimo (headless real) o completo (consola real con la X). runbooks/agregar-motor.md §3b.",
+ "historial": [
+  {
+   "version": "2.1.310",
+   "so": "mac",
+   "nivel": "kit",
+   "veredicto": "pasa",
+   "fecha": "2026-10-27",
+   "costo_usd_aprox": 0,
+   "fuente": "tests/fixtures/metricas/claude-code/2.1.310 (sintético desde G1)",
+   "contra": "parsers g2 (VERSION <motor>/2, F1.1); con los parsers g1 de F1 reprueba más, como se espera",
+   "pendientes": [],
+   "esqueletos_kit": [
+    "K7b",
+    "K9a",
+    "K9b",
+    "K10a",
+    "K11",
+    "TZ"
+   ],
+   "parser": "claude-code/2"
+  },
+  {
+   "version": "2.1.311",
+   "so": "mac",
+   "nivel": "minimo",
+   "veredicto": "pasa",
+   "fecha": "2026-10-27",
+   "costo_usd_aprox": 0.0108,
+   "intentos": 1,
+   "modelo": "haiku",
+   "fuente": "tests/e2e/metricas_viva.py",
+   "fallos": [],
+   "notas": "2.1.311 no está en VERIFIED_VERSIONS (por_canarios). captura.desconocidas {tools-used: 2} de 61 líneas (3.3 %): tipo de línea nuevo en 2.1.311; supera el canario de salud (≤2 %). Costo = cost-state del linaje (US$0.0108).",
+   "parser": "claude-code/1"
+  },
+  {
+   "version": "2.1.311",
+   "so": "mac",
+   "nivel": "minimo",
+   "veredicto": "reprueba",
+   "fecha": "2026-10-27",
+   "costo_usd_aprox": 0.0195,
+   "intentos": 2,
+   "modelo": "haiku",
+   "fuente": "tests/e2e/metricas_viva.py",
+   "fallos": [
+    "desconocidas ≤ 5 %"
+   ],
+   "parser": "claude-code/2",
+   "notas": "desconocidas 3 de 59 líneas (5.1 %) > 5 %: tipo `tools-used`, nuevo en 2.1.311 y desconocido para el parser. (Su intento 1 salió «invalida» por un error de la evidencia del kit, ya corregido: la nota sí se escribió con Write.)"
+  },
+  {
+   "version": "2.1.311",
+   "so": "mac",
+   "nivel": "minimo",
+   "veredicto": "pasa",
+   "fecha": "2026-10-27",
+   "costo_usd_aprox": 0.0108,
+   "intentos": 1,
+   "modelo": "haiku",
+   "fuente": "tests/e2e/metricas_viva.py",
+   "fallos": [],
+   "parser": "claude-code/2",
+   "notas": "desconocidas 3 de 62 (4.8 %): pasa justo; `tools-used` (2.1.311) sigue sin reconocerse. Refresco pendiente: agregar el tipo al parser y verificar 2.1.311."
+  },
+  {
+   "version": "2.1.311",
+   "so": "mac",
+   "nivel": "minimo",
+   "veredicto": "pasa",
+   "fecha": "2026-10-27",
+   "costo_usd_aprox": 0.0107,
+   "intentos": 1,
+   "modelo": "haiku",
+   "parser": "claude-code/2",
+   "fuente": "tests/e2e/metricas_viva.py",
+   "fallos": []
+  }
+ ]
+}

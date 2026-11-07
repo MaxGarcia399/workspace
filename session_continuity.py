@@ -427,9 +427,28 @@ def capture_opencode(brain, started, session_id="", exe=None, runner=None):
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
+    _metricas_opencode(info, target)
     return {"capture_state": "captured", "captured_at": now(), "session_id": sid,
             "backup": str(target), "native_format": "opencode-export-json",
             "transcript_backup": str(target), "dialogue_turns": len(doc["turns"])}
+
+
+def _metricas_opencode(info, target):
+    """Métricas F1: los totales de la sesión (`info.tokens` / `info.cost` del
+    export) incluyen llamadas internas de OpenCode que no son mensajes (el
+    título de la sesión: verificado 2026-10-26, 457 tokens de entrada y $5e-5
+    que la suma por mensaje no ve). El respaldo de arriba no los guarda; van
+    en un archivo APARTE solo de números (`opencode-<id>.totales.json`,
+    metricas_motores.opencode): quien lee el respaldo no cambia. Respeta el
+    apagado de métricas. Falla-suave."""
+    try:
+        import metricas
+        if metricas.apagado():
+            return
+        from metricas_motores import opencode as _met
+        _met.guardar_totales(info, _met.ruta_totales(str(target)))
+    except Exception as exc:
+        _sidecar_fallo("opencode", exc)
 
 
 def _iso_epoch(ts):
@@ -524,11 +543,39 @@ def _capture_openclaw_export(brain, started, key, aid, exe=None, runner=None):
         finally:
             if os.path.exists(tmp):
                 os.unlink(tmp)
+        _metricas_openclaw(ev_path, target)
         return {"capture_state": "captured", "captured_at": now(), "session_id": sid,
                 "backup": str(target), "native_format": "openclaw-trajectory-branch",
                 "transcript_backup": str(target), "dialogue_turns": len(doc["turns"])}
     finally:
         shutil.rmtree(tmpd, ignore_errors=True)
+
+
+def _metricas_openclaw(ev_path, target):
+    """Métricas F1: el respaldo de arriba solo guarda los mensajes; los
+    resultados de herramienta, los runs interrumpidos y la versión están en
+    el events.jsonl del MISMO export (ya corrido, sin lanzar otro CLI). Se
+    guardan solo sus números y nombres en un archivo APARTE junto al respaldo
+    (`openclaw-<id>.eventos.jsonl`, metricas_motores.openclaw): quien ya lee
+    el respaldo no cambia. Respeta el apagado de métricas. Falla-suave."""
+    try:
+        import metricas
+        if metricas.apagado() or not os.path.isfile(ev_path):
+            return
+        from metricas_motores import openclaw as _met
+        _met.guardar_eventos(ev_path, _met.ruta_eventos(str(target)))
+    except Exception as exc:
+        _sidecar_fallo("openclaw", exc)
+
+
+def _sidecar_fallo(motor, exc):
+    """Un sidecar de métricas que no se pudo escribir queda dicho (F1.1:
+    antes fallaba en silencio y la fila salía sin tokens ni costo)."""
+    try:
+        import metricas
+        metricas._log("sidecar_fallo", motor=motor, error=type(exc).__name__)
+    except Exception:
+        pass
 
 
 def capture_openclaw(brain, started, session_key="", state=None, exe=None, runner=None):
@@ -660,6 +707,7 @@ def capture_hermes(brain, started, session_id="", exe=None, runner=None):
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
+    _metricas_hermes(chain, target)
     return {"capture_state": "captured", "captured_at": now(), "session_id": sid,
             "backup": str(target), "native_format": "hermes-export-jsonl",
             "transcript_backup": str(target), "dialogue_turns": len(doc["turns"])}
@@ -949,6 +997,23 @@ def capture_cursor(brain, started, session_id="", env=None):
                       native_format="sqlite", distillation_state="unsupported-format")
     result.setdefault("capture_state", "missing")
     return result
+
+
+def _metricas_hermes(chain, target):
+    """Métricas F1: el respaldo de arriba solo guarda los mensajes; tokens,
+    modelo, costo estimado, llamadas a la API y versión vienen por SESIÓN en
+    los registros de la cadena que el export oficial YA trajo. Se guardan
+    solo sus números y nombres en un archivo APARTE
+    (`hermes-<id>.totales.json`, metricas_motores.hermes): quien lee el
+    respaldo no cambia. Respeta el apagado de métricas. Falla-suave."""
+    try:
+        import metricas
+        if metricas.apagado():
+            return
+        from metricas_motores import hermes as _met
+        _met.guardar_totales(chain, _met.ruta_totales(str(target)))
+    except Exception as exc:
+        _sidecar_fallo("hermes", exc)
 
 
 def _hermes_previas(target, nuevos):

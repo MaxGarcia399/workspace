@@ -75,10 +75,9 @@ _DE_PESTANA = ("WORKSPACE_HERMES_RUN", "WORKSPACE_HERMES_SESSION", "WORKSPACE_BR
 
 def main():
     try:
-        data = json.loads(sys.stdin.read() or "{}") or {}
+        import _utf8          # BYTES → UTF-8: en Windows stdin es cp1252
+        data = _utf8.json_de_stdin()
     except Exception:
-        data = {}
-    if not isinstance(data, dict):
         data = {}
     if str(data.get("hook_event_name") or "pre_llm_call") != "pre_llm_call":
         return 0

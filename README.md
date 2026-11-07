@@ -110,13 +110,12 @@ Después, escribe `workspace`, crea o carga un agente y abre una pestaña. Si al
 
 Las actualizaciones son automáticas por defecto. Puedes cambiarlas a solo avisar o apagarlas desde Actualizaciones. `workspace update` actualiza cuando tú quieras y `workspace update --rollback` vuelve a la anterior. Los ajustes que una actualización deba hacer en el cerebro llevan respaldo. [Cómo funcionan las actualizaciones](manual/es/actualizaciones.md).
 
-### Novedades de la v0.6.0
+### Novedades de la v0.7.0
 
-- Tres motores nuevos: GitHub Copilot, Cursor y Kiro, con tu cuenta y sobre el mismo cerebro que los demás.
-- Copilot, Cursor, Kiro y Antigravity guardan la memoria sin pedirte permiso, con una herramienta de Workspace; la terminal sigue preguntando.
-- Tus pestañas son las mismas en todas tus máquinas, y puedes archivarlas sin borrarlas (`a` archiva, `u` deshace). Si tu cerebro deja de sincronizar, Workspace te avisa.
-- El agente ya no puede tocar la configuración de los motores, de git ni de Obsidian dentro de su cerebro.
-- Se corrigió retomar Codex y Hermes 0.22.5, la maleta de Claude Code tras un cierre de golpe y la instalación de motores en Windows con Microsoft Defender.
+- Workspace empieza a guardar en tu computadora números de cada sesión (duración, tokens, costo, errores, skills), nunca tu conversación. Workspace no los envía a nadie; es la base de la sección de desempeño que llegará después.
+- Se miden Claude Code, Codex, OpenCode, OpenClaw, Hermes, Antigravity, GitHub Copilot, Cursor y Kiro, cada uno con lo que su motor guarda (Cursor no anota horas, modelo ni tokens; Kiro no guarda tokens); de Gemini, por ahora, solo cuándo fue cada sesión y cuánto duró.
+- Un aviso de una línea, una sola vez, te dice qué se guarda. `workspace metricas` lo muestra, lo apaga (`apagar`) o borra lo tuyo (`borrar --mio`).
+- Las métricas nunca se le pasan al agente, y `exportar` arma solo totales, sin personas.
 
 ### Historial resumido
 
@@ -124,6 +123,7 @@ Lo que fuimos añadiendo y corrigiendo, de lo más reciente al inicio del proyec
 
 | Versión | Lo que se añadió o cambió | Lo que se corrigió |
 |---|---|---|
+| 0.6.0 | Tres motores nuevos (GitHub Copilot, Cursor y Kiro), pestañas iguales en todas tus máquinas y archivar pestañas | Retomar Codex y Hermes 0.22.5, la maleta de Claude Code tras un cierre de golpe e instalar motores en Windows con Defender |
 | 0.5.1 | El mapa de memoria pasa a Documentación; las skills que aprende Hermes se guardan en el cerebro | Memoria entre pestañas, integración con Hermes y OpenClaw, y el cursor de la portada sin agentes |
 | 0.5.0 | Pantalla «Cargando…», mapa de memoria y mejor integración con Hermes y OpenClaw | Textos oscuros en los chats y avisos sobre instrucciones antiguas |
 | 0.4.1 | Mantenimiento de Usuarios | Dejaron de aparecer usuarios de ejemplo como personas reales |
@@ -243,13 +243,12 @@ Then enter `workspace`, create or load an agent and open a tab. If something fai
 
 Updates are automatic by default. Choose notify-only or turn them off in Updates. `workspace update` updates on demand and `workspace update --rollback` returns to the previous version. Changes an update needs to make inside a brain are backed up first. [How updates work](manual/en/updates.md).
 
-### What's new in v0.6.0
+### What's new in v0.7.0
 
-- Three new engines: GitHub Copilot, Cursor and Kiro, with your account and on the same brain as the others.
-- Copilot, Cursor, Kiro and Antigravity save memory without asking you, with a Workspace tool; the terminal still asks.
-- Your tabs are the same on every machine, and you can archive them without deleting them (`a` archives, `u` undoes). If your brain stops syncing, Workspace tells you.
-- The agent can no longer touch the settings of your engines, git or Obsidian inside its brain.
-- Fixes for resuming Codex and Hermes 0.22.5, the Claude Code handoff after an abrupt close, and installing engines on Windows with Microsoft Defender.
+- Workspace starts keeping numbers about each session on your computer (duration, tokens, cost, errors, skills), never your conversation. Workspace does not send them to anyone; they are the base for the performance section coming later.
+- Claude Code, Codex, OpenCode, OpenClaw, Hermes, Antigravity, GitHub Copilot, Cursor and Kiro are measured, each with what its engine keeps (Cursor records no times, model or tokens; Kiro keeps no tokens); for Gemini, for now, only when each session happened and how long it lasted.
+- A one-line notice, only once, tells you what is kept. `workspace metrics` shows it, turns it off (`off`) or deletes yours (`delete --mine`).
+- Metrics are never passed to the agent, and `export` produces totals only, without people.
 
 ### Release history at a glance
 
@@ -257,6 +256,7 @@ What we added and fixed, from recent releases back to the start. These describe 
 
 | Version | Added or changed | Fixed |
 |---|---|---|
+| 0.6.0 | Three new engines (GitHub Copilot, Cursor and Kiro), the same tabs on every machine and archiving tabs | Resuming Codex and Hermes 0.22.5, the Claude Code handoff after an abrupt close and installing engines on Windows with Defender |
 | 0.5.1 | The memory map moves to Documentation; skills Hermes learns are saved in the brain | Memory across tabs, Hermes and OpenClaw integration, and the front-page cursor with no agents |
 | 0.5.0 | A loading screen, a memory map, and better integration with Hermes and OpenClaw | Dark chat text and notices about old template instructions |
 | 0.4.1 | Maintenance of the Users section | Example users stopped appearing as real people |

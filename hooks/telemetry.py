@@ -104,12 +104,15 @@ def _telem_dir():
 
 
 def _stdin_data():
-    """Lee y parsea el JSON de stdin que envía Claude Code. {} si no puede."""
+    """Lee y parsea el JSON de stdin que envía Claude Code. {} si no puede.
+    Lector único de los hooks (_utf8): BYTES → UTF-8 (en Windows stdin es
+    cp1252 y una ruta con «José» llegaba rota)."""
     try:
-        raw = sys.stdin.read()
-        if not raw or not raw.strip():
-            return {}
-        return json.loads(raw)
+        _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if _root not in sys.path:
+            sys.path.append(_root)
+        import _utf8
+        return _utf8.json_de_stdin()
     except Exception:
         return {}
 

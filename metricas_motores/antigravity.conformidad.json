@@ -1,0 +1,32 @@
+{
+ "motor": "antigravity",
+ "version": "1.4.7",
+ "actualizado": "2026-10-27",
+ "nota": "Cédula de conformidad de las métricas: `version` es la versión certificada (con golden en tests/fixtures/metricas/antigravity/1.4.7/ y en VERIFIED_VERSIONS). El historial registra cada verificación: nivel kit (fixture), mínimo (headless real) o completo (consola real con la X). runbooks/agregar-motor.md §3b.",
+ "historial": [
+  {
+   "version": "1.4.7",
+   "so": "mac",
+   "nivel": "kit",
+   "veredicto": "reprueba",
+   "fecha": "2026-10-27",
+   "costo_usd_aprox": 0,
+   "fuente": "tests/fixtures/metricas/antigravity/1.4.7 (sintético desde G1)",
+   "contra": "parsers g2 (VERSION <motor>/2, F1.1); con los parsers g1 de F1 reprueba más, como se espera",
+   "pendientes": [
+    "K5a (núcleo): un 2º cierre de la misma corrida deja otra fila",
+    "K4 (parser): tokens por turno en 0 (se asignan al final)",
+    "K4 (núcleo): interrupcion=false en los turnos con COBERTURA «no»"
+   ],
+   "esqueletos_kit": [
+    "K7b",
+    "K9a",
+    "K9b",
+    "K10a",
+    "K11",
+    "TZ"
+   ],
+   "parser": "antigravity/2"
+  }
+ ]
+}

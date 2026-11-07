@@ -8,6 +8,70 @@ Cómo leer esto: cada versión tiene su número (`MAYOR.MENOR.PARCHE`). Un
 cambio de PARCHE arregla cosas; uno de MENOR trae funciones nuevas sin romper
 nada; uno de MAYOR avisa con tiempo si algo cambia de forma.
 
+## 0.7.0 — 2026-11-06
+
+**Novedades**
+- **Workspace empieza a llevar, en tu computadora, el registro de cómo
+  trabajan tus agentes.** Al cerrar cada sesión anota solo números y nombres:
+  cuánto duró, tokens y modelo, el costo cuando el motor lo da, cuántas
+  herramientas fallaron, interrupciones y qué skills leyó el agente. Nunca el
+  texto de la conversación; las pestañas y los archivos van como huellas, no
+  por su nombre. **Workspace no los envía a nadie**: quedan en
+  `~/.claude/workspace/metricas/`, en una carpeta que solo tu usuario puede
+  abrir (en Windows, dentro de tu perfil de usuario). Es la base de la sección de desempeño que llegará después: así, ese
+  día ya habrá semanas de historia. Las sesiones que ya tenías se miden poco
+  a poco al cerrar las nuevas, sin hacerte esperar.
+  - Mide Claude Code, Codex, OpenCode, OpenClaw, Hermes, Antigravity, GitHub
+    Copilot, Cursor y Kiro. Cada motor da lo que guarda: Cursor no anota
+    horas, modelo ni tokens, y Kiro no guarda tokens (solo sus créditos); lo
+    que un motor no da queda vacío, nunca en cero. De Gemini, por ahora, anota
+    solo cuándo fue cada sesión y cuánto duró.
+  - Funciona igual en Mac y en Windows (también con acentos o «ñ» en tu
+    nombre de usuario).
+- **Un aviso de una línea, una sola vez**, en el menú o al abrir un agente,
+  te dice qué se guarda y cómo verlo, apagarlo o borrarlo.
+- **`workspace metricas`** (o `workspace metrics`): `estado`, `salud`,
+  `importar` (mide de una vez la historia de esta computadora), `exportar
+  --json <archivo>` (solo totales, sin personas, por si decides compartirlo),
+  `borrar --mio`, `borrar --todo` o `borrar --antes AAAA-MM`, `apagar` y
+  `encender`. También se apaga en Ajustes («Métricas de desempeño»). Lo que
+  hagas con las métricas apagadas no se mide nunca, tampoco al volver a
+  encenderlas. Si algún archivo no se puede borrar (en Windows, porque otro
+  programa lo tiene abierto), `borrar` te dice cuál en vez de darlo por
+  borrado.
+- **Las métricas nunca se le pasan al agente**: no las ve mientras trabaja.
+- El paquete de diagnóstico (`workspace doctor --bundle`) incluye la salud de
+  las métricas, solo con números.
+
+**Arreglos**
+- **En Windows, Motores ya reconoce tu sesión de GitHub Copilot.** Copilot
+  guarda la cuenta en su archivo de configuración cuando no hay llavero, y
+  Workspace no sabía mirarlo: salía «no se pudo verificar» con la sesión
+  abierta. Ahora mira solo si hay usuario; tu token nunca se usa, guarda ni muestra.
+- **Con GitHub Copilot, el inicio y el cierre de cada sesión ya corren una
+  sola vez.** Copilot también lanza los avisos de inicio, de cada mensaje y
+  de cierre que Workspace prepara para Claude Code, así que el tono, la
+  memoria de la pestaña, el respaldo de la conversación y la revisión de
+  skills se hacían dos veces. Ahora Workspace reconoce esos avisos repetidos
+  y no hace nada con ellos.
+- **En Windows, con acentos o «ñ» en tu nombre de usuario, la memoria, el
+  respaldo y los demás pasos del cierre encuentran tu cerebro y tu
+  conversación.** Antes leían la ruta con la codificación vieja de la
+  consola («JosÃ©» en vez de «José») y, en algunos motores, no encontraban
+  nada que guardar.
+- **En Windows, la barra de Antigravity y la de los agentes que crees desde
+  ahora ya no salen vacías** cuando la carpeta lleva ciertos acentos (por
+  ejemplo «Á»). La barra de los agentes que ya tenías queda como estaba.
+- **En Windows, las métricas de Hermes, OpenClaw y OpenCode ya no se pierden
+  con un cerebro en una ruta larga** (por ejemplo en la
+  carpeta Documentos de OneDrive). Windows no deja escribir rutas de más de 260
+  caracteres, y el archivo de números que Workspace guarda junto al respaldo
+  pasaba de ese límite: la sesión quedaba sin tokens ni costo. Ahora se
+  escribe y se lee igual, sin cambiar ninguna configuración de tu Windows.
+- **En Windows, dos agentes que cierran a la vez ya no se borran el registro
+  uno al otro.** Si los cierres coincidían, una línea podía perderse o quedar
+  partida; ahora cada una se agrega completa.
+
 ## 0.6.0 — 2026-11-06
 
 **Novedades**

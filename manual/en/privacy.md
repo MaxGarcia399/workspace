@@ -47,6 +47,20 @@ To show you what your agents are doing, Workspace keeps **activity** records in
 content** of what the agent reads or writes. They never leave your machine. To turn them off:
 `WORKSPACE_NO_TELEMETRY=1`.
 
+When each session closes, Workspace also notes **numbers and names** about it in
+`~/.claude/workspace/metricas/`: tokens and model, how long it took, how many tools it used and
+how many failed, which skills it read and how many files it wrote. Never the text of the
+conversation, and tabs and files are kept as fingerprints, not by name. **Workspace does not
+send them**: they stay on this computer, in a folder only your user can open (on a company PC,
+the machine's administrator too; on Windows, your user folder's permissions protect it). Sessions
+in Claude Code, Codex, OpenCode, OpenClaw, Hermes, Antigravity, GitHub Copilot, Cursor and Kiro
+are measured, each with what its engine keeps (Cursor records no times, model or tokens; Kiro
+keeps no tokens); for Gemini, for now, only when each session happened and how long it lasted.
+Whatever an engine doesn't give is left empty, never zero. `workspace metrics export` builds a totals-only file, without
+people, if you decide to share it. `workspace metrics delete --mine` deletes yours. To turn them
+off: `workspace metrics off`; `WORKSPACE_NO_METRICAS=1` is the emergency switch, and what you do
+meanwhile is never measured. Metrics are never passed to the agent.
+
 ## Credentials
 
 Workspace **does not read or copy** your engines' credentials: each official program handles

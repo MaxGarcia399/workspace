@@ -10,8 +10,10 @@ el BINARIO OFICIAL (`copilot login`: llavero del sistema, o las variables
 COPILOT_GITHUB_TOKEN / GH_TOKEN / GITHUB_TOKEN, o el token de `gh`; o un
 proveedor propio BYOK con COPILOT_PROVIDER_BASE_URL). WORKSPACE JAMÁS lee,
 extrae ni reusa el token: el estado se consulta solo por presencia (nombres de
-variables, el item del llavero sin su secreto, `gh auth status`). Nunca se abre
-~/.copilot/config.json (puede guardar el token en texto plano si no hay llavero).
+variables, el item del llavero sin su secreto, `gh auth status`). De
+~/.copilot/config.json (puede guardar el token en texto plano si no hay llavero)
+solo se mira la lista `loggedInUsers`; el token se descarta sin usarse
+(_usuarios_en_config, excepción aprobada por el dueño 2026-11-06).
 
 Tres formas de correr (contrato de WORKSPACE):
   · INTERACTIVO — `launch()`: banner + wrapper neutral
@@ -73,6 +75,11 @@ from "repo settings" (hook errored)». Por eso, en Windows, cada hook lleva
 también la clave `powershell` (install.runner_cmd_powershell), que Copilot usa
 en lugar de `command` y Claude Code ignora (VERIFICADO 2026-11-05, Windows 11,
 1.0.105 de WinGet, PowerShell 7.6.9: la terminal corre y el hook recibe su JSON).
+Su `SessionStart`, `UserPromptSubmit` y `SessionEnd` ahí (session_id,
+timestamp, cwd; SIN transcript_path) son ecos del inicio y el cierre que ya
+emite el wrapper, y lo que devuelven no llega a su modelo (VERIFICADO
+2026-11-06 en macOS con un proveedor falso, con `-p` y en un pty con `-i`):
+workspace_hook.py no los despacha (events.eco_de_otro_motor, ECO_DESCARTADO).
 
 BARRA: la statusLine NATIVA de Copilot (`statusLine` del settings.json de
 USUARIO; la del repo no la activa, VERIFICADO 1.0.105) apunta al shim estable
@@ -91,6 +98,7 @@ Windows (winget / npm `copilot.cmd`).
 
 Cero dependencias (stdlib, 3.9+). Mac/Windows/Linux. Falla-suave.
 """
+import json
 import os
 import re
 import shutil
@@ -443,7 +451,38 @@ def account_menu(active=None, exe=None):
                         ("providers", [BINARY, "help", "providers"])]}
 
 
-# ── estado del motor en disco (solo rutas; jamás config.json) ───────────────
+# ── estado del motor en disco (solo rutas; de config.json SOLO los usuarios) ─
+def _usuarios_en_config(env=None):
+    """¿Hay usuario con sesión en <copilot_home>/config.json? True/False, o
+    None si el archivo no existe o no se puede leer.
+
+    Excepción acotada a la regla «nunca config.json» (dueño, 2026-11-06): en
+    Windows/Linux sin llavero Copilot guarda ahí la cuenta y el token en texto
+    plano, y sin esto la sesión salía «no se pudo verificar» con la cuenta
+    abierta. Se mira SOLO `loggedInUsers`; el resto del dict (incluido
+    `authTokens`) se descarta en el acto: nunca se guarda, registra ni muestra."""
+    p = os.path.join(copilot_home(env), "config.json")
+    try:
+        if not os.path.isfile(p) or os.path.getsize(p) > 1_000_000:
+            return None
+        with open(p, "rb") as fh:
+            texto = fh.read().decode("utf-8-sig", errors="replace")
+        # Copilot lo escribe como JSONC: abre con líneas `// …` (VERIFICADO
+        # 1.0.106, Windows). Solo se quitan líneas que EMPIEZAN con //: un
+        # `//` dentro de un valor (https://…) no se toca.
+        texto = "\n".join(ln for ln in texto.splitlines()
+                          if not ln.lstrip().startswith("//"))
+        data = json.loads(texto)
+        del texto
+        usuarios = data.get("loggedInUsers") if isinstance(data, dict) else None
+        del data
+        if usuarios is None:
+            return False
+        return bool(isinstance(usuarios, list) and usuarios)
+    except Exception:
+        return None
+
+
 def copilot_home(env=None):
     """Carpeta de estado de Copilot: $COPILOT_HOME o ~/.copilot (`copilot help
     environment`: COPILOT_HOME reemplaza la ruta entera)."""
@@ -540,6 +579,11 @@ def _auth_signal(runner=None, env=None, platform=None, gh=None, security=None):
                 return "gh"
     except Exception:
         return None
+    # 5. config.json de Copilot: SOLO su lista `loggedInUsers` (ver
+    #    _usuarios_en_config). Ahí vive la cuenta en Windows/Linux sin
+    #    llavero; antes esto quedaba en «no sé» con la sesión abierta.
+    if _usuarios_en_config(env) is True:
+        return "config"
     if keychain_none and not os.path.exists(os.path.join(copilot_home(env), "config.json")):
         return ""
     return None
@@ -572,7 +616,7 @@ def status(exe_override=None, runner=None, **kw):
                 "session_active": None, "ready": False, "gatekeeper": blk,
                 "detail": blk["why"],
                 "auth": "cuenta de GitHub con Copilot (`copilot login`) o proveedor "
-                        "propio; WORKSPACE nunca ve el token"}
+                        "propio; WORKSPACE nunca usa, guarda ni muestra el token"}
     active = session_active(exe_override=exe or "", runner=runner, **kw) if exe else False
     return {"engine": "copilot", "binary": BINARY, "binary_in_path": bool(exe),
             "session_active": active,
@@ -580,7 +624,7 @@ def status(exe_override=None, runner=None, **kw):
             # lectura que no se pudo hacer; sí cuando no hay ninguna).
             "ready": bool(exe) and active is not False,
             "auth": "cuenta de GitHub con Copilot (`copilot login`) o proveedor "
-                    "propio; WORKSPACE nunca ve el token"}
+                    "propio; WORKSPACE nunca usa, guarda ni muestra el token"}
 
 
 # ── headless ────────────────────────────────────────────────────────────────
@@ -762,7 +806,7 @@ def _plan(cfg, passthrough, brain, exe):
           % cfg.get("display", cfg.get("name")))
     print(line)
     print("  motor       : copilot  (GitHub Copilot CLI · cuenta del socio con "
-          "`copilot login`; WORKSPACE nunca ve el token)")
+          "`copilot login`; WORKSPACE nunca usa, guarda ni muestra el token)")
     print("  modelo      : el de tu cuenta o tu config de Copilot (Workspace no "
           "pasa --model)")
     print("  cerebro     : %s" % brain)

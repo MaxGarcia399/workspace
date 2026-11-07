@@ -153,6 +153,25 @@ def _meta(entry):
     return agent_meta(entry.get("dir", entry.get("name", "")))
 
 
+def _metricas_linea():
+    """La línea de métricas del hub: el aviso de privacidad la primera vez
+    tras actualizar, o un aviso de salud para el usuario. Solo con una
+    persona mirando (terminal): un render sin TTY no gasta el aviso de una
+    sola vez. Falla-suave: ''."""
+    try:
+        if not sys.stdout.isatty():
+            return ""
+        import metricas
+        import shutil
+        metricas.salud_en_segundo_plano()      # la salud diaria, fuera de los cierres
+        # el hub corta la línea al ancho: el aviso de una vez solo se gasta
+        # si cabe entero (si no, sale completo al abrir un agente)
+        ancho = shutil.get_terminal_size((80, 24)).columns - 2
+        return metricas.linea_hub(ancho)
+    except Exception:
+        return ""
+
+
 def _has_dev_panel():
     """True si el dashboard de DEV está presente (dash/dev se excluye de la distro).
     Gate dev-only para la entrada «Dev» del hub: un cliente no tiene estos archivos."""
@@ -166,6 +185,58 @@ def _has_proyectos():
     menú ni el ruteo."""
     return (os.path.isfile(os.path.join(ROOT, "proyectos-app.html"))
             and os.path.isfile(os.path.join(ROOT, "proyectos.py")))
+
+
+# «Otra máquina» (SOLO dev, 2026-11-06): filas al pie de la raíz del lanzador,
+# debajo de «Idioma ›», que abren la sesión de otra máquina del dev. Todo vive
+# en maquinas_dev.py, que make-dist.sh quita de la distribución: sin él (o sin
+# modo dev, o sin su archivo local) no hay filas y el hub queda idéntico.
+_MAQ_TOKEN = "__maquina__:"
+# Aviso para el PRÓXIMO hub: el de un loopback que falló (lo pinta abajo de la
+# caja, como cualquier aviso del hub, y se consume al mostrarlo).
+_AVISO_HUB = []
+
+
+def _maquinas_hub():
+    """Filas «otra máquina» del lanzador → [{label, token}] (o [])."""
+    try:
+        import maquinas_dev
+        maqs = maquinas_dev.disponibles()
+    except Exception:
+        return []
+    otra = _t("hub.lanzador.other_machine", "Otra máquina")
+    return [{"label": m.get("etiqueta") or otra, "token": _MAQ_TOKEN + m["id"]}
+            for m in maqs]
+
+
+def _maquina_elegir(tok):
+    """Enter en una fila «otra máquina» → (token | None, aviso). En iTerm2 la
+    pestaña se abre aquí mismo (None + aviso: el hub se queda); en otra
+    terminal devuelve el token y main() la suelta para correr el comando."""
+    try:
+        import maquinas_dev
+        en_terminal, aviso = maquinas_dev.elegir(tok[len(_MAQ_TOKEN):])
+    except Exception as e:
+        return None, "%s: %s" % (type(e).__name__, e)
+    return (tok if en_terminal else None), aviso
+
+
+def _maquina_terminal(tok):
+    """Loopback de «otra máquina» fuera de iTerm2: corre su comando en esta
+    terminal y, al cerrarse, el hub vuelve (con aviso si algo falló)."""
+    try:
+        import maquinas_dev
+        ok, aviso = maquinas_dev.abrir(
+            maquinas_dev.buscar(tok[len(_MAQ_TOKEN):]))
+    except Exception as e:
+        ok, aviso = False, "%s: %s" % (type(e).__name__, e)
+    if not ok and aviso:
+        _AVISO_HUB[:] = [aviso]
+    try:                          # la otra sesión pudo cambiar los colores
+        import theme
+        theme.apply_current()
+    except Exception:
+        pass
 
 
 def menu_entries():
@@ -1931,7 +2002,12 @@ def _menu_machinery(tout):
         _lf0 = _langs0.index(_i18n0.lang()) if _i18n0.lang() in _langs0 else 0
     except Exception:
         _lf0 = 0
-    S = {"group": _g0, "gsel": 0, "asel": 0, "ph": 0, "msg": "", "hb_msg": "",
+    S = {"group": _g0, "gsel": 0, "asel": 0, "ph": 0, "hb_msg": "",
+         # aviso de arranque: el de un loopback que falló (casi siempre "");
+         # si no hay, la línea de métricas (aviso de privacidad de una sola
+         # vez o salud). Solo se pide si se va a mostrar: el aviso de una vez
+         # no se gasta tapado por el del loopback.
+         "msg": _AVISO_HUB.pop() if _AVISO_HUB else _metricas_linea(),
          "hb_mode": _hb0, "cfg_focus": 0, "lang_focus": _lf0,
          "hb_focus": HB_MODES.index(_hb0) if _hb0 in HB_MODES else 0,
          "frame": 0, "ign_start": 0, "BH": 0, "row0": 0,
@@ -1975,6 +2051,9 @@ def _menu_machinery(tout):
                   "motor": _motor_summary(agents),
                   # teclas de SALTO (1-9 · q): el lanzador las usa al buscar
                   "keys": JKEYS}
+        _extras = _maquinas_hub()            # «otra máquina» (solo dev)
+        if _extras:
+            _LDATA["extras"] = _extras
 
     def _lay_lines():
         """Líneas del hub según el layout activo (contrato de hublayout:
@@ -2363,12 +2442,16 @@ def _menu_machinery(tout):
     def _lz_activate():
         """Enter en el lanzador: agente → lanza (rutina de siempre) · `›` →
         entra al submenú · opción del menú → la abre · pin → lo cicla ·
-        idioma → lo aplica."""
+        idioma → lo aplica · «otra máquina» (dev) → la abre."""
         it = _lz_cur()
         k = it.get("kind")
         if k == "sub":
             _lz_drill(it["idx"])
             return None
+        if k == "extra":
+            tok, aviso = _maquina_elegir(str(it.get("token") or ""))
+            S["msg"] = aviso
+            return tok
         if k not in ("agent", "opt", "pin", "lang"):
             return None
         _lz_point(it)
@@ -6202,6 +6285,8 @@ def _dispatch_table():
         # `repair`/`fix`: subset rápido del doctor — re-renderiza SOLO los
         # hooks de cada cerebro (dispatch.maybe_autoupdate spawnea justo esto).
         "repair": lambda a: cmd_repair(a),
+        # Registro local de métricas (F1): estado/importar/exportar/apagar.
+        "metricas": _run_module("metricas"),
         "configurar-desarrollo": _run_module("dev_setup"),     # U11
         # Migración recuperable del harness viejo: --plan por default;
         # --apply / --retire / --rollback explícitos (migrate_legacy.py).
@@ -6535,6 +6620,12 @@ def main():
                     "__doctor__": (_t("menu.updates.label",
                                       "Actualizaciones").lower(),
                                    _doctor_submenu)}
+        # «Otra máquina» (SOLO dev) fuera de iTerm2: su comando corre aquí y,
+        # al cerrarse, de vuelta al hub. Su token jamás llega a launch().
+        if str(name).startswith(_MAQ_TOKEN):
+            loopback[name] = (_t("hub.lanzador.other_machine",
+                                 "Otra máquina").lower(),
+                              lambda: _maquina_terminal(name))
         if name not in loopback:
             break
         label, target = loopback[name]

@@ -47,6 +47,20 @@ Para mostrarte qué hacen tus agentes, Workspace guarda en `~/.claude/workspace/
 de lo que el agente lee o escribe. No salen de tu máquina. Para apagarlos:
 `WORKSPACE_NO_TELEMETRY=1`.
 
+Al cerrar cada sesión, Workspace también anota en `~/.claude/workspace/metricas/` **números y
+nombres** de esa sesión: tokens y modelo, cuánto duró, cuántas herramientas usó y cuántas
+fallaron, qué skills leyó y cuántos archivos escribió. Jamás el texto de la conversación, y las
+pestañas y archivos van como huellas, no por su nombre. **Workspace no los envía**: quedan en
+esta computadora, en una carpeta que solo tu usuario puede abrir (en una PC de empresa, el
+administrador del equipo también; en Windows lo cuidan los permisos de tu carpeta de usuario).
+Se miden las sesiones de Claude Code, Codex, OpenCode, OpenClaw, Hermes, Antigravity, GitHub
+Copilot, Cursor y Kiro, cada una con lo que su motor guarda (Cursor no anota horas, modelo ni
+tokens; Kiro no guarda tokens); de Gemini, por ahora, solo cuándo fue cada sesión y cuánto duró.
+Lo que un motor no da queda vacío, nunca en cero. `workspace metricas exportar` arma un archivo de solo totales,
+sin personas, si tú decides compartirlo. `workspace metricas borrar --mio` borra lo tuyo. Para
+apagarlas: `workspace metricas apagar`; `WORKSPACE_NO_METRICAS=1` las apaga de emergencia, y lo
+que hagas mientras tanto no se mide nunca. Las métricas nunca se le pasan al agente.
+
 ## Credenciales
 
 Workspace **no lee ni copia** las credenciales de tus motores: cada programa oficial maneja su

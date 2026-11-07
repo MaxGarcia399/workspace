@@ -8,6 +8,70 @@ How to read this: every version has a number (`MAJOR.MINOR.PATCH`). A PATCH
 change fixes things; a MINOR one brings new features without breaking
 anything; a MAJOR one warns you well in advance if something changes shape.
 
+## 0.7.0 — 2026-11-06
+
+**New**
+- **Workspace starts keeping, on your computer, a record of how your agents
+  work.** When each session closes it notes only numbers and names: how long
+  it took, tokens and model, the cost when the engine reports it, how many
+  tools failed, interruptions and which skills the agent read. Never the text
+  of the conversation; tabs and files are kept as fingerprints, not by name.
+  **Workspace does not send them to anyone**: they stay in
+  `~/.claude/workspace/metricas/`, in a folder only your user can open (on Windows,
+  inside your user profile). It is
+  the base for the performance section coming later, so that by then there
+  will be weeks of history. The sessions you already had are measured little
+  by little as new ones close, without making you wait.
+  - It measures Claude Code, Codex, OpenCode, OpenClaw, Hermes, Antigravity,
+    GitHub Copilot, Cursor and Kiro. Each engine gives what it keeps: Cursor
+    records no times, model or tokens, and Kiro keeps no tokens (only its
+    credits); whatever an engine doesn't give is left empty, never zero. For
+    Gemini it records, for now, only when each session happened and how long
+    it lasted.
+  - It works the same on Mac and Windows (also with accents or «ñ» in your
+    user name).
+- **A one-line notice, only once**, in the menu or when opening an agent,
+  tells you what is kept and how to see it, turn it off or delete it.
+- **`workspace metrics`** (or `workspace metricas`): `status`, `health`,
+  `import` (measures this computer's history in one go), `export --json
+  <file>` (totals only, without people, in case you decide to share it),
+  `delete --mine`, `delete --all` or `delete --before YYYY-MM`, `off` and
+  `on`. You can also turn it off in Settings («Performance metrics»). What you
+  do while metrics are off is never measured, not even after turning them
+  back on. If a file cannot be deleted (on Windows, because another program
+  has it open), `delete` tells you which one instead of reporting it as gone.
+- **Metrics are never passed to the agent**: it does not see them while it
+  works.
+- The diagnostic bundle (`workspace doctor --bundle`) includes the metrics
+  health, numbers only.
+
+**Fixes**
+- **On Windows, Engines now recognizes your GitHub Copilot session.** Copilot
+  keeps the account in its config file when there is no keychain, and
+  Workspace couldn't read it: it showed «couldn't check» while you were signed
+  in. It now only looks at whether there is a user; your token is never used.
+- **With GitHub Copilot, the start and the end of each session now run only
+  once.** Copilot also fires the start, per-message and closing hooks
+  Workspace sets up for Claude Code, so the tone, the tab's memory, the
+  conversation backup and the skill review ran twice. Workspace now
+  recognizes those repeated calls and does nothing with them.
+- **On Windows, with accents or «ñ» in your user name, memory, the backup
+  and the other closing steps find your brain and your conversation.**
+  They used to read the path with the console's old encoding («JosÃ©»
+  instead of «José») and, with some engines, found nothing to save.
+- **On Windows, the Antigravity bar and the bar of the agents you create from
+  now on no longer come out empty** when the folder has certain accents (for
+  example «Á»). The bar of the agents you already had stays as it was.
+- **On Windows, Hermes, OpenClaw and OpenCode metrics are no longer lost
+  when a brain lives in a long path** (for example in the
+  OneDrive Documents folder). Windows refuses paths longer than 260 characters,
+  and the numbers file Workspace keeps next to the backup went over that
+  limit: the session ended up without tokens or cost. It is now written and
+  read anyway, without changing any setting on your Windows.
+- **On Windows, two agents closing at the same time no longer erase each
+  other's record.** When the closes overlapped, a line could be lost or cut
+  in half; now each one is added whole.
+
 ## 0.6.0 — 2026-11-06
 
 **New**

@@ -39,8 +39,14 @@ def _dev_worktrees_path():
 
 
 def _stdin():
+    """El payload con el lector único de los hooks (_utf8, en la raíz): BYTES
+    → UTF-8. Leído como texto, en Windows salía en cp1252 y un cerebro con
+    «José» en la ruta «no existía». {} si no se puede."""
     try:
-        return json.loads(sys.stdin.read() or "{}")
+        if _ROOT not in sys.path:
+            sys.path.append(_ROOT)
+        import _utf8
+        return _utf8.json_de_stdin()
     except Exception:
         return {}
 

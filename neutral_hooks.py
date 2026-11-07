@@ -293,11 +293,13 @@ def task_from_prompt(prompt):
         return ""
 
 
-def agent_for_brain(brain):
+def agent_for_brain(brain, usar_env=True):
     """Agente dueño de `brain`: $WORKSPACE_AGENT_NAME > lookup inverso contra el
     registry (dispatch) > convención de nombre ('TURING - BRAIN' → 'turing').
+    `usar_env=False` salta el env (quien atribuye sesiones VIEJAS — métricas
+    al importar — no debe heredar el agente de la sesión actual).
     Falla-suave: ''."""
-    env = _safe_name(os.environ.get("WORKSPACE_AGENT_NAME", ""))
+    env = _safe_name(os.environ.get("WORKSPACE_AGENT_NAME", "")) if usar_env else ""
     if env:
         return env
     try:

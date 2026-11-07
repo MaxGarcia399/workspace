@@ -261,14 +261,16 @@ def _ensure_statusline(settings_path=None,home=None):
 
 def main():
     try:
-        raw=sys.stdin.read(MAX_BYTES+1)
-        if len(raw)>MAX_BYTES: return
-        data=json.loads(raw)
-        snap=snapshot(data) if isinstance(data,dict) else None
+        # the single reader (_utf8): BYTES → UTF-8 with BOM tolerated. Read as
+        # text, Windows decoded agy's payload as cp1252 and an accented path
+        # broke it. Over MAX_BYTES, garbage or a non-object → {} → no bar.
+        import _utf8
+        data=_utf8.json_de_stdin(limite=MAX_BYTES)
+        if not data: return
+        snap=snapshot(data)
         if snap: _atomic(cache_path(),snap)
-        if isinstance(data,dict):
-            from workspace_status import antigravity_lines
-            print('\n'.join(antigravity_lines(data)))
+        from workspace_status import antigravity_lines
+        print('\n'.join(antigravity_lines(data)))
     except Exception:
         pass
     # Only formatted status text goes to stdout; never diagnostics or auth.

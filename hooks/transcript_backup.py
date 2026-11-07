@@ -34,7 +34,7 @@ no los originales).
 
 Cero dependencias (Python 3.9+). Mac y Windows.
 """
-import sys, os, json, shutil
+import sys, os, shutil
 
 try:   # M1/B2 · Windows: UTF-8 en stdout/err — un hook capturado por Claude Code en
        # cp1252 reventaría al imprimir caracteres no-ASCII. No-op en Mac (UTF-8 default).
@@ -56,8 +56,11 @@ BACKUP_ROOT = os.path.join(_paths.state_dir(), "transcripts-backup")
 
 
 def _stdin():
+    """Lector único de los hooks (_utf8, la raíz ya está en sys.path): BYTES
+    → UTF-8 (en Windows stdin es cp1252 y una ruta con «José» llegaba rota)."""
     try:
-        return json.loads(sys.stdin.read() or "{}")
+        import _utf8
+        return _utf8.json_de_stdin()
     except Exception:
         return {}
 

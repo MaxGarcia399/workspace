@@ -137,6 +137,8 @@ STRINGS = {
     'hub.lanzador.tab.menu': 'Menu',
     'hub.lanzador.tab.personalization': 'Personalization',
     'hub.lanzador.tab.lang': 'Language',
+    # fila «otra máquina» al pie de la raíz (solo dev: maquinas_dev)
+    'hub.lanzador.other_machine': 'Other machine',
     # vista estática (ui.anim apagado): la lista en la caja del lanzador
     'hub.static.hint.direct': 'direct',
     'hub.layout.lanzador': 'Launcher — agents at the center, minimal',

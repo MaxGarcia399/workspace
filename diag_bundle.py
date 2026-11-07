@@ -442,6 +442,13 @@ def doctor_check():
     return txt + "\n[exit %d]\n" % r.returncode
 
 
+def metricas_salud():
+    """El autodiagnóstico de las métricas (canal «equipo»): solo números y
+    nombres de motor/versión/alarma, sin sesiones, pestañas ni personas."""
+    import metricas
+    return metricas.salud(escanear=True, escribir=True)
+
+
 def logs():
     """[(nombre, texto)] — cola de cada log de state_dir/logs, acotada."""
     d = os.path.join(_paths.state_dir(), "logs")
@@ -570,6 +577,7 @@ def build(out_dir=None, doctor_runner=None, redactor=None, now=None):
     add("capacidades.json", capacidades, True)
     add("agentes.json", agentes, True)
     add("colores.json", colores, True)
+    add("metricas-salud.json", metricas_salud, True)
     try:
         for n, txt in logs():
             piezas.append(("logs/" + red.redact(n), red.redact(txt)))

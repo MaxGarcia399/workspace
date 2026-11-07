@@ -8,6 +8,7 @@ STRINGS = {
     'settings_ui.label.latido.intensity': 'Heartbeat intensity',
     'settings_ui.label.hooks.skill_review': 'Skill review (SessionEnd)',
     'settings_ui.label.hooks.transcript_backup': 'Transcript backup (Y2b)',
+    'settings_ui.label.hooks.metricas': 'Performance metrics (local log)',
     'settings_ui.label.hooks.memory_flush': 'Memory flush (PreCompact, N2)',
     'settings_ui.label.hooks.security_guidance': 'Security guidance (PostToolUse, N15)',
     'settings_ui.label.hooks.telemetry': 'Live telemetry (Pre/PostToolUse, N-telem)',

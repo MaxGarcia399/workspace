@@ -72,12 +72,9 @@ def _read_stdin():
 
 
 def _parse(raw):
-    """raw (bytes) → dict del payload del motor. Basura/vacío → {} (nunca levanta)."""
-    try:
-        d = json.loads(raw.decode("utf-8", "replace") or "{}")
-        return d if isinstance(d, dict) else {}
-    except Exception:
-        return {}
+    """raw (bytes) → dict del payload del motor. Basura/vacío → {} (nunca
+    levanta). El mismo lector que los hooks (_utf8: UTF-8 y tolera el BOM)."""
+    return _utf8.json_de_bytes(raw)
 
 
 def _emit(event, ctx):
@@ -109,6 +106,20 @@ def _from_cursor(data):
     return isinstance(data, dict) and bool(data.get("cursor_version"))
 
 
+def _eco_de_otro_motor(event, data):
+    """¿Es un inicio, un mensaje o un cierre que dispara OTRO motor con estos
+    hooks? GitHub Copilot corre los de `<cerebro>/.claude/settings.local.json`
+    y manda su SessionStart, UserPromptSubmit y SessionEnd (timestamp, sin
+    transcript_path). Su inicio y su cierre de verdad ya los emite su wrapper
+    (interactive → neutral_hooks, con `engine`), y lo que estos hooks devuelven
+    no le llega a su modelo: despacharlos corría DOS veces cada listener de
+    session_start/session_end (marcador, tono, revisión de skills, memoria,
+    respaldo, métricas) y el tono en cada mensaje para nada. La regla es
+    events.eco_de_otro_motor (la misma que usa métricas); los de Claude Code
+    traen transcript_path y siguen corriendo."""
+    return event in events.ECO_DESCARTADO and events.eco_de_otro_motor(data)
+
+
 def main():
     if len(sys.argv) < 2:
         return
@@ -120,6 +131,8 @@ def main():
     data = _parse(raw)
     if _from_cursor(data):
         return                              # Cursor corre los hooks de Claude Code
+    if _eco_de_otro_motor(event, data):
+        return                              # inicio/cierre los emite el wrapper del motor
     res = neutral_hooks.run_event(event, data, raw=raw,
                                   behaviors=neutral_hooks.CLAUDE_CODE_PARITY)
 

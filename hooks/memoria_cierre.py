@@ -50,7 +50,8 @@ def main():
     except (ValueError, OSError, AttributeError):
         pass
     try:
-        data = json.loads(sys.stdin.read() or "{}")
+        import _utf8          # BYTES → UTF-8: en Windows stdin es cp1252
+        data = _utf8.json_de_stdin()
     except Exception:
         data = {}
     if not isinstance(data, dict) or data.get("reason") in SKIP_REASONS:

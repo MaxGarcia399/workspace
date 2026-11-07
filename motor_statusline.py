@@ -351,20 +351,19 @@ def render(engine, payload, env=None, width=None):
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
-    for stream in (sys.stdin, sys.stdout):
-        try:                      # Windows: UTF-8 de punta a punta (cp1252 truena)
-            stream.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
+    try:                          # Windows: la barra sale en UTF-8 (cp1252 truena)
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
     try:
         engine = argv[0] if argv else ""
         if engine not in SPECS:
             return
-        raw = sys.stdin.read(MAX_BYTES + 1)
-        if len(raw) > MAX_BYTES:
-            return
-        data = json.loads(raw)
-        if not isinstance(data, dict):
+        # el lector único (_utf8): BYTES → UTF-8 y tolera el BOM; más de
+        # MAX_BYTES, basura o algo que no es objeto → {} → sin barra
+        import _utf8
+        data = _utf8.json_de_stdin(limite=MAX_BYTES)
+        if not data:
             return
         lines = render(engine, data)
         if lines:

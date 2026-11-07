@@ -569,6 +569,10 @@ _PIN_I18N = {"ui.background": "hub.pin.background", "ui.theme": "hub.pin.theme",
 #         ╰──────────────────────────╯
 #            Enter entra · Esc regresa · escribe para buscar
 #
+# Debajo de Idioma pueden ir FILAS EXTRA que aporta front en data["extras"]
+# (hoy solo «otra máquina», del dev: maquinas_dev, que no viaja a clientes).
+# Sin esa clave la raíz es exactamente la de arriba.
+#
 # Enter en un agente lo lanza (lo de siempre); en una fila `›` entra: la MISMA
 # caja muestra ese submenú (las entradas de siempre del menú, los pins de
 # personalización o los idiomas) y el título se vuelve migas de pan
@@ -599,7 +603,7 @@ import unicodedata as _ud
 LZ_ROWS = 12          # filas de lista FIJAS (además de la línea de búsqueda)
 LZ_PAD = 2            # aire por lado dentro de la barra (+1 del borde = 3)
 _LZ_SUBS = ("tools", "latido", "idioma")      # secciones → grupos de front
-_LZ_SELECTABLE = ("agent", "sub", "opt", "pin", "lang")
+_LZ_SELECTABLE = ("agent", "sub", "opt", "pin", "lang", "extra")
 # El mapa de la memoria fue una fila de la raíz en la 0.5.0 y salió en la
 # 0.5.1 (pedido del dueño 2026-10-21: en la portada se confundía con los
 # agentes). Vive solo en Documentación: su primer renglón o la tecla m.
@@ -679,10 +683,24 @@ def lanzador_subs():
     return [g for g in _LZ_SUBS if g != "latido" or lanzador_pins()]
 
 
+def _lz_extras(data):
+    """Filas EXTRA al pie de la raíz: data["extras"] = [{label, token}]
+    (las arma front; el token es lo que su Enter ejecuta). Sin la clave → []."""
+    out = []
+    for i, e in enumerate(data.get("extras") or ()):
+        lbl = str(e.get("label") or "").strip() if isinstance(e, dict) else ""
+        if lbl:
+            # sin «›» y centrada (pedido del dueño 2026-11-06): no abre un
+            # submenú, cambia de máquina — se lee como botón, no como sección
+            out.append({"kind": "extra", "idx": i, "label": lbl, "dato": "",
+                        "token": e.get("token")})
+    return out
+
+
 def lanzador_items(data, level=None, q=""):
     """La lista del lanzador para (nivel, búsqueda) → [{kind, idx, label,
-    dato, crumb, off}]. kind ∈ agent/sub/opt/pin/lang (seleccionables) ·
-    sep/info/none (solo se pintan). front.py y el renderer usan ESTA función
+    dato, crumb, off}]. kind ∈ agent/sub/opt/pin/lang/extra (seleccionables)
+    · sep/info/none (solo se pintan). front.py y el renderer usan ESTA función
     — lo que se ve y lo que Enter ejecuta son la misma lista."""
     ags = []
     for i, a in enumerate(data.get("agents") or ()):
@@ -693,6 +711,7 @@ def lanzador_items(data, level=None, q=""):
                     "off": not a.get("active")})
     subs = [{"kind": "sub", "idx": g, "label": lanzador_sub_label(g),
              "dato": "›"} for g in lanzador_subs()]
+    subs += _lz_extras(data)                     # al pie, debajo de Idioma
     qn = _lz_norm(q)
     if level in _LZ_SUBS:
         its = _lz_sub_items(data, level)
@@ -753,6 +772,8 @@ def _lz_row_width(it):
         return vis(_sane(str(it.get("label") or "")))   # lee ENTERO (1er uso)
     if it.get("kind") not in _LZ_SELECTABLE:
         return 0
+    if it.get("kind") == "extra":                # _lz_row la recorta a ancho-4
+        return 4 + vis(_sane(str(it["label"])))
     d = vis(_sane(str(it.get("dato") or "")))
     if d and _lz_arrows(it):
         d += 4                                   # «‹ » + « ›», apuntado o no
@@ -768,6 +789,15 @@ def _lz_row(it, on, ancho, K):
         return "%s%s%s" % (K["DK"], K["SEP"] * ancho, K["R"])
     if kind in ("info", "none"):
         return "%s%s%s" % (K["DIM"], clip(_sane(it["label"]), ancho), K["R"])
+    if kind == "extra":                          # botón centrado, sin dato
+        lab = clip(_sane(str(it["label"])), max(1, ancho - 4))
+        izq = max(2, (ancho - vis(lab)) // 2)
+        if on:
+            pre = " " * (izq - 2) + "%s%s%s " % (K["C"] + K["BO"], K["PTR"], K["R"])
+        else:
+            pre = " " * izq
+        tinta = (K["C"] + K["BO"]) if on else K["INACTIVE"]
+        return "%s%s%s%s" % (pre, tinta, lab, K["R"])
     lab = _sane(str(it["label"]))
     off = it.get("off")
     cur = ("%s%s%s " % (K["C"] + K["BO"], K["PTR"], K["R"]) if on else "  ")

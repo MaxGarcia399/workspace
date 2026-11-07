@@ -44,7 +44,8 @@ if not sys.path or sys.path[0] != ROOT:
 
 def _payload():
     try:
-        return json.loads(sys.stdin.read() or "{}") or {}
+        import _utf8          # BYTES → UTF-8: en Windows stdin es cp1252
+        return _utf8.json_de_stdin()
     except Exception:
         return {}
 

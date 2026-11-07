@@ -519,6 +519,10 @@ def _finish(rec):
                                           capture_error=type(exc).__name__)
             session_continuity.record(brain, run_id, close_mode="reconciled",
                                       recovered_at=session_continuity.now())
+            # los listeners de session_end saben que es un cierre TARDÍO: la
+            # hora de ahora no es la del fin (métricas lo deja en null)
+            res = dict(res, close_mode="reconciled")
+            res.setdefault("started", started)
             try:
                 import neutral_hooks
                 beh = ("listeners",) if others else ("listeners", "status")

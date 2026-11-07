@@ -32,8 +32,17 @@ if os.name == "nt":
 else:
     BAR_FILL, BAR_TRACK = "█", "░"
 
+# El JSON de estado en BYTES → UTF-8 (tolera el BOM). Leído como texto, en
+# Windows sin PYTHONUTF8 sys.stdin es cp1252: una ruta con «José» llegaba rota y
+# con «Á» (byte 0x81, que cp1252 no tiene) el JSON entero fallaba → barra vacía.
+# DUP(lector-stdin): copia mínima de _utf8.json_de_stdin. Esta barra lee ANTES
+# de encontrar WORKSPACE, y puede correr desde una copia en el cerebro con un
+# Workspace sin ese lector: por eso no lo importa.
 try:
-    d = json.load(sys.stdin)
+    _raw = getattr(sys.stdin, "buffer", sys.stdin).read()
+    if isinstance(_raw, bytes):
+        _raw = _raw.decode("utf-8-sig", "replace")
+    d = json.loads(_raw.lstrip("\ufeff") or "{}")
 except Exception:
     d = {}
 

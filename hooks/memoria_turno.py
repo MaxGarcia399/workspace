@@ -24,7 +24,6 @@ imprime ni bloquea (Stop con salida 2 haría seguir al agente; aquí siempre 0).
 Kill-switch: WORKSPACE_NO_MEMORIA=1 (el mismo de memoria_cierre).
 Cero dependencias (3.9+).
 """
-import json
 import os
 import sys
 
@@ -42,7 +41,8 @@ def main():
     if not tab:
         return False                   # sesión sin pestaña: no hay maleta
     try:
-        data = json.loads(sys.stdin.read() or "{}")
+        import _utf8          # BYTES → UTF-8: en Windows stdin es cp1252
+        data = _utf8.json_de_stdin()
     except Exception:
         return False
     if not isinstance(data, dict):

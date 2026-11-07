@@ -1,0 +1,57 @@
+{
+ "motor": "kiro",
+ "version": "3.1.0",
+ "actualizado": "2026-11-06",
+ "nota": "Cédula de conformidad de las métricas: `version` es la versión certificada (con golden en tests/fixtures/metricas/kiro/3.1.0/ y en VERIFIED_VERSIONS). El historial registra cada verificación: nivel kit (fixture), mínimo (headless real) o completo (consola real con la X). runbooks/agregar-motor.md §3b.",
+ "historial": [
+  {
+   "version": "3.1.0",
+   "so": "mac",
+   "nivel": "minimo",
+   "veredicto": "reprueba",
+   "fecha": "2026-11-06",
+   "costo_usd_aprox": 0.0021,
+   "intentos": 1,
+   "modelo": "claude-haiku-5.5",
+   "parser": "kiro/0",
+   "fuente": "tests/e2e/metricas_viva.py",
+   "fallos": [
+    "desconocidas ≤ 5 %"
+   ],
+   "notas": "La captura de la golden (0.052 créditos de Kiro; US$ ≈ a 0.04 por crédito). Reprobó con el BORRADOR kiro/0: 20 de 34 líneas de tipos V3 que no conocía (turn_start, usage_summary, session_metadata…). Lo arregla kiro/1."
+  },
+  {
+   "version": "3.1.0",
+   "so": "mac",
+   "nivel": "kit",
+   "veredicto": "pasa",
+   "fecha": "2026-11-06",
+   "costo_usd_aprox": 0,
+   "fuente": "tests/fixtures/metricas/kiro/3.1.0 (captura real G1, mínimo)",
+   "pendientes": [],
+   "esqueletos_kit": [
+    "K7b",
+    "K9a",
+    "K9b",
+    "K10a",
+    "K11",
+    "TZ"
+   ],
+   "parser": "kiro/1"
+  },
+  {
+   "version": "3.1.0",
+   "so": "mac",
+   "nivel": "minimo",
+   "veredicto": "pasa",
+   "fecha": "2026-11-06",
+   "costo_usd_aprox": 0.0021,
+   "intentos": 1,
+   "modelo": "claude-haiku-5.5",
+   "parser": "kiro/1",
+   "fuente": "tests/e2e/metricas_viva.py",
+   "fallos": [],
+   "notas": "Segunda corrida viva con kiro/1 (0.053 créditos de Kiro; US$ ≈ a 0.04 por crédito). 0 desconocidas."
+  }
+ ]
+}

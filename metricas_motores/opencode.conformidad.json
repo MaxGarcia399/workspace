@@ -1,0 +1,31 @@
+{
+ "motor": "opencode",
+ "version": "2.1.4",
+ "actualizado": "2026-10-27",
+ "nota": "Cédula de conformidad de las métricas: `version` es la versión certificada (con golden en tests/fixtures/metricas/opencode/2.1.4/ y en VERIFIED_VERSIONS). El historial registra cada verificación: nivel kit (fixture), mínimo (headless real) o completo (consola real con la X). runbooks/agregar-motor.md §3b.",
+ "historial": [
+  {
+   "version": "2.1.4",
+   "so": "mac",
+   "nivel": "kit",
+   "veredicto": "reprueba",
+   "fecha": "2026-10-27",
+   "costo_usd_aprox": 0,
+   "fuente": "tests/fixtures/metricas/opencode/2.1.4 (sintético desde G1)",
+   "contra": "parsers g2 (VERSION <motor>/2, F1.1); con los parsers g1 de F1 reprueba más, como se espera",
+   "pendientes": [
+    "K5a (núcleo): un 2º cierre de la misma corrida deja otra fila",
+    "K3d (parser): sin `tokens` en los mensajes, el total va a opencode:internas sin aviso"
+   ],
+   "esqueletos_kit": [
+    "K7b",
+    "K9a",
+    "K9b",
+    "K10a",
+    "K11",
+    "TZ"
+   ],
+   "parser": "opencode/2"
+  }
+ ]
+}

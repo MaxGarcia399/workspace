@@ -63,8 +63,11 @@ KILL_SWITCH = "WORKSPACE_NO_MEMORY_FLUSH"
 
 
 def _stdin():
+    """Lector único de los hooks (_utf8, la raíz ya está en sys.path): BYTES
+    → UTF-8 (en Windows stdin es cp1252 y una ruta con «José» llegaba rota)."""
     try:
-        return json.loads(sys.stdin.read() or "{}")
+        import _utf8
+        return _utf8.json_de_stdin()
     except Exception:
         return {}
 

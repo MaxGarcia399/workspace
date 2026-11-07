@@ -300,6 +300,7 @@ _ENV_LOCKS = {
     "hooks.memory_flush": "WORKSPACE_NO_MEMORY_FLUSH",
     "hooks.security_guidance": "WORKSPACE_NO_SECURITY_GUIDANCE",
     "hooks.telemetry": "WORKSPACE_NO_TELEMETRY",
+    "hooks.metricas": "WORKSPACE_NO_METRICAS",
     "ui.anim": "WORKSPACE_NO_ANIM",
     "modelos.default_engine": "WORKSPACE_ENGINE",
 }

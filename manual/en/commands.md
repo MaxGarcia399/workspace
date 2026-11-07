@@ -139,6 +139,19 @@ Re-prepares the connections of each brain.
 
 _also: `reparar`, `fix`_
 
+### `workspace metrics [status | health | import | export --json <file> | delete --mine | off | on]`
+
+Local log of your agents' performance: status, health, import the history, export aggregates, delete yours or turn it off.
+
+**When:** To see what is recorded, or to share only totals without your conversation.
+
+_also: `metricas`, `métricas`_
+
+**Examples:**
+
+    workspace metrics importar
+    workspace metrics borrar --mio
+
 ### `workspace dev-setup`
 
 Checks whether this machine is ready to contribute to Workspace.

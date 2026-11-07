@@ -79,6 +79,37 @@ def _retention_roots():
             os.path.join(base, "transcripts-backup"))
 
 
+#: sidecars de métricas junto a un respaldo `<x>.jsonl` (los escribe la captura)
+_SIDECARS = (".totales.json", ".eventos.jsonl")
+
+
+def _principal(sidecar):
+    for suf in _SIDECARS:
+        if sidecar.endswith(suf):
+            return sidecar[:-len(suf)] + ".jsonl"
+    return sidecar
+
+
+def _borrar_sidecars(path):
+    base = path[:-len(".jsonl")]
+    for suf in _SIDECARS:
+        try:
+            os.remove(base + suf)
+        except OSError:
+            pass
+
+
+def _fuentes_protegidas():
+    """Fuentes que la retención NO borra: las que las métricas todavía no
+    midieron enteras (cursor atrasado, formato desconocido, pendientes del
+    goteo). Falla-suave: sin métricas, ninguna."""
+    try:
+        import metricas
+        return {os.path.normcase(os.path.abspath(p)) for p in metricas.fuentes_protegidas()}
+    except Exception:
+        return set()
+
+
 def run_retention(out=print, now=None, announce_off=True, dry_run=False):
     """Purga M6: borra los .jsonl per-máquina con mtime más viejo que
     `otros.retention_days` en events/, telemetry/ y transcripts-backup/.
@@ -97,19 +128,35 @@ def run_retention(out=print, now=None, announce_off=True, dry_run=False):
     days = _retention_days()
     cutoff = (time.time() if now is None else float(now)) - days * 86400
     removed = scanned = 0
+    protegidas = _fuentes_protegidas()
+    respaldo = os.path.join(_paths.state_dir(), "transcripts-backup")
     for root in _retention_roots():
         if not os.path.isdir(root):
             continue
         for dirpath, _dirs, files in os.walk(root):
             for name in files:
-                if not name.endswith(".jsonl"):
-                    continue            # SOLO los rastros .jsonl — nada más
                 path = os.path.join(dirpath, name)
+                if not name.endswith(".jsonl"):
+                    # sidecar de métricas cuyo respaldo ya no existe: no queda huérfano
+                    if root == respaldo and name.endswith(_SIDECARS) and \
+                            not os.path.exists(_principal(path)):
+                        try:
+                            if os.path.getmtime(path) < cutoff and not dry_run:
+                                os.remove(path)
+                        except OSError:
+                            pass
+                    continue            # SOLO los rastros .jsonl — nada más
+                if root == respaldo and name.endswith(_SIDECARS):
+                    continue            # va y viene con su respaldo (abajo)
                 scanned += 1
+                if os.path.normcase(os.path.abspath(path)) in protegidas:
+                    continue            # métricas aún no lo midió entero: se respeta
                 try:
                     if os.path.getmtime(path) < cutoff:
                         if not dry_run:  # ensayo: contar, jamás borrar
                             os.remove(path)
+                            if root == respaldo:
+                                _borrar_sidecars(path)
                         removed += 1
                 except OSError:
                     continue            # archivo en uso/ido: seguir

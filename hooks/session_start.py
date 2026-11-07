@@ -30,8 +30,14 @@ except Exception:
 
 
 def _stdin():
+    """Lector único de los hooks (_utf8, en la raíz): BYTES → UTF-8 (en
+    Windows stdin es cp1252 y una ruta con «José» llegaba rota)."""
     try:
-        return json.loads(sys.stdin.read() or "{}")
+        _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if _root not in sys.path:
+            sys.path.append(_root)
+        import _utf8
+        return _utf8.json_de_stdin()
     except Exception:
         return {}
 

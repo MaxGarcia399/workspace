@@ -923,6 +923,9 @@ def run_official_cli_interactive(cli, brain=None, argv=None, behaviors=None,
             except Exception as exc:
                 print("WORKSPACE: captura de continuidad pendiente (%s)" % exc,
                       file=sys.stderr)
+            if closed_by_x is not None and closed_by_x.is_set():
+                # la X: los listeners (métricas) acotan su presupuesto a la gracia
+                end_payload = dict(end_payload, closed_by="x", x_at=_GUARD.get("at"))
             neutral_hooks.on_session_end(end_payload, **kw)
             LAST_CLOSE.update(end_payload)
             if closed_by_x is not None and closed_by_x.is_set():

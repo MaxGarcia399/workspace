@@ -139,6 +139,19 @@ Vuelve a preparar las conexiones de cada cerebro.
 
 _también: `repair`, `fix`_
 
+### `workspace metricas [estado | salud | importar | exportar --json <archivo> | borrar --mio | apagar | encender]`
+
+Registro local del desempeño de tus agentes: estado, salud, importar la historia, exportar agregados, borrar lo tuyo o apagarlo.
+
+**Cuándo:** Para ver qué se registra, o para compartir solo totales sin tu conversación.
+
+_también: `metrics`, `métricas`_
+
+**Ejemplos:**
+
+    workspace metricas importar
+    workspace metricas borrar --mio
+
 ### `workspace configurar-desarrollo`
 
 Revisa si esta máquina está lista para contribuir a Workspace.

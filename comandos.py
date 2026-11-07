@@ -232,6 +232,20 @@ COMMANDS = (
         "Si un agente abre pero no recuerda o no guarda.",
         "If an agent opens but does not remember or save.",
         aliases=("fix",)),
+    # Métricas F1: registro local de cada sesión (metricas.py). Solo números y
+    # nombres; la sección que los muestra llega después.
+    cmd("metricas", "metricas", "metrics", "maquina",
+        "Registro local del desempeño de tus agentes: estado, salud, importar la "
+        "historia, exportar agregados, borrar lo tuyo o apagarlo.",
+        "Local log of your agents' performance: status, health, import the history, "
+        "export aggregates, delete yours or turn it off.",
+        "Para ver qué se registra, o para compartir solo totales sin tu conversación.",
+        "To see what is recorded, or to share only totals without your conversation.",
+        args={"es": "[estado | salud | importar | exportar --json <archivo> | "
+                    "borrar --mio | apagar | encender]",
+              "en": "[status | health | import | export --json <file> | "
+                    "delete --mine | off | on]"},
+        aliases=("métricas",), examples=("importar", "borrar --mio")),
     cmd("configurar-desarrollo", "configurar-desarrollo", "dev-setup", "maquina",
         "Revisa si esta máquina está lista para contribuir a Workspace.",
         "Checks whether this machine is ready to contribute to Workspace.",
@@ -370,6 +384,10 @@ MAPS = {
     "repair": ((("conexiones", "c"), ("cada cerebro", "wh")),
                ("las vuelve a preparar",),
                "no toca tus permisos ni tu tema"),
+    "metricas": ((("cierre de sesión|cierre", "c"), ("registro local|registro", "wh"),
+                  ("agregados", "ok")),
+                 ("cada sesión", "exportar"),
+                 "solo números y nombres, nunca tu conversación · Workspace no los envía"),
     "configurar-desarrollo": ((("git", "c"), ("checkout", "wh"), ("tests", "wh"), ("listo", "ok")),
                               ("", "", ""),
                               "solo revisa · no toca tu instalación de uso diario"),
@@ -445,6 +463,10 @@ MAPS_EN = {
     "repair": ((("connections", "c"), ("each brain", "wh")),
                ("prepares them again",),
                "does not touch your permissions or your theme"),
+    "metricas": ((("session close|close", "c"), ("local log|log", "wh"),
+                  ("aggregates", "ok")),
+                 ("every session", "export"),
+                 "numbers and names only, never your conversation · Workspace does not send them"),
     "configurar-desarrollo": ((("git", "c"), ("checkout", "wh"), ("tests", "wh"), ("ready", "ok")),
                               ("", "", ""),
                               "only checks · does not touch your everyday install"),

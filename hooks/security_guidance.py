@@ -258,12 +258,14 @@ def _format_warning(file_path, findings):
 
 
 def _read_stdin():
-    """Lee y parsea el JSON de stdin. {} si falla o vacío."""
+    """Lee y parsea el JSON de stdin. {} si falla o vacío. Lector único de los
+    hooks (_utf8): BYTES → UTF-8 (en Windows stdin es cp1252)."""
     try:
-        raw = sys.stdin.read()
-        if not raw or not raw.strip():
-            return {}
-        return json.loads(raw)
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if root not in sys.path:
+            sys.path.append(root)
+        import _utf8
+        return _utf8.json_de_stdin()
     except Exception:
         return {}
 
