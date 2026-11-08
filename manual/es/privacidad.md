@@ -71,7 +71,9 @@ empieza otro. No
 sale de tu máquina. Con un uso encendido, Decisores además guarda en
 `~/.claude/workspace/decisores/` la línea de tu última sesión hasta que la ves y, por cada
 sesión, una huella (no el texto) de las instrucciones que recibió el agente; tampoco salen de
-tu máquina.
+tu máquina. El hub, aunque Decisores esté apagado, anota en
+`~/.claude/workspace/hub-novedades.json` solo la fecha en que te mostró por primera vez el
+«nuevo» de su fila, para quitarlo a los 7 días.
 
 ## Credenciales
 

@@ -288,7 +288,15 @@ def default_session(agent):
                                     _ts(w, "created")), reverse=True)
         for w in rows:
             if w.get("id") and w.get("name"):
-                return str(w["id"]), str(w["name"])
+                # la conversación ATADA a esa pestaña (el store local sigue
+                # al fork de Claude Code; esta lista es su espejo)
+                try:
+                    import sessions_registry
+                    atada = sessions_registry.resume_id(brain, canonical, str(w["name"]),
+                                                        "claude-code")
+                except Exception:
+                    atada = ""
+                return str(atada or w["id"]), str(w["name"])
     except Exception:
         pass
     return None

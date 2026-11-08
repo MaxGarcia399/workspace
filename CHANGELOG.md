@@ -8,6 +8,37 @@ Cómo leer esto: cada versión tiene su número (`MAYOR.MENOR.PARCHE`). Un
 cambio de PARCHE arregla cosas; uno de MENOR trae funciones nuevas sin romper
 nada; uno de MAYOR avisa con tiempo si algo cambia de forma.
 
+## 0.8.1 — 2026-11-07
+
+**Novedades**
+- **Decisores se ve en el hub, junto a tus agentes.** Debajo de ellos va la
+  fila «◆ Decisores», con el modelo de decisión activo donde un agente lleva
+  su motor (por ejemplo, «Jev»). Sin modelo dice «nuevo» durante 7 días
+  (desde la primera vez que tu hub la muestra) y después «configurar»; Enter
+  te lleva a Motores → Modelos de decisión para conectar uno. Con un modelo,
+  Enter abre Decisores y ← → cambian el modelo activo entre los que están
+  listos y «apagado» (se guarda igual que en Decisores → Ajustes). El `0` la
+  abre desde el inicio del hub, como las cifras 1-9 abren a tus agentes.
+  Prender el modelo no prende ningún uso: esos se eligen en Decisores.
+
+**Arreglos**
+- **Una pestaña ya no reabre una conversación vieja después de que Claude
+  Code la bifurca** (por ejemplo, al mandar la conversación al fondo): la
+  pestaña pasa a la conversación nueva y el hub la reabre ahí. Si usas
+  `/fork` y sigues escribiendo en la original, la pestaña vuelve a ella. Las
+  listas de pestañas muestran una sola fila por pestaña, con la conversación
+  que de verdad abre.
+- **Memoria distingue mejor lo que ya terminaste.** Una nota contada en
+  pasado («probé…», «corregí…», «instalé…») se marca como «hecho» con más
+  seguridad, en vez de quedarse como «nota».
+- **Revisar compara contra lo que pediste y no le cree al entregable lo que
+  dice de sí mismo:** un reporte que dice «los 8 usos están verificados» con
+  dos pendientes ya no sale «completo», y una parte que pediste y quedó
+  pendiente cuenta como faltante. Con reportes largos todavía puede dudar:
+  sirve mejor en «sugiere».
+- **`workspace decidir` dice cuánto tardó el modelo en responder** (`ms`, el
+  mismo número que queda en el Historial); antes ese dato no venía.
+
 ## 0.8.0 — 2026-11-07
 
 **Novedades**

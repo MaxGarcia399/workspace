@@ -8,6 +8,36 @@ How to read this: every version has a number (`MAJOR.MINOR.PATCH`). A PATCH
 change fixes things; a MINOR one brings new features without breaking
 anything; a MAJOR one warns you well in advance if something changes shape.
 
+## 0.8.1 — 2026-11-07
+
+**New**
+- **Deciders shows up in the hub, next to your agents.** Below them sits the
+  «◆ Deciders» row, with the active decision model where an agent shows its
+  engine (for example, "Jev"). With no model it says "new" for 7 days (from
+  the first time your hub shows it) and then "set up"; Enter takes you to
+  Engines → Decision models to connect one. With a model, Enter opens
+  Deciders and ← → switch the active model among the ready ones and "off"
+  (saved the same way as in Deciders → Settings). `0` opens it from the
+  hub's start, the way digits 1-9 open your agents. Turning the model on
+  doesn't turn on any use: you pick those in Deciders.
+
+**Fixes**
+- **A tab no longer reopens an old conversation after Claude Code forks it**
+  (for example, when you send the conversation to the background): the tab
+  moves to the new conversation and the hub reopens it there. If you use
+  `/fork` and keep writing in the original, the tab goes back to it. Tab
+  lists show a single row per tab, with the conversation it really opens.
+- **Memory tells finished work apart better.** A note told in the past tense
+  ("I tested…", "I fixed…", "I installed…") is marked «hecho» (done) with
+  more confidence, instead of staying a «nota».
+- **Review compares against what you asked for and doesn't believe what the
+  deliverable says about itself:** a report that says "all 8 uses are
+  verified" with two still pending no longer comes out "complete", and a
+  part you asked for that was left pending counts as missing. With long
+  reports it can still hesitate: it works best in "suggest".
+- **`workspace decidir` tells how long the model took to answer** (`ms`, the
+  same number History keeps); before, that value didn't come.
+
 ## 0.8.0 — 2026-11-07
 
 **New**

@@ -291,8 +291,11 @@ def merged_sessions(brain, socio, workspaces, session_dir=None, last_human=None,
     (`pestanas`, los `.md` del cerebro) enriquecido con lo per-máquina.
 
       • una sesión del cerebro AUSENTE del workspaces local SIGUE apareciendo
-        (id = el del workspaces local, el del store local o el `workspace:` del
-        frontmatter; None → 'sin iniciar' aquí);
+        (id = el atado en el store local, el del workspaces local o el
+        `workspace:` del frontmatter; None → 'sin iniciar' aquí);
+      • una pestaña = UNA fila con la conversación ATADA: el store local manda
+        (lo mueven ensure_tab, bind y el fork de Claude Code); el workspaces
+        local es su espejo y puede tener filas viejas con el mismo nombre;
       • sesiones v2: un workspace local SIN `.md` en el cerebro YA NO aparece
         (era de una sola máquina: pruebas viejas que en la otra no existen); el
         motor siembra el `.md` de toda pestaña que se abre (ensure_tab);
@@ -333,9 +336,12 @@ def merged_sessions(brain, socio, workspaces, session_dir=None, last_human=None,
         base = dict(ws_list[idx]) if idx is not None else {}
         slot = slots.get(bs["slug"]) if isinstance(slots.get(bs["slug"]), dict) else {}
         base["name"] = bs["name"]
-        # id: workspaces local → store local (pestaña abierta aquí con otro
-        # motor) → frontmatter → None
-        base.setdefault("id", (slot.get("claude-code") or wid or None))
+        # id: store local (lo atado aquí; sigue al fork) → workspaces local →
+        # frontmatter → None
+        if slot.get("claude-code"):
+            base["id"] = slot["claude-code"]
+        else:
+            base.setdefault("id", wid or None)
         base["_brain"] = True
         base["_slug"] = bs["slug"]
         base["_estado"] = bs["estado"]

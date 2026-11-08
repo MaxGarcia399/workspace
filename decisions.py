@@ -102,14 +102,20 @@ SPECS = {
     # el juez compara contra el PEDIDO (request): un «pendiente» que el
     # entregable declara fuera de lo pedido no lo vuelve incompleto (prueba
     # real 2026-11-07: un reporte completo salía «falta algo» por sus pendientes)
+    # …y no le cree al entregable lo que dice de sí mismo (prueba en la PC
+    # 2026-11-07: «los 8 usos están verificados» con 2 pendientes salía «completo»)
     "agents.review": {"label": "Revisar su trabajo",
-                      "question": "¿Se entregó todo lo que se pidió?",
+                      "question": ("¿Se entregó todo lo que se pidió? Compáralo parte por parte "
+                                   "contra el pedido y no le creas al entregable lo que dice de "
+                                   "sí mismo («todo verificado», «completo», «listo»): fíjate en "
+                                   "lo que de verdad entrega."),
                       "options": ["completo", "falta algo"],
                       "criteria": {
                           "completo": ("Trae todas las partes de lo que se PIDIÓ; lo que el "
                                        "entregable declara pendiente o fuera de alcance no "
                                        "cuenta en contra si no estaba en el pedido."),
-                          "falta algo": ("Le falta al menos una parte de lo que se PIDIÓ; lo que "
+                          "falta algo": ("Le falta al menos una parte de lo que se PIDIÓ (una "
+                                         "parte pedida que quedó pendiente también falta); lo que "
                                          "el entregable declara pendiente o fuera de alcance no "
                                          "cuenta si no estaba en el pedido.")}},
     "agents.prompt": {"label": "Mejor prompt",
@@ -122,14 +128,19 @@ SPECS = {
         "label": "Memoria",
         "question": "¿Qué tipo de nota de memoria es?",
         "options": ["decisión", "pendiente", "hecho", "nota", "dato", "preferencia"],
+        # «hecho» = lo que YA se hizo, contado en pasado (prueba en la PC
+        # 2026-11-07: un «hecho» obvio salía «nota» con 39-42 %)
         "criteria": {
             "decisión": "Se eligió o se acordó algo (decidimos, acordamos, usaremos, queda así).",
-            "pendiente": "Algo que todavía falta hacer, probar o revisar.",
-            "hecho": "Algo que ya quedó terminado, publicado o entregado.",
-            "nota": ("Una idea suelta, observación o duda: no es decisión, tarea, dato ni "
-                     "preferencia (podría, quizá, tal vez)."),
+            "pendiente": ("Algo que todavía falta hacer, probar o revisar (falta, hay que, queda "
+                          "por); no lo que ya se hizo."),
+            "hecho": ("Algo que ya se hizo o ya terminó, contado en pasado (probé, revisé, "
+                      "corregí, instalé, respaldé, quedó, se publicó, se entregó), aunque diga "
+                      "para qué fue o qué sigue."),
+            "nota": ("Una idea suelta, observación o duda: no es decisión, tarea, algo ya "
+                     "hecho, dato ni preferencia (podría, quizá, tal vez)."),
             "dato": ("Un hecho estable que sirve para todo el trabajo: horarios, direcciones, "
-                     "cifras, nombres de sistemas."),
+                     "cifras, nombres de sistemas; no lo que se hizo en la sesión."),
             "preferencia": ("Cómo le gusta al socio o al cliente que se hagan o se le entreguen "
                             "las cosas, dicho por él (prefiere, siempre, no le gusta)."),
         }},
@@ -1114,7 +1125,7 @@ def gate(point, context="", question=None, options=None, kind=None,
         v = {"mode": r["mode"], "choice": r["choice"], "p": r["p"],
              "p_known": bool(r.get("p_known", True)), "probs": r["probs"],
              "decider": r["decider"], "level": r["level"], "threshold": r["threshold"],
-             "id": r.get("id"), "point": point}
+             "id": r.get("id"), "point": point, "ms": r.get("ms")}
         v["message"] = message(v)
         return v
     except Exception:
@@ -1616,6 +1627,11 @@ def _agent_fail(point, code, message, decider=None, detail=None, mode="error", t
         out["point"] = point
     if decider:
         out["decider"] = decider
+    if elapsed_ms is not None:                   # lo que tardó el intento (= la bitácora)
+        try:
+            out["ms"] = int(elapsed_ms)
+        except (TypeError, ValueError):
+            pass
     return out
 
 
@@ -1720,8 +1736,11 @@ def _for_agent(point, question, options, context, timeout_ms, request):
         if det.get("breaker"):           # en pausa tras un fallo de red: ni se intentó
             out["error_detail"] = {"breaker": True, "retry_s": det.get("retry_s")}
         return out
+    # ms: lo que tardó el decisor — el MISMO número que la bitácora (antes no
+    # venía y quien leía el JSON veía ms: null)
     out = {"ok": True, "point": point, "mode": v["mode"], "decider": v["decider"],
-           "id": v["id"], "level": v["level"], "threshold": v["threshold"]}
+           "id": v["id"], "level": v["level"], "threshold": v["threshold"],
+           "ms": int(v["ms"]) if isinstance(v.get("ms"), (int, float)) else None}
     if v["mode"] == "observe":
         out.update(choice=None, p=None,
                    message=_t("decisores.agent.observe_only", "Anotado para medir. Decide tú como "

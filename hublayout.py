@@ -603,7 +603,7 @@ import unicodedata as _ud
 LZ_ROWS = 12          # filas de lista FIJAS (además de la línea de búsqueda)
 LZ_PAD = 2            # aire por lado dentro de la barra (+1 del borde = 3)
 _LZ_SUBS = ("tools", "latido", "idioma")      # secciones → grupos de front
-_LZ_SELECTABLE = ("agent", "sub", "opt", "pin", "lang", "extra")
+_LZ_SELECTABLE = ("agent", "sub", "opt", "pin", "lang", "extra", "deci")
 # El mapa de la memoria fue una fila de la raíz en la 0.5.0 y salió en la
 # 0.5.1 (pedido del dueño 2026-10-21: en la portada se confundía con los
 # agentes). Vive solo en Documentación: su primer renglón o la tecla m.
@@ -659,8 +659,8 @@ def _lz_sub_items(data, g):
     if g == "tools":
         # sin la letra de salto: en el lanzador las letras ESCRIBEN en la
         # búsqueda (regla «escribe primero») — pintarla engañaría
-        return [{"kind": "opt", "idx": j, "label": lbl, "dato": ""}
-                for j, (_tok, lbl) in enumerate(data.get("opts") or ())]
+        return [{"kind": "opt", "idx": j, "label": lbl, "dato": "", "tok": tok}
+                for j, (tok, lbl) in enumerate(data.get("opts") or ())]
     if g == "latido":
         return [{"kind": "pin", "idx": i, "label": _lz_pin_label(p),
                  "dato": str(p.get("value", ""))}
@@ -712,6 +712,7 @@ def lanzador_items(data, level=None, q=""):
     subs = [{"kind": "sub", "idx": g, "label": lanzador_sub_label(g),
              "dato": "›"} for g in lanzador_subs()]
     subs += _lz_extras(data)                     # al pie, debajo de Idioma
+    deci = _lz_deci(data)                        # Decisores: con los agentes, al final
     qn = _lz_norm(q)
     if level in _LZ_SUBS:
         its = _lz_sub_items(data, level)
@@ -725,12 +726,17 @@ def lanzador_items(data, level=None, q=""):
         if not ags:
             ags = [{"kind": "info", "label": _t(
                 "hub.lanzador.empty", "sin agentes — Menú › Agentes")}]
-        return ags + [{"kind": "sep"}] + subs
+        return ags + ([deci] if deci else []) + [{"kind": "sep"}] + subs
     out = [a for a in ags if qn in _lz_norm(a["label"])]
+    if deci and qn in _lz_norm(deci["label"]):  # como un agente
+        out.append(deci)
     out += [s for s in subs if qn in _lz_norm(s["label"])]
+    ya_deci = any(it.get("kind") == "deci" for it in out)
     for g in lanzador_subs():                    # búsqueda GLOBAL
         for it in _lz_sub_items(data, g):
             if qn in _lz_norm(it["label"]):
+                if ya_deci and it.get("tok") == "__decisores__":
+                    continue                     # ya está su botón: sin repetirlo
                 it["crumb"] = lanzador_sub_label(g)
                 out.append(it)
     if not out:
@@ -740,10 +746,14 @@ def lanzador_items(data, level=None, q=""):
 
 
 def lanzador_first(items):
-    """Índice del primer seleccionable (0 si no hay)."""
-    for i, it in enumerate(items):
-        if it.get("kind") in _LZ_SELECTABLE:
-            return i
+    """Índice del primer seleccionable (0 si no hay). En la raíz (la lista con
+    separador) la fila de Decisores no es la de arranque: sin agentes el
+    cursor sigue arrancando en Menú (ahí está «Agregar agente»)."""
+    raiz = any(it.get("kind") == "sep" for it in items)
+    for saltar in (("deci",) if raiz else (), ()):
+        for i, it in enumerate(items):
+            if it.get("kind") in _LZ_SELECTABLE and it.get("kind") not in saltar:
+                return i
     return 0
 
 
@@ -762,9 +772,13 @@ def lanzador_step(items, sel, step):
 
 def _lz_arrows(it):
     """True si la fila lleva ‹ › alrededor del motor (agente activo, sin miga
-    de búsqueda): ←→ lo cambian."""
-    return (it.get("kind") == "agent" and not it.get("off")
-            and not it.get("crumb"))
+    de búsqueda) o del modelo de Decisores (si hay entre cuáles elegir): ←→
+    lo cambian."""
+    if it.get("crumb"):
+        return False
+    if it.get("kind") == "deci":
+        return bool(it.get("ciclo"))
+    return it.get("kind") == "agent" and not it.get("off")
 
 
 def _lz_row_width(it):
@@ -775,9 +789,10 @@ def _lz_row_width(it):
     if it.get("kind") == "extra":                # _lz_row la recorta a ancho-4
         return 4 + vis(_sane(str(it["label"])))
     d = vis(_sane(str(it.get("dato") or "")))
-    if d and _lz_arrows(it):
+    if d and (_lz_arrows(it) or it.get("kind") == "deci"):
         d += 4                                   # «‹ » + « ›», apuntado o no
-    return 2 + vis(_sane(str(it["label"]))) + ((2 + d) if d else 0)
+    g = vis(_sane(str(it.get("glifo") or "")))
+    return 2 + (g + 1 if g else 0) + vis(_sane(str(it["label"]))) + ((2 + d) if d else 0)
 
 
 def _lz_row(it, on, ancho, K):
@@ -804,17 +819,26 @@ def _lz_row(it, on, ancho, K):
     tinta = (K["C"] + K["BO"]) if on else (K["DK"] if off else K["INACTIVE"])
     crumb = it.get("crumb")
     dato = _sane(str(crumb if crumb else (it.get("dato") or "")))
+    # Decisores: un glifo tenue antes del nombre (no se confunde con un agente)
+    glifo = _sane(str(it.get("glifo") or ""))
+    izq = 2 + (vis(glifo) + 1 if glifo else 0)
     # reserva para el dato: lo justo para un dato corto («›», «●»: 3 col) y
     # 4 para los largos, como siempre (la etiqueta manda). Un 4 fijo
     # recortaba «Personalización» en la caja más angosta (sin agentes).
     reserva = min(4, 2 + vis(dato)) if dato else 0
-    lab = clip(lab, max(1, ancho - 2 - reserva))
-    ln = "%s%s%s%s" % (cur, tinta, lab, K["R"])
+    lab = clip(lab, max(1, ancho - izq - reserva))
+    ln = "%s%s%s%s%s" % (cur, ("%s%s%s " % (K["DIM"], glifo, K["R"])) if glifo else "",
+                         tinta, lab, K["R"])
     if dato:
         flechas = _lz_arrows(it)
-        libre = ancho - 2 - vis(lab) - 2 - (4 if flechas else 0)
+        # la fila de Decisores guarda SIEMPRE el hueco de las flechas: su dato
+        # queda en la columna del motor de los agentes, haya o no qué elegir
+        hueco = flechas or (it.get("kind") == "deci" and not crumb)
+        libre = ancho - izq - vis(lab) - 2 - (4 if hueco else 0)
         dato = clip(dato, max(1, libre))
         dcol = K["DK"] if (crumb or off) else (K["B2"] if on else K["DIM"])
+        if it.get("dato_col") and not crumb:       # «nuevo» en acento, sin llave en rojo
+            dcol = "".join(K.get(x, "") for x in str(it["dato_col"]).split("+"))
         pinta = "%s%s%s" % (dcol, dato, K["R"])
         if flechas:
             # ‹ motor › solo en el apuntado (ahí ←→ lo cambian); los demás
@@ -822,8 +846,10 @@ def _lz_row(it, on, ancho, K):
             pinta = ("%s‹%s %s %s›%s" % (K["C"] + K["BO"], K["R"], pinta,
                                          K["C"] + K["BO"], K["R"])
                      if on else "  %s  " % pinta)
-        ln += " " * max(2, ancho - 2 - vis(lab) - vis(dato)
-                        - (4 if flechas else 0)) + pinta
+        elif hueco:
+            pinta = "  %s  " % pinta
+        ln += " " * max(2, ancho - izq - vis(lab) - vis(dato)
+                        - (4 if hueco else 0)) + pinta
     return ln
 
 
@@ -869,6 +895,43 @@ def lanzador_min_size(data=None):
         return lanzador_box_width(data) + 1, LZ_MIN_H
     except Exception:
         return 40, LZ_MIN_H
+
+
+# ── la fila de DECISORES (pedido del dueño 2026-11-07: «es el equivalente a
+# otros modelos, así que tiene que ir ahí») ───────────────────────────────────
+# La ÚLTIMA fila del área de los agentes (arriba del separador), como un par de
+# ellos: a la izquierda «◆ Decisores» (el glifo tenue la distingue de un
+# agente); a la derecha, donde un agente lleva su motor, el modelo de decisión
+# activo («‹ Jev ›» apuntada: ←→ lo cambia entre los LISTOS y «apagado»). Sin
+# modelo: «nuevo» (acento, sus primeros días) o «configurar». Enter, un click
+# o el 0 la abren (las letras escriben en la búsqueda y 1-9 son los agentes).
+# data["decisores"] = decision_visible.boton_hub().
+DECI_KEY = "0"
+DECI_SIM = "◆"
+
+
+def _lz_deci(data):
+    """La fila de Decisores para la raíz, o None (sin datos: Decisores no carga)."""
+    d = (data or {}).get("decisores")
+    if not isinstance(d, dict):
+        return None
+    it = {"kind": "deci", "idx": "decisores", "glifo": DECI_SIM,
+          "label": _t("hub.lanzador.tab.decisores", "Decisores")}
+    activo = str(d.get("activo") or "off")
+    listos = d.get("listos") or []
+    if activo != "off":
+        it["dato"] = clip(_sane(str(d.get("modelo") or activo)), 14)
+        if d.get("estado") == "sin_llave":
+            it["dato_col"] = "ERR"
+    elif listos:
+        it["dato"] = _t("hub.deci.off", "apagado")
+    elif d.get("nuevo"):
+        it["dato"] = _t("hub.deci.badge_new", "nuevo")
+        it["dato_col"] = "C+BO"
+    else:
+        it["dato"] = _t("hub.deci.setup", "configurar")
+    it["ciclo"] = bool(listos) or activo != "off"    # hay entre cuáles elegir con ←→
+    return it
 
 
 def render_lanzador(data, view, K, w):

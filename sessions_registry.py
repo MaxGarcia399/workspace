@@ -776,6 +776,15 @@ def unbind(brain, agent, name, engine, rid):
         return False
 
 
+def _owner_in(data, brain, engine, rid, skip=""):
+    """owner() sobre un store ya cargado (dentro del candado)."""
+    tabs_ = ((data.get("map") or {}).get(_brain_key(brain)) or {})
+    for sl, slot in tabs_.items():
+        if sl != skip and isinstance(slot, dict) and slot.get(engine) == rid:
+            return sl
+    return ""
+
+
 def owner(brain, engine, rid, exclude=None):
     """Slug de la pestaña de este cerebro que ya tiene atado `rid` en `engine`
     ('' si ninguna). `exclude` = nombre de la pestaña que pregunta. El atado
@@ -785,13 +794,125 @@ def owner(brain, engine, rid, exclude=None):
         return ""
     skip = _slug(exclude) if exclude else ""
     try:
-        tabs_ = (_local_load()["map"].get(_brain_key(brain)) or {})
-        for sl, slot in tabs_.items():
-            if sl != skip and isinstance(slot, dict) and slot.get(engine) == rid:
-                return sl
+        return _owner_in(_local_load(), brain, engine, rid, skip)
     except Exception:
-        pass
-    return ""
+        return ""
+
+
+# ── Claude Code: la pestaña sigue a su conversación bifurcada ───────────────
+#: El único motor cuyo SessionStart llega con source «fork» (/fork, /branch,
+#: mover la conversación al fondo, --fork-session). Los envueltos arrancan
+#: siempre con «startup» (interactive.py) y `codex fork` no se ata.
+_FORK_ENGINE = "claude-code"
+
+
+def _espejar_id(brain, agent, name, antes, nuevo):
+    """El espejo `.claude/<agente>-workspaces.json` sigue al store: la fila de
+    la pestaña cambia de `antes` a `nuevo` (la que tenía `antes` o, si
+    ninguna, la primera con su nombre). Jamás agrega una fila: una pestaña es
+    una fila en el picker, el panel y el chat del dev panel."""
+    if not agent:
+        return False
+    try:
+        path = _ws_path(brain, agent)
+        ws = _read_json(path, [])
+        sl = _slug(name)
+        mias = [w for w in ws if isinstance(w, dict) and _slug(w.get("name", "")) == sl]
+        if not mias or any(w.get("id") == nuevo for w in mias):
+            return False
+        w = next((w for w in mias if w.get("id") == antes), mias[0])
+        w["id"] = nuevo
+        w["updated"] = _now()
+        return _atomic_write(path, ws)
+    except Exception:
+        return False
+
+
+def seguir_fork(brain, agent, name, rid):
+    """Claude Code abrió la conversación `rid` bifurcando la de la pestaña
+    `name` (SessionStart con source «fork»). Sin esto la pestaña seguía atada
+    a la madre y el hub la reabría vieja. El payload del fork NO trae el id de
+    la madre (doc del motor y caja negra), así que el compare-and-set es
+    contra lo que la pestaña tiene atado HOY, bajo el candado del store:
+
+      · la pestaña sin atado de Claude Code aquí → nada (no se crea nada);
+      · `rid` ya atado a OTRA pestaña → nada (jamás se roba);
+      · si no, la pestaña pasa a `rid`, queda anotado el par (madre, hija)
+        para reclamar_fork, y el espejo workspaces.json cambia ese id.
+
+    True si la pestaña quedó en `rid`. Falla-suave → False."""
+    rid = str(rid or "").strip()
+    sl = _slug(name)
+    if not rid or not sl:
+        return False
+    try:
+        from olock import file_lock
+        with file_lock(local_store_path(), timeout=5):
+            data = _local_load()
+            slot = _local_slot(data, brain, sl)
+            antes = str((slot or {}).get(_FORK_ENGINE) or "")
+            if not antes:
+                return False
+            if antes == rid:
+                return True
+            if _owner_in(data, brain, _FORK_ENGINE, rid, sl):
+                return False
+            slot[_FORK_ENGINE] = rid
+            forks = data.get("forks") if isinstance(data.get("forks"), dict) else {}
+            data["forks"] = forks
+            bk = _brain_key(brain)
+            mias = forks.get(bk) if isinstance(forks.get(bk), dict) else {}
+            forks[bk] = mias
+            mias[sl] = {"madre": antes, "hija": rid, "desde": _now()}
+            if not _local_save(data):
+                return False
+    except Exception:
+        return False
+    _espejar_id(brain, agent, name, antes, rid)
+    return True
+
+
+def _otra_mitad(data, brain, sl, sid):
+    """El id atado hoy a la pestaña `sl` si es la OTRA mitad del último fork
+    de esa pestaña y `sid` es la suya; '' si no aplica."""
+    rec = (((data.get("forks") or {}).get(_brain_key(brain)) or {}).get(sl))
+    if not isinstance(rec, dict):
+        return ""
+    par = {str(rec.get("madre") or ""), str(rec.get("hija") or "")}
+    actual = str((_local_slot(data, brain, sl) or {}).get(_FORK_ENGINE) or "")
+    if "" in par or len(par) != 2 or sid not in par or actual not in par or actual == sid:
+        return ""
+    return actual
+
+
+def reclamar_fork(brain, agent, name, sid):
+    """El socio le escribió a la conversación `sid` de la pestaña `name`
+    (UserPromptSubmit). Con /fork la copia corre al fondo y la ORIGINAL sigue
+    en la terminal: si el socio sigue en una mitad del par, la pestaña vuelve
+    a ella (reabre la que usó al último). Solo entre la madre y la hija del
+    último fork de ESA pestaña, compare-and-set (la pestaña debe estar en la
+    otra mitad) y sin robar. Sin par anotado no toma el candado. True si
+    cambió. Falla-suave → False."""
+    sid = str(sid or "").strip()
+    sl = _slug(name)
+    if not sid or not sl:
+        return False
+    try:
+        if not _otra_mitad(_local_load(), brain, sl, sid):
+            return False
+        from olock import file_lock
+        with file_lock(local_store_path(), timeout=5):
+            data = _local_load()
+            actual = _otra_mitad(data, brain, sl, sid)
+            if not actual or _owner_in(data, brain, _FORK_ENGINE, sid, sl):
+                return False
+            _local_slot(data, brain, sl)[_FORK_ENGINE] = sid
+            if not _local_save(data):
+                return False
+    except Exception:
+        return False
+    _espejar_id(brain, agent, name, actual, sid)
+    return True
 
 
 def engines_used(brain):

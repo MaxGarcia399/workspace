@@ -233,6 +233,26 @@ def _abrir_motores():
     return motores_tui.run()
 
 
+def _abrir_modelos():
+    """La fila de Decisores sin modelo: directo a Motores → Modelos de
+    decisión (ahí se conecta uno). Si no carga, la puerta de Motores."""
+    try:
+        import modelos_tui
+    except Exception:
+        return _abrir_motores()
+    return modelos_tui.run()
+
+
+def _decisores_hub():
+    """Los datos de la fila de Decisores de la portada (decision_visible.
+    boton_hub). Falla-suave: si Decisores no carga, sin fila (None)."""
+    try:
+        import decision_visible
+        return decision_visible.boton_hub()
+    except Exception:
+        return None
+
+
 def _maquina_terminal(tok):
     """Loopback de «otra máquina» fuera de iTerm2: corre su comando en esta
     terminal y, al cerrarse, el hub vuelve (con aviso si algo falló)."""
@@ -2070,6 +2090,10 @@ def _menu_machinery(tout):
         _extras = _maquinas_hub()            # «otra máquina» (solo dev)
         if _extras:
             _LDATA["extras"] = _extras
+        _deci = _decisores_hub()             # la fila de Decisores (con los agentes)
+        if _deci:
+            _LDATA["decisores"] = _deci
+            _JUMP_SET.add(_hlz.DECI_KEY)     # el 0 la abre, como 1-9 a los agentes
 
     def _lay_lines():
         """Líneas del hub según el layout activo (contrato de hublayout:
@@ -2089,6 +2113,46 @@ def _menu_machinery(tout):
         lines = _laybox["lay"]["render"](_LDATA, view, _LAYP, S["term_w"])
         S["hit"] = tuple(view.get("hit") or ())
         return lines
+
+    def _deci_abrir():
+        """La fila de Decisores: con un modelo activo o listo abre Decisores;
+        sin ninguno, Motores → Modelos de decisión (donde se conecta uno)."""
+        d = (_LDATA or {}).get("decisores") or {}
+        S["msg"] = ""; S["hb_msg"] = ""
+        return "__decisores__" if d.get("configurado") else "__modelos__"
+
+    def _deci_ciclo(step=1):
+        """←→ en la fila de Decisores: el modelo de decisión activo pasa al
+        siguiente de los LISTOS y «apagado» — como ←→ cambia el motor de un
+        agente — y se guarda igual que en Decisores → Ajustes
+        (decisions.set_global_model). Sin ninguno listo, un aviso de dónde se
+        conecta. Falla-suave: un tropiezo deja el aviso y el hub sigue."""
+        d = (_LDATA or {}).get("decisores") or {}
+        S["hb_msg"] = ""
+        opciones = [did for did, _nom in (d.get("listos") or [])] + ["off"]
+        actual = str(d.get("activo") or "off")
+        if opciones == ["off"] and actual == "off":
+            S["msg"] = _t("hub.deci.none_ready", "conecta un modelo en Motores → "
+                          "Modelos de decisión (Enter)")
+            return
+        i = opciones.index(actual) if actual in opciones else (-1 if step > 0 else 0)
+        nuevo = opciones[(i + step) % len(opciones)]
+        try:
+            import decisions as _dc
+            _dc.set_global_model(nuevo)
+            nombre = (_t("decisores.model.off", "Apagado") if nuevo == "off"
+                      else _dc.decider_label(nuevo))
+        except Exception as e:
+            S["msg"] = _t("hub.engine.change_fail", "no pude cambiar el motor: {err}",
+                          err="%s: %s" % (type(e).__name__, e))
+            return
+        nuevo_d = _decisores_hub()
+        if nuevo_d and _LDATA is not None:
+            _LDATA["decisores"] = nuevo_d
+        S["msg"] = "✓ " + _t("decisores.msg.saved", "{name}: {value} · guardado",
+                             name=_t("hub.lanzador.tab.decisores", "Decisores"), value=nombre)
+        if nuevo != "off" and not (nuevo_d or {}).get("usos"):
+            S["msg"] += " · " + _t("hub.deci.uses_hint", "elige sus usos en Decisores (Enter)")
 
     def cycle_pin():
         """Enter/espacio en CONFIGS: CICLA el valor del pin ENFOCADO
@@ -2383,6 +2447,8 @@ def _menu_machinery(tout):
         _JUMP_SET.clear(); _JUMP_SET.update(JUMP)
         if _LDATA is not None:
             _LDATA["motor"] = _motor_summary(agents)
+            if _LDATA.get("decisores"):
+                _JUMP_SET.add(_hlz.DECI_KEY)
         if cur and cur not in names:
             S["msg"] = _t("hub.agent.gone", "{name} ya no está registrado "
                           "(cambió desde otra ventana)", name=cur)
@@ -2468,6 +2534,8 @@ def _menu_machinery(tout):
             tok, aviso = _maquina_elegir(str(it.get("token") or ""))
             S["msg"] = aviso
             return tok
+        if k == "deci":                      # la fila de Decisores
+            return _deci_abrir()
         if k not in ("agent", "opt", "pin", "lang"):
             return None
         _lz_point(it)
@@ -2543,6 +2611,8 @@ def _menu_machinery(tout):
             if it.get("kind") == "agent":        # ‹ motor › — ← = el anterior
                 _lz_point(it)
                 cycle_engine(-1)
+            elif it.get("kind") == "deci":       # ‹ modelo › de Decisores
+                _deci_ciclo(-1)
             else:
                 back()
         elif d == "right":
@@ -2552,6 +2622,8 @@ def _menu_machinery(tout):
             elif it.get("kind") == "agent":      # → = el siguiente motor
                 _lz_point(it)
                 cycle_engine()
+            elif it.get("kind") == "deci":
+                _deci_ciclo(+1)
 
     def nav(d):
         """Flechas — misma semántica en ambas plataformas: ↑↓ sube/baja de
@@ -2685,7 +2757,11 @@ def _menu_machinery(tout):
         apuntado aplican ←→ motor, Tab información y Enter); la MISMA cifra
         otra vez = lanzarlo (confirmar repitiendo — sigue siendo
         instantáneo: «11» abre el agente 1). Devuelve el nombre a lanzar, o
-        None (apuntado/sin ítem)."""
+        None (apuntado/sin ítem). El 0 abre la fila de Decisores (con la
+        búsqueda vacía; buscando, el 0 escribe)."""
+        if (_hlz is not None and ch == _hlz.DECI_KEY and _lz()
+                and (_LDATA or {}).get("decisores") and not S.get("lz_q")):
+            return _deci_abrir()
         t = JUMP.get(ch)
         if t is None or S.get("narrow"):
             return None
@@ -2795,6 +2871,7 @@ def _menu_machinery(tout):
                                  gsize=gsize, full_draw=full_draw, redraw=redraw,
                                  tick=tick, nav=nav, activate=activate, space=space,
                                  tab=tab, back=back, lz_key=lz_key,
+                                 lz_items=_lz_items,
                                  cycle_engine=cycle_engine, jump=jump,
                                  click=click, jkeys=JKEYS,
                                  jump_set=_JUMP_SET)
@@ -6658,6 +6735,10 @@ def main():
                                      "usuarios_tui"),
                     "__decisores__": (_t("menu.decisores.label", "Decisores").lower(),
                                       "decisores_tui"),
+                    # la fila de Decisores sin modelo: directo a Motores →
+                    # Modelos de decisión (2026-11-07)
+                    "__modelos__": (_t("motores.menu.deciders", "Modelos de decisión").lower(),
+                                    _abrir_modelos),
                     "__docs__": (_t("menu.docs.label", "Documentación").lower(),
                                  "docs_tui"),
                     # Calendario, Tono y Actualizaciones también REGRESAN al

@@ -70,7 +70,9 @@ permissions are yours alone and don't inherit the folder's) and, once it grows p
 copy is kept and a new one starts. It never leaves your machine. With a use turned on, Deciders also keeps in
 `~/.claude/workspace/decisores/` your last session's line until you see it and, for each session,
 a fingerprint (not the text) of the instructions the agent received; they never leave your
-machine either.
+machine either. Even with Deciders off, the hub notes in
+`~/.claude/workspace/hub-novedades.json` only the date it first showed you the "new" on its row,
+to remove it after 7 days.
 
 ## Credentials
 

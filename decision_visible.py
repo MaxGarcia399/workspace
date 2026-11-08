@@ -656,3 +656,91 @@ def desde_tu_ultimo_mensaje(sesion):
         return "\n".join(out)
     except Exception:
         return ""
+
+
+# ── la fila de Decisores en la portada del hub (en el área de los agentes) ──
+# Lo ÚNICO de este módulo que existe con Decisores apagado: sin modelo, la fila
+# invita a configurarlo («nuevo» durante NUEVO_DIAS desde la primera vez que
+# este hub lo mostró; después «configurar», sin preguntar). La fecha se anota
+# fuera de `decisores/` (no es estado de Decisores: es lo que el hub ya le
+# enseñó al socio). Quien ya usó Decisores nunca ve el «nuevo».
+NUEVO_DIAS = 7
+
+
+def _novedades_path():
+    import paths
+    return os.path.join(paths.state_dir(), "hub-novedades.json")
+
+
+def _ya_los_conoce():
+    """¿El socio ya usó Decisores? Lo que dejó al usarlos: la bitácora o un
+    ajuste suyo de Decisores."""
+    try:
+        if os.path.exists(_D().ledger_path()):
+            return True
+    except Exception:
+        pass
+    try:
+        import settings
+        crudo = settings._load_store().get("settings") or {}
+        return any(str(k).startswith("decisions.") for k in crudo)
+    except Exception:
+        return False
+
+
+def _nuevo_vigente(ahora):
+    """¿Va el «nuevo»? NUEVO_DIAS desde la PRIMERA vez que este hub lo mostró
+    (la primera llamada anota la hora; un reloj que volvió atrás la reinicia).
+    Falla-suave → False."""
+    try:
+        if _ya_los_conoce():
+            return False
+        path = _novedades_path()
+        d = _leer_json(path) or {}
+        try:
+            desde = float(d.get("decisores_desde"))
+        except (TypeError, ValueError):
+            desde = None
+        if desde is None or desde > ahora:
+            d["decisores_desde"] = round(ahora, 3)
+            _escribir(path, json.dumps(d, ensure_ascii=False))
+            desde = ahora
+        return (ahora - desde) < NUEVO_DIAS * 86400
+    except Exception:
+        return False
+
+
+def boton_hub(ahora=None):
+    """Los datos de la fila de Decisores de la portada:
+        {"activo": id del modelo general u «off», "modelo": su nombre (META
+         label, jamás uno fijo), "estado": listo · sin_llave · pausa ('' sin
+         modelo), "listos": [(id, nombre)] de los modelos LISTOS que se ven
+         (←→ cicla entre ellos y «apagado»), "configurado": hay modelo activo
+         o alguno listo, "nuevo": el «nuevo» va (sin nada configurado), "usos"}
+    `ahora` (epoch) es para las pruebas. None si Decisores no carga (sin fila)."""
+    try:
+        D = _D()
+        ahora = time.time() if ahora is None else float(ahora)
+        g = D.global_model()
+        usos = sum(1 for p in D.POINT_IDS if D.point_conf(p)["level"] != "off")
+        listos = []
+        for did in D.offered():
+            try:
+                if D.decider_status(did).get("ready"):
+                    listos.append((did, D.decider_label(did)))
+            except Exception:
+                pass
+        if g == D.OFF:
+            return {"activo": D.OFF, "modelo": "", "estado": "", "listos": listos,
+                    "configurado": bool(listos), "usos": usos,
+                    "nuevo": (not listos) and _nuevo_vigente(ahora)}
+        if D.key_env(g) and not D.key_source(g):
+            estado = "sin_llave"
+        elif D.breaker_open(g):
+            estado = "pausa"
+        else:
+            estado = "listo"
+        return {"activo": g, "modelo": D.decider_label(g), "estado": estado, "listos": listos,
+                "configurado": True, "nuevo": False, "usos": usos}
+    except Exception:
+        return None

@@ -156,4 +156,11 @@ STRINGS = {
     # vista estática (ui.anim apagado): la lista en la caja del lanzador
     'hub.static.hint.direct': 'directo',
     'hub.layout.lanzador': 'Lanzador — agentes al centro, mínimo',
+    # la fila de Decisores, la última del área de los agentes (hublayout._lz_deci)
+    'hub.lanzador.tab.decisores': 'Decisores',
+    'hub.deci.badge_new': 'nuevo',
+    'hub.deci.setup': 'configurar',
+    'hub.deci.off': 'apagado',
+    'hub.deci.none_ready': 'conecta un modelo en Motores → Modelos de decisión (Enter)',
+    'hub.deci.uses_hint': 'elige sus usos en Decisores (Enter)',
 }

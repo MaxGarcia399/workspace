@@ -124,6 +124,39 @@ def _eco_de_otro_motor(event, data):
     return event in events.ECO_DESCARTADO and events.eco_de_otro_motor(data)
 
 
+def _pestana_sigue_conversacion(event, data):
+    """La pestaña de Workspace sigue a SU conversación de Claude Code: un
+    SessionStart con source «fork» (/fork, /branch, mover al fondo,
+    --fork-session) la ata a la conversación nueva; un mensaje del socio a la
+    otra mitad de ese fork la devuelve (sessions_registry.seguir_fork /
+    reclamar_fork). Solo con la pestaña en el entorno (WORKSPACE_WS/ZENITH_WS)
+    y jamás en las sesiones de fondo de Workspace, que heredan la pestaña de
+    quien las lanzó. «compact», «resume», «startup» y «clear» no tocan nada.
+    Falla-suave total."""
+    try:
+        if event not in ("session_start", "user_prompt") or data.get("engine"):
+            return
+        if os.environ.get("WORKSPACE_REVIEW_RUNNING"):
+            return
+        if event == "session_start" and str(data.get("source") or "") != "fork":
+            return
+        tab = (os.environ.get("WORKSPACE_WS") or os.environ.get("ZENITH_WS") or "").strip()
+        sid = str(data.get("session_id") or "").strip()
+        if not tab or not sid:
+            return
+        brain = os.environ.get("WORKSPACE_BRAIN") or ""
+        if not os.path.isdir(brain):        # el del lanzador = la llave del store
+            brain = neutral_hooks._resolve_brain(data)
+        agent = os.environ.get("WORKSPACE_AGENT_NAME", "").strip()
+        import sessions_registry
+        if event == "session_start":
+            sessions_registry.seguir_fork(brain, agent, tab, sid)
+        else:
+            sessions_registry.reclamar_fork(brain, agent, tab, sid)
+    except Exception:
+        pass
+
+
 def main():
     if len(sys.argv) < 2:
         return
@@ -137,6 +170,7 @@ def main():
         return                              # Cursor corre los hooks de Claude Code
     if _eco_de_otro_motor(event, data):
         return                              # inicio/cierre los emite el wrapper del motor
+    _pestana_sigue_conversacion(event, data)
     res = neutral_hooks.run_event(event, data, raw=raw,
                                   behaviors=neutral_hooks.CLAUDE_CODE_PARITY)
 

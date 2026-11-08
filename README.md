@@ -113,17 +113,12 @@ Después, escribe `workspace`, crea o carga un agente y abre una pestaña. Si al
 
 Las actualizaciones son automáticas por defecto. Puedes cambiarlas a solo avisar o apagarlas desde Actualizaciones. `workspace update` actualiza cuando tú quieras y `workspace update --rollback` vuelve a la anterior. Los ajustes que una actualización deba hacer en el cerebro llevan respaldo. [Cómo funcionan las actualizaciones](manual/es/actualizaciones.md).
 
-### Novedades de la v0.8.0
+### Novedades de la v0.8.1
 
-- Decisores, una sección nueva que viene apagada: un modelo que no conversa, solo elige entre opciones fijas y dice qué tan seguro está. Hoy el único es Jev (TypeSafe, en la nube); se conecta una sola vez en Motores → Modelos de decisión, con tu llave.
-- Cada uso se enciende aparte y con su nivel (observa, sugiere o decide): en Workspace (el tipo de una nota, cómo terminó una sesión, si amerita una skill, el riesgo de lo que un agente escribió en Claude Code) y para tus agentes (elegir, revisar, la mejor instrucción, repartir trabajo).
-- Seguridad solo puede subir el riesgo, nunca bajarlo, y juzga solo el código: antes de preguntarle se le quitan los comentarios y docstrings. Revisar recibe aparte lo que pediste. Skills en «decide» ya no espera las 2 horas entre revisiones cuando el modelo está seguro (en tu umbral o más).
-- Cuando el modelo de decisión interviene, el agente te lo dice en el chat con un bloque ◆ al final de su respuesta: qué modelo fue, qué hizo, qué tan seguro estaba y si se aplicó o solo se sugirió.
-- Ves lo que hace: una línea cada vez que un agente le pregunta, una al abrir con lo que opinó de tu última sesión, el Historial con qué cambió y cuántas hubo hoy, y la cuenta del día en la barra de estado. En Claude Code, además, la línea de Seguridad en la conversación, y en tu siguiente mensaje el agente se entera de lo que no vio en su turno y de un uso que cambiaste a media sesión.
-- Preguntar lo prueba a mano con el contexto que elijas y te dice antes cuántos tokens lleva (contando lo fijo de cada pregunta) y un costo aproximado; Historial muestra qué se preguntó y qué respondió.
-- Con un uso encendido, a TypeSafe salen la pregunta, sus opciones y un contexto mínimo, sin llaves, contraseñas ni tokens (JWT incluidos); con todo apagado no sale nada y tus agentes ven lo mismo que antes.
-- En Windows, la bóveda con tus llaves (y los archivos locales de Decisores) ahora solo los lee tu usuario; la bóveda heredaba los permisos de la carpeta.
-- En Windows, Ctrl+C dentro de una sección del hub vuelve al menú en vez de cerrarlo.
+- Decisores aparece en el hub, debajo de tus agentes: a la derecha, el modelo de decisión activo; sin modelo, «nuevo» sus primeros 7 días y después «configurar». ← → cambian el modelo activo, y Enter o el `0` lo abren.
+- Una pestaña ya no reabre una conversación vieja después de que Claude Code la bifurca (por ejemplo, al mandarla al fondo).
+- Memoria marca mejor como «hecho» lo que ya terminaste, y Revisar compara contra lo que pediste sin creerle al entregable lo que dice de sí mismo.
+- `workspace decidir` dice cuánto tardó el modelo en responder.
 
 ### Historial resumido
 
@@ -131,6 +126,7 @@ Lo que fuimos añadiendo y corrigiendo, de lo más reciente al inicio del proyec
 
 | Versión | Lo que se añadió o cambió | Lo que se corrigió |
 |---|---|---|
+| 0.8.0 | Decisores, una sección nueva que viene apagada: un modelo que elige entre opciones fijas (hoy Jev, en la nube), cada uso con su nivel | En Windows: la bóveda con tus llaves solo la lee tu usuario y Ctrl+C dentro de una sección vuelve al menú |
 | 0.7.0 | Registro local de cómo trabajan tus agentes (números de cada sesión, nunca la conversación) y `workspace metricas` | En Windows: la sesión de GitHub Copilot, rutas con acentos o «ñ», barras vacías y cierres simultáneos; Copilot ya no repite el inicio y el cierre |
 | 0.6.0 | Tres motores nuevos (GitHub Copilot, Cursor y Kiro), pestañas iguales en todas tus máquinas y archivar pestañas | Retomar Codex y Hermes 0.22.5, la maleta de Claude Code tras un cierre de golpe e instalar motores en Windows con Defender |
 | 0.5.1 | El mapa de memoria pasa a Documentación; las skills que aprende Hermes se guardan en el cerebro | Memoria entre pestañas, integración con Hermes y OpenClaw, y el cursor de la portada sin agentes |
@@ -255,17 +251,12 @@ Then enter `workspace`, create or load an agent and open a tab. If something fai
 
 Updates are automatic by default. Choose notify-only or turn them off in Updates. `workspace update` updates on demand and `workspace update --rollback` returns to the previous version. Changes an update needs to make inside a brain are backed up first. [How updates work](manual/en/updates.md).
 
-### What's new in v0.8.0
+### What's new in v0.8.1
 
-- Deciders, a new section that comes switched off: a model that does not chat, it only picks among fixed options and says how sure it is. Today the only one is Jev (TypeSafe, in the cloud); you connect it once in Engines → Decision models, with your key.
-- Each use is turned on separately and with its level (observe, suggest or decide): in Workspace (a note's type, how a session ended, whether it deserves a skill, the risk of what an agent wrote in Claude Code) and for your agents (choose, review, the best instruction, split work).
-- Security can only raise the risk, never lower it, and judges only the code: comments and docstrings are removed before asking it. Review gets what you asked for separately. Skills in "decide" no longer waits 2 hours between reviews when the model is sure (at your threshold or above).
-- When the decision model steps in, the agent tells you in the chat with a ◆ block at the end of its reply: which model it was, what it did, how sure it was and whether it was applied or only suggested.
-- You see what it does: a line every time an agent asks it, one at open with what it thought of your last session, History with what changed and how many there were today, and the day's count in the status bar. In Claude Code, also the Security line in the conversation, and with your next message the agent learns what it didn't see in its turn and about a use you changed mid-session.
-- Ask tries it by hand with the context you choose and tells you beforehand how many tokens it carries (counting each question's fixed part) and an approximate cost; History shows what was asked and what it answered.
-- With a use turned on, the question, its options and minimal context go to TypeSafe, without keys, passwords or tokens (JWTs included); with everything off nothing leaves and your agents see the same as before.
-- On Windows, the vault with your keys (and Deciders' local files) can now be read only by your user; the vault used to inherit the folder's permissions.
-- On Windows, Ctrl+C inside a hub section goes back to the menu instead of closing it.
+- Deciders appears in the hub, below your agents: on the right, the active decision model; with no model, "new" for its first 7 days and then "set up". ← → switch the active model, and Enter or `0` opens it.
+- A tab no longer reopens an old conversation after Claude Code forks it (for example, when you send it to the background).
+- Memory better marks what you finished as «hecho» (done), and Review compares against what you asked for without believing what the deliverable says about itself.
+- `workspace decidir` tells how long the model took to answer.
 
 ### Release history at a glance
 
@@ -273,6 +264,7 @@ What we added and fixed, from recent releases back to the start. These describe 
 
 | Version | Added or changed | Fixed |
 |---|---|---|
+| 0.8.0 | Deciders, a new section that comes switched off: a model that picks among fixed options (today Jev, in the cloud), each use with its level | On Windows: the vault with your keys can be read only by your user, and Ctrl+C inside a section goes back to the menu |
 | 0.7.0 | A local record of how your agents work (numbers for each session, never the conversation) and `workspace metrics` | On Windows: the GitHub Copilot session, paths with accents or «ñ», empty bars and simultaneous closes; Copilot no longer repeats session start and end |
 | 0.6.0 | Three new engines (GitHub Copilot, Cursor and Kiro), the same tabs on every machine and archiving tabs | Resuming Codex and Hermes 0.22.5, the Claude Code handoff after an abrupt close and installing engines on Windows with Defender |
 | 0.5.1 | The memory map moves to Documentation; skills Hermes learns are saved in the brain | Memory across tabs, Hermes and OpenClaw integration, and the front-page cursor with no agents |

@@ -218,7 +218,9 @@ chequeo en vivo). Las preguntas a mano de la sección usan el punto `manual`.
   --question "…" --options "a,b" [--option "…"]… [--context "…" | --context-file -]`
   (también `workspace decide`; `--context-file -` lee BYTES y decodifica UTF-8, sin el salto de
   línea del final que agregan `echo` y PowerShell) → JSON
-  `{ok, point, mode, choice, p, probs, decider, id, message, display}`. `request` (o
+  `{ok, point, mode, choice, p, probs, decider, id, ms, message, display}` (`ms` = lo que
+  tardó el decisor, el mismo número que la bitácora; también en un fallo que sí llegó a
+  intentarse). `request` (o
   `--request`) = el pedido: en `agents.review` lo que pidió el socio, con el entregable en
   `context` (sin el pedido el juez no sabe qué entraba en el alcance). `display` = una línea
   para el socio («◆ <modelo>: tabla · 87 % · sugerido» / «… · aplicado»; «◆ <modelo>: no respondió ·

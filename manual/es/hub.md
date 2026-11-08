@@ -5,6 +5,11 @@ entradas — **Menú**, **Personalización** e **Idioma**. Enter entra; el títu
 dónde estás (WORKSPACE › MENÚ) y Esc regresa. La caja tiene siempre el mismo tamaño: puedes
 achicar la ventana hasta que solo quepa ella.
 
+Debajo de tus agentes va **◆ Decisores**, con el modelo de decisión activo donde un agente lleva
+su motor («Jev»). Sin modelo dice «configurar» (sus primeros 7 días en esta máquina, «nuevo») y
+Enter te lleva a Motores → Modelos de decisión para conectar uno; con modelo, Enter abre Decisores.
+También se abre con el `0`.
+
 **Escribe para buscar.** Cualquier letra escribe en la búsqueda de arriba y la lista se filtra al
 instante, sin importar mayúsculas ni acentos. Desde el inicio la búsqueda encuentra también lo de
 dentro (por ejemplo «tema» → Personalización › tema).
@@ -22,12 +27,15 @@ La prueba tests/test_manual_compat.py falla si cambian. -->
 | letras | buscar |
 | ⌫ | borrar la última letra de la búsqueda |
 | `1` … `9` | con la búsqueda vacía: apuntar al agente con ese número; la misma tecla otra vez lo abre |
+| `0` | con la búsqueda vacía: abrir Decisores (o Motores → Modelos de decisión si aún no tienes modelo) |
 | `q` | con la búsqueda vacía: salir a tu terminal normal |
 
 ## Sobre el agente apuntado
 
 **← →** cambian su motor (`‹ motor ›`, se guarda en esta máquina; el próximo Enter ya lo usa) y
-**Tab** muestra en una línea su motor, dónde vive su cerebro y qué está haciendo.
+**Tab** muestra en una línea su motor, dónde vive su cerebro y qué está haciendo. En la fila de
+**◆ Decisores**, **← →** cambian el modelo de decisión activo entre los que están listos y
+«apagado» (`‹ Jev ›`, se guarda como en Decisores → Ajustes).
 
 ## Menú
 
@@ -56,5 +64,5 @@ demuestra y Esc te regresa a los capítulos.
 ## Las cifras
 
 Las cifras `1` … `9` siguen el orden de tus agentes en el hub: el primero es `1`, el segundo `2`,
-y así. Del décimo en adelante, usa las flechas o la búsqueda. Las letras escriben en la búsqueda
-y `q` sale a tu terminal.
+y así. Del décimo en adelante, usa las flechas o la búsqueda. El `0` abre Decisores. Las
+letras escriben en la búsqueda y `q` sale a tu terminal.
