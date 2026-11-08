@@ -234,7 +234,7 @@ STRINGS = {'engines.agent': 'Agente: {name} · a cambia · u asigna motor',
  'engines.word': 'MOTORES',
  'engines.yes': 'Registrada',
  'menu.engines.label': 'Motores',
- 'menu.engines.tag': 'estado, capacidades y conexiones',
+ 'menu.engines.tag': 'motores de agentes y modelos de decisión',
  'engines.path_added': 'PATH actualizado (+{n} carpetas de una terminal nueva)'}
 
 # ── engine_install: notas de receta y diagnósticos (pantalla Motores) ───────

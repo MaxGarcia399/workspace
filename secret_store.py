@@ -107,10 +107,24 @@ def valid_name(name):
     return bool(isinstance(name, str) and _NAME_RX.match(name))
 
 
+def _solo_mio(ruta, forzar=False):
+    """Windows: la bóveda solo para tu usuario (y SYSTEM), sin heredar la ACL
+    de la carpeta (QA 2026-11-07: `.claude` daba lectura a CodexSandboxUsers).
+    En Mac/Linux lo hace el 0600. Falla-suave (acl_privada avisa en el log)."""
+    try:
+        import acl_privada
+        return acl_privada.solo_mio(ruta) if forzar else acl_privada.asegurar(ruta)
+    except Exception:
+        return False
+
+
 def _read_raw():
     """{NOMBRE: valor} del archivo. Falla-suave → {}. Tolerante: ignora
-    líneas en blanco, comentarios (#) y líneas sin `=` o con nombre inválido."""
+    líneas en blanco, comentarios (#) y líneas sin `=` o con nombre inválido.
+    En Windows, la primera vez en el proceso aprieta su ACL (la de antes
+    heredaba la de la carpeta)."""
     out = {}
+    _solo_mio(store_path())
     try:
         with open(store_path(), encoding="utf-8") as fh:
             for line in fh:
@@ -152,6 +166,9 @@ def _write_raw(data):
     fd = os.open(tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY
                  | getattr(os, "O_BINARY", 0), 0o600)
     try:
+        # Windows: la ACL de solo-tú ANTES de escribir los secretos (el replace
+        # conserva la del tmp); en Mac/Linux ya nació 0600
+        _solo_mio(tmp, forzar=True)
         with os.fdopen(fd, "wb") as fh:
             fh.write(body.encode("utf-8"))
         os.replace(tmp, store_path())

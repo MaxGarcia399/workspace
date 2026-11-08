@@ -209,6 +209,45 @@ def _merge_session_start(outputs):
     return "\n\n".join(parts)
 
 
+def _merge_visible(outputs):
+    """Lo que los listeners quieren que el SOCIO vea (`systemMessage`, el
+    campo común de los hooks de Claude Code: una línea en la conversación,
+    no contexto del modelo). Hoy solo la línea ◆ de Decisores (security
+    guidance); sin eso, '' y la salida de siempre."""
+    parts = []
+    for o in outputs:
+        try:
+            d = json.loads(o)
+        except Exception:
+            continue
+        msg = d.get("systemMessage") if isinstance(d, dict) else None
+        if isinstance(msg, str) and msg.strip():
+            parts.append(msg.strip())
+    return "\n".join(parts)
+
+
+def _decisores_visible(event, data, brain):
+    """Decisores, lo que se ve (decision_visible): al ABRIR, la línea de base
+    para avisar si cambia a media sesión + la línea de la última sesión (una
+    vez); en CADA MENSAJE, la instrucción nueva si el socio movió los usos de
+    agentes (una vez). Apagado: '' y ni un archivo. Falla-suave."""
+    try:
+        import decision_visible as V
+        motor = str(data.get("engine") or "claude-code")
+        sesion = str(data.get("session_id") or "")
+        if event == "session_start":
+            V.al_abrir_sesion(sesion, motor)
+            return V.linea_ultima(brain, "agente") if brain else ""
+        if event == "user_prompt":
+            # la instrucción nueva si el socio movió Decisores, y lo que el
+            # agente no vio desde su último mensaje (cada cosa, UNA vez)
+            return "\n\n".join(x for x in (V.cambio_en_sesion(sesion, motor),
+                                            V.desde_tu_ultimo_mensaje(sesion)) if x)
+    except Exception:
+        pass
+    return ""
+
+
 def _merge_post_tool(outputs):
     """Funde N salidas PostToolUse en UN texto. Acepta el shape oficial
     (hookSpecificOutput.additionalContext) y el legacy {"type":"text"}."""
@@ -569,6 +608,12 @@ def run_event(event, payload=None, brain=None, behaviors=None, raw=None):
                                          retomada=(source == "resume"), entregar=True)
                     if pq:
                         parts.append(pq)
+                    else:
+                        # sin memoria de pestaña todavía: los decisores igual
+                        # se anuncian si el socio encendió un uso de agentes
+                        dec = memoria.instruccion_decisores("claude-code")
+                        if dec:
+                            parts.append(dec)
             except Exception:
                 pass
 
@@ -583,6 +628,15 @@ def run_event(event, payload=None, brain=None, behaviors=None, raw=None):
             # bajo la memoria en un AGENTS.md/GEMINI.md largo (motores sin
             # recordatorio por mensaje — el arranque es su única dosis)
             parts.insert(0, ctx)
+        visible = _merge_visible(outs) if event in _ADDITIVE else ""
+
+        # Decisores: la última sesión (al abrir) y el cambio a media sesión (en
+        # cada mensaje) — solo encendido; apagado no agrega nada
+        if "memory_context" in beh and event in ("session_start", "user_prompt"):
+            dec = _decisores_visible(event, data, b)
+            if dec:
+                parts.append(dec)
+                ran.append("decisores")
 
         if fresh and "inbox_on_boot" in beh:
             notice = inbox_notice(b)
@@ -605,7 +659,10 @@ def run_event(event, payload=None, brain=None, behaviors=None, raw=None):
             _status_behavior(event, data, b)
             ran.append("status")
 
-        return {"context": "\n\n".join(parts), "ran": ran}
+        res = {"context": "\n\n".join(parts), "ran": ran}
+        if visible:
+            res["visible"] = visible            # lo que ve el socio (systemMessage)
+        return res
     except Exception:
         return _empty()
 

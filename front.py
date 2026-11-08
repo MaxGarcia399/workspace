@@ -221,6 +221,18 @@ def _maquina_elegir(tok):
     return (tok if en_terminal else None), aviso
 
 
+def _abrir_motores():
+    """Motores: la puerta de dos cuadritos (motores_tui) y, si algún módulo
+    de Decisores no carga (import roto, archivo dañado), la pantalla de
+    motores de siempre — instalar y conectar un motor es esencial."""
+    try:
+        import motores_tui
+    except Exception:
+        import engines_tui
+        return engines_tui.run()
+    return motores_tui.run()
+
+
 def _maquina_terminal(tok):
     """Loopback de «otra máquina» fuera de iTerm2: corre su comando en esta
     terminal y, al cerrarse, el hub vuelve (con aviso si algo falló)."""
@@ -275,13 +287,17 @@ def menu_entries():
             # «Agentes» (2026-10-09): transparencia por agente — config,
             # cerebro real, skills, rutas y ciclo de vida (agents_tui).
             ("__motores__", _t("menu.engines.label", "Motores"),
-             _t("menu.engines.tag", "estado, capacidades y conexiones")),
+             _t("menu.engines.tag", "motores de agentes y modelos de decisión")),
             ("__agentes__", _t("menu.agents.label", "Agentes"),
              _t("menu.agents.tag", "cerebro, permisos y skills de cada agente")),
             # «Usuarios» (2026-10-17): quién usa cada agente, con cédula (ID
             # fijo); crear, renombrar, unir y «soy yo» solo desde aquí.
             ("__usuarios__", _t("menu.users.label", "Usuarios"),
              _t("menu.users.tag", "quién usa cada agente, en todas tus máquinas")),
+            # «Decisores» (2026-11-06): qué modelo elige entre opciones fijas
+            # y en qué usos ayuda (decisions.py + deciders/); todo apagado.
+            ("__decisores__", _t("menu.decisores.label", "Decisores"),
+             _t("menu.decisores.tag", "qué modelo decide y dónde ayuda")),
             # «Documentación» (2026-10-17): todo lo que hace Workspace, por
             # capítulos, con el dato real de esta PC y cómo comprobarlo
             # (docs_tui; el contenido vive en docs_hub).
@@ -6173,6 +6189,14 @@ def _own_help():
         import memoria
         memoria._parser().print_help()
 
+    def _decidir(args):                           # --stdin primero, con su ejemplo
+        try:
+            import decisions
+        except Exception:
+            return False                          # sin decisions.py: la ficha del catálogo
+        decisions._parser_cli().print_help()
+        return True
+
     def _agenda(args):                            # tareas [acción] · add · done · rm
         import personal
         txt = personal.cli_help(args)
@@ -6191,6 +6215,7 @@ def _own_help():
             "wf": fija(lambda: print(_WF_USAGE)),
             "eval": fija(lambda: print(_EVAL_USAGE)),
             "migrar-legado": fija(_migrar_legado), "memoria": fija(_memoria),
+            "decidir": _decidir,
             "agenda": _agenda, "agentes": _agentes}
 
 
@@ -6268,6 +6293,23 @@ def _run_module(modname, fn="main", pass_args=True):
     return _h
 
 
+def cmd_decidir(args):
+    """`workspace decidir`: la CLI de Decisores (decisions.cli). Si decisions.py
+    falta o no carga, NO un traceback: el JSON de siempre con error_code
+    «unavailable» y rc 2 (el agente decide como siempre)."""
+    try:
+        import decisions
+    except Exception as e:
+        sys.stdout.write(json.dumps({
+            "ok": False, "mode": "error", "error_code": "unavailable",
+            "error": _t("decisores.agent.unavailable", "Decisores no está disponible en este "
+                        "Workspace ({e})", e=type(e).__name__),
+            "message": _t("decisores.agent.decide_yourself", "decide tú como siempre.")},
+            ensure_ascii=False) + "\n")
+        return 2
+    return decisions.cli(args)
+
+
 def _dispatch_table():
     """{id del catálogo (comandos.py): handler(args) → exit code}. ÚNICA tabla
     de ruteo de front.main: los NOMBRES (ES/EN/alias, incluidos los viejos)
@@ -6321,6 +6363,8 @@ def _dispatch_table():
         # Delegación autónoma segura (bus automático v1, opt-in).
         "bus": lambda a: cmd_bus(a),
         "memoria": _run_module("memoria"),     # nota/ver/vigente/maleta + checkpoint/status
+        # Decisores (usos de agentes): pregunta y responde JSON (decisions.cli).
+        "decidir": lambda a: cmd_decidir(a),
         "sesiones": _run_module("sesiones"),   # lista/archivar/desarchivar (sesiones v2)
         "identidad": _run_module("identidad"), # ver/soy/deshacer (sesiones v2)
         # Pane derecho del split (panel.py; lo corre mux.right_pane_cmd()).
@@ -6604,10 +6648,16 @@ def main():
                                       "add_agent_tui"),
                     "__agentes__": (_t("menu.agents.label", "Agentes").lower(),
                                     "agents_tui"),
+                    # Motores (2026-11-06): dos cuadritos — motores de agentes
+                    # (engines_tui, igual que siempre) y modelos de decisión. Si
+                    # algo de Decisores no carga, la pantalla de motores de
+                    # siempre: instalar y entrar a un motor no depende de eso.
                     "__motores__": (_t("menu.engines.label", "Motores").lower(),
-                                    "engines_tui"),
+                                    _abrir_motores),
                     "__usuarios__": (_t("menu.users.label", "Usuarios").lower(),
                                      "usuarios_tui"),
+                    "__decisores__": (_t("menu.decisores.label", "Decisores").lower(),
+                                      "decisores_tui"),
                     "__docs__": (_t("menu.docs.label", "Documentación").lower(),
                                  "docs_tui"),
                     # Calendario, Tono y Actualizaciones también REGRESAN al
@@ -6636,6 +6686,14 @@ def main():
                 target()
             else:
                 __import__(target).run()
+        except KeyboardInterrupt:
+            # Ctrl+C en una sección: en Windows es una señal (no la tecla \x03
+            # que la sección ya trata como «salir»): de vuelta al hub, sin
+            # traceback. (Detrás de un .cmd, cmd.exe recibe la misma señal y
+            # pregunta «¿Desea terminar el trabajo por lotes?» cuando el hub
+            # sale: es del .cmd, no de Python.)
+            sys.stdout.write("\033[?25h\033[?1049l")
+            sys.stdout.flush()
         except Exception as e:
             print(f"{DIM}" + _t("cli.loopback_fail", "{what} no disponible "
                                  "({err}) — el menú sigue normal", what=label,

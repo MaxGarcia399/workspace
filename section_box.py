@@ -490,3 +490,211 @@ def render_blocks(Kp, blocks, iw):
         elif kind == "lines":
             out += list(b[1](iw))
     return [HL.clip(x, iw) for x in out]
+
+
+# ── teclas (los bucles de Decisores, Modelos de decisión y Motores) ─────────
+#: Secuencias CSI / SS3 que entienden estas pantallas.
+_SECUENCIAS = {b"[A": "up", b"[B": "down", b"[C": "right", b"[D": "left", b"[Z": "right_tab",
+               b"OA": "up", b"OB": "down", b"OC": "right", b"OD": "left"}
+
+
+class KeyReader:
+    """Lee teclas de una terminal en modo crudo, con su propio búfer:
+
+      · UTF-8 completo (acentos, ñ, ¿) aunque llegue partido;
+      · flechas y Shift-Tab (CSI «ESC [ …» y SS3 «ESC O …»); una secuencia
+        que no se entiende (p. ej. el pegado «ESC [200~») se descarta ENTERA;
+      · un Esc SOLO seguido de otra tecla en la misma lectura (Esc y luego
+        «v», tecleados rápido o mientras la pantalla iba atrasada) son DOS
+        teclas: "\\x1b" y luego la otra — nunca una secuencia perdida;
+      · pending(): ¿quedan teclas por leer? (para no redibujar a media
+        ráfaga: pegar 60 letras es UN dibujo, no 60).
+    `read` y `ready` se pueden cambiar (pruebas)."""
+
+    def __init__(self, fd, read=None, ready=None):
+        import os as _os
+        import select as _select
+        self.fd = fd
+        self.buf = b""
+        self._read = read or (lambda n: _os.read(fd, n))
+        self._ready = ready or (lambda t: bool(_select.select([fd], [], [], t)[0]))
+
+    def _fill(self, timeout):
+        if self._ready(timeout):
+            data = self._read(1024)
+            if data:
+                self.buf += data
+                return True
+        return False
+
+    def pending(self):
+        return bool(self.buf) or self._ready(0)
+
+    def get(self, timeout):
+        """La siguiente tecla, "" (secuencia que no aplica) o None (nada en
+        `timeout` segundos)."""
+        if not self.buf and not self._fill(timeout):
+            return None
+        b0 = self.buf[0]
+        if b0 == 0x1B:
+            if len(self.buf) == 1:
+                self._fill(0.04)                       # ¿viene el resto de una secuencia?
+            if len(self.buf) >= 2 and self.buf[1:2] in (b"[", b"O"):
+                i = 2
+                while True:
+                    if i >= len(self.buf) and not self._fill(0.04):
+                        break
+                    if i >= len(self.buf):
+                        break
+                    c = self.buf[i]
+                    if 0x40 <= c <= 0x7E and not (self.buf[1:2] == b"[" and c == 0x5B and i == 2):
+                        break
+                    i += 1
+                seq, self.buf = self.buf[1:i + 1], self.buf[i + 1:]
+                return _SECUENCIAS.get(bytes(seq), "")
+            self.buf = self.buf[1:]                    # Esc solo: su propia tecla
+            return "\x1b"
+        n = 1 if b0 < 0xC0 else 2 if b0 < 0xE0 else 3 if b0 < 0xF0 else 4
+        while len(self.buf) < n and self._fill(0.04):
+            pass
+        ch, self.buf = self.buf[:n].decode("utf-8", "replace"), self.buf[n:]
+        return "tab" if ch == "\t" else ch
+
+
+# ── teclas en Windows (consola o ConPTY por SSH) ─────────────────────────────
+#: Teclas virtuales que entienden estas pantallas.
+_VK = {0x26: "up", 0x28: "down", 0x25: "left", 0x27: "right"}
+_VK_TAB, _VK_MENU = 0x09, 0x12
+_SHIFT_PRESSED = 0x0010
+_KEY_EVENT = 0x0001
+
+
+def win_key_events(records):
+    """Las teclas de una lista de registros de consola (KEY_EVENT_RECORD como
+    tuplas (abajo, repeticiones, vk, carácter, estado)). Pura: la prueban
+    los tests sin Windows. Lo que msvcrt.getwch() pierde:
+
+      · ¿ ¡ « » € por SSH (ConPTY) llegan como Alt + teclado numérico y el
+        carácter viene SOLO al SOLTAR Alt (getwch ignora las teclas soltadas);
+      · Shift-Tab es Tab con SHIFT en el estado (getwch da «\\t» y ya);
+      · «à» es «\\xe0», el mismo prefijo de las flechas en getwch.
+    """
+    out, alto = [], None
+    for abajo, rep, vk, ch, estado in records:
+        ch = ch if ch and ch != "\x00" else ""
+        if abajo:
+            if vk in _VK:
+                out += [_VK[vk]] * max(1, rep)
+                continue
+            if vk == _VK_TAB:
+                out += ["right_tab" if estado & _SHIFT_PRESSED else "tab"] * max(1, rep)
+                continue
+            if not ch:
+                continue
+        elif not (vk == _VK_MENU and ch):           # soltar Alt con carácter: Alt+numpad
+            continue
+        o = ord(ch)
+        if 0xD800 <= o <= 0xDBFF:                    # emoji: mitad alta, espera la baja
+            alto = ch
+            continue
+        if 0xDC00 <= o <= 0xDFFF and alto:
+            ch, alto = (alto + ch).encode("utf-16", "surrogatepass").decode("utf-16"), None
+        out += [ch] * (max(1, rep) if abajo else 1)
+    return out
+
+
+class WinKeyReader:
+    """Lee la consola de Windows con ReadConsoleInputW (ver win_key_events);
+    si no se puede (sin ctypes o sin consola), cae a msvcrt.getwch() con el
+    caso «à» ≠ prefijo de flecha resuelto. get(timeout) → tecla, "" o None;
+    pending() → ¿hay más teclas ya esperando? (un dibujo por ráfaga)."""
+
+    def __init__(self):
+        self.queue = []
+        self.k32 = None
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class KEY(ctypes.Structure):
+                _fields_ = [("bKeyDown", wintypes.BOOL), ("wRepeatCount", wintypes.WORD),
+                            ("wVirtualKeyCode", wintypes.WORD), ("wVirtualScanCode", wintypes.WORD),
+                            ("uChar", wintypes.WCHAR), ("dwControlKeyState", wintypes.DWORD)]
+
+            class EVENT(ctypes.Union):
+                _fields_ = [("KeyEvent", KEY), ("_pad", ctypes.c_byte * 16)]
+
+            class RECORD(ctypes.Structure):
+                _fields_ = [("EventType", wintypes.WORD), ("Event", EVENT)]
+
+            k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            h = k32.GetStdHandle(wintypes.DWORD(-10 & 0xFFFFFFFF))
+            n = wintypes.DWORD()
+            if not k32.GetNumberOfConsoleInputEvents(h, ctypes.byref(n)):
+                raise OSError("no es una consola")
+            self.ctypes, self.wintypes, self.RECORD, self.k32, self.h = ctypes, wintypes, RECORD, k32, h
+        except Exception:
+            self.k32 = None
+
+    def _eventos(self):
+        if self.k32 is None:
+            return 0
+        n = self.wintypes.DWORD()
+        if not self.k32.GetNumberOfConsoleInputEvents(self.h, self.ctypes.byref(n)):
+            return 0
+        return n.value
+
+    def pending(self):
+        if self.queue:
+            return True
+        if self.k32 is None:
+            try:
+                import msvcrt
+                return bool(msvcrt.kbhit())
+            except Exception:
+                return False
+        return self._eventos() > 0
+
+    def _leer(self, timeout):
+        """Registros de la consola (espera hasta `timeout`)."""
+        if self.k32.WaitForSingleObject(self.h, int(max(0.0, timeout) * 1000)) != 0:
+            return None
+        n = max(1, min(64, self._eventos()))
+        buf = (self.RECORD * n)()
+        leidos = self.wintypes.DWORD()
+        if not self.k32.ReadConsoleInputW(self.h, buf, n, self.ctypes.byref(leidos)):
+            return []
+        regs = []
+        for r in buf[:leidos.value]:
+            if r.EventType == _KEY_EVENT:
+                k = r.Event.KeyEvent
+                regs.append((bool(k.bKeyDown), int(k.wRepeatCount), int(k.wVirtualKeyCode),
+                             k.uChar, int(k.dwControlKeyState)))
+        return regs
+
+    def _getwch(self, timeout):
+        import msvcrt
+        import time as _time
+        t0 = _time.time()
+        while not msvcrt.kbhit():
+            if _time.time() - t0 >= timeout:
+                return None
+            _time.sleep(0.02)
+        ch = msvcrt.getwch()
+        if ch in ("\x00", "\xe0"):
+            if ch == "\xe0" and not msvcrt.kbhit():
+                return "\xe0"                          # «à» de verdad, no un prefijo
+            a = msvcrt.getwch()
+            return {"H": "up", "P": "down", "M": "right", "K": "left"}.get(a, "")
+        return "tab" if ch == "\t" else ch
+
+    def get(self, timeout):
+        if self.queue:
+            return self.queue.pop(0)
+        if self.k32 is None:
+            return self._getwch(timeout)
+        regs = self._leer(timeout)
+        if regs is None:
+            return None
+        self.queue = win_key_events(regs)
+        return self.queue.pop(0) if self.queue else ""

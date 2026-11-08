@@ -38,6 +38,7 @@ npm and winget. If you add a connection, add it here and in ../es/privacidad.md.
 | Mail (`workspace mail`) | the SMTP server you configure | each time you send |
 | Voice dictation setup (macOS) | Hugging Face (whisper model) and Homebrew | only with `workspace voice --setup`; dictating is 100% local |
 | API providers (advanced) | the endpoint you configure (e.g. OpenAI, OpenRouter, Anthropic, Google, or a local one such as Ollama or LM Studio) | only if you set up a provider with your API key |
+| **Deciders** with Jev | `api.typesafe.ai` (TypeSafe), with your TypeSafe key; honors `HTTPS_PROXY`/`NO_PROXY` | only if you connect Jev in Engines → Decision models **and** turn on a use in Deciders (everything ships off), when you **Test** it in Engines or when you **Ask** by hand. Each use you turn on sends its question, its options and minimal context: Memory, the note's text; Evals, the session-close extract (up to 4000 characters); Skills, the start of the session (up to 6000); Security, the path, the risks found and what was written (up to 1500), without the comments and docstrings it recognizes, only when the scan already found something; the agent uses, whatever the agent sends (in Review, also what you asked for). Ask sends the context you choose (the tab, sessions, the memory or the whole brain), and `v` shows beforehand which files go. Keys, passwords and tokens (JWTs too) are removed before anything leaves; private files (`privado: true` or a `privado/` folder), what belongs to other people in a shared brain, chats, messages between agents and logs never leave |
 | Opening a link | your browser | when you choose to open something (such as an engine's official source) |
 
 ## What it records locally
@@ -61,11 +62,23 @@ people, if you decide to share it. `workspace metrics delete --mine` deletes you
 off: `workspace metrics off`; `WORKSPACE_NO_METRICAS=1` is the emergency switch, and what you do
 meanwhile is never measured. Metrics are never passed to the agent.
 
+Deciders logs each question in `~/.claude/workspace/decisions.jsonl`: the use, the question
+(without keys, up to 160 characters), the options, the answer, how sure it was, how long it took
+and what it cost; of the context, only its level, how many tokens it carried and the names of the
+sources — **never the content**. Only your user can open that file (on Windows too: its
+permissions are yours alone and don't inherit the folder's) and, once it grows past about 5 MB, a
+copy is kept and a new one starts. It never leaves your machine. With a use turned on, Deciders also keeps in
+`~/.claude/workspace/decisores/` your last session's line until you see it and, for each session,
+a fingerprint (not the text) of the instructions the agent received; they never leave your
+machine either.
+
 ## Credentials
 
 Workspace **does not read or copy** your engines' credentials: each official program handles
-its own login. Keys you give Workspace itself (for mail, for example) are stored only on this
-machine. Before each version is published, an automatic check makes sure no credential or
+its own login. Keys you give Workspace itself (for mail, for example, or the Jev key in
+Engines → Decision models) are stored only on this machine, in a file only your user can read (on
+Windows, with its own permissions since 0.8.0: before, it inherited the `.claude` folder's), and
+the engines never get them. Before each version is published, an automatic check makes sure no credential or
 personal data slips in.
 
 ## Why it works this way

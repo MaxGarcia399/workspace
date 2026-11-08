@@ -619,6 +619,15 @@ def guardar_nota(brain, tab, texto, tipo="nota", motor="", cierra=(), ahora=None
     motor = normalizar_motor(motor) or motor_actual()
     ahora = ahora or _ahora()
     path = ficha_path(brain, tab, crear=True)      # primero: siembra si falta
+    # Decisores (uso «Memoria», apagado de fábrica): una nota guardada con el
+    # tipo genérico «nota» se le pregunta al decisor ANTES del candado. Solo
+    # ETIQUETA: el texto es el del agente; con nivel «decide» y sobre el
+    # umbral cambia el tipo, si no solo se anota o se sugiere.
+    decisor = _decisor_tipo(texto) if tipo == "nota" and not cierra else None
+    if decisor and decisor.get("mode") == "apply":
+        nuevo = _DESDE_ETIQUETA.get(decisor.get("choice"), decisor.get("choice"))
+        if nuevo in TIPOS:
+            tipo = nuevo
     archivos = _archivos_de(brain, tab)
     with _lock(path):
         ficha = Ficha(_leer(path))
@@ -642,7 +651,69 @@ def guardar_nota(brain, tab, texto, tipo="nota", motor="", cierra=(), ahora=None
         _atomic(path, ficha.texto())
     return {"ok": True, "id": nid, "tipo": tipo, "cerro": [c for c in cierra if c in abiertos],
             "desconocidos": [c for c in cierra if c not in abiertos],
-            "ruta": _rel(brain, path)}
+            "ruta": _rel(brain, path), **({"decisor": _decisor_resumen(decisor)} if decisor else {})}
+
+
+def _decisor_tipo(texto):
+    """El veredicto del uso «Memoria» de Decisores para el tipo de una nota,
+    o None (apagado, falló o tardó: la nota se guarda como siempre)."""
+    try:
+        import decisions
+        # al_agente: su línea ◆ le llega en la salida de `memoria nota` (y en --json)
+        return decisions.gate("workspace.memory", context=texto, al_agente=True)
+    except Exception:
+        return None
+
+
+def _decisor_resumen(v):
+    if not v:
+        return None
+    out = {k: v.get(k) for k in ("mode", "choice", "p", "p_known", "decider", "id")}
+    linea = decisor_linea({"decisor": out}).strip().split("\n")[0].strip()
+    if linea:
+        out["display"] = linea                  # la línea ◆ también en --json
+        try:
+            import decision_visible
+            out["para_el_socio"] = decision_visible.para_el_socio()
+        except Exception:
+            pass
+    return out
+
+
+def decisor_linea(r):
+    """La línea que ve quien guardó la nota cuando el decisor sugirió o
+    aplicó OTRO tipo, en el formato de Decisores: «◆ <modelo>: guardé la nota
+    como hecho · 88 % · aplicado» o «◆ <modelo>: la nota parece hecho · 71 % · sugerido»
+    + cómo guardarla la próxima. '' si no hay nada que decir — también si
+    eligió el mismo tipo genérico con que se guardó («nota»). Sigue ui.lang."""
+    try:
+        from decision_errors import _t
+    except Exception:
+        def _t(key, es, **kw):
+            return es.format(**kw)
+    d = (r or {}).get("decisor") or {}
+    if d.get("mode") not in ("apply", "suggest"):
+        return ""
+    tipo = _DESDE_ETIQUETA.get(d.get("choice"), d.get("choice"))
+    if tipo == "nota":                                # el decisor solo pregunta por «nota»
+        return ""
+    pct = None if d.get("p_known") is False else int(round(float(d.get("p") or 0) * 100))
+    try:
+        import decision_visible as V
+        linea = V.formato(V._nombre(d.get("decider")),
+                          V._que("workspace.memory", d.get("choice"), d.get("mode") == "apply"),
+                          pct, d.get("mode"))
+        recordatorio = V.para_el_socio()
+    except Exception:
+        linea = "◆ %s: %s" % (d.get("decider") or "decisor", d.get("choice"))
+        recordatorio = ""
+    out = ["  " + linea]
+    if d.get("mode") != "apply":
+        out.append("    " + _t("decisores.hook.memory_next", "si lo es, la próxima guárdala con "
+                                "--tipo {tipo}", tipo=tipo))
+    if recordatorio:                                  # va junto a la línea: no depende del arranque
+        out.append("    " + recordatorio)
+    return "\n".join(out)
 
 
 # ── compactar (sin IA) ──────────────────────────────────────────────────────
@@ -1481,8 +1552,14 @@ def procesar_entrada(brain, tab, motor=""):
     path = entrada_path(brain, tab)
     if not os.path.isfile(path):
         return [], ["la bandeja está vacía: escribe las notas en %s" % path]
+    # Con el uso «Memoria» de Decisores encendido cada nota puede esperar al
+    # decisor: si el motor corta el comando a la mitad, lo ya guardado sale
+    # de la bandeja AL MOMENTO (la próxima vez solo quedan las que faltan).
+    # Apagado, todo igual que siempre: la bandeja se reescribe al final.
+    progresivo = _decisor_memoria_activo()
     res, problemas, quedan = [], [], []
-    for ln in _leer(path).split("\n"):
+    lineas = _leer(path).split("\n")
+    for i, ln in enumerate(lineas):
         if not ln.strip() or ln.lstrip().startswith("#"):
             continue
         m = _ENTRADA_RX.match(ln)
@@ -1492,6 +1569,11 @@ def procesar_entrada(brain, tab, motor=""):
             tipo = normalizar_tipo(m.group("tipo"))
             cierra = re.findall(r"[PD]-\d+", m.group("ids") or "", re.I)
             res.append(guardar_nota(brain, tab, m.group("texto"), tipo=tipo, motor=motor, cierra=cierra))
+            if progresivo:
+                try:
+                    _atomic(path, "\n".join(quedan + lineas[i + 1:]).rstrip("\n") + "\n")
+                except OSError:
+                    pass                      # (Windows, abierta por otro): al final se reintenta
         except ValueError as e:
             problemas.append(str(e))
             if not _secretos(ln):
@@ -1504,6 +1586,15 @@ def procesar_entrada(brain, tab, motor=""):
         except OSError:
             _atomic(path, "")
     return res, problemas
+
+
+def _decisor_memoria_activo():
+    """¿El uso «Memoria» de Decisores pregunta? (barato: solo los ajustes)."""
+    try:
+        import decisions
+        return decisions.enabled("workspace.memory")
+    except Exception:
+        return False
 
 
 def leer_entrada_checkpoint(brain, tab):
@@ -1557,6 +1648,17 @@ def instruccion(revision=0, tab="", motor=""):
         "archivo de la pestaña ni STATE/MEMORY.md): avísale al socio en una línea."]
         + (["  · Tu terminal es PowerShell: separa comandos con `;`, no con `&&`."]
            if _shell_powershell(motor) else []))
+
+
+def instruccion_decisores(motor=""):
+    """Cómo preguntarle al decisor de Workspace — SOLO si el socio encendió un
+    uso de agentes en Decisores (si no, ''). CLI o herramienta MCP según el
+    motor, como la memoria."""
+    try:
+        import decisions
+        return decisions.agent_instruction(via_mcp=_via_mcp(motor))
+    except Exception:
+        return ""
 
 
 def instruccion_mcp(revision=0):
@@ -1864,6 +1966,9 @@ def paquete(brain, tab, motor="", retomada=False, limite=PAQUETE_MAX, entregar=F
         out.append("Lo último en %s (maleta · %s · %d turnos):" % (sec["motor"], sec["cuando"], sec["turnos"]))
         out += ["  " + l for l in sec["lineas"] if l.strip()]
     out.append(instruccion(cp["revision"] if cp else 0, tab=tab, motor=motor))
+    dec = instruccion_decisores(motor)
+    if dec:
+        out.append(dec)
     if _textos_con_destilado(brain):
         out.append(AVISO_DESTILADO)
     if _textos_con_compuertas(brain):
@@ -2163,6 +2268,8 @@ def main(argv=None):
                     if r["cerro"]:
                         extra += " · cerré " + ", ".join(r["cerro"])
                     print("✓ guardado (%s%s) en %s" % (ETIQUETA[r["tipo"]], extra, r["ruta"]))
+                    if decisor_linea(r):
+                        print(decisor_linea(r))
                 for pr in problemas:
                     print("✗ " + pr)
             return 1 if problemas and not res else 0
@@ -2186,6 +2293,8 @@ def main(argv=None):
                 if r["desconocidos"]:
                     extra += " · (no estaban abiertos: %s)" % ", ".join(r["desconocidos"])
                 print("✓ guardado (%s%s) en %s" % (ETIQUETA[r["tipo"]], extra, r["ruta"]))
+                if decisor_linea(r):
+                    print(decisor_linea(r))
         elif a.comando == "ver":
             print(paquete(brain, tab, motor=a.motor or motor_actual(), retomada=a.retomada)
                   or "(esta pestaña no tiene memoria todavía)")

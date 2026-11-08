@@ -1630,6 +1630,9 @@ def session_doc_block(brain, name, engine="", resumed=False, others=None):
         try:
             import memoria
             parts.append(memoria.instruccion(tab=name if _slug(name) else "", motor=engine))
+            dec = memoria.instruccion_decisores(engine)
+            if dec:
+                parts.append(dec)
         except Exception:
             pass
     return "\n\n".join(parts)

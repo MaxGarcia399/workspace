@@ -15,6 +15,8 @@ STRINGS = {
     "menu.agents.tag": "each agent's brain, permissions and skills",
     "menu.users.label": "Users",
     "menu.users.tag": "who uses each agent, on all your machines",
+    "menu.decisores.label": "Deciders",
+    "menu.decisores.tag": "which model decides and where it helps",
     "menu.docs.label": "Documentation",
     "menu.docs.tag": "everything Workspace does, no fine print",
     "menu.add_agent.label": "Add agent",

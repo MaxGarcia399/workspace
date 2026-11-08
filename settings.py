@@ -65,7 +65,7 @@ def _with_store_lock(fn):
         return fn()
 
 GROUPS = ("latido", "jobs", "hooks", "modelos", "budget", "cerebro",
-          "sesiones", "agentes", "ui", "otros")
+          "sesiones", "agentes", "ui", "decisions", "otros")
 
 _SENTINEL = object()
 
@@ -653,6 +653,73 @@ SETTINGS_SCHEMA = (
      "applies": "nightly.run_retention() purga lo más viejo que esto al "
                 "final de cada pasada (job `retention`)."},
 )
+
+
+# ── decisions (decisores: deciders/ + decisions.py) ──
+# Modelo global + un mapa por uso {level, model, threshold}. TODO apagado de
+# fábrica: cada uso arranca en `off`; `off` como modelo es el interruptor
+# maestro. decisions.py normaliza el mapa (valor raro → el de fábrica).
+def _decider_choices():
+    """Los modelos que se pueden elegir (decisions.selectable: sin los internos
+    —el stub de pruebas, `rules`—) + off."""
+    try:
+        d = os.path.join(ROOT, "deciders")
+        ids = sorted(f[:-3] for f in os.listdir(d)
+                     if f.endswith(".py") and not f.startswith("_"))
+    except OSError:
+        ids = []
+    try:
+        import decisions                      # `rules` (de antes) se acepta: pasa solo a off
+        ids = [i for i in ids if decisions.selectable(i) or i in decisions.LEGACY_INTERNAL]
+    except Exception:
+        ids = [i for i in ids if i != "stub"]
+    return tuple(ids) + ("off",)
+
+
+_DECISION_POINTS = (
+    ("agents.choose", "Decisores · elegir entre opciones (agentes)"),
+    ("agents.review", "Decisores · revisar su trabajo (agentes)"),
+    ("agents.prompt", "Decisores · mejor prompt (agentes)"),
+    ("agents.route", "Decisores · repartir tareas (agentes)"),
+    ("workspace.memory", "Decisores · memoria"),
+    ("workspace.evals", "Decisores · evals"),
+    ("workspace.skills", "Decisores · skills"),
+    ("workspace.security", "Decisores · seguridad"),
+)
+
+SETTINGS_SCHEMA = SETTINGS_SCHEMA + (
+    {"key": "decisions.model", "group": "decisions",
+     "label": "Decisores · modelo general", "type": "enum", "default": "off",
+     "choices": ("off", "jev"), "choices_fn": _decider_choices,
+     "help": "Qué decisor responde cuando un uso pregunta: off = ninguno (de "
+             "fábrica) · jev = en la nube (TypeSafe; se configura en Motores → "
+             "Modelos de decisión, y el primero que queda listo se activa solo).",
+     "applies": "decisions.global_model() → decisions.ask/consult."},
+    {"key": "decisions.context_budget", "group": "decisions",
+     "label": "Decisores · presupuesto de contexto (tokens)", "type": "int", "default": 0,
+     "range": (0, 2_000_000),
+     "help": "Tope de tokens de CONTEXTO que manda Decisores → Preguntar (0 = lo que "
+             "quepa en el límite del modelo, con su margen).",
+     "applies": "decision_context.budget()."},
+    {"key": "decisions.model_limits", "group": "decisions",
+     "label": "Decisores · límite de contexto por modelo", "type": "map", "default": {},
+     "help": "Mapa decisor → límite de contexto en tokens, MENOR que el del modelo "
+             "(más barato y rápido; nunca lo sube), p. ej. {\"jev\": 16000}. Se ajusta en "
+             "Motores → Modelos de decisión.",
+     "applies": "decision_context.limit()."},
+    {"key": "decisions.notices", "group": "decisions",
+     "label": "Decisores · avisos ya vistos", "type": "map", "default": {},
+     "help": "Decisores en la nube para los que ya se avisó que «Memoria» o «Todo el "
+             "cerebro» mandan contenido del cerebro (una sola vez por decisor).",
+     "applies": "decision_context.needs_cloud_notice()."},
+) + tuple(
+    {"key": "decisions.points." + pid, "group": "decisions", "label": label,
+     "type": "map", "default": {"level": "off", "model": "general", "threshold": 90},
+     "help": "level off|observe|suggest|decide · model general|<decisor> · "
+             "threshold 50-99 (solo cuenta en decide). Apagado de fábrica.",
+     "applies": "decisions.point_conf('%s') → decisions.ask (ningún hook "
+                "conectado todavía)." % pid}
+    for pid, label in _DECISION_POINTS)
 
 def _effective_agent_names():
     """Nombres del registry EFECTIVO (committeado + agentes CARGADOS

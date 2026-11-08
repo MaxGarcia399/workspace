@@ -8,6 +8,102 @@ How to read this: every version has a number (`MAJOR.MINOR.PATCH`). A PATCH
 change fixes things; a MINOR one brings new features without breaking
 anything; a MAJOR one warns you well in advance if something changes shape.
 
+## 0.8.0 — 2026-11-07
+
+**New**
+- **Deciders, a new section that comes switched off.** A decision model does
+  not chat or write: it picks among fixed options and says how sure it is.
+  Today there is one, **Jev** (by TypeSafe, in the cloud). You connect it
+  once, in **Engines → Decision models**: paste your TypeSafe key and test it.
+  TypeSafe bills its use to your account; in Ask you see beforehand how many
+  tokens each question carries (including the fixed part it carries even
+  without context) and an approximate cost.
+- **Where it can help.** Each use has its level (off · observe · suggest ·
+  decide) and all of them start off:
+  - in Workspace: the type of a memory note, how a session ended (Evals),
+    whether a session deserves a skill and how risky something an agent wrote
+    is (Security: in Claude Code, only when the scan already found a risk);
+  - for your agents: choosing among options, checking whether a deliverable
+    is complete, picking the best of several instructions and splitting work
+    between agents. In GitHub Copilot, Cursor, Kiro and Antigravity the agent
+    uses the `decidir` tool; in Claude Code, Codex and the rest, the
+    `workspace decidir --stdin` command (a JSON on standard input, as its help
+    explains), which asks for permission like any other command.
+  - "Suggest" only shows the answer; "decide" applies it only when it beats
+    your threshold, and never when the model did not say how sure it was. If
+    the model fails or takes too long, everything carries on as if Deciders
+    did not exist.
+- **Three uses with their own rules.**
+  - **Security can only raise the risk, never lower it:** in "decide" it only
+    applies "alto" (high); "medio" or "bajo" stay a suggestion and the scan's
+    warning stays whole. It judges only the code: before asking it, the
+    comments and docstrings are removed, so what the file says can't talk it
+    into anything.
+  - **Review** gets what you asked for separately from what was delivered:
+    what the deliverable leaves pending and wasn't in the request doesn't
+    count as missing. With long reports it can still hesitate: it works best
+    in "suggest".
+  - **Skills in "decide"**, when the model is sure (at your threshold or above), no
+    longer waits 2 hours between reviews: if it says the session deserves a
+    skill, the review arrives (never two within 10 minutes); if it says no, it
+    doesn't. Below your threshold, and in "observe" and "suggest", those 2
+    hours still rule.
+- **You see what it does**, with a use in "suggest" or "decide" ("observe"
+  shows nothing):
+  - when the decision model steps in, the agent tells you in the chat with a ◆
+    block at the end of its reply, one line per intervention: what it did, how
+    sure it was and whether it was applied or only suggested. Each line carries
+    the name of the model that answered (with Jev: «◆ Jev: table · 87 % ·
+    suggested») and reaches the agent with the reminder to show it to you, so
+    it doesn't depend on what it remembers from its start;
+  - when a note is saved, Memory says so only if it suggests or applies
+    another type («◆ Jev: saved the note as hecho · 88 % · applied»); in
+    Claude Code, the Security line shows up in the conversation next to the
+    warning, and what the agent didn't see in its turn reaches it with your
+    next message;
+  - when the next session opens, one line says what it thought of the last
+    one (Evals and Skills), only once;
+  - History says what each decision changed («nota → hecho», «warning →
+    high») and how many there were today; next to each use's threshold you
+    see its latest confidences;
+  - Workspace's status bar adds «◆ Deciders: today 7 · 1 applied» (Claude Code,
+    GitHub Copilot, Cursor and Antigravity);
+  - in Claude Code, if you change an agent use mid-session, the agent finds
+    out with your next message; in the other engines, when another session
+    opens.
+- **Ask**, to try it by hand with the context you choose: nothing, the tab,
+  some sessions, the memory or the whole brain. `v` shows which files would go
+  (never their content) and how many were left out. **History** shows what
+  was asked and what the model answered, and there you grade whether it was
+  right; that log stays on your computer.
+- **What leaves your computer, and only with a use turned on:** the question,
+  its options and minimal context go to TypeSafe. Keys and passwords are
+  removed before anything leaves, and so are tokens (JWTs too). With Memory or
+  Brain, your private files
+  (`privado: true` or a `privado/` folder), what belongs to other people in a
+  shared brain, chats, messages between agents and logs never leave. The
+  first time Ask sends brain content, the answer tells you. With everything
+  off nothing leaves and your agents see the same as before.
+- **Engines now has two cards:** Agent engines (the usual screen) and
+  Decision models.
+- Turning an agent use on or off changes only Workspace's part of the brain's
+  Kiro and Cursor configuration, with no backups or warnings; with everything
+  off it stays the same as in 0.7.0.
+
+**Fixes**
+- **On Windows, the vault with your keys and Deciders' local files can now
+  be read only by your user** (and the system). The vault, with every key you
+  give Workspace (mail's, your decision model's…), was already there in 0.7.0
+  and inherited the
+  `.claude` folder's permissions: on one PC that let another account (the
+  Codex sandbox's) read it.
+- **On Windows, Ctrl+C inside a hub section no longer closes the hub:** it
+  goes back to the menu. Before, the hub closed with an error.
+- On Windows, in Deciders, Decision models and the Engines door: Shift-Tab
+  goes back one tab, the characters ¿ ¡ « » € arrive even when you type over
+  SSH and, without a real console, the screens print their view and finish
+  instead of waiting.
+
 ## 0.7.0 — 2026-11-06
 
 **New**

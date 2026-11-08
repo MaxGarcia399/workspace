@@ -407,9 +407,31 @@ def _modo_txt(m):
             "off": _t("docs.mode.off", "apagado", "off")}.get(m, m)
 
 
+def _decisores_vivo():
+    """«Decisores: apagado» o qué usos están encendidos y con qué modelo."""
+    try:
+        import decisions as D
+        m = D.global_model()
+        on = [p for p in D.POINT_IDS if D.point_conf(p)["level"] != "off"] if m != D.OFF else []
+        if m == D.OFF or not on:
+            return _t("docs.vivo.decisores_off", "Decisores: apagado (no sale nada)",
+                      "Deciders: off (nothing leaves)")
+        prov = D.meta(m).get("provider") or D.decider_label(m)
+        return _t("docs.vivo.decisores_on", "Decisores: {n} usos encendidos con {m} ({p})",
+                  "Deciders: {n} uses on with {m} ({p})", n=len(on), m=D.decider_label(m), p=prov)
+    except Exception:
+        return ""
+
+
 def _vivo_red(c):
     import updater
     modo = _modo_txt(updater.auto_mode())
+    dec = _decisores_vivo()
+    return _vivo_red_base(c, modo) + ((" · " + dec) if dec else "")
+
+
+def _vivo_red_base(c, modo):
+    import updater
     stamp = os.path.join(estado_dir(), "last_update_check")
     if not os.path.exists(stamp):
         return _t("docs.vivo.net_never", "todavía no buscó versión nueva en esta PC · modo: {m}",
@@ -424,8 +446,9 @@ def _vivo_nohace(c):
     if not n:
         return _t("docs.vivo.secrets_none", "secrets.local: ninguna llave guardada",
                   "secrets.local: no keys stored")
-    return _t("docs.vivo.secrets", "llaves en secrets.local: {n}, solo para el hub",
-              "keys in secrets.local: {n}, for the hub only", n=n)
+    return _t("docs.vivo.secrets", "llaves en secrets.local: {n}, solo para Workspace (los "
+              "motores no las reciben)", "keys in secrets.local: {n}, for Workspace only (the "
+              "engines never get them)", n=n)
 
 
 def _vivo_actualizar(c):
@@ -833,8 +856,12 @@ CAPITULOS = (
                  ("dictado (Mac)", "baja su modelo una vez; luego es local", "c"),
                  ("en tu PC", "OpenClaw: 127.0.0.1", "ok"),
                  ("proveedor por API", "solo si configuras uno, con tu llave", "c"),
+                 ("Decisores", "apagado: nada · cada uso encendido manda su pregunta y un "
+                  "contexto mínimo; Preguntar con Memoria o Cerebro, tu cerebro sin secretos, "
+                  "lo privado ni lo de otros", "c"),
                  ("tu agente", "su motor habla con su proveedor", "dk"),
-                 ("nunca salen", "tu memoria, tus notas, los registros", "ok")),
+                 ("nunca salen", "los registros; tu memoria y notas, salvo un uso de Decisores",
+                  "ok")),
              "apaga": ""},
          en={"corto": "what goes online",
              "titulo": "What goes online",
@@ -853,8 +880,12 @@ CAPITULOS = (
                  ("dictation (Mac)", "gets its model once; then it's local", "c"),
                  ("on your PC", "OpenClaw: 127.0.0.1", "ok"),
                  ("API provider", "only if you set one up, with your key", "c"),
+                 ("Deciders", "off: nothing · on: each use sends its question and minimal "
+                  "context; Ask with Memory/Brain, your brain minus secrets, private and others' "
+                  "files", "c"),
                  ("your agent", "its engine talks to its provider", "dk"),
-                 ("never leaves", "your memory, your notes, the logs", "ok")),
+                 ("never leaves", "the logs; your memory and notes, except a Deciders use",
+                  "ok")),
              "apaga": ""},
          compruebalo=("estado", "update/"), ajuste="otros.auto_update", vivo=_vivo_red),
 
@@ -866,13 +897,17 @@ CAPITULOS = (
                       "nada corre sin ventana ni de noche"),
              "puntos": (
                  "No hay IA escondida ni en segundo plano: tu agente trabaja en la sesión que "
-                 "tienes abierta, frente a ti.",
+                 "tienes abierta, frente a ti. Decisores viene apagado; un uso que enciendas "
+                 "pregunta al modelo que elijas en su momento (al guardar una nota, al cerrar "
+                 "una sesión o cuando el agente pregunta) — nunca solo ni de noche.",
                  "No programa trabajos de noche ni tareas del sistema: nada de cron, launchd ni "
                  "Programador de tareas.",
                  "No guarda las llaves de tus proveedores: cada motor maneja su cuenta. Las de "
-                 "Google Calendar se quedan en el hub; los motores no las reciben.",
-                 "Solo usa IA sin ventana si tú lo pides: al personalizar un agente nuevo o con "
-                 "workspace evaluar."),
+                 "Google Calendar se quedan en el hub; la de un modelo de decisión, en esta "
+                 "máquina, y la usan solo sus usos. Los motores no reciben ninguna.",
+                 "Solo usa IA sin ventana si tú lo pides: al personalizar un agente nuevo, con "
+                 "workspace evaluar o con un uso de Decisores que enciendas (al cerrar una "
+                 "sesión, por ejemplo)."),
              "apaga": "no se apaga: así está hecho"},
          en={"corto": "what it never does",
              "titulo": "What Workspace does not do",
@@ -881,13 +916,17 @@ CAPITULOS = (
                       "nothing runs without a window or at night"),
              "puntos": (
                  "No hidden or background AI: your agent works in the session you have open, in "
-                 "front of you.",
+                 "front of you. Deciders comes off; a use you turn on asks the model you pick at "
+                 "its moment (saving a note, closing a session or when the agent asks) — never "
+                 "on its own or at night.",
                  "It schedules no night jobs or system tasks: no cron, no launchd, no Task "
                  "Scheduler.",
                  "It does not keep your providers' keys: each engine handles its own account. "
-                 "Google Calendar's stay in the hub; the engines never get them.",
-                 "It only uses AI without a window when you ask: personalizing a new agent or "
-                 "with workspace eval."),
+                 "Google Calendar's stay in the hub; a decision model's, on this machine, used "
+                 "only by its uses. The engines never get any of them.",
+                 "It only uses AI without a window when you ask: personalizing a new agent, with "
+                 "workspace eval or with a Deciders use you turn on (on session close, for "
+                 "instance)."),
              "apaga": "can't be turned off: that's how it is built"},
          compruebalo=("estado", "events/"), ajuste=None, vivo=_vivo_nohace),
 

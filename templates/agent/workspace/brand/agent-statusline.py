@@ -260,6 +260,16 @@ if ver:
 if cost and cost > 0:
     dot(r_foot); add(r_foot, f"${cost:.2f}", VAL)
 
+# Decisores: «◆ Decisores: hoy 7 · 1 aplicada» — solo encendido (apagado no hay
+# segmento y la barra queda como siempre). Lee la cola de la bitácora.
+try:
+    import decision_visible as _dv  # noqa: E402
+    _jev_hoy = _dv.segmento_hoy()
+except Exception:
+    _jev_hoy = ""
+if _jev_hoy:
+    dot(r_foot); add(r_foot, _jev_hoy, VAL)
+
 right = [r_zen, reset_row(r5), reset_row(r7), r_foot]
 
 # ── ensamblar filas ──

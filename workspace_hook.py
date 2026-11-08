@@ -77,20 +77,24 @@ def _parse(raw):
     return _utf8.json_de_bytes(raw)
 
 
-def _emit(event, ctx):
+def _emit(event, ctx, visible=""):
     """Traduce el `context` neutral al shape de Claude Code y lo emite.
+    `visible` = lo que el SOCIO ve (systemMessage de Claude Code: una línea
+    en la conversación, p. ej. la de Decisores); sin él, el JSON de siempre.
     Fail-open: cualquier fallo → NO emite nada (jamás bloquea el arranque
     ni el tool-result — la pieza más delicada del runner)."""
     try:
-        if not ctx:
+        if not ctx and not visible:
             return
         name = _CC_EVENT_NAME.get(event)
         if not name:
             return
-        sys.stdout.write(json.dumps(
-            {"hookSpecificOutput": {"hookEventName": name,
-                                    "additionalContext": ctx}},
-            ensure_ascii=False))
+        out = {}
+        if visible:
+            out["systemMessage"] = visible
+        if ctx:
+            out["hookSpecificOutput"] = {"hookEventName": name, "additionalContext": ctx}
+        sys.stdout.write(json.dumps(out, ensure_ascii=False))
     except Exception:
         pass
 
@@ -137,7 +141,7 @@ def main():
                                   behaviors=neutral_hooks.CLAUDE_CODE_PARITY)
 
     if event in _ADDITIVE:
-        _emit(event, (res or {}).get("context", ""))
+        _emit(event, (res or {}).get("context", ""), (res or {}).get("visible", ""))
 
 
 if __name__ == "__main__":

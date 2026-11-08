@@ -38,6 +38,7 @@ brew, npm y winget. Si agregas una conexión, agrégala aquí y en ../en/privacy
 | Correo (`workspace mail`) | el servidor SMTP que configures | cada vez que envías |
 | Preparar el dictado por voz (macOS) | Hugging Face (modelo de whisper) y Homebrew | solo con `workspace voice --setup`; dictar es 100 % local |
 | Proveedores por API (avanzado) | el endpoint que configures (p. ej. OpenAI, OpenRouter, Anthropic, Google, o uno local como Ollama o LM Studio) | solo si configuras un proveedor con tu clave de API |
+| **Decisores** con Jev | `api.typesafe.ai` (TypeSafe), con tu llave de TypeSafe; respeta `HTTPS_PROXY`/`NO_PROXY` | solo si conectas Jev en Motores → Modelos de decisión **y** enciendes un uso en Decisores (todo viene apagado), al **Probar** en Motores o al **Preguntar** a mano. Cada uso encendido manda su pregunta, sus opciones y un contexto mínimo: Memoria, el texto de la nota; Evals, el extracto del cierre de la sesión (hasta 4000 caracteres); Skills, el inicio de la sesión (hasta 6000); Seguridad, la ruta, los riesgos encontrados y lo escrito (hasta 1500), sin los comentarios ni docstrings que reconoce, solo si el escaneo ya encontró algo; los usos de agentes, lo que el agente mande (en Revisar, también lo que pediste). Preguntar manda el contexto que elijas (la pestaña, sesiones, la memoria o todo el cerebro), y `v` muestra antes qué archivos van. Antes de salir se quitan llaves, contraseñas y tokens (también los JWT); nunca salen los archivos privados (`privado: true` o una carpeta `privado/`), lo que es de otras personas en un cerebro compartido, chats, mensajes entre agentes ni bitácoras |
 | Abrir un enlace | tu navegador | cuando eliges abrir algo (como la fuente oficial de un motor) |
 
 ## Lo que registra localmente
@@ -61,11 +62,24 @@ sin personas, si tú decides compartirlo. `workspace metricas borrar --mio` borr
 apagarlas: `workspace metricas apagar`; `WORKSPACE_NO_METRICAS=1` las apaga de emergencia, y lo
 que hagas mientras tanto no se mide nunca. Las métricas nunca se le pasan al agente.
 
+Decisores anota cada pregunta en `~/.claude/workspace/decisions.jsonl`: el uso, la pregunta (sin
+llaves, hasta 160 caracteres), las opciones, la respuesta, qué tan seguro estaba, cuánto tardó y
+cuánto costó; del contexto, solo su nivel, cuántos tokens llevó y los nombres de las fuentes —
+**nunca el contenido**. Ese archivo solo lo abre tu usuario (en Windows también: sus permisos son
+solo tuyos y no heredan los de la carpeta) y, al pasar de unos 5 MB, se guarda una copia y se
+empieza otro. No
+sale de tu máquina. Con un uso encendido, Decisores además guarda en
+`~/.claude/workspace/decisores/` la línea de tu última sesión hasta que la ves y, por cada
+sesión, una huella (no el texto) de las instrucciones que recibió el agente; tampoco salen de
+tu máquina.
+
 ## Credenciales
 
 Workspace **no lee ni copia** las credenciales de tus motores: cada programa oficial maneja su
-propio login. Las claves que tú le des a Workspace (por ejemplo, para el correo) se guardan
-solo en esta máquina. Antes de publicar cada versión, un control automático revisa que no se
+propio login. Las claves que tú le des a Workspace (por ejemplo, para el correo, o la llave de
+Jev en Motores → Modelos de decisión) se guardan solo en esta máquina, en un archivo que solo lee
+tu usuario (en Windows, con permisos propios desde la 0.8.0: antes heredaba los de la carpeta
+`.claude`), y los motores no las reciben. Antes de publicar cada versión, un control automático revisa que no se
 cuele ninguna credencial ni dato personal.
 
 ## Por qué así

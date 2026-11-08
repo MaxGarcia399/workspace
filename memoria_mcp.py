@@ -56,8 +56,11 @@ if ROOT not in sys.path:            # corre con `python -I`: sin la carpeta del 
 #: `Mcp(workspace-memoria:guardar_nota)`, Kiro `@workspace-memoria/guardar_nota`).
 SERVIDOR = "workspace-memoria"
 VERSION = "1"
-#: Las herramientas, en el orden en que se listan.
+#: Las herramientas de la memoria, en el orden en que se listan. `decidir`
+#: (Decisores) se suma SOLO si el socio encendió un uso de agentes: con todo
+#: apagado, el motor ve lo mismo que antes (ni la herramienta ni su aprobación).
 HERRAMIENTAS = ("guardar_nota", "guardar_resumen", "ver_memoria")
+DECIDIR = "decidir"
 #: Versiones del protocolo MCP que este servidor habla (solo usa tools/*,
 #: igual en todas). Si el cliente pide otra, se responde la más nueva.
 PROTOCOLOS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
@@ -67,6 +70,12 @@ MAX_LINEA = 256 * 1024
 #: Tope del texto de una nota, ANTES de juntar espacios (memoria la deja en
 #: MAX_TEXTO = 400 caracteres en una línea).
 MAX_ENTRADA = 4000
+#: decidir (Decisores, usos de agentes): topes de lo que acepta.
+MAX_PREGUNTA = 500
+MAX_OPCION = 600
+MAX_OPCIONES = 12
+MAX_CONTEXTO = 8000
+MAX_PEDIDO = 2000
 #: Campos del resumen = session_continuity.FIELDS (≤600 caracteres cada uno).
 CAMPOS_RESUMEN = ("objective", "decision", "blocker", "next_step", "result")
 MAX_CAMPO = 600
@@ -79,6 +88,38 @@ INSTRUCCIONES = (
     "dato/preferencia valen para todas las pestañas. Al terminar una unidad de trabajo, "
     "guardar_resumen con expected_revision (la que da ver_memoria). Nunca escribas la "
     "memoria a mano en los archivos del cerebro.")
+INSTRUCCION_DECIDIR = (" decidir: pregúntale al decisor de Workspace en los usos que el socio "
+                       "encendió en Decisores.")
+
+
+def _td(key, es, **kw):
+    """Lo de `decidir` que lee el agente sigue ui.lang (decision_errors._t)."""
+    try:
+        from decision_errors import _t
+        return _t(key, es, **kw)
+    except Exception:
+        return es.format(**kw) if kw else es
+
+
+def decidir_activo():
+    """¿Esta corrida ofrece `decidir`? Solo con un uso de agentes encendido
+    (decisions.agent_uses_on); se vuelve a mirar en cada llamada."""
+    try:
+        import decisions
+        return decisions.agent_uses_on()
+    except Exception:
+        return False
+
+
+def herramientas_activas():
+    """Las herramientas que se listan y se aprueban EN ESTA corrida."""
+    return HERRAMIENTAS + ((DECIDIR,) if decidir_activo() else ())
+
+
+def instrucciones():
+    if not decidir_activo():
+        return INSTRUCCIONES
+    return INSTRUCCIONES + _td("decisores.mcp.instruction", INSTRUCCION_DECIDIR)
 
 
 # ── esquema de las herramientas ─────────────────────────────────────────────
@@ -88,10 +129,11 @@ def _tipos():
 
 
 def herramientas():
-    """La lista de tools/list."""
+    """La lista de tools/list: la memoria y, solo con un uso de agentes
+    encendido, `decidir`."""
     import memoria
     cadena = {"type": "string"}
-    return [
+    lista = [
         {"name": "guardar_nota",
          "title": "Guardar una nota en la memoria de la pestaña",
          "description": (
@@ -138,7 +180,55 @@ def herramientas():
          "inputSchema": {"type": "object", "properties": {},
                          "additionalProperties": False},
          "annotations": {"readOnlyHint": True}},
+        {"name": "decidir",
+         "title": _td("decisores.mcp.title", "Preguntarle al decisor de Workspace"),
+         "description": _td(
+             "decisores.mcp.description",
+             "Le pregunta al decisor de Workspace (Decisores) entre opciones FIJAS, lo mismo "
+             "que `workspace decidir`. Solo si el socio encendió ese uso; si está apagado "
+             "responde mode off. Responde JSON con mode: apply = usa esa opción · suggest = "
+             "sugerencia, decides tú · observe/off/error = decide tú como siempre; si trae "
+             "display, muéstrale esa línea al socio tal cual. point: "
+             "agents.choose (dudas entre opciones), agents.review (¿quedó completo? request = "
+             "lo que pidió el socio, context = el entregable), "
+             "agents.prompt (la mejor de varias instrucciones), agents.route (qué agente toma "
+             "una parte; sin options = los agentes registrados)."),
+         "inputSchema": {
+             "type": "object",
+             "properties": {
+                 "point": {"type": "string", "enum": _agent_points(),
+                           "description": _td("decisores.mcp.f_point", "El uso de Decisores.")},
+                 "question": dict(cadena, maxLength=MAX_PREGUNTA,
+                                  description=_td("decisores.mcp.f_question",
+                                                  "La pregunta (opcional en agents.review).")),
+                 "options": {"type": "array", "maxItems": MAX_OPCIONES,
+                             "items": dict(cadena, minLength=1, maxLength=MAX_OPCION),
+                             "description": _td("decisores.mcp.f_options",
+                                                "Las opciones fijas (al menos 2).")},
+                 "context": dict(cadena, maxLength=MAX_CONTEXTO,
+                                 description=_td("decisores.mcp.f_context", "Lo que el decisor "
+                                                 "necesita saber (sin llaves).")),
+                 "request": dict(cadena, maxLength=MAX_PEDIDO,
+                                 description=_td("decisores.mcp.f_request", "El pedido: lo que "
+                                                 "pidió el socio (en agents.review, sin él no se "
+                                                 "sabe qué entraba).")),
+             },
+             "required": ["point"],
+             "additionalProperties": False},
+         # puede consultar un decisor en la nube (si el socio eligió uno) y
+         # anota en la bitácora local: ni solo-lectura ni cerrado al mundo
+         "annotations": {"readOnlyHint": False, "openWorldHint": True}},
     ]
+    activas = herramientas_activas()
+    return [h for h in lista if h["name"] in activas]
+
+
+def _agent_points():
+    try:
+        import decisions
+        return list(decisions.AGENT_POINTS)
+    except Exception:
+        return ["agents.choose", "agents.review", "agents.prompt", "agents.route"]
 
 
 # ── dónde escribe ───────────────────────────────────────────────────────────
@@ -285,7 +375,9 @@ def guardar_nota(args, run):
         extra += " · cerré " + ", ".join(r["cerro"])
     if r["desconocidos"]:
         extra += " · (no estaban abiertos: %s)" % ", ".join(r["desconocidos"])
-    return "✓ guardado (%s%s) en %s" % (memoria.ETIQUETA[r["tipo"]], extra, r["ruta"])
+    linea = memoria.decisor_linea(r)
+    return "✓ guardado (%s%s) en %s" % (memoria.ETIQUETA[r["tipo"]], extra, r["ruta"]) \
+        + ("\n" + linea.strip() if linea else "")
 
 
 def guardar_resumen(args, run):
@@ -319,17 +411,77 @@ def ver_memoria(args, run):
     return cabeza + "\n\n" + (texto or "(esta pestaña no tiene memoria todavía)")
 
 
+def validar_decidir(args):
+    from decision_errors import _t                    # lo que lee el agente sigue ui.lang
+    args = _objeto(args)
+    _sobrantes(args, ("point", "question", "options", "context", "request"))
+    point = args.get("point")
+    if not isinstance(point, str) or point not in _agent_points():
+        raise Rechazo(_t("decisores.mcp.bad_point", "point inválido: {p} (usa uno de: {ok})",
+                         p=repr(point), ok=", ".join(_agent_points())))
+    question = _texto(args, "question", MAX_PREGUNTA)
+    opts = args.get("options") or []
+    if not isinstance(opts, list) or len(opts) > MAX_OPCIONES:
+        raise Rechazo(_t("decisores.mcp.options", "options tiene que ser una lista de hasta {n} "
+                         "textos", n=MAX_OPCIONES))
+    limpias = []
+    for o in opts:
+        if not isinstance(o, str) or "\x00" in o:
+            raise Rechazo(_t("decisores.mcp.option_text", "cada opción tiene que ser texto"))
+        if len(o) > MAX_OPCION:
+            raise Rechazo(_t("decisores.mcp.option_long", "una opción es muy larga (máximo {n} "
+                             "caracteres)", n=MAX_OPCION))
+        if o.strip():                     # tal cual: la elección vuelve con este texto
+            limpias.append(o)
+    ctx = args.get("context") or ""
+    if not isinstance(ctx, str) or "\x00" in ctx or len(ctx) > MAX_CONTEXTO:
+        raise Rechazo(_t("decisores.mcp.context", "context tiene que ser texto de hasta {n} "
+                         "caracteres", n=MAX_CONTEXTO))
+    pedido = args.get("request") or ""
+    if not isinstance(pedido, str) or "\x00" in pedido or len(pedido) > MAX_PEDIDO:
+        raise Rechazo(_t("decisores.mcp.request", "request tiene que ser texto de hasta {n} "
+                         "caracteres", n=MAX_PEDIDO))
+    return {"point": point, "question": question, "options": limpias, "context": ctx,
+            "request": pedido}
+
+
+def decidir(args, run):
+    """Decisores (usos de agentes): la misma respuesta que `workspace decidir`."""
+    v = validar_decidir(args)
+    import decisions
+    out = decisions.for_agent(v["point"], v["question"], v["options"], v["context"],
+                              request=v["request"])
+    return json.dumps(out, ensure_ascii=False)
+
+
 _LLAMAR = {"guardar_nota": guardar_nota, "guardar_resumen": guardar_resumen,
-           "ver_memoria": ver_memoria}
+           "ver_memoria": ver_memoria, "decidir": decidir}
 
 
 def llamar(nombre, args, env=None, cadena=None):
     """tools/call → (texto, es_error). Nunca lanza."""
+    if nombre == DECIDIR and not decidir_activo():     # se mira en CADA llamada
+        try:
+            from decision_errors import _t
+            return _t("decisores.mcp.off", "decidir no está disponible: ningún uso de agentes "
+                      "está encendido en Decisores. Decide tú como siempre."), True
+        except Exception:
+            return "decidir no está disponible: ningún uso de agentes está encendido.", True
     try:
+        if nombre == DECIDIR:
+            # decidir no escribe en el cerebro: no pide la pestaña (antes
+            # respondía «solo guarda desde un agente abierto con Workspace»)
+            return _LLAMAR[nombre](args, {}), False
         run = contexto(env, cadena)
         _fijar(run)
         return _LLAMAR[nombre](args, run), False
     except Rechazo as e:
+        if nombre == "decidir":
+            try:
+                from decision_errors import _t
+                return _t("decisores.mcp.failed", "No se pudo preguntar: {e}", e=e), True
+            except Exception:
+                return "No se pudo preguntar: %s" % e, True
         return "No se guardó: %s" % e if nombre != "ver_memoria" else str(e), True
     except Exception as e:                       # jamás un traceback al motor
         _log("error en %s: %s: %s" % (nombre, type(e).__name__, e))
@@ -581,13 +733,17 @@ def _con_servidor(want):
     return fusion
 
 
-def _con_reglas(want):
+def _con_reglas(want, quitar=(), opcionales=()):
     """Fusión de `permissions` (`.cursor/cli.json`): a cada lista de `want`
     (allow, deny) se le agregan al final las reglas nuestras que falten; las
     del socio quedan tal cual. `want` es un dato opaco (qué se niega lo decide
-    quien lo da). → fusion(data) → (nuevo, alterado): `alterado` = faltaba una
-    de nuestras reglas allow pero otra seguía (alguien la quitó). ValueError si
-    `permissions` o una de sus listas no tiene la forma (no se toca)."""
+    quien lo da). `quitar` = reglas NUESTRAS que hoy no van (la de `decidir`
+    con los usos de agentes apagados): se sacan, y el archivo vuelve a ser el
+    de antes de prenderlo. `opcionales` = las nuestras que van y vienen con un
+    ajuste: que falte una no es que alguien la quitó. → fusion(data) →
+    (nuevo, alterado): `alterado` = faltaba una de nuestras reglas allow pero
+    otra seguía (alguien la quitó). ValueError si `permissions` o una de sus
+    listas no tiene la forma (no se toca)."""
     def fusion(data):
         perms = data.get("permissions")
         if perms is None:
@@ -602,11 +758,12 @@ def _con_reglas(want):
             if not isinstance(cur, list):
                 raise ValueError("permissions.%s no es una lista" % clave)
             faltan = [r for r in nuestras if r not in cur]
-            if faltan or not isinstance(perms.get(clave), list):
-                nuevo_p[clave] = list(cur) + faltan
+            sobran = [r for r in cur if r in quitar and r not in nuestras]
+            if faltan or sobran or not isinstance(perms.get(clave), list):
+                nuevo_p[clave] = [r for r in cur if r not in sobran] + faltan
         if nuevo_p == perms and "permissions" in data:
             return data, False
-        allow = list(want.get("allow") or ())
+        allow = [r for r in (want.get("allow") or ()) if r not in opcionales]
         hay = [r for r in allow if r in (perms.get("allow") or [])]
         nuevo = dict(data)
         nuevo["permissions"] = nuevo_p
@@ -758,8 +915,16 @@ def _escribir_json(path, data, mode=0o600):
     _write(Path(path), data, mode)
 
 
-def _reglas(formato):
-    return [formato % t for t in HERRAMIENTAS]
+def _reglas(formato, todas=False, decidir=None):
+    """Las reglas de aprobación por nombre. `todas`: también `decidir` aunque
+    hoy esté apagado (para QUITAR lo nuestro: una que quedó de cuando estaba
+    encendido también es nuestra). `decidir` True/False: con o sin ella, sin
+    mirar el estado de hoy (las formas nuestras de un archivo de Workspace)."""
+    if todas or decidir is True:
+        return [formato % t for t in HERRAMIENTAS + (DECIDIR,)]
+    if decidir is False:
+        return [formato % t for t in HERRAMIENTAS]
+    return [formato % t for t in herramientas_activas()]
 
 
 # · GitHub Copilot: config y permiso POR CORRIDA (nada escrito en su config) ·
@@ -775,7 +940,7 @@ def copilot_config(root=None, python=None):
     pasa al servidor el entorno de la corrida (VERIFICADO 1.0.105), que es el
     de la pestaña; además sus valores expanden `$VAR`."""
     return {"mcpServers": {SERVIDOR: dict(servidor(root, python), type="local",
-                                          tools=list(HERRAMIENTAS))}}
+                                          tools=list(herramientas_activas()))}}
 
 
 def copilot_args(path=None):
@@ -908,7 +1073,14 @@ def _cursor_fusion_mcp(root=None, python=None):
 
 
 def _cursor_fusion_cli():
-    return (CURSOR_CLI_REL, _con_reglas(cursor_cli_plantilla()["permissions"]))
+    # la regla de `decidir` es nuestra y va y viene con los usos de agentes:
+    # apagados, se quita (el archivo queda como antes de prenderlos)
+    con = _reglas(CURSOR_REGLA, decidir=True)
+    sin = _reglas(CURSOR_REGLA, decidir=False)
+    opcional = [r for r in con if r not in sin]
+    return (CURSOR_CLI_REL, _con_reglas(cursor_cli_plantilla()["permissions"],
+                                        quitar=[r for r in opcional if r not in cursor_reglas()],
+                                        opcionales=opcional))
 
 
 def ensure_cursor_mcp(brain, root=None, python=None, avisos=None):
@@ -1052,7 +1224,7 @@ def sin_reglas_cursor(data):
     nuestras = cursor_cli_plantilla()["permissions"]     # las mismas que mete la fusión
     # + las de la otra plataforma: el cerebro viaja, y una PC con Windows deja
     # las de `\` en un cli.json que luego se limpia en una Mac (y al revés)
-    reglas = set(nuestras["allow"])
+    reglas = set(nuestras["allow"]) | set(_reglas(CURSOR_REGLA, todas=True))
     negadas = set(nuestras["deny"]) | set(_cursor_deny(True)) | set(_cursor_deny(False))
     if not any(r in reglas for r in allow) and not any(r in negadas for r in deny):
         return data, False
@@ -1125,7 +1297,7 @@ def _sin_repetir(xs):
 
 
 def kiro_agente_config(brain, root=None, python=None, kiro_dir=None, autonomia=None,
-                       _negar=None):
+                       _negar=None, decidir=None):
     """El agente `workspace`, válido en las DOS líneas de Kiro (doc «agent
     configuration reference», https://kiro.dev/docs/custom-agents/configuration-reference/:
     V3 no usa `allowedTools` ni `toolsSettings`, pero carga el archivo si trae
@@ -1156,7 +1328,8 @@ def kiro_agente_config(brain, root=None, python=None, kiro_dir=None, autonomia=N
     reglas = [{"capability": "fs_read", "match": ["./**"], "effect": "allow"}]
     if libre:
         reglas.append({"capability": "fs_write", "match": [KIRO_ESCRIBE], "effect": "allow"})
-    reglas += [{"capability": "mcp", "match": _reglas(SERVIDOR + "/%s"), "effect": "allow"},
+    reglas += [{"capability": "mcp", "match": _reglas(SERVIDOR + "/%s", decidir=decidir),
+                "effect": "allow"},
                {"capability": "fs_write", "match": list(deny_v3), "effect": "deny"}]
     return {
         "name": KIRO_AGENTE,
@@ -1165,7 +1338,7 @@ def kiro_agente_config(brain, root=None, python=None, kiro_dir=None, autonomia=N
                        "reescribe Workspace al abrir un agente: no lo edites.",
         "mcpServers": {SERVIDOR: servidor(root, python)},
         "tools": ["*"],
-        "allowedTools": _reglas("@" + SERVIDOR + "/%s"),
+        "allowedTools": _reglas("@" + SERVIDOR + "/%s", decidir=decidir),
         "resources": ["file://" + os.path.join(b, "AGENTS.md"),
                       "file://" + os.path.join(b, "README.md"),
                       "skill://" + os.path.join(b, ".kiro", "skills", "*", "SKILL.md"),
@@ -1193,11 +1366,17 @@ def ensure_kiro_agente(brain, root=None, python=None, avisos=None, autonomia=Non
     sin respaldo ni aviso. → 'ready' | 'written' | 'restored' | 'blocked'."""
     want = kiro_agente_config(brain, root, python, autonomia=autonomia)
     otra = "ask" if kiro_escribe_sin_preguntar(autonomia) else "brain"
-    nuestros = [kiro_agente_config(brain, root, python, autonomia=otra)]
-    # la de antes (solo negaba `.kiro`), con las dos autonomías
+    # la de antes (solo negaba `.kiro`), con las dos autonomías, y cada una con
+    # y sin `decidir` (prender o apagar un uso de agentes la agrega o la quita:
+    # el archivo sigue siendo el de Workspace, sin respaldo ni aviso)
     antes = (list(KIRO_DENY_V2_ANTES), list(KIRO_DENY_V3_ANTES))
-    for a in (autonomia, otra):
-        nuestros.append(kiro_agente_config(brain, root, python, autonomia=a, _negar=antes))
+    nuestros = []
+    for dec in (None, True, False):
+        for a in (autonomia, otra):
+            for negar in (None, antes):
+                n = kiro_agente_config(brain, root, python, autonomia=a, _negar=negar, decidir=dec)
+                if n != want and n not in nuestros:
+                    nuestros.append(n)
     return _rehacer(brain, os.path.join(".kiro", "agents", KIRO_AGENTE + ".json"),
                     want, avisos, nuestros=tuple(nuestros))
 
@@ -1634,7 +1813,7 @@ def atender(msg, env=None, cadena=None):
                          "capabilities": {"tools": {"listChanged": False}},
                          "serverInfo": {"name": SERVIDOR, "title": "Memoria de Workspace",
                                         "version": VERSION},
-                         "instructions": INSTRUCCIONES})
+                         "instructions": instrucciones()})
     if metodo == "ping":
         return _ok(mid, {})
     if metodo == "tools/list":
@@ -1647,7 +1826,7 @@ def atender(msg, env=None, cadena=None):
         nombre = params.get("name")
         if nombre not in _LLAMAR:
             return _error(mid, -32602, "Herramienta desconocida: %r (hay: %s)"
-                          % (nombre, ", ".join(HERRAMIENTAS)))
+                          % (nombre, ", ".join(herramientas_activas())))
         texto, es_error = llamar(nombre, params.get("arguments"), env, cadena)
         return _ok(mid, {"content": [{"type": "text", "text": texto}], "isError": es_error})
     return _error(mid, -32601, "Method not found: %s" % metodo)

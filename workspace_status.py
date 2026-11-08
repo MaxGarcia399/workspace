@@ -161,6 +161,17 @@ def _bucket_label(name):
     return tail
 
 
+def _decisores_hoy(K):
+    """Decisores: «◆ Decisores: hoy 7 · 1 aplicada» (decision_visible) — solo
+    encendido; apagado, '' y la barra queda como siempre."""
+    try:
+        import decision_visible
+        seg=decision_visible.segmento_hoy()
+    except Exception:
+        seg=''
+    return _paint(K,'dim',seg) if seg else ''
+
+
 def antigravity_lines(payload,now=None,color=None):
     """Líneas de la statusLine de Workspace en Antigravity (se APILA debajo de
     la nativa: stack_with_default). 1ª: agente · modelo · contexto · modo ·
@@ -194,6 +205,8 @@ def antigravity_lines(payload,now=None,color=None):
             identity=json.loads(os.environ.get('WORKSPACE_AGENT_UI','{}')).get('name','')
         except (ValueError,AttributeError):identity=''
     if identity:title.insert(0,_paint(K,'accent',(K.get('B') or '')+clean(identity)))
+    dec=_decisores_hoy(K)
+    if dec:title.append(dec)
     version=brain_version(where)
     if version:title.append(_paint(K,'dim',version))
     lines=[_paint(K,'dim',' · ').join(title)]
@@ -351,6 +364,8 @@ def copilot_lines(payload,color=None,env=None,width=100):
         parts.append(_paint(K,'dim',' '.join(lines)))
     if payload.get('allow_all_enabled') is True:
         parts.append(_paint(K,'warn',t('motorbar.copilot.allow_all','todo permitido','all allowed')))
+    dec=_decisores_hoy(K)
+    if dec:parts.append(dec)
     version=brain_version(where) if where else ''
     if version:parts.append(_paint(K,'dim',version))
     if not parts:return []
@@ -386,6 +401,8 @@ def cursor_lines(payload,color=None,env=None,width=100,workspace=False):
         parts.append(_paint(K,'warn',t('motorbar.cursor.autorun','auto-run','auto-run')))
     mode=clean(vim.get('mode') or '').upper()[:12]
     if mode and mode!='NORMAL':parts.append(_paint(K,'dim','-- %s --' % mode))
+    dec=_decisores_hoy(K) if workspace else ''
+    if dec:parts.append(dec)
     version=brain_version(where) if (where and workspace) else ''
     if version:parts.append(_paint(K,'dim',version))
     lines=[_paint(K,'dim',' · ').join(parts) if parts else _paint(K,'dim','Cursor')]

@@ -78,7 +78,49 @@ def main():
             pass
     except Exception as exc:
         res = {"error": "%s: %s" % (type(exc).__name__, str(exc)[:200])}
+    if brain:
+        modo = _evals(brain, tab, data.get("engine") or "claude-code",
+                      sesion=str(data.get("session_id") or ""))
+        if modo:
+            res["evals"] = modo
     _log(dict(res, tab=tab, engine=data.get("engine") or "claude-code", brain=brain))
+
+
+def _evals(brain, tab, motor, sesion=""):
+    """Decisores · uso «Evals» (apagado de fábrica): ¿cómo terminó la sesión?
+    El contexto es el extracto SIN IA que memoria.al_cerrar acaba de dejar en
+    la maleta (lo último del socio, la última respuesta, archivos tocados).
+    observe/suggest: queda en la bitácora (Historial); decide sobre el
+    umbral: además se anota como el resultado de la sesión
+    (decisions.outcomes_path). Con tiempo límite; si falla, nada cambia.
+    suggest/decide: el veredicto se ve UNA vez al abrir la siguiente sesión
+    (decision_visible.anotar_cierre). → el modo, o '' si no preguntó."""
+    try:
+        import decisions
+        if not decisions.enabled("workspace.evals"):
+            return ""
+        import memoria
+        secs = memoria.leer_maleta(memoria.maleta_path(brain, tab))
+        if not secs:
+            return ""
+        mot = memoria.normalizar_motor(motor)
+        sec = next((x for x in reversed(secs) if x["motor"] == mot), secs[-1])
+        ctx = "\n".join(sec["lineas"]).strip()
+        if not ctx:
+            return ""
+        # una ventana más grande; la fachada redacta y DESPUÉS recorta a 4000
+        v = decisions.gate("workspace.evals", context=ctx[:8000], context_max=4000)
+        if not v:
+            return ""
+        decisions.record_outcome(v, tab=tab, engine=mot, brain=brain)
+        try:
+            import decision_visible
+            decision_visible.anotar_cierre(brain, "workspace.evals", v, sesion=sesion, tab=tab)
+        except Exception:
+            pass
+        return v["mode"]
+    except Exception:
+        return ""
 
 
 def _log(rec):

@@ -360,6 +360,43 @@ def build_task(brain, view):
 
 
 # ── AL CERRAR: dejar la revisión pendiente (no lanza nada) ──────────────────
+#: Decisores «Skills» en «decide»: el freno de 2 h ya no manda (Jev separa una
+#: sesión valiosa de una trivial); este piso evita dos entregas seguidas.
+PISO_DECIDE_SECONDS = 10 * 60
+
+
+def _nivel_skills():
+    """El nivel del uso «Skills» de Decisores ('off' si está apagado o falla)."""
+    dec = _root_import("decisions")
+    try:
+        if dec is None or not dec.enabled("workspace.skills"):
+            return "off"
+        return dec.point_conf("workspace.skills")["level"]
+    except Exception:
+        return "off"
+
+
+def _entregar(nivel, d, frenado, hace):
+    """¿Se deja pendiente la revisión? → (sí/no, nota para la línea de la
+    última sesión). Solo con «decide» Y una respuesta sobre el umbral (mode
+    apply) decide Jev: «sí» entrega —con el piso de 10 min—, «no» no. Todo lo
+    demás (apagado, observe, suggest, «decide» bajo el umbral o sin
+    probabilidad, un fallo, la pausa) es lo de siempre: el freno de 2 h
+    decide. Prueba real 2026-11-07: un «sí» al 71 % (bajo el 90) no se
+    entregaba, aunque sin Decisores sí se habría entregado."""
+    if nivel == "decide" and isinstance(d, dict) and d.get("mode") == "apply":
+        si = str(d.get("choice") or "").strip().lower() in ("sí", "si")
+        if si and hace is not None and hace < PISO_DECIDE_SECONDS:
+            return False, "throttled"
+        return si, ""
+    if frenado:
+        return False, "throttled"
+    # lo de siempre: se entrega; si la sugerencia de Jev era «no», la línea de
+    # la última sesión lo aclara (no contradice lo que pasó)
+    no = isinstance(d, dict) and str(d.get("choice") or "").strip().lower() == "no"
+    return True, ("delivered" if no else "")
+
+
 def main(argv=None):
     if os.environ.get("WORKSPACE_NO_SKILL_REVIEW"):
         return  # el env SIEMPRE gana
@@ -378,11 +415,19 @@ def main(argv=None):
     except Exception:
         return
     tp = _throttle_path(brain)
+    hace = None
     try:
-        if os.path.exists(tp) and time.time() - os.path.getmtime(tp) < THROTTLE_SECONDS:
-            return
+        if os.path.exists(tp):
+            hace = time.time() - os.path.getmtime(tp)
     except Exception:
-        pass
+        hace = None
+    frenado = hace is not None and hace < THROTTLE_SECONDS
+    # Con el uso «Skills» apagado, EXACTAMENTE lo de siempre: frenado → nada.
+    # Encendido, Jev igual se consulta (y se anota) aunque el freno no deje
+    # entregar: observe/suggest siguen al freno; decide decide (_entregar).
+    nivel = _nivel_skills() if frenado else None
+    if frenado and nivel == "off":
+        return
     findings = []
     if untrusted:   # guard N6, LOG-ONLY: observa, jamás aborta
         try:
@@ -402,16 +447,39 @@ def main(argv=None):
     view = write_neutral_transcript(transcript, outdir, data.get("engine", ""))
     if not view:
         return  # formato no reconocido: jamás se entrega el crudo
+    d = _decisor(view)
+    if nivel is None:
+        nivel = _nivel_skills() if d is not None else "off"
+    entregar, nota = _entregar(nivel, d, frenado, hace)
+    _anotar_visible(brain, data, d, nota)
+    if entregar:
+        try:
+            _write_json(_pending_path(brain), {
+                "view": view, "engine": data.get("engine", "") or "claude-code",
+                "ts": datetime.datetime.now().isoformat(timespec="seconds"),
+                "findings": len(findings), "decisor": d})
+            os.makedirs(os.path.dirname(tp), exist_ok=True)
+            open(tp, "w").close()
+        except Exception:
+            pass
+    _prune_views(outdir)
+
+
+def _anotar_visible(brain, data, d, nota):
+    """suggest/decide: el veredicto se ve UNA vez al abrir la siguiente sesión
+    (decision_visible). observe y apagado: nada."""
+    if not isinstance(d, dict):
+        return
+    vis = _root_import("decision_visible")
+    if vis is None:
+        return
     try:
-        _write_json(_pending_path(brain), {
-            "view": view, "engine": data.get("engine", "") or "claude-code",
-            "ts": datetime.datetime.now().isoformat(timespec="seconds"),
-            "findings": len(findings)})
-        os.makedirs(os.path.dirname(tp), exist_ok=True)
-        open(tp, "w").close()
+        tab = (os.environ.get("WORKSPACE_WS") or os.environ.get("ZENITH_WS")
+               or str(data.get("tab") or ""))
+        vis.anotar_cierre(brain, "workspace.skills", d, sesion=str(data.get("session_id") or ""),
+                          tab=tab, nota=nota)
     except Exception:
         pass
-    _prune_views(outdir)
 
 
 # ── AL ABRIR: entregar la revisión pendiente al agente (una vez) ────────────
@@ -435,10 +503,50 @@ def archivar_resueltas(brain):
         return []
 
 
+# ── Decisores · uso «Skills» (apagado de fábrica) ────────────────────────────
+#: Lo que el decisor ve de la sesión: el inicio de la vista neutral (ya sin
+#: thinking, sin tools ni crudo del vendor); la fachada además quita secretos.
+DECISOR_CONTEXTO = 6000
+
+
+def _decisor(view):
+    """AL CERRAR: ¿esta sesión amerita crear o mejorar una skill? Se guarda en
+    el pendiente {mode, choice, p, …} y se APLICA al abrir (start_context).
+    None si el uso está apagado, falla o tarda: la revisión sigue como hoy."""
+    dec = _root_import("decisions")
+    if dec is None:
+        return None
+    try:
+        if not dec.enabled("workspace.skills"):
+            return None
+        with open(view, encoding="utf-8", errors="replace") as fh:
+            ctx = fh.read(DECISOR_CONTEXTO * 2)
+        # la fachada redacta y DESPUÉS recorta (un secreto en el corte no sale a medias)
+        v = dec.gate("workspace.skills", context=ctx, context_max=DECISOR_CONTEXTO)
+        return {k: v.get(k) for k in ("mode", "choice", "p", "decider", "id", "message")} \
+            if v else None
+    except Exception:
+        return None
+
+
+def _con_decisor(task, d):
+    """La tarea de revisión según el veredicto guardado al cerrar:
+    None/observe → igual que hoy · suggest → + la estimación (decide el
+    agente) · apply «no» → no se entrega (None) · apply «sí» → + la línea."""
+    if not isinstance(d, dict) or d.get("mode") not in ("suggest", "apply"):
+        return task
+    if d.get("mode") == "apply" and str(d.get("choice") or "").strip().lower() == "no":
+        return None
+    linea = str(d.get("message") or "").strip()
+    return task + ("\n" + linea + "\n" if linea else "")
+
+
 def start_context(brain):
     """Texto para el contexto de arranque, o '' si no hay nada que entregar.
     Consume el pendiente (se entrega UNA vez). Antes archiva las propuestas
-    que el agente ya resolvió (archivar_resueltas): no se vuelven a pedir."""
+    que el agente ya resolvió (archivar_resueltas): no se vuelven a pedir.
+    Con el uso «Skills» de Decisores en «decide», una sesión que el decisor
+    juzgó sin skill (sobre el umbral) se consume sin entregarse."""
     archivar_resueltas(brain)
     if os.environ.get("WORKSPACE_NO_SKILL_REVIEW") or not review_enabled(brain):
         return ""
@@ -455,7 +563,7 @@ def start_context(brain):
         return ""
     if not view or not os.path.isfile(view):
         return ""
-    return build_task(brain, view)
+    return _con_decisor(build_task(brain, view), (pending or {}).get("decisor")) or ""
 
 
 def start_main():

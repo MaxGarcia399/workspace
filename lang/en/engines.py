@@ -237,7 +237,7 @@ STRINGS = {'engines.agent': 'Agent: {name} · a changes · u assigns engine',
  'engines.word': 'ENGINES',
  'engines.yes': 'Recorded',
  'menu.engines.label': 'Engines',
- 'menu.engines.tag': 'status, capabilities and connections',
+ 'menu.engines.tag': 'agent engines and decision models',
  'engines.path_added': 'PATH updated (+{n} folders from a new terminal)'}
 
 # ── engine_install: recipe notes and diagnostics (Engines screen) ───────────

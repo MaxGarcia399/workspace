@@ -8,6 +8,99 @@ Cómo leer esto: cada versión tiene su número (`MAYOR.MENOR.PARCHE`). Un
 cambio de PARCHE arregla cosas; uno de MENOR trae funciones nuevas sin romper
 nada; uno de MAYOR avisa con tiempo si algo cambia de forma.
 
+## 0.8.0 — 2026-11-07
+
+**Novedades**
+- **Decisores, una sección nueva que viene apagada.** Un modelo de decisión no
+  conversa ni escribe: elige entre opciones fijas y dice qué tan seguro está.
+  Hoy hay uno, **Jev** (de TypeSafe, en la nube). Se conecta una sola vez, en
+  **Motores → Modelos de decisión**: pegas tu llave de TypeSafe y lo pruebas.
+  Su uso lo cobra TypeSafe con tu cuenta; en Preguntar ves antes cuántos
+  tokens lleva cada pregunta (también lo fijo que lleva aunque no mandes
+  contexto) y un costo aproximado.
+- **Dónde puede ayudar.** Cada uso tiene su nivel (apagado · observa ·
+  sugiere · decide) y todos empiezan apagados:
+  - en Workspace: el tipo de una nota de memoria, cómo terminó una sesión
+    (Evals), si una sesión amerita una skill y qué tan riesgoso es algo que un
+    agente escribió (Seguridad: en Claude Code, solo cuando el escaneo ya
+    encontró un riesgo);
+  - para tus agentes: elegir entre opciones, revisar si un entregable quedó
+    completo, escoger la mejor de varias instrucciones y repartir trabajo
+    entre agentes. En GitHub Copilot, Cursor, Kiro y Antigravity el agente usa
+    la herramienta `decidir`; en Claude Code, Codex y los demás, el comando
+    `workspace decidir --stdin` (un JSON por la entrada estándar, como explica
+    su ayuda), que pide permiso como cualquier otro comando.
+  - «Sugiere» solo muestra la respuesta; «decide» la aplica solo si supera tu
+    umbral, y nunca si el modelo no dijo qué tan seguro estaba. Si el modelo
+    falla o tarda, todo sigue como si Decisores no existiera.
+- **Tres usos con reglas propias.**
+  - **Seguridad solo puede subir el riesgo, nunca bajarlo:** en «decide» solo
+    aplica «alto»; «medio» o «bajo» quedan como sugerencia y el aviso del
+    escaneo sigue entero. Juzga solo el código: antes de preguntarle se le
+    quitan los comentarios y los docstrings, para que lo que diga el archivo
+    no lo convenza.
+  - **Revisar** recibe aparte lo que pediste y lo que se entregó: lo que el
+    entregable deja pendiente y no estaba en el pedido no cuenta como
+    faltante. Con reportes largos todavía puede dudar: sirve mejor en
+    «sugiere».
+  - **Skills en «decide»**, cuando el modelo está seguro (en tu umbral o más), ya no
+    espera las 2 horas entre revisiones: si dice que la sesión amerita una
+    skill, la revisión llega (nunca dos en menos de 10 minutos); si dice que
+    no, no llega. Por debajo de tu umbral, y en «observa» y «sugiere», esas 2
+    horas siguen mandando.
+- **Ves lo que hace**, con un uso en «sugiere» o «decide» («observa» no
+  muestra nada):
+  - cuando el modelo de decisión interviene, el agente te lo dice en el chat
+    con un bloque ◆ al final de su respuesta, una línea por intervención: qué
+    hizo, qué tan seguro estaba y si se aplicó o solo se sugirió. Cada línea
+    lleva el nombre del modelo que respondió (con Jev: «◆ Jev: tabla · 87 % ·
+    sugerido») y le llega al agente con el recordatorio de mostrártela, así
+    que no depende de lo que recuerde de su arranque;
+  - al guardar una nota, Memoria lo dice solo si sugiere o aplica otro tipo
+    («◆ Jev: guardé la nota como hecho · 88 % · aplicado»); en Claude Code,
+    la línea de Seguridad aparece en la conversación junto al aviso, y lo que
+    el agente no vio en su turno le llega en tu siguiente mensaje;
+  - al abrir la siguiente sesión, una línea dice qué opinó de la anterior
+    (Evals y Skills), una sola vez;
+  - Historial dice qué cambió cada decisión («nota → hecho», «aviso → alto») y
+    cuántas hubo hoy; junto al umbral de cada uso ves sus últimas confianzas;
+  - la barra de estado de Workspace suma «◆ Decisores: hoy 7 · 1 aplicada» (Claude
+    Code, GitHub Copilot, Cursor y Antigravity);
+  - en Claude Code, si cambias un uso de agentes a media sesión, el agente se
+    entera en tu siguiente mensaje; en los demás motores, al abrir otra sesión.
+- **Preguntar**, para probarlo a mano con el contexto que elijas: nada, la
+  pestaña, algunas sesiones, la memoria o todo el cerebro. Con `v` ves qué
+  archivos irían (nunca su contenido) y cuántos quedaron fuera. **Historial**
+  muestra qué se preguntó y qué respondió el modelo, y ahí calificas si
+  acertó; ese registro se queda en tu computadora.
+- **Lo que sale de tu computadora, y solo con un uso encendido:** la pregunta,
+  sus opciones y un contexto mínimo van a TypeSafe. Antes de salir se quitan
+  llaves, contraseñas y tokens (también los JWT). Con Memoria o Cerebro no
+  salen tus archivos privados
+  (`privado: true` o una carpeta `privado/`), lo que es de otras personas en
+  un cerebro compartido, ni chats, mensajes entre agentes o bitácoras. La
+  primera vez que Preguntar manda contenido del cerebro, la respuesta te lo
+  avisa. Con todo apagado no sale nada y tus agentes ven lo mismo que antes.
+- **Motores ahora tiene dos cuadritos:** Motores de agentes (la pantalla de
+  siempre) y Modelos de decisión.
+- Prender o apagar un uso de agentes cambia solo lo de Workspace en la
+  configuración de Kiro y Cursor del cerebro, sin respaldos ni avisos; con
+  todo apagado queda igual que en la 0.7.0.
+
+**Arreglos**
+- **En Windows, la bóveda con tus llaves y los archivos locales de Decisores
+  ya solo los puede leer tu usuario** (y el sistema). La bóveda, con todas
+  las llaves que le das a Workspace (la del correo, la de tu modelo de
+  decisión…), ya estaba en la 0.7.0
+  y heredaba los permisos de la carpeta `.claude`: en una PC, eso dejaba
+  leerla a otra cuenta (la del sandbox de Codex).
+- **En Windows, Ctrl+C dentro de una sección del hub ya no lo cierra:** vuelve
+  al menú. Antes el hub se cerraba con un error.
+- En Windows, en Decisores, Modelos de decisión y la puerta de Motores:
+  Shift-Tab vuelve a la pestaña anterior, los signos ¿ ¡ « » € llegan bien
+  aunque escribas por SSH y, sin una consola de verdad, las pantallas muestran
+  su vista y terminan en vez de quedarse esperando.
+
 ## 0.7.0 — 2026-11-06
 
 **Novedades**

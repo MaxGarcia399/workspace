@@ -994,6 +994,7 @@ def main():
         _reconcile_pending(brain, avisar=avisar)
         _sesiones_al_abrir(brain, entry["name"], preselect, avisar=avisar)
         _metricas_al_abrir(passthrough, avisar=avisar)
+        _decisores_al_abrir(brain, passthrough, avisar=avisar)
     mod.launch(cfg, passthrough, plan=plan, preselect=preselect, show_banner=show_banner)
 
 
@@ -1098,6 +1099,34 @@ def _metricas_al_abrir(passthrough, avisar=print):
                 return ""
             import metricas
             return metricas.aviso_pendiente() or ""
+        except Exception:
+            return ""
+    try:
+        if avisar is print:
+            txt = aviso()
+            if txt:
+                print(txt)
+        else:
+            avisar(aviso)
+    except Exception:
+        pass
+
+
+def _decisores_al_abrir(brain, passthrough, avisar=print):
+    """Decisores: la línea de la última sesión de este cerebro («◆ <modelo> en tu
+    última sesión: Evals → resuelta (88 %) · Skills → no amerita»), UNA vez,
+    junto a los demás avisos de la apertura. Como el de métricas: solo con una
+    persona mirando (sin -p, con terminal) y se decide al soltarlo. Con
+    Decisores apagado no hay línea. Jamás frena."""
+    if any(str(a) in ("-p", "--print") for a in (passthrough or ())):
+        return
+
+    def aviso():
+        try:
+            if not sys.stdout.isatty():
+                return ""
+            import decision_visible
+            return decision_visible.linea_ultima(brain, "hub") or ""
         except Exception:
             return ""
     try:
