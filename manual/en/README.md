@@ -14,5 +14,6 @@ Short chapters, in the order you'll need them. *[Versión en español](../es/REA
 10. [Uninstall](uninstall.md)
 11. [Privacy and transparency](privacy.md)
 12. [Command reference](commands.md)
+13. [Your system's notices](system-notices.md)
 
 What Workspace stands for, in ten lines: [Manifesto](../MANIFESTO.md).

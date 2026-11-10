@@ -3,9 +3,16 @@
 
 Los decisores y la fachada (decisions.py) devuelven en `error` un CÓDIGO:
 
-  context_too_large · auth · payment · rate_limit · timeout · connection ·
-  proxy · server · not_found · bad_request · bad_response · out_of_options ·
-  no_key · not_installed · need_options · off · use_off · error
+  context_too_large · auth · payment · rate_limit · timeout · loading ·
+  connection · proxy · server · not_found · bad_request · bad_response ·
+  out_of_options · no_key · no_model · not_decision · not_installed ·
+  need_options · off · use_off · error
+
+(«loading» y «no_model» son de un decisor LOCAL —Ollama—: el modelo se está
+cargando en frío, o no hay uno de decisión descargado. «not_decision» = el
+modelo elegido no es de decisión (uno de chat: el proveedor lo rechaza, o
+Ollama ya lo dijo). Con un decisor local, «sin conexión» y «no encontrado»
+dicen lo que toca en esta computadora: abrir Ollama, descargar el modelo.)
 
 y, aparte, `error_detail` (status HTTP, error_type del servidor, request_id;
 o la clase del error de red y su fase). Aquí se vuelven:
@@ -33,10 +40,11 @@ try:
 except Exception:
     i18n = None
 
-CODES = ("context_too_large", "auth", "payment", "rate_limit", "timeout", "connection",
-         "proxy", "insecure_url", "server", "not_found", "bad_request", "bad_response",
-         "out_of_options", "no_key", "not_installed", "need_options", "bad_input", "off", "use_off",
-         "model_missing", "unavailable", "error")
+CODES = ("context_too_large", "auth", "payment", "rate_limit", "timeout", "loading",
+         "connection", "proxy", "insecure_url", "server", "not_found", "bad_request",
+         "bad_response", "out_of_options", "no_key", "no_model", "not_decision", "not_installed",
+         "need_options",
+         "bad_input", "off", "use_off", "model_missing", "unavailable", "error")
 
 #: Texto crudo de la bitácora vieja (antes de los códigos) → código. En orden:
 #: lo más específico primero.
@@ -86,6 +94,31 @@ def normalize(err):
         if any(w in low for w in words):
             return code
     return "error"
+
+
+def _local(decider):
+    """¿El decisor corre en ESTA computadora (META `local`, Ollama)?"""
+    did = str(decider or "").strip().lower()
+    if not did or did == "off":
+        return False
+    try:
+        import decisions as D
+        m = D.meta(did)
+        return bool(m) and bool(m.get("local", False)) and not m.get("internal")
+    except Exception:
+        return False
+
+
+def _pull(decider, detail):
+    """El comando para descargar el modelo de un decisor local («ollama pull X»):
+    el de la petición que falló o el que se sugiere."""
+    m = (detail or {}).get("model") if isinstance(detail, dict) else None
+    try:
+        import decisions as D
+        fn = getattr(D.load(decider), "pull_cmd", None)
+        return str(fn(m) or "") if callable(fn) else ""
+    except Exception:
+        return ""
 
 
 def _names(decider):
@@ -188,10 +221,28 @@ def human(err, decider=None, sent_tokens=None, timeout_ms=None, where="ask", det
             return _t("decisores.err.timeout", "{m} tardó más de {s} s · {paso}", m=m,
                       s=_secs(timeout_ms), paso=paso)
         return _t("decisores.err.timeout_nonum", "{m} tardó demasiado · {paso}", m=m, paso=paso)
+    if code == "loading":
+        return _t("decisores.err.loading", "{m} está cargando el modelo · intenta de nuevo en "
+                  "unos segundos", m=m)
+    if code == "no_model":
+        return _t("decisores.err.no_model", "{p} no tiene un modelo de decisión descargado · "
+                  "descárgalo: {cmd}", p=p, cmd=_pull(decider, None))
+    if code == "not_decision":
+        x = (detail or {}).get("model") if isinstance(detail, dict) else None
+        return _t("decisores.err.not_decision", "{x} no es un modelo de decisión · elige uno de "
+                  "decisión en Motores → Modelos de decisión", x=x or m)
+    if code == "connection" and _local(decider):
+        return _t("decisores.err.connection_local", "{p} no está abierto en esta computadora · "
+                  "ábrelo e intenta de nuevo", p=p)
     if code == "connection":
         return _t("decisores.err.connection", "Sin conexión con {p} · revisa tu internet", p=p)
     if code == "proxy":
         var = (detail or {}).get("var") if isinstance(detail, dict) else None
+        if isinstance(detail, dict) and detail.get("class") == "ProxyHttpsAuth":
+            return _t("decisores.err.proxy_https_auth", "El proxy de {var} es https:// con "
+                      "usuario y contraseña, y Workspace no abre TLS hacia el proxy: tu contraseña "
+                      "viajaría sin cifrar, así que no conecté · usa un proxy sin contraseña o "
+                      "quítalo", var=var or "HTTPS_PROXY")
         return _t("decisores.err.proxy", "El proxy configurado ({var}) no es válido · corrígelo o "
                   "quítalo", var=var or "HTTPS_PROXY")
     if code == "insecure_url":
@@ -200,6 +251,16 @@ def human(err, decider=None, sent_tokens=None, timeout_ms=None, where="ask", det
                   "sale así; corrígela o quítala", var=var or "TYPESAFE_BASE_URL")
     if code == "server":
         return _t("decisores.err.server", "{p} tuvo un error de su lado · intenta de nuevo", p=p)
+    if (code == "not_found" or status == 404) and _local(decider) and \
+            isinstance(detail, dict) and detail.get("reason") == "old_version":
+        return _t("decisores.err.old_local", "Esta versión de {p} no tiene modelos de decisión · "
+                  "actualízalo a 0.35.0 o más nueva", p=p)
+    if (code == "not_found" or status == 404) and _local(decider):
+        return _t("decisores.err.not_found_local", "Ese modelo no está descargado en {p} · "
+                  "descárgalo: {cmd}", p=p, cmd=_pull(decider, detail))
+    if code == "not_found" and isinstance(detail, dict) and detail.get("reason") == "model":
+        return _t("decisores.err.not_found_model", "{p} no encuentra el modelo {x} · elige otro en "
+                  "Motores → Modelos de decisión", p=p, x=detail.get("model") or m)
     if code == "not_found" or status == 404:
         return _t("decisores.err.not_found", "{p} no reconoce la petición · actualiza Workspace "
                   "(workspace update)", p=p)
@@ -262,6 +323,9 @@ def short(err):
             "payment": _t("decisores.why.payment", "sin crédito"),
             "rate_limit": _t("decisores.why.rate_limit", "demasiadas seguidas"),
             "timeout": _t("decisores.why.timeout", "tardó de más"),
+            "loading": _t("decisores.why.loading", "cargando el modelo"),
+            "no_model": _t("decisores.why.no_model", "sin modelo descargado"),
+            "not_decision": _t("decisores.why.not_decision", "no es de decisión"),
             "connection": _t("decisores.why.connection", "sin conexión"),
             "proxy": _t("decisores.why.proxy", "proxy no válido"),
             "insecure_url": _t("decisores.why.insecure_url", "dirección insegura"),
@@ -305,4 +369,9 @@ def detail_lines(detail, err=None):
     raw = str(err or "").strip()
     if raw and raw not in CODES and raw != code:            # texto crudo de la bitácora vieja
         out.append((_t("decisores.det.raw", "texto original"), raw[:160]))
+    try:                                   # jamás un valor de la bóveda en pantalla
+        import secret_store
+        out = [tuple(x) for x in secret_store.sin_valores([list(x) for x in out])]
+    except Exception:
+        pass
     return out

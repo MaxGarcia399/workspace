@@ -232,6 +232,23 @@ def export_tab_env(cfg, wid, name):
         os.environ[we] = wid
     except Exception:
         pass
+    registrar_panel(cfg, wid)
+
+
+def registrar_panel(cfg, wid, engine=None, env=None):
+    """El panel de herdr de esta pestaña, capturado AL LANZAR (el lanzador
+    corre en el panel: sus HERDR_* son las de ESA pestaña, también para
+    Codex, cuyos comandos pueden correr en el daemon con el entorno de otra).
+    Lo usa aviso_panel para avisarle cuando no escucha. Falla suave."""
+    env = os.environ if env is None else env
+    if not env.get("HERDR_PANE_ID"):
+        return False
+    try:
+        import aviso_panel
+        return aviso_panel.registrar(cfg.get("name"), wid, engine or cfg.get("_engine") or "",
+                                     env=env, fuente="lanzar")
+    except Exception:
+        return False
 
 
 # ── línea previa al arranque + título de la terminal (U10/Z10) ──────────────

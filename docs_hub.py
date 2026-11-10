@@ -444,11 +444,17 @@ def _vivo_nohace(c):
     import secret_store
     n = len(secret_store.names())
     if not n:
-        return _t("docs.vivo.secrets_none", "secrets.local: ninguna llave guardada",
-                  "secrets.local: no keys stored")
-    return _t("docs.vivo.secrets", "llaves en secrets.local: {n}, solo para Workspace (los "
-              "motores no las reciben)", "keys in secrets.local: {n}, for Workspace only (the "
-              "engines never get them)", n=n)
+        return _t("docs.vivo.secrets_none", "bóveda: ninguna llave guardada",
+                  "vault: no keys stored")
+    donde = secret_store.sistema()
+    if donde == "archivo":
+        return _t("docs.vivo.secrets", "llaves en la bóveda: {n}, en un archivo solo tuyo y solo "
+                  "para Workspace (los motores no las reciben)", "keys in the vault: {n}, in a "
+                  "file only you can read and for Workspace only (the engines never get them)",
+                  n=n)
+    return _t("docs.vivo.secrets_llavero", "llaves en la bóveda: {n}, en el llavero del sistema "
+              "y solo para Workspace (los motores no las reciben)", "keys in the vault: {n}, in "
+              "the system keychain and for Workspace only (the engines never get them)", n=n)
 
 
 def _vivo_actualizar(c):
@@ -764,7 +770,7 @@ CAPITULOS = (
                  "El cerebro viaja: memoria, usuarios, skills y wiki llegan a tus otras máquinas "
                  "por Obsidian (o por git, si así lo elegiste).",
                  "Se queda en esta PC " + ESTADO_TXT + "/: ajustes, registros, respaldos y "
-                 "llaves (secrets.local). Nunca viaja.",
+                 "llaves (la bóveda; con llavero del sistema, ahí). Nunca viaja.",
                  "La memoria propia de Claude Code se guarda en el cerebro, una carpeta "
                  "por persona (motores/claude-code/memoria/<socio>/), así también viaja.",
                  "AGENTS.md y GEMINI.md llevan la memoria de la pestaña solo mientras está "
@@ -779,7 +785,7 @@ CAPITULOS = (
                  "The brain travels: memory, users, skills and wiki reach your other machines "
                  "through Obsidian (or git, if you chose it).",
                  "What stays on this PC is " + ESTADO_TXT + "/: settings, logs, backups and "
-                 "keys (secrets.local). It never travels.",
+                 "keys (the vault; with a system keychain, there). It never travels.",
                  "Claude Code's own memory is kept in the brain, one folder per person "
                  "(motores/claude-code/memoria/<partner>/), so it travels too.",
                  "AGENTS.md and GEMINI.md carry the tab's memory only while it is open: on "
@@ -945,8 +951,8 @@ CAPITULOS = (
                  "memoria), lo hace sola y con respaldo, y solo donde el texto sigue como lo dejó "
                  "Workspace: lo que tú escribiste no se toca. Un agente que cargas después lo "
                  "recibe al cargarlo.",
-                 "Desinstalar guarda un zip de la carpeta de estado en tu Escritorio (sin "
-                 "sesiones ni llaves) y te ofrece limpiar también los hooks de tus cerebros y lo "
+                 "Desinstalar guarda un zip de la carpeta de estado en ~/Workspace/Respaldos "
+                 "(sin sesiones ni llaves), te lo muestra en su carpeta y te ofrece limpiar también los hooks de tus cerebros y lo "
                  "que dejó en cada motor.",
                  "Tus cerebros y tus conversaciones se quedan siempre. Si limpias también los "
                  "motores, las conversaciones de los perfiles de Workspace en OpenClaw y Hermes "
@@ -967,8 +973,8 @@ CAPITULOS = (
                  "instructions), it does it on its own and with a backup, and only where the text "
                  "is still as Workspace left it: what you wrote is left alone. An agent you load "
                  "later gets it when you load it.",
-                 "Uninstalling saves a zip of the state folder on your Desktop (without sessions "
-                 "or keys) and offers to also clean your brains' hooks and what it left in each "
+                 "Uninstalling saves a zip of the state folder in ~/Workspace/Respaldos (without "
+                 "sessions or keys), shows it to you in its folder and offers to also clean your brains' hooks and what it left in each "
                  "engine.",
                  "Your brains and your conversations always stay. If you also clean the "
                  "engines, the conversations in Workspace's OpenClaw and Hermes profiles are not "

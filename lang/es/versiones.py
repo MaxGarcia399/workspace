@@ -79,6 +79,7 @@ STRINGS = {
     "version.paused_manual": "⚠ volviste a la versión anterior: la v{v} queda en pausa hasta una más nueva",
     "updater.reason.interrupted": "actualización interrumpida — se quedó la versión que tenías",
     "updater.reason.reset_failed": "la versión nueva no arrancó y no pude volver limpio a la anterior (¿un archivo bloqueado?)",
+    "updater.reason.undo_failed": "no pude devolver tus llaves al archivo antes de volver (el llavero no respondió): no volví atrás; reintenta en un momento",
     "updater.notify.applying": "Actualizando Workspace… (comprobando que la versión nueva arranca en esta máquina)",
     "updater.auto.rollback_failed": "⚠ La versión nueva de Workspace no arrancó y no pude volver limpio a la anterior. Corre `workspace doctor` (y si sigue, `workspace doctor --bundle` para pedir ayuda).",
 }

@@ -28,6 +28,7 @@ API:  local_path() · read_local() · agents() · find(name) · add(name, brain)
 import json
 import os
 import re
+import sys
 
 import legacy
 
@@ -274,8 +275,14 @@ def remove(name):
 # Con el harness distribuido VACÍO nadie debería registrar a mano cada cerebro.
 # discover() escanea ubicaciones CONOCIDAS de forma ACOTADA y CANCELABLE:
 #   · padre del checkout · raíz del drive del checkout (Windows, p.ej. C:\) ·
-#     HOME · Desktop/Documents (+ OneDrive) · ~/Obsidian · vaults de obsidian.json
-#     · carpeta elegida por el socio;
+#     HOME · ~/Workspace/Cerebros · Desktop/Documents (+ OneDrive) · ~/Obsidian ·
+#     vaults de obsidian.json · carpeta elegida por el socio;
+#   · en Mac, SIN entrar a las carpetas que macOS protege (Escritorio,
+#     Documentos, Descargas, Películas, Música, Imágenes, iCloud Drive): cada
+#     una abre un diálogo de permiso por app de terminal (aviso C1). Escritorio,
+#     Documentos e iCloud solo a pedido (`protegidas=True`: «Buscar también en
+#     Escritorio/Documentos» en Descubrir, con su aviso antes). La carpeta
+#     protegida donde vive el propio harness sí cuenta (ya tiene el permiso);
 #   · profundidad 0-2 por raíz, tope de entradas y de tiempo, `should_cancel`;
 #   · JAMÁS recorre todo el disco.
 # Marcador canónico `<brain>/.workspace/agent.json`; legado: el de la instalación anterior
@@ -331,16 +338,88 @@ def _harness_root():
     return os.path.dirname(os.path.abspath(__file__))
 
 
-def default_scan_roots(root=None):
+#: Mac: carpetas de HOME que macOS protege (TCC): entrar a ellas abre un
+#: diálogo de permiso por cada app de terminal. Docs: support.apple.com/guide/
+#: mac-help/mchld5a35146 (Escritorio, Documentos, Descargas, iCloud Drive…).
+MAC_PROTEGIDAS = ("Desktop", "Documents", "Downloads", "Movies", "Music", "Pictures",
+                  os.path.join("Library", "Mobile Documents"),
+                  os.path.join("Library", "CloudStorage"))
+#: Las que «Buscar también en Escritorio/Documentos» abre a pedido (más las
+#: bóvedas de Obsidian en la nube). Descargas, Películas, Música e Imágenes no:
+#: ahí no viven cerebros.
+MAC_A_PEDIDO = ("Desktop", "Documents", os.path.join("Library", "Mobile Documents"),
+                os.path.join("Library", "CloudStorage"))
+
+
+def _mac():
+    return sys.platform == "darwin"
+
+
+def _windows():
+    """Windows (raíz del disco del checkout como raíz de escaneo). Función,
+    no constante: las pruebas simulan el sistema completo sin tocar os.name."""
+    return os.name == "nt"
+
+
+def protected_folder(path, home=None):
+    """En Mac, la carpeta protegida de HOME (MAC_PROTEGIDAS) que es `path` o lo
+    contiene; '' si ninguna o fuera de Mac. Solo compara rutas: no toca el
+    disco (resolver la ruta ya entraría a la carpeta)."""
+    if not _mac() or not path:
+        return ""
+    home = home or os.path.expanduser("~")
+    try:
+        p = os.path.normcase(os.path.abspath(os.path.expanduser(path)))
+    except Exception:
+        return ""
+    for rel in MAC_PROTEGIDAS:
+        base = os.path.normcase(os.path.join(home, rel))
+        if p == base or p.startswith(base + os.sep):
+            return os.path.join(home, rel)
+    return ""
+
+
+def _bloqueo(root=None, protegidas=False, permitidas=()):
+    """Predicado `ruta → True si NO se entra` para un escaneo: en Mac, una
+    carpeta protegida salvo la del harness (ya tiene el permiso), las de
+    `permitidas` (rutas que el socio eligió) y, con `protegidas`, las de
+    MAC_A_PEDIDO. Fuera de Mac, nada se bloquea."""
+    if not _mac():
+        return lambda _p: False
+    home = os.path.expanduser("~")
+    ok = {protected_folder(root or _harness_root(), home)}
+    ok |= {protected_folder(x, home) for x in permitidas if x}
+    if protegidas:
+        ok |= {os.path.join(home, rel) for rel in MAC_A_PEDIDO}
+    ok.discard("")
+    ok = {os.path.normcase(x) for x in ok}
+
+    def bloqueada(p):
+        prot = protected_folder(p, home)
+        return bool(prot) and os.path.normcase(prot) not in ok
+    return bloqueada
+
+
+def default_scan_roots(root=None, protegidas=False):
     """[(ruta, profundidad, origen)] de las ubicaciones conocidas que existen.
+    En Mac sin las carpetas protegidas (salvo la del harness o, con
+    `protegidas`, las de MAC_A_PEDIDO): ver _bloqueo.
     Con env WORKSPACE_DISCOVERY_ROOTS definida, SOLO esas (seam de tests)."""
     env = os.environ.get(DISCOVERY_ROOTS_ENV)
     if env is not None:
         return [(p.strip(), 1, "env") for p in env.split(os.pathsep) if p.strip()]
     root = root or _harness_root()
     home = os.path.expanduser("~")
+    bloqueada = _bloqueo(root, protegidas)
+    try:
+        import paths
+        cerebros = paths.brains_dir(home)
+    except Exception:
+        cerebros = ""
     cand = [(os.path.dirname(root), 1, "checkout")]
-    if os.name == "nt":
+    if cerebros:
+        cand.append((cerebros, 1, "cerebros"))
+    if _windows():
         drive = os.path.splitdrive(root)[0]
         if drive and not drive.startswith("\\\\"):      # UNC: no listar la raíz del share
             cand.append((drive + "\\", 1, "drive"))
@@ -359,7 +438,7 @@ def default_scan_roots(root=None):
     for p, d, o in cand:
         try:
             k = os.path.normcase(os.path.abspath(p))
-            if k in seen or not os.path.isdir(p):
+            if k in seen or bloqueada(p) or not os.path.isdir(p):
                 continue
             seen.add(k)
             out.append((os.path.abspath(p), d, o))
@@ -388,7 +467,7 @@ def _mtime(p):
 
 def scan(roots=None, extra_roots=None, chosen=None, targets=None,
          max_entries=SCAN_MAX_ENTRIES, time_budget=SCAN_TIME_BUDGET,
-         should_cancel=None, root=None):
+         should_cancel=None, root=None, protegidas=False):
     """Escaneo ACOTADO. NO escribe nada. Devuelve dict:
       found    [{name, brain, marker, legacy_install, def_path, def_mtime}]
       invalid  [{brain, def_path, error}]  def corrupta / nombre inválido / sin permiso
@@ -398,19 +477,22 @@ def scan(roots=None, extra_roots=None, chosen=None, targets=None,
     `roots`   [(ruta, profundidad)] o [ruta] — None = default_scan_roots().
     `extra_roots` rutas adicionales (profundidad 1) · `chosen` carpeta elegida
     (profundidad 2) · `targets` nombres de carpeta a reportar aunque no tengan
-    definición (cerebros committeados reubicados)."""
+    definición (cerebros committeados reubicados). En Mac no entra a una
+    carpeta protegida (ni al bajar un nivel desde HOME) salvo la del harness,
+    las raíces que se le pasan explícitas y, con `protegidas`, MAC_A_PEDIDO."""
     t0 = time.monotonic()
-    base = default_scan_roots(root) if roots is None else [
+    base = default_scan_roots(root, protegidas) if roots is None else [
         (tuple(r) if isinstance(r, (tuple, list)) else (r, 1)) for r in roots]
     plan = [(r[0], int(r[1]) if len(r) > 1 else 1) for r in base]
     plan += [(r, 1) for r in (extra_roots or [])]
     if chosen:
         plan.append((chosen, 2))
+    bloqueada = _bloqueo(root, protegidas, permitidas=[p for p, _ in plan])
     tg = {str(t).lower() for t in (targets or ()) if t}
     res = {"found": [], "invalid": [], "denied": [], "folders": [],
            "truncated": False, "cancelled": False, "elapsed": 0.0,
            "roots": [p for p, _ in plan]}
-    seen = set()
+    seen = {}                     # realpath → profundidad con la que se visitó
     count = [0]
 
     def stop():
@@ -429,24 +511,33 @@ def scan(roots=None, extra_roots=None, chosen=None, targets=None,
     def visit(path, depth):
         if res["cancelled"] or res["truncated"] or stop():
             return
+        if bloqueada(path):               # Mac: ni un stat dentro (diálogo de TCC)
+            return
         try:
             rp = os.path.normcase(os.path.realpath(path))
         except Exception:
             return
-        if rp in seen:
+        # Una carpeta ya vista solo se vuelve a visitar para BAJAR más hondo:
+        # HOME (nivel 1) toca ~/Desktop a profundidad 0 antes de que llegue la
+        # raíz ~/Desktop (nivel 1); sin esto, sus cerebros no salían cuando el
+        # harness no vive en el Escritorio (~/Workspace).
+        prev = seen.get(rp)
+        if prev is not None and prev >= depth:
             return
-        seen.add(rp)
-        count[0] += 1
+        seen[rp] = depth
+        if prev is None:
+            count[0] += 1
         try:
             if not os.path.isdir(path):
                 return
         except Exception:
             return
         bn = os.path.basename(os.path.normpath(path))
-        if tg and bn.lower() in tg:
+        if prev is None and tg and bn.lower() in tg:
             res["folders"].append({"brain": os.path.abspath(path), "basename": bn})
-        defpath, marker = _probe_dir(path)
+        defpath, marker = ("", "") if prev is not None else _probe_dir(path)
         if defpath:
+            seen[rp] = float("inf")       # un cerebro: no se recorre ni se repite
             try:
                 with open(defpath, encoding="utf-8") as fh:
                     d = json.load(fh)
@@ -525,10 +616,12 @@ def write_index(scan_res):
         return False
 
 
-def load_index(max_age=INDEX_TTL):
+def load_index(max_age=INDEX_TTL, bloqueada=None):
     """Índice re-validado barato (stat de cada entrada) con la forma de `scan`,
     o None si no hay / está viejo / corrupto. Entradas que ya no validan
-    (carpeta movida, def cambiada) se descartan: el índice es caché, no verdad."""
+    (carpeta movida, def cambiada) se descartan: el índice es caché, no verdad.
+    `bloqueada(ruta)` → True: la entrada se descarta SIN tocarla (Mac: una
+    carpeta protegida, ver _bloqueo)."""
     data = _read_json(index_path())
     if not data:
         return None
@@ -545,6 +638,8 @@ def load_index(max_age=INDEX_TTL):
         if not isinstance(b, dict) or not isinstance(b.get("path"), str):
             continue
         p = b["path"]
+        if bloqueada is not None and bloqueada(p):
+            continue
         if b.get("marker") == MARKER_FOLDER:
             if os.path.isdir(p):
                 res["folders"].append({"brain": p, "basename": b.get("basename")
@@ -566,7 +661,7 @@ def load_index(max_age=INDEX_TTL):
 
 # ── API pública de descubrimiento ────────────────────────────────────────────
 def discover(extra_roots=None, roots=None, chosen=None, should_cancel=None,
-             max_entries=SCAN_MAX_ENTRIES, time_budget=SCAN_TIME_BUDGET):
+             max_entries=SCAN_MAX_ENTRIES, time_budget=SCAN_TIME_BUDGET, protegidas=False):
     """[{name, brain, legacy_install, marker}] de cerebros auto-descriptivos
     (escaneo acotado; ver `scan`). NO registra. Dedup por nombre (primero gana)
     y por carpeta; una colisión de nombres se AVISA por stderr (no se traga).
@@ -574,7 +669,7 @@ def discover(extra_roots=None, roots=None, chosen=None, should_cancel=None,
     try:
         r = scan(roots=roots, extra_roots=extra_roots, chosen=chosen,
                  should_cancel=should_cancel, max_entries=max_entries,
-                 time_budget=time_budget)
+                 time_budget=time_budget, protegidas=protegidas)
     except Exception:
         return []
     if not r.get("cancelled"):
@@ -670,18 +765,37 @@ def _empty_scan():
             "truncated": False, "cancelled": False, "elapsed": 0.0, "roots": []}
 
 
+def safe_vault_paths(root=None):
+    """Bóvedas de Obsidian registradas en las que se puede mirar sin pedir
+    permiso (en Mac, fuera de las carpetas protegidas; ver _bloqueo)."""
+    bloqueada = _bloqueo(root)
+    return [p for p in _obsidian_vault_paths() if not bloqueada(p)]
+
+
 def repair_suggestions(scan_mode="auto", regs=None, persist=True, **kw):
     """[{name, current, source, found, marker, options, message}] para cada
     agente REGISTRADO cuyo cerebro no existe y que el discovery encontró en
     otra ruta (por marcador con su nombre o, para committeados sin definición,
     por nombre de carpeta). scan_mode: "auto" (índice fresco o escaneo
     acotado), "scan" (escanear siempre), "index" (solo índice; jamás toca el
-    disco más allá de stat). persist=False → no actualiza el índice (modo
-    diagnóstico de solo lectura, p.ej. doctor --check). Falla-suave → []."""
+    disco más allá de stat), "safe" (la reparación AUTOMÁTICA al abrir el
+    hub: el índice, aunque sea viejo, y las bóvedas de Obsidian; en Mac sin
+    entrar a carpetas protegidas, ni para validar el índice: sin diálogos que
+    el socio no pidió — aviso C1; no reescribe el índice). persist=False → no
+    actualiza el índice (modo diagnóstico de solo lectura, p.ej. doctor
+    --check). Falla-suave → []."""
     try:
         regs = regs if regs is not None else _registered_states()
         if all(st["res"].get("exists") for st in regs.values()):
             return []
+        if scan_mode == "safe":
+            bloqueada = _bloqueo()
+            r = load_index(max_age=None, bloqueada=bloqueada) or _empty_scan()
+            targets = {st["target"] for st in regs.values() if st["target"]}
+            v = scan(roots=[(p, 0) for p in safe_vault_paths()], targets=targets, **kw)
+            r["found"] = r["found"] + v["found"]
+            r["folders"] = r["folders"] + v["folders"]
+            return _suggest(regs, r)
         r = None
         if scan_mode in ("auto", "index"):
             r = load_index()
@@ -698,7 +812,7 @@ def repair_suggestions(scan_mode="auto", regs=None, persist=True, **kw):
 
 
 def candidates(roots=None, extra_roots=None, chosen=None, should_cancel=None,
-               max_entries=SCAN_MAX_ENTRIES, time_budget=SCAN_TIME_BUDGET):
+               max_entries=SCAN_MAX_ENTRIES, time_budget=SCAN_TIME_BUDGET, protegidas=False):
     """Informe COMPLETO de discovery, SIN registrar nada:
       candidates  [{name, brain, marker, legacy_install, status, registered_brain,
                     registered_source, duplicate_of}]
@@ -710,7 +824,7 @@ def candidates(roots=None, extra_roots=None, chosen=None, should_cancel=None,
     targets = {st["target"] for st in regs.values() if st["target"]}
     r = scan(roots=roots, extra_roots=extra_roots, chosen=chosen, targets=targets,
              should_cancel=should_cancel, max_entries=max_entries,
-             time_budget=time_budget)
+             time_budget=time_budget, protegidas=protegidas)
     if not r.get("cancelled"):
         write_index(r)
     by_name = {}
@@ -739,12 +853,12 @@ def candidates(roots=None, extra_roots=None, chosen=None, should_cancel=None,
             "elapsed": r["elapsed"], "roots": r["roots"]}
 
 
-def discover_and_register(extra_roots=None, names=None, roots=None):
+def discover_and_register(extra_roots=None, names=None, roots=None, protegidas=False):
     """Registro EXPLÍCITO (lo pide el socio: `discover --register`). Solo
     registra candidatos NUEVOS (no registrados), sin nombre duplicado y — si
     `names` — solo los elegidos. Un agente registrado con cerebro roto NO se
     re-registra aquí: eso es `relocate` (reparación). Devuelve [nombres]."""
-    rep = candidates(roots=roots, extra_roots=extra_roots)
+    rep = candidates(roots=roots, extra_roots=extra_roots, protegidas=protegidas)
     want = {str(n).strip().lower() for n in names} if names else None
     added = []
     for c in rep["candidates"]:
@@ -875,15 +989,20 @@ def main(argv=None):
     if cmd in ("discover", "descubrir"):
         register = ("--register" in args) or ("-r" in args)
         roots = [args[i + 1] for i, x in enumerate(args[:-1]) if x == "--root"]
+        # Mac: Escritorio/Documentos/iCloud solo a pedido (con su aviso antes)
+        protegidas = "--escritorio" in args or "--desktop" in args
+        if protegidas and _mac():           # aviso de una línea ANTES (C1)
+            import avisos_sistema
+            print(avisos_sistema.texto("descubrir.protegidas"))
         if register:
-            added = discover_and_register(extra_roots=roots or None)
+            added = discover_and_register(extra_roots=roots or None, protegidas=protegidas)
             if added:
                 print("registrados: " + ", ".join(added))
             else:
                 print("agentsreg: nada nuevo que registrar (ya estaban, duplicados o no hay cerebros)")
             return 0
         rep = candidates(chosen=roots[0] if roots else None,
-                         extra_roots=roots[1:] or None)
+                         extra_roots=roots[1:] or None, protegidas=protegidas)
         if "--json" in args:
             print(json.dumps(rep, ensure_ascii=False, indent=2))
         else:
@@ -894,7 +1013,8 @@ def main(argv=None):
         print(("ok → " + dest) if ok else "error: " + err)
         return 0 if ok else 1
     print("uso: agentsreg.py list | add <name> <brain> | remove <name> | "
-          "discover [--root <ruta>] [--json] [--register] | relocate <name> <ruta> [--force]")
+          "discover [--root <ruta>] [--json] [--register] [--escritorio] | "
+          "relocate <name> <ruta> [--force]")
     return 2
 
 

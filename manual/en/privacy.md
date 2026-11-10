@@ -4,7 +4,7 @@
 
 | What | Where | Who sees it |
 |---|---|---|
-| Workspace's code | its folder (`~/Desktop/Workspace` or `%LOCALAPPDATA%\Workspace`) | it's public |
+| Workspace's code | its folder (`~/Workspace`, the one you already had —e.g. `~/Desktop/Workspace`— or `%LOCALAPPDATA%\Workspace`) | it's public |
 | Your settings, shortcuts, themes, state | `~/.claude/workspace/` | only your machine |
 | Your agents and their memory | each brain's folder | you (and whoever you choose, if you sync it) |
 | Your credentials | on this machine; never in the repository | only your machine |
@@ -38,7 +38,7 @@ npm and winget. If you add a connection, add it here and in ../es/privacidad.md.
 | Mail (`workspace mail`) | the SMTP server you configure | each time you send |
 | Voice dictation setup (macOS) | Hugging Face (whisper model) and Homebrew | only with `workspace voice --setup`; dictating is 100% local |
 | API providers (advanced) | the endpoint you configure (e.g. OpenAI, OpenRouter, Anthropic, Google, or a local one such as Ollama or LM Studio) | only if you set up a provider with your API key |
-| **Deciders** with Jev | `api.typesafe.ai` (TypeSafe), with your TypeSafe key; honors `HTTPS_PROXY`/`NO_PROXY` | only if you connect Jev in Engines → Decision models **and** turn on a use in Deciders (everything ships off), when you **Test** it in Engines or when you **Ask** by hand. Each use you turn on sends its question, its options and minimal context: Memory, the note's text; Evals, the session-close extract (up to 4000 characters); Skills, the start of the session (up to 6000); Security, the path, the risks found and what was written (up to 1500), without the comments and docstrings it recognizes, only when the scan already found something; the agent uses, whatever the agent sends (in Review, also what you asked for). Ask sends the context you choose (the tab, sessions, the memory or the whole brain), and `v` shows beforehand which files go. Keys, passwords and tokens (JWTs too) are removed before anything leaves; private files (`privado: true` or a `privado/` folder), what belongs to other people in a shared brain, chats, messages between agents and logs never leave |
+| **Deciders** in the cloud (Jev, OpenRouter, Liquid) | `api.typesafe.ai` (TypeSafe), `openrouter.ai` (OpenRouter) or `api.liquid.ai` (Liquid), with your key for each; honors `HTTPS_PROXY`/`NO_PROXY`. With **Ollama** nothing leaves this computer: it goes to `127.0.0.1:11434` (or the `OLLAMA_HOST` you set; if that is another machine, Workspace warns you as with the cloud), with no key | only if you connect one in Engines → Decision models **and** turn on a use in Deciders (everything ships off), when you **Test** it in Engines or when you **Ask** by hand. Each use you turn on sends its question, its options and minimal context: Memory, the note's text; Evals, the session-close extract (up to 4000 characters); Skills, the start of the session (up to 6000); Security, the path, the risks found and what was written (up to 1500), without the comments and docstrings it recognizes, only when the scan already found something; the agent uses, whatever the agent sends (in Review, also what you asked for). Ask sends the context you choose (the tab, sessions, the memory or the whole brain), and `v` shows beforehand which files go. Keys, passwords and tokens (JWTs too) are removed before anything leaves; private files (`privado: true` or a `privado/` folder), what belongs to other people in a shared brain, chats, messages between agents and logs never leave |
 | Opening a link | your browser | when you choose to open something (such as an engine's official source) |
 
 ## What it records locally
@@ -74,14 +74,64 @@ machine either. Even with Deciders off, the hub notes in
 `~/.claude/workspace/hub-novedades.json` only the date it first showed you the "new" on its row,
 to remove it after 7 days.
 
+**Conversations** connects to no server. Each room lives in the brain of the agent that opened
+it (folder `conversaciones/`), so it travels with that brain if you sync it and whoever shares
+that brain can see it. Each message carries who wrote it, in which tab, with which engine and the
+name of its machine; while an agent waits for an answer, its brain keeps in `msgs/_presencia/`
+that it is listening. What you read in the hub and the order each message reached you stay on
+this machine, in `~/.claude/workspace/salas/`. Rooms stay out of memory search and out of the
+context sent to Deciders.
+
 ## Credentials
 
 Workspace **does not read or copy** your engines' credentials: each official program handles
-its own login. Keys you give Workspace itself (for mail, for example, or the Jev key in
-Engines → Decision models) are stored only on this machine, in a file only your user can read (on
-Windows, with its own permissions since 0.8.0: before, it inherited the `.claude` folder's), and
-the engines never get them. Before each version is published, an automatic check makes sure no credential or
-personal data slips in.
+its own login. Keys you give Workspace itself (for mail, for example, or a decision model's key in
+Engines → Decision models) are stored only on this machine, outside your brain (they are not
+synced or uploaded anywhere), and the engines never get them.
+
+**Where, depending on your system:**
+
+| System | Where each key lives |
+|---|---|
+| macOS | in your **Keychain** (the Keychain Access app), through the system's `security` program; the key never goes on the command line. If the Keychain is locked (for example, over SSH), Workspace opens no dialog: it saves to the file and tells you in one line |
+| Windows | encrypted with your Windows account (**DPAPI**), in a file only you can read: another account, or a copy of the file on another PC, cannot open it |
+| Linux | in your session keyring with `secret-tool`, if it is installed, a session is open and the keyring is unlocked (Workspace only checks: it never asks you to unlock it or create one); otherwise in a file only your user can read, and it tells you in one line |
+
+The mail password (`workspace mail`) is stored the same way. `~/.claude/workspace/mail.json`
+keeps only your user and the server, with permissions for you only.
+
+The first time, Workspace moves the keys you already had in the file to the keychain on its own:
+it first leaves a backup (encrypted with the same keychain), checks that each one reads back and
+only then removes them from the file. If anything fails, everything stays as it was. It tells you
+in one line, and `workspace migrate --undo 202611081500_boveda_al_llavero` undoes it (they go back
+to the file). The mail password you had in `mail.json` moves the same way, on its own: with a
+backup and checked before it is removed from there; `workspace migrate --undo
+202611090000_correo_a_la_boveda` undoes it (it goes back to `mail.json`). If you go back to an
+older version with `workspace update --rollback`, Workspace first returns everything to where it
+was. The encrypted backup is deleted on its own after 7 days if everything reads fine, and
+disconnecting a key (or a Google account) also deletes its old copies.
+
+If the keychain doesn't respond (locked, over SSH, or too slow), Workspace opens no dialog: it
+retries in a few minutes and tells you in one line; meanwhile, whatever uses those keys will say
+«no key». `workspace keys` shows which ones can't be read right now.
+
+- By default, Workspace uses the automatic mode, the recommended one: the keychain and, without
+  it, the file with a notice.
+- `workspace keys` tells where each key comes from (your system, the keychain or the file),
+  without showing any; `workspace keys audit` looks for plain-text leftovers in
+  `~/.claude/workspace/` and fixes permissions to owner-only.
+- No vault value shows up in what Workspace displays or logs: History, «d detail» and what it
+  answers to agents strike it out.
+- For the engines that have rules for it, Workspace denies them reading the vault and asking the
+  keychain for a key ([Compatibility](compatibility.md#your-keys-which-engine-can-read-them)).
+
+**What it cannot promise:** the keychain protects your keys on disk, in backups (Time Machine,
+File History) and from other users, but a program running as your same user can still ask for
+them. That is why you should create, on each provider's site, a key just for Workspace with a
+spending cap.
+
+Before each version is published, an automatic check makes sure no credential or personal data
+slips in.
 
 ## Why it works this way
 

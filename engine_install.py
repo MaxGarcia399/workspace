@@ -24,7 +24,8 @@ ARCHIVO (ver _ps1/runnable). Fuentes verificadas 2026-10-10:
     de Homebrew NO (Gatekeeper; ver la receta).
 Antes de cada release: re-verificar estas URLs/comandos (pueden cambiar).
 
-API: recipe(engine, platform=None) → dict | None
+API: recipe(engine, platform=None) → dict | None  (con "aviso": la línea que
+     se dice ANTES de instalar si el instalador oficial abre un diálogo)
      missing_prereqs(recipe) → [str]   (qué falta para que el comando corra)
      describe(engine, platform=None) → líneas legibles (fuente/comando/prereqs)
      shown(cmd) → [str]   (cómo se le muestra un comando antes de correrlo)
@@ -318,7 +319,20 @@ def recipe(engine, platform=None):
             "note": _note(p.get("note", "")), "login_cmd": list(_LOGIN.get(engine, [])),
             "account_cmd": list(_ACCOUNT.get(engine) or _LOGIN.get(engine, [])),
             "alt": dict(r["alt"]) if r.get("alt") else None, "verified": VERIFIED,
-            "pin": r.get("pin", ""), "manual": p.get("manual", "")}
+            "pin": r.get("pin", ""), "manual": p.get("manual", ""),
+            "aviso": _aviso(engine, platform)}
+
+
+def _aviso(engine, platform=None):
+    """Aviso de UNA línea antes de instalar: el diálogo del sistema que va a
+    salir y qué contestar (UAC de Codex/Kiro en Windows, el ítem en segundo
+    plano de Kiro en Mac). '' si no hay. Ver avisos_sistema."""
+    plat = "win32" if _plat(platform) == "win32" else (platform or sys.platform)
+    try:
+        import avisos_sistema
+        return avisos_sistema.motor(engine, plat)
+    except Exception:
+        return ""
 
 
 def reinstall(engine, info=None, platform=None):
@@ -506,4 +520,6 @@ def describe(engine, platform=None, which=shutil.which):
                       m=", ".join(miss)))
     if rec["note"]:
         out.append(rec["note"])
+    if rec["aviso"]:
+        out.append(rec["aviso"])
     return out

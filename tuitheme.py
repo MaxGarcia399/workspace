@@ -114,6 +114,180 @@ _ANSI16 = [(0, 0, 0), (205, 0, 0), (0, 205, 0), (205, 205, 0),
            (92, 92, 255), (255, 0, 255), (0, 255, 255), (255, 255, 255)]
 
 
+# ── UN SOLO COLOR (ui.un_color): todo el adorno en el tono del acento ───────
+# Pedido de usuarios (2026-11-08): a no todos les gustan los títulos y temas de
+# varios colores. ON = el wordmark se pinta con UN color (el acento del tema,
+# filas parejas y la sombra en un tono del mismo color) y los colores
+# DECORATIVOS (hi, mid, dim, dark, inactivos, cielo, fuego, apagado) se llevan
+# al TONO del acento CONSERVANDO su luminancia relativa — mismo contraste
+# contra cualquier fondo, misma jerarquía. Se quedan: el texto (WH), el acento
+# y los SEMÁNTICOS (ok/err/bad), que dan información. Neutros (grises) se
+# quedan grises. Vale para todo tema, el personalizado y los de herdr. Se
+# aplica como ÚLTIMA transformación (después de brillo y luz roja). OFF =
+# paleta intocada (memo distinto).
+_UC_ROLES = ("hi", "mid", "dim", "dark", "grey", "inactive", "inactive_alt")
+_UC_NEUTRO = 0.10             # saturación HSL por debajo = gris: no se toca
+_ANSI_GRISES = (0, 7, 8, 15)  # negro, gris claro, gris, blanco de la terminal
+# Pares que marcan ESTADO (foco contra sin foco, seleccionado contra no): con
+# todo en un tono, solo la luminancia los distingue — el `mid` (B2, sin foco)
+# se separa del acento (B) y del `hi` (C, foco) al menos este contraste.
+_UC_SEPARA = 1.45
+_UC_PISO = 3.0                # legibilidad mínima del `mid` contra el fondo
+
+
+_UC_MEMO = {"firma": None, "v": False}
+
+
+def _un_color_on():
+    """ui.un_color: env WORKSPACE_UN_COLOR lo pisa (tests/overrides), si no el
+    store. El store solo se relee si cambió (memo por ruta + mtime + tamaño de
+    settings.json): palette() corre en cada cuadro del hub. Falla-suave
+    ABSOLUTA → False (paleta intocada)."""
+    ov = os.environ.get("WORKSPACE_UN_COLOR", "").strip().lower()
+    if ov in ("1", "true", "on", "si", "sí", "yes"):
+        return True
+    if ov in ("0", "false", "off", "no"):
+        return False
+    try:
+        import settings
+        ruta = settings.store_path()
+        try:
+            st = os.stat(ruta)
+            firma = (ruta, st.st_mtime_ns, st.st_size)
+        except OSError:
+            firma = (ruta, None, None)
+        if firma != _UC_MEMO["firma"]:
+            _UC_MEMO["v"] = bool(settings.enabled("ui.un_color", default=False))
+            _UC_MEMO["firma"] = firma
+        return _UC_MEMO["v"]
+    except Exception:
+        return False
+
+
+def _lum_hex(h, s, target):
+    """'#rrggbb' de tono `h` y saturación `s` cuya luminancia relativa WCAG
+    queda lo más cerca posible de `target` (búsqueda binaria en L: con h y s
+    fijos la luminancia crece con L)."""
+    lo, hi = 0.0, 1.0
+    for _ in range(22):
+        mid = (lo + hi) / 2.0
+        if _rel_lum(_hsl_to_rgb(h, s, mid)) < target:
+            lo = mid
+        else:
+            hi = mid
+    best = None
+    for cand in (lo, hi):
+        rgb = _hsl_to_rgb(h, s, cand)
+        d = abs(_rel_lum(rgb) - target)
+        if best is None or d < best[0]:
+            best = (d, rgb)
+    return "#%02x%02x%02x" % best[1]
+
+
+def al_tono(v, acc):
+    """`v` llevado al TONO del acento `acc` conservando su luminancia relativa
+    (el contraste contra cualquier fondo no cambia). Un gris se queda gris; si
+    el acento es gris, lo cromático pasa a gris de la misma luminancia. Un
+    índice ANSI de la terminal (0-15, tema «terminal» de herdr) toma el acento
+    tal cual, salvo los grises (0, 7, 8, 15), que se quedan como cualquier
+    gris. 'default' e ilegibles se quedan. Jamás levanta."""
+    try:
+        if not _valid_color(v) or v == "default" or v == acc:
+            return v
+        if not _valid_color(acc) or acc == "default":
+            return v
+        if isinstance(v, int) and v < 16:
+            return v if v in _ANSI_GRISES else acc
+        rgb = _role_rgb(v)
+        _h, s, _l = _rgb_to_hsl(*rgb)
+        if s < _UC_NEUTRO:
+            return v
+        ah, asat, _al = _rgb_to_hsl(*_role_rgb(acc))
+        if asat < _UC_NEUTRO:
+            s = 0.0
+        return _lum_hex(ah, s, _rel_lum(rgb))
+    except Exception:
+        return v
+
+
+def _ratio_l(a, b):
+    hi, lo = max(a, b), min(a, b)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def _separar_estado(roles, acc, bg_rgb=None):
+    """Con todo en el tono del acento, el `mid` (B2: sin foco, sombra) solo se
+    distingue del acento (B) y del `hi` (C: foco) por su luminancia. Si queda
+    a menos de _UC_SEPARA de alguno, se mueve: primero hacia el fondo (más
+    tenue), si no hacia el otro lado, sin bajar de _UC_PISO contra el fondo
+    (o de lo que ya tenía). Índices ANSI (tema «terminal»): el par normal/
+    brillante del mismo color. In place; jamás levanta."""
+    try:
+        mid, hi_v = roles.get("mid"), roles.get("hi")
+        if not (_valid_color(mid) and mid != "default"):
+            return
+        if isinstance(acc, int) and acc < 16 and isinstance(mid, int) and mid < 16:
+            if mid == acc or mid == hi_v:
+                par = acc + 8 if 1 <= acc <= 6 else (acc - 8 if 9 <= acc <= 14 else None)
+                if par is not None and par != hi_v:
+                    roles["mid"] = par
+            return
+        refs = [_rel_lum(_role_rgb(acc))]
+        if _valid_color(hi_v) and hi_v != "default":
+            refs.append(_rel_lum(_role_rgb(hi_v)))
+        m_rgb = _role_rgb(mid)
+        lm = _rel_lum(m_rgb)
+        if min(_ratio_l(lm, r) for r in refs) >= _UC_SEPARA:
+            return
+        txt = roles.get("text")
+        l_txt = _rel_lum(_role_rgb(txt)) if _valid_color(txt) and txt != "default" else 0.85
+        if bg_rgb is None:
+            l_bg = 0.0 if l_txt > 0.3 else 1.0    # tinta clara = fondo oscuro
+        else:
+            l_bg = _rel_lum(bg_rgb)
+        piso = min(_UC_PISO, _ratio_l(lm, l_bg))
+        abajo = (min(refs) + 0.05) / _UC_SEPARA - 0.05
+        arriba = (max(refs) + 0.05) * _UC_SEPARA - 0.05
+        oscuro = l_bg < 0.5
+        cands = [abajo, arriba] if oscuro else [arriba, abajo]
+        h, s, _l = _rgb_to_hsl(*m_rgb)
+        if s < _UC_NEUTRO:
+            h, s, _l2 = _rgb_to_hsl(*_role_rgb(acc))
+        for objetivo in cands:
+            if not (0.0 <= objetivo <= 1.0):
+                continue
+            if _ratio_l(objetivo, l_bg) < piso:
+                continue
+            roles["mid"] = _lum_hex(h, s, objetivo)
+            return
+    except Exception:
+        return
+
+
+def _un_color(spec, wcol_vals, bg_rgb=None):
+    """Aplica ui.un_color a un spec ya resuelto (in place) y devuelve las 6
+    bandas del wordmark en UN color: el acento. Guarda el `mid` original como
+    `warn` (las barras de estado lo usan como aviso: es información, no
+    adorno). Falla-suave: acento ilegible → nada cambia."""
+    roles = spec["roles"]
+    acc = roles.get("accent")
+    if not _valid_color(acc) or acc == "default":
+        return wcol_vals
+    spec["warn"] = roles.get("mid")
+    for rk in _UC_ROLES:
+        if rk in roles:
+            roles[rk] = al_tono(roles[rk], acc)
+    st = spec["stars"]
+    st["dim"] = [al_tono(v, acc) for v in st["dim"]]
+    st["mid"] = [al_tono(v, acc) for v in st["mid"]]
+    st["hi"] = al_tono(st["hi"], acc)
+    spec["fire"] = [al_tono(v, acc) for v in spec["fire"]]
+    spec["ember"] = [al_tono(v, acc) for v in spec["ember"]]
+    spec["off"] = al_tono(spec["off"], acc)
+    _separar_estado(roles, acc, bg_rgb)
+    return [acc] * len(wcol_vals)
+
+
 def _idx_rgb(n):
     """RGB de un índice xterm-256."""
     if n < 16:
@@ -155,11 +329,15 @@ def nearest16(rgb):
 
 
 def _valid_color(v):
-    """int 0-255 (índice 256 fijo) o '#rrggbb'."""
+    """int 0-255 (índice 256 fijo), '#rrggbb' o 'default' (la tinta por
+    defecto de la terminal, SGR 39 — solo la usa el tema de herdr «terminal»,
+    ver herdr_tema)."""
     if isinstance(v, bool):
         return False
     if isinstance(v, int):
         return 0 <= v <= 255
+    if v == "default":
+        return True
     return isinstance(v, str) and bool(_HEX_RX.match(v))
 
 
@@ -169,6 +347,8 @@ def _seq(v, mode):
     truecolor, cuantizado en 256/16. mono → ''."""
     if mode == "mono" or not _valid_color(v):
         return ""
+    if v == "default":
+        return "\033[39m"
     if isinstance(v, int):
         if mode == "16":
             return "\033[%dm" % nearest16(_idx_rgb(v))
@@ -218,8 +398,15 @@ def _brightness_level():
 
 
 def _role_rgb(v):
-    """RGB (0-255) de un valor de rol: índice 256 (int) o '#rrggbb'."""
-    return _idx_rgb(v) if isinstance(v, int) else _hex_rgb(v)
+    """RGB (0-255) de un valor de rol: índice 256 (int) o '#rrggbb'. 'default'
+    (la tinta de la terminal, tema de herdr «terminal») → el gris claro de
+    xterm; cualquier otra cosa ilegible → blanco cálido. Jamás levanta."""
+    try:
+        if v == "default":
+            return (229, 229, 229)
+        return _idx_rgb(v) if isinstance(v, int) else _hex_rgb(v)
+    except Exception:
+        return (230, 232, 238)
 
 
 def _rgb_to_hsl(r, g, b):
@@ -572,11 +759,25 @@ def palette(theme_id=None):
     except Exception:
         tid = DEFAULT_ID
     mode = color_mode()
+    # DENTRO DE HERDR el tema lo manda herdr (herdr_tema): misma paleta que
+    # su barra/bordes, SIN fondo propio (osc None → nada de OSC 10/11) y sin
+    # brillo ni luz roja (transformarían solo la mitad de la pantalla). Un
+    # tema EXPLÍCITO (vistas previas) se respeta tal cual.
+    hsig = None
+    if theme_id is None:
+        try:
+            import herdr_tema
+            hsig = herdr_tema.firma()
+        except Exception:
+            hsig = None
+    if hsig:
+        return _palette_herdr(hsig, mode)
     import theme
     bg = theme.background_color()
     level = _brightness_level()
     redlight = _redlight_on()
-    key = (tid, mode, bg, level, redlight)
+    uc = _un_color_on()
+    key = (tid, mode, bg, level, redlight, uc)
     if key in _memo:
         return _memo[key]
     spec = _merged(_tui_block(tid))
@@ -648,6 +849,12 @@ def palette(theme_id=None):
         if spec.get("osc") and spec["osc"].get("bg"):
             spec["osc"] = dict(spec["osc"], bg=_redlight_bg(spec["osc"]["bg"]))
 
+    # UN SOLO COLOR (ui.un_color): última transformación cromática — todo el
+    # adorno al tono del acento (ver _un_color). En mono no hay color: no-op.
+    if uc and not mono_eff:
+        _bg_uc = bg_rgb if (spec.get("osc") or {}).get("bg") else None
+        wcol_vals = _un_color(spec, wcol_vals, _bg_uc)
+
     # TINTA LEGIBLE (2026-10-20, «textos en negro»): lo que se pinta lleva una
     # tinta que se lee sobre ESE fondo. Los temas del repo sobre su fondo no
     # cambian ni un byte; sí un fondo aparte en un tema sin tui.osc (antes sin
@@ -658,6 +865,41 @@ def palette(theme_id=None):
         except Exception:
             pass
 
+    P = _build(spec, wcol_vals, tid, mode, mono)
+    _memo[key] = P
+    return P
+
+
+def _palette_herdr(hsig, mode):
+    """Paleta pintada con el tema de herdr (ver palette). Memo por la firma
+    de herdr: si cambia el tema allá (config + reload), cambia la firma y el
+    hub re-resuelve en su siguiente frame. Falla-suave: sin tema de herdr →
+    olympo embebido (jamás levanta)."""
+    uc = _un_color_on()
+    key = ("herdr",) + tuple(hsig) + (mode, uc)
+    if key in _memo:
+        return _memo[key]
+    try:
+        import herdr_tema
+        # bloque en disco por huella: un proceso corto (statusline) no vuelve
+        # a leer ni a renderizar el tema de herdr si no cambió
+        nombre, blk = herdr_tema.bloque_cacheado(hsig)
+    except Exception:
+        blk, nombre = {}, "catppuccin"
+    spec = _merged(blk)
+    spec["osc"] = None                       # el fondo es de herdr / la terminal
+    mono = (mode == "mono")
+    wcol_vals = [spec["roles"][w] if w in spec["roles"] else w
+                 for w in spec["wordmark"]]
+    if uc and not (mono or spec.get("mono")):
+        wcol_vals = _un_color(spec, wcol_vals)
+    P = _build(spec, wcol_vals, "herdr:" + nombre, mode, mono)
+    _memo[key] = P
+    return P
+
+
+def _build(spec, wcol_vals, tid, mode, mono):
+    """El SimpleNamespace que consumen el hub y las secciones (B/B2/C/WH…)."""
     def s(v):
         return _seq(v, mode)
 
@@ -680,10 +922,12 @@ def palette(theme_id=None):
         EMBER=[s(v) for v in spec["ember"]],
         OFF=s(spec["off"]),
         WCOL=[s(v) for v in wcol_vals],
+        # aviso (barras de estado): el `mid` ORIGINAL aunque ui.un_color lo
+        # haya llevado al tono del acento — un aviso es información, no adorno
+        WARN=s(spec["warn"]) if _valid_color(spec.get("warn")) else roles["mid"],
         GLYPHS=dict(spec["glyphs"]),
         OSC=(None if mono else spec["osc"]),
     )
-    _memo[key] = P
     return P
 
 

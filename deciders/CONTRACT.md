@@ -9,7 +9,14 @@ nada más.
 |---|---|---|---|
 | `rules` | `rules.py` | esta computadora, sin IA | **interno** (`internal: True`): pruebas y `tools/decisores_live_check.py --dry`; ninguna pantalla lo muestra |
 | `jev` | `jev.py` | nube (TypeSafe) | solo la llave (entorno `TYPESAFE_API_KEY` o bóveda de Workspace): habla con la API con la **stdlib**, sin SDK (el oficial pide Python 3.10+ y Workspace corre en 3.9+); sin llave → `ok: False, error: "no_key"` |
+| `openrouter` | `openrouter.py` | nube (OpenRouter) | una llave, 10 modelos de decisión de varias marcas (de fábrica `~typesafe/jev-latest`; medidos con llave real el 2026-11-08: fuera `inception/mercury-decide`, 404, y `upstage/solar-decide`, se agota el tiempo; `cloudflare/clef` con la pista «lento», p95 1.7 s); el costo real llega en `usage.cost` |
+| `liquid` | `liquid.py` | nube (Liquid) | `d1.1` (de fábrica) y `d1-ultra`; **sin zstd**, cuerpo ≤ 4.5 MB |
+| `ollama` | `ollama.py` | **esta computadora** (Ollama ≥ 0.35.0) | sin llave ni costo; el modelo, entre los descargados; `local: True` = sin aviso de nube |
 | `stub` | `stub.py` | esta computadora | eco para pruebas (`internal: True`, `offer: False`) |
+
+Los cuatro reales hablan **System One** (el protocolo de Jev, que OpenRouter, Liquid y Ollama
+implementan tal cual): el cliente vive UNA vez en **`deciders/_systemone.py`** (el `_` = no es un
+decisor) y cada decisor es una **ficha de proveedor** encima — ver «La base System One» abajo.
 
 `decisions.offered()` = los que ve el socio (sin `internal` ni `offer: False`). Los internos
 **no se pueden elegir** como modelo (`decisions.selectable`): ni el general ni el de un uso, ni
@@ -23,12 +30,14 @@ por `workspace settings`; uno que quedó guardado no cuenta (modelo general → 
 
 ```python
 META = {"id": "jev", "label": "Jev", "local": False, "kinds": ["choice", "score"], "offer": True,
-        "key_env": "TYPESAFE_API_KEY",   # opcional: el decisor usa llave
+        "key_env": "TYPESAFE_API_KEY",   # opcional: el decisor usa llave (= su nombre en la bóveda)
+        "key_env_std": "…",              # opcional: la variable estándar del proveedor (solo entorno)
         "provider": "TypeSafe", "site": "typesafe.ai",
         "context_tokens": 32768,         # límite de ENTRADA (medido con llamadas reales)
         "overhead_tokens": 300,          # tokens fijos por llamada (medido: 301 sin contexto)
         "token_factor": 1.0,             # opcional: corrección de fábrica (se calibra sola)
-        "price_in_per_m": 0.042, "price_out_per_m": 0.0, "approx_price": True}
+        "price_in_per_m": 0.042, "price_out_per_m": 0.0, "approx_price": True,
+        "models": [...], "default_model": "…"}   # opcional: trae varios modelos para elegir
 
 def decide(req: dict) -> dict:
     # req = {"kind": "choice"|"score", "question": str, "options": [str, ...],
@@ -38,14 +47,29 @@ def decide(req: dict) -> dict:
     #    "cost_usd": float|None (uso real × precio del META), "tokens": {"in", "out"}|None,
     #    "decider": "<id>", "ok": bool, "error": CÓDIGO|None, "error_detail": {…}|None}
 
-def status() -> dict:          # opcional, barato y sin red
-    # → {"ready": bool, "detail": str}   (jev: "no_key" | "cloud")
+def status() -> dict:          # opcional y BARATO: sin red, o (un local) acotado y en caché
+    # → {"ready": bool, "detail": str}   (jev, openrouter, liquid: "no_key" | "cloud";
+    #   ollama: "ollama_missing" | "ollama_off" | "ollama_old" | "no_model" | "local",
+    #   más "version", "models" y "model")
+
+# opcionales (los usa la fachada si están):
+def live_meta() -> dict: ...   # lo del META que depende de esta máquina o del modelo elegido
+                               # (el límite de un modelo local, el precio de d1-ultra); SIN red
+def models() -> list: ...      # [{"id", "decision"}] (o textos): los modelos para elegir
+def model() -> str: ...        # el que se usa: el guardado si está en la lista; si no, el de fábrica
+def normalize_model(name): ... # el nombre canónico (Ollama: «nimble» → «nimble:latest»); sin ella, tal cual
+def key_source() -> tuple: ... # ("env"|"store"|"", variable): de dónde sale la llave
+def warm() -> bool: ...        # un local: precarga en segundo plano (regresa enseguida)
+def timeout_code(req) -> str:  # un local: qué significa un tiempo agotado AHORA ("loading")
+def invalidate(): ...          # un local: olvidar el estado en caché (el socio cambió algo)
 ```
 
 - `decide` **jamás levanta**: cualquier problema → `ok: False` + `error` = un **código**
-  (`context_too_large` · `auth` · `payment` · `rate_limit` · `timeout` · `connection` ·
-  `server` · `not_found` · `bad_request` · `bad_response` · `no_key` · `need_options` ·
-  `error`; la fachada agrega `out_of_options`, `not_installed`, `off`, `use_off`) y
+  (`context_too_large` · `auth` · `payment` · `rate_limit` · `timeout` · `loading` ·
+  `connection` · `server` · `not_found` · `bad_request` · `bad_response` · `no_key` ·
+  `no_model` · `not_decision` · `need_options` · `error`; la fachada agrega `out_of_options`,
+  `not_installed`,
+  `off`, `use_off`) y
   `error_detail` = `{status, type, request_id}` de una respuesta HTTP o `{class, phase}` de un
   fallo de red (`connect` / `read`), sin la llave. Jev clasifica por el STATUS y el
   `detail.error_type` (400/413/422 con max_tokens → `context_too_large`, 402 o
@@ -56,6 +80,100 @@ def status() -> dict:          # opcional, barato y sin red
   SIEMPRE trae el siguiente paso (402 → «recarga crédito en typesafe.ai»; timeout → «intenta de
   nuevo o usa menos contexto»; sin conexión → «revisa tu internet»; uso apagado → «actívalo en
   Decisores → Ajustes»…) y jamás lleva URL, request_id ni nombres de clase.
+
+## La base System One (`deciders/_systemone.py`)
+
+El cliente del protocolo, común a Jev, OpenRouter, Liquid y Ollama — lo que antes vivía en
+`jev.py`, sin cambiar su conducta (la paridad byte a byte de Jev contra el SDK 0.7.5 sigue
+verde): `build_request`, `send` (http.client, TLS, proxy CONNECT, topes de 4/8 MB, sin
+redirecciones, conexión ≤ 3 s aparte de la lectura), `parse`, `cost`, la clasificación de
+errores y `decide` (valida, arma, manda, clasifica, lee). Cada decisor le pasa su **ficha**:
+
+| campo | qué es | Jev · OpenRouter · Liquid · Ollama |
+|---|---|---|
+| `base_url` / `base_url_env` | la dirección y la variable que la cambia | `api.typesafe.ai` (`TYPESAFE_BASE_URL`) · `openrouter.ai/api` (`OPENROUTER_DECISIONS_BASE_URL`) · `api.liquid.ai/decisions` (`LIQUID_DECISIONS_BASE_URL`) · `127.0.0.1:11434` (`OLLAMA_HOST`, como lo lee Ollama) |
+| `path` | la ruta | `/v1/systemone` en los cuatro |
+| `auth` | `bearer` o `none` (JAMÁS se manda `Authorization`) | bearer · bearer · bearer · **none** |
+| `zstd` | comprimir un cuerpo de 1 KB+ (Python 3.14+) | sí · sí · **no** · no |
+| `root_fields` | los campos de la raíz (uno de más da 400) | `state, model, questions` (+ `keep_alive` en Ollama) |
+| `errors` | el clasificador | `typesafe` (Jev: status + `detail.error_type`) · `models` (OpenRouter y Liquid: el de TypeSafe, y un 400/404 por el modelo → `not_decision` o `not_found` con el modelo) · `ollama` (`{"error": msg}`: 404 = no descargado; 400 con «context» o 413 = no cupo; 400 «… is not a … decision model» o «unsupported model» = `not_decision`) |
+| `max_body` | lo más que acepta el proveedor | — · — · 4.5 MB (uno mayor ni se manda: `context_too_large`) · — |
+| `usage_cost` | la respuesta trae `usage.cost` (el costo REAL gana sobre uso × precio) | — · sí · — · — |
+
+**Solo modelos DE DECISIÓN — tres barreras.** Ollama y OpenRouter también sirven modelos de
+chat; un decisor jamás usa uno:
+
+1. **La lista solo ofrece modelos de decisión.** OpenRouter y Liquid: su lista curada de ids de
+   decisión (cualquier otro, p. ej. `openai/gpt-4o` o `meta-llama/llama-3.1-8b-instruct`, ni
+   aparece). Ollama: solo los descargados con `"capabilities": ["decision"]` en `/api/show` (las
+   familias conocidas, de respaldo si `/api/show` no responde); los de chat no se ofrecen, se
+   cuentan («1 modelo de chat descargado no sirve para decidir»).
+2. **Guardar valida.** `decisions.check_model` — lo usan `set_decider_model`, el ajuste
+   `decisions.decider_models` al guardarlo (también desde `workspace settings set`) y
+   `tools/decisores_live_check.py --model` — rechaza con el porqué en palabras uno de chat
+   («smollm2:135m no es un modelo de decisión · elige uno de decisión…»), uno que no está, uno no
+   comercial o uno que no se puede comprobar (Ollama apagado). El modelo de un USO es un decisor
+   (`decisions.points.<id>.model`), nunca un id de modelo: un id de chat ahí es `ValueError`. Al
+   LEER no se valida contra la red: un guardado que ya no sirve (de chat, o borrado) cae solo al
+   primero de decisión, sin esperar a nadie, y Modelos lo dice en una línea («Uso
+   nimble:latest: smollm2:135m no es un modelo de decisión»).
+3. **El endpoint rechaza los de chat.** Ollama 0.40.15 responde 400 «model "smollm2:135m" is
+   not a llama.cpp decision model» → `not_decision` (fixture
+   `tests/fixtures/decisores/ollama_0.40.15/systemone_400_no_decision.json`); si `/api/show` ya
+   dijo que no es de decisión, ni se pregunta. OpenRouter/Liquid: un 400/404 por el modelo →
+   `not_decision` o `not_found` con el modelo en el mensaje («OpenRouter no encuentra el modelo
+   X · elige otro…»), no un «rechazó la pregunta» genérico. **Falla cerrado:** el punto sigue
+   como si Decisores estuviera apagado (`gate` → `None`).
+
+**El modelo de cada decisor** (los que traen varios): ajuste `decisions.decider_models`
+(decisor → modelo), validado contra su lista al guardar (barrera 2: uno que no sirve →
+`ValueError` sin escribir; uno guardado que ya no está → el primero de decisión). El nombre se
+normaliza en UN lugar (`decisions.normalize_model` → el `normalize_model` del decisor): al
+guardar, al validar el ajuste (también desde `workspace settings set decisions.decider_models
+'{"ollama": "nimble"}'`, que acepta un JSON) y en el chequeo en vivo — «nimble» y
+«nimble:latest» son el mismo. Se elige en
+Motores → Modelos de decisión. El chequeo en vivo mide otro con `--model` sin tocar el guardado
+(`_systemone.MODEL_OVERRIDE`, solo en ese proceso).
+
+**Llaves con nombre propio.** La llave de un decisor nuevo va a la bóveda como
+`WORKSPACE_DECIDER_<ID>_KEY` (META `key_env`) — JAMÁS con el nombre estándar del proveedor:
+`secret_store._strip_for_engine` quita del entorno de un motor toda variable con el mismo nombre
+y valor que la bóveda, así que guardar la de OpenRouter como `OPENROUTER_API_KEY` le quitaba a
+Hermes, OpenClaw u opencode la que el socio exportó a mano con el mismo valor. Orden de lectura
+(`_systemone.key_source`): el nombre propio del entorno → la variable estándar del entorno
+(`OPENROUTER_API_KEY`, `LIQUID_API_KEY`; una que puso la bóveda como llave de proveedor de motores
+no cuenta: un motor no la hereda, así que un hook tampoco la vería) → la bóveda. En
+`secret_store`, los nombres `WORKSPACE_DECIDER_*_KEY` se portan como `ENV_OVERRIDES`: `scrub_env`
+quita solo la COPIA de la bóveda y respeta la que el socio fijó en su sistema; no son
+`PROVIDER_KEYS` (jamás se cargan al entorno del hub: el decisor las lee de disco). Jev sigue con
+`TYPESAFE_API_KEY` igual que antes. **Al entorno de un motor, jamás** (`secret_store.SOLO_WORKSPACE` / `es_solo_workspace`): `TYPESAFE_API_KEY` y toda `WORKSPACE_DECIDER_*_KEY` salen SIEMPRE de `engine_env` / `strip_from_environ`, aunque el socio las exporte sin guardarlas (ningún motor envuelto las usa); por eso una exportada a mano decide en el hub pero no dentro de las sesiones de un agente (la pantalla de la llave lo dice). Las ESTÁNDAR de un proveedor que un motor sí lee (`OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `LIQUID_API_KEY` —opencode la toma del catálogo models.dev, proveedor `liquid`—) se respetan: si el socio las exporta, es para sus motores. La redacción quita del contexto los valores de TODAS esas
+variables (`decisions.key_names()`), además de los de la bóveda.
+
+**Local (Ollama).** `status()` barato: conexión ≤ 0.3 s, lectura corta y caché de 5 s (vencido,
+se refresca en segundo plano y responde el anterior); distingue no instalado (ni el programa ni la
+app) · apagado · versión < 0.35.0 (`GET /api/version`) · sin modelo de decisión (`GET /api/tags`) ·
+listo. Qué modelo es de decisión lo dice el propio Ollama: `POST /api/show` trae
+`"capabilities": ["decision"]` (medido con 0.40.15 y nimble; en caché, con poco tiempo al
+preguntar). Solo si no responde o no trae `capabilities`, las familias conocidas (`nimble`,
+`tev1`, `kev`, `d3`, `strands-decider`, `clef-flash`, `pplx-decider-flash`, `d1`, `laya`,
+`autotrust-jev`) son el respaldo. Solo los de decisión se ofrecen (los de chat se cuentan); las
+de licencia no comercial (`nimble-v3`, OpenJev) ni se listan. El
+límite de contexto sale de `POST /api/show` del modelo (en caché): `num_ctx` (la ventana que
+Ollama carga), nunca más que `<arch>.context_length`; sin dato, 4096 (medido: nimble trae
+`num_ctx 8192` y `context_length 262144` → 8192). Respuestas reales grabadas en
+`tests/fixtures/decisores/ollama_0.40.15/`. Siempre directo (sin
+proxy) a esta máquina; un `OLLAMA_HOST` de otra máquina ya no es «en esta computadora»
+(`live_meta` → `local: False`: hay aviso de que el contenido sale y vale la pausa de la nube).
+Las pruebas apagan el sondeo con `WORKSPACE_NO_LOCAL_PROBE=1` (`tests/_testutil.py`).
+
+**Local frío.** Cargar un modelo no cabe en 1.5 s. Cada petición lleva `keep_alive: "30m"`, y
+`warm()` (una petición mínima en segundo plano) precarga al **Probar** y al **encender un uso**
+(`decisions.set_point` / `set_global_model` con un uso encendido → `decisions.warm`). Antes de
+preguntar, `GET /api/ps` dice si el modelo está cargado: un tiempo agotado con el modelo en frío
+es `loading` («<modelo> está cargando el modelo · intenta de nuevo en unos segundos»), no
+«tardó» ni «sin conexión»; si vence primero el tiempo de la fachada, ésta le pregunta al
+decisor (`timeout_code`, sin red). Ni `loading` ni un tiempo agotado local abren la pausa de 60 s
+(`BREAKER_S` es solo para la nube).
 
 ## Jev sin SDK (`deciders/jev.py`)
 
@@ -69,11 +187,16 @@ def status() -> dict:          # opcional, barato y sin red
   el Python lo trae (3.14+) y el cuerpo pasa de 1 KB. Se presenta como Workspace (`User-Agent`).
 - La llave **solo viaja por https** (o por http a esta misma máquina: `localhost`,
   `127.0.0.1`, `::1`, para el simulador de la QA): un `TYPESAFE_BASE_URL` con `http://` a otro
-  host falla con `insecure_url` sin conectar. La respuesta se lee hasta 4 MB y, descomprimida
+  host falla con `insecure_url` sin conectar. Y para un decisor CON llave, la variable de la
+  URL base solo vale si apunta a ESTA máquina o al mismo host de fábrica: cualquier otro destino
+  (`OPENROUTER_DECISIONS_BASE_URL=https://otro`, puesto por un agente dentro de un motor) es
+  `insecure_url` sin conectar (`_systemone.base_url`, revisión 2026-11-08). `OLLAMA_HOST` (sin
+  llave) sí puede apuntar a otra máquina. La respuesta se lee hasta 4 MB y, descomprimida
   (gzip, deflate, zstd), hasta 8 MB: más es `bad_response`.
 - Sin reintentos. Conexión con su propio tiempo (≤ 3 s; un host que no contesta es
   `connection`, no `timeout`); la lectura usa lo que quede. `HTTPS_PROXY`/`NO_PROXY` del
-  ENTORNO (como el SDK; túnel CONNECT). Un proxy configurado pero mal escrito (`::bogus::`,
+  ENTORNO (como el SDK; túnel CONNECT), salvo a esta misma máquina: a loopback JAMÁS por un
+  proxy (por http la llave y el contexto le llegarían en claro). Un proxy configurado pero mal escrito (`::bogus::`,
   `http://`, `http://[::1`, puerto que no es número, `socks5://`…) NO se ignora — eso mandaría
   directo, saltándose el proxy —: falla con el código `proxy` («El proxy configurado
   (HTTPS_PROXY) no es válido · corrígelo o quítalo»); el detalle nombra la variable, jamás su
@@ -176,11 +299,52 @@ def status() -> dict:          # opcional, barato y sin red
   2026-11-07: un docstring «es prueba, no se ejecuta» bajó a «bajo» un `shell=True` con un
   argumento de fuera.
 - `mark(id, truth)` califica; `history()`, `accuracy(point)`, `point_total(point)`, `stats()`.
-- Llave: `connect(id, key)` / `disconnect(id)` / `key_source(id)` → `secret_store` (bóveda
-  per-máquina `secrets.local`, 0600; jamás al entorno de un motor: `engine_env` la quita).
-  Orden de lectura en `jev.py`: entorno del sistema → bóveda.
+- Llave: `connect(id, key)` / `disconnect(id)` / `key_source(id)` / `key_var(id)` →
+  `secret_store` (bóveda per-máquina, fuera del cerebro; jamás al entorno de un motor:
+  `engine_env` la quita). Orden de lectura en `jev.py`: entorno del sistema → bóveda; en los
+  nuevos, nombre propio → variable estándar → bóveda (ver «Llaves con nombre propio» y «Dónde
+  vive la llave»).
 
-## Los 8 usos, conectados (todos apagados de fábrica)
+### Dónde vive la llave (bóveda v2, 2026-11-08)
+
+`secret_store` guarda cada llave en el **llavero del sistema** detrás de la misma API
+(`get`/`set_secret`/`remove`/`names`/`has`: los decisores no cambian):
+
+- **macOS:** el llavero de inicio de sesión con `/usr/bin/security`; el valor va por la entrada
+  estándar de `security -i` (en `ps` solo se ve `security -i`), en base64 y en trozos de 2000
+  caracteres (la línea de `security -i` corta en 4096 bytes), y se lee con
+  `find-generic-password -w`. Nunca `-U` sobre un elemento existente (con el llavero temporal de
+  prueba, `security` se quedó esperando un diálogo): cada escritura crea elementos nuevos, los
+  verifica, cambia el índice y borra los viejos. Antes de llamar mira, sin diálogo
+  (`SecKeychainGetStatus`), que el llavero esté abierto; cerrado = sin llavero. VERIFICADO con un
+  llavero temporal (`tests/test_secret_store_llavero.py`), sin diálogos.
+- **Windows:** DPAPI de usuario (`CryptProtectData` con `CRYPTPROTECT_UI_FORBIDDEN`, por
+  ctypes); el cifrado vive en `boveda/indice.local`, con DACL solo-dueño. Probado con un doble de
+  ctypes; falta probarlo en la PC.
+- **Linux:** `secret-tool` por la entrada estándar si existe y hay sesión de D-Bus; si no, el
+  archivo 0600 de siempre con aviso. Probado con un doble del programa; falta en un Linux real.
+
+`secrets.local` queda como el archivo v1 (texto plano 0600) y el respaldo de siempre: sin llavero
+(o con el ajuste `otros.boveda` = `file`) todo se guarda ahí, y lo que tenga gana al índice. La
+migración (`secret_store.migrar`, al arrancar, en la migración `202611081500_boveda_al_llavero` y
+en cada escritura) respalda, mueve, verifica leyendo de vuelta y solo entonces vacía el archivo;
+falla-suave y con deshacer (`workspace migrate --undo 202611081500_boveda_al_llavero`).
+`workspace llaves` dice de dónde sale cada llave (entorno · llavero · archivo, y si ahora está
+ilegible) y `workspace llaves auditar` busca restos en texto plano, sin imprimir valores. Tras
+la revisión independiente (2026-11-08): solo la instalación activa migra; `update --rollback`
+deshace antes de volver; `secrets.local` queda sellado (un hub viejo no escribe a medias); una
+lectura fallida nunca termina en escritura; un tiempo agotado espera 1–15 min, no un día; en
+Linux, colección bloqueada = sin llavero (sin diálogo); respaldos y archivadas caducan y quitar
+una llave borra sus copias; leer toda la bóveda es un solo `security -i`. La bitácora, «d detalle» y la
+salida de `workspace decidir` pasan por `secret_store.sin_valores` (tacha cada valor de la
+bóveda, también los que viven en el llavero). Límite honesto: el llavero protege el disco, los
+respaldos y la sincronización, no frente a un programa del mismo usuario: por eso los motores con
+reglas niegan leer la bóveda y los comandos que piden una llave al llavero
+(`rutas_protegidas.lectura_negada` y `COMANDOS_LLAVERO`).
+- Modelo: `decider_models(id)` · `decider_model(id)` · `set_decider_model(id, m)`; `warm(id)`
+  precarga uno local en segundo plano.
+
+## Los 9 usos, conectados (todos apagados de fábrica)
 
 | id | dónde pregunta | contexto | `apply` |
 |---|---|---|---|
@@ -188,6 +352,7 @@ def status() -> dict:          # opcional, barato y sin red
 | `workspace.evals` | `hooks/memoria_cierre.py`, al cerrar cualquier motor | el extracto sin IA de la maleta | anota el resultado en `<estado>/evals/sesiones.jsonl`; observe/suggest quedan en la bitácora (Historial) |
 | `workspace.skills` | `hooks/skill_review.py` al cerrar (si la Revisión de skills está encendida); se aplica al abrir | el inicio de la vista neutral | apagado: lo de siempre (el freno de 2 h, `THROTTLE_SECONDS`, decide). observe/suggest: el freno decide la entrega, pero el modelo se consulta y se anota **aunque el freno frene**. decide con una respuesta SOBRE el umbral (mode apply): decide el modelo — «sí» entrega aunque el freno esté activo, con un piso de 10 min entre dos entregas (`PISO_DECIDE_SECONDS`); «no» no entrega. Todo lo demás (bajo el umbral, sin probabilidad, si falla o en la pausa) es lo de siempre: el freno decide, y la línea de la última sesión dice lo que pasó («sin revisión: hubo otra hace poco», «solo una sugerencia: la revisión se entregó igual»). suggest = + la estimación en la tarea |
 | `workspace.security` | `hooks/security_guidance.py`, **solo** si el escaneo N15 ya encontró algo | archivo, clases y **solo el código** del fragmento | solo «alto» → pide corregir antes de seguir; lo demás es sugerencia (puede subir el riesgo, nunca bajarlo); jamás se borra, acorta ni bloquea |
+| `workspace.conversations` | `salas.esperar` (Conversaciones), con **tres preguntas** por `gate(question=, options=)` (`SPECS[…]["questions"]`, un solo `criteria` con las 7 opciones, sin repetir etiquetas): **C1** en el `esperar` del mencionado al llegarle un `pide` de otro agente (nunca lo del socio, lo que va a quien abrió, lo delicado ni lo urgente: espera ≤15 min) · **C2** en el `esperar` de quien abrió, cada 6 mensajes nuevos · **C3** en el `esperar` de quien abrió, al llegarle un `responde`. Seguridad de cada mensaje: el uso `workspace.security` con su pregunta (`SEGURIDAD_SALAS`) | título, objetivo, «hecho cuando» y los **resúmenes** (no los cuerpos); Seguridad, el cuerpo recortado con `solo_codigo` + `enmascarar` | C1 «solo informa» → no despierta y suelta la deuda («◆ solo informa»); C2 «en bucle»/«se desvió» → evento `pausa` «◆ …» (el socio reanuda); C3 «sí» → solo sugiere cerrar, en los dos niveles; Seguridad «alto» → «⚠ delicado» (solo sube). Al cerrar, `workspace.memory` sugiere el tipo del resumen y el comando `workspace memoria nota`. suggest = la línea ◆ sin cambiar nada. Apagado: todo igual, byte a byte |
 | `agents.choose` | el agente: `workspace decidir` / herramienta `decidir` | lo que el agente mande | el agente usa la opción |
 | `agents.review` | ídem (opciones de fábrica: completo / falta algo) | `request` = lo que pidió el socio + `context` = el entregable, que viajan como «SE PIDIÓ: … / SE ENTREGÓ: …»: lo pendiente o fuera de alcance que el entregable declara no cuenta si no estaba en el pedido | ídem |
 | `agents.prompt` | ídem (opciones = variantes; responde también `index`, como todos los usos de agentes) | ídem | ídem |
@@ -323,7 +488,7 @@ error_detail, attempts (si Preguntar reintentó)}` — **nunca el contexto**. Ca
 fallos también se anotan (`ok: false`); el Historial los muestra pero no se califican. `p` es
 `null` si el decisor no dio la probabilidad de la elegida. El archivo nace **0600** (como la
 bóveda). En Windows `chmod` no toca la ACL: la bitácora, su copia vieja, la bóveda
-(`secrets.local`) y los demás archivos de estado de Decisores reciben una DACL **protegida**
+(`secrets.local` y `boveda/`) y los demás archivos de estado de Decisores reciben una DACL **protegida**
 (sin heredar la de la carpeta) con solo tu usuario y SYSTEM, al crearse o reescribirse y, los
 que ya estaban, la primera vez que se usan en el proceso (`acl_privada`; stdlib, ctypes →
 advapi32; si no se puede, una línea en `<estado>/logs/acl.log` y se usa igual). QA en Windows
@@ -337,6 +502,7 @@ calificación más nueva gana también entre las dos.
 | clave | valor | de fábrica |
 |---|---|---|
 | `decisions.model` | id de un decisor u `off` (interruptor maestro) | `off` (ninguno activo) |
+| `decisions.decider_models` | decisor → modelo (los que traen varios; validado contra su lista) | `{}` (el de fábrica de cada uno) |
 | `decisions.points.<id>` | `{level: off\|observe\|suggest\|decide, model: general\|<decisor>, threshold: 50–99}` | `{off, general, 90}` |
 
 ## Contexto de Preguntar (`decision_context.py`)
@@ -433,15 +599,53 @@ puerta es falla-suave.
 Dónde se **consiguen** los decisores, UNA vez (Decisores es dónde **actúan** y nunca pide llave). MISMO diseño y manejo que la pantalla de motores de agentes
 (`engines_tui`: `SB.pick_list` │ opciones, `SB.split`, las mismas fichas): a la izquierda los
 modelos de `deciders/` con su estado; a la derecha las
-opciones del elegido, aplicadas ahí mismo — Jev: **Llave · Probar · Info** (no hay nada que
-instalar): **conectar / desconectar llave** (`key_env`: campo enmascarado en la columna →
+opciones del elegido, aplicadas ahí mismo — en la nube: **Llave · Probar · Info** (no hay nada
+que instalar): **conectar / desconectar llave** (`key_env`: campo enmascarado en la columna →
 bóveda; desconectar con confirmación), **probar** (una llamada real chica, sin bitácora: latencia,
 tokens y costo) y las líneas de **contexto** (`context_tokens`, medido; Enter elige un límite
 MENOR → `decisions.model_limits`) y **precio** (`price_in_per_m`, `price_out_per_m`;
-`approx_price` lo marca «aprox.»). Sin modelos en `deciders/`, la pantalla lo dice.
+`approx_price` lo marca «aprox.»; OpenRouter: «lo dice cada respuesta»). El estado de la lista es
+el REAL (`status()`): listo · sin llave · no instalado · apagado · versión vieja · sin modelo.
+Si el decisor trae varios modelos, la fila **modelo**: Enter (o un clic) **abre la lista**
+(`section_box.pick_list`, la misma de todo el hub) con los modelos de decisión de ese decisor —
+nunca uno de chat —, el actual marcado (●) y una pista por fila (la marca, el precio por M de
+entrada o «en esta computadora»; si no cabe, gana el nombre entero); ↑↓ mueve, Enter elige y
+guarda (`set_decider_model`, el aviso de una línea y de vuelta a las opciones con el nuevo a la
+vista), Esc o ← cierran sin cambiar. Abierta, la lista usa la caja entera (el nombre largo y lo
+medido caben juntos). **Lo medido manda:** si `<estado>/decisiones-medidas.json` (lo escribe el
+chequeo en vivo completo) trae ese modelo, su pista es «95/97 · 0.3 s» (+ «· lento» si su p95 pasa
+de 1.5 s, el tiempo límite de los usos) y los medidos van primero, por acierto y luego p95; sin
+medición, la fila no inventa nada (marca, precio o «en esta computadora»). Con 10 o más
+(OpenRouter), escribir filtra, con la línea de
+búsqueda de la portada. En Ollama, los de chat descargados van en una línea al pie, no como
+filas. Con un solo modelo, Enter no abre nada (lo dice). **Clics** (Mac/Linux; SGR-1006, como la
+portada, solo mientras esta pantalla está abierta): cada fila de la lista, cada opción (como
+Enter) y cada decisor de la izquierda; `section_box.KeyReader(mouse=True)` los entrega como
+«mouse:x:y» y `frame.last_body_row/col` + `pick_list.last_rows` dicen qué fila fue. En Windows,
+por ahora, teclado completo. Uno **local** (Ollama) no tiene llave: su fila de estado («en esta
+computadora · 0.35.2»; Enter vuelve a mirar), el **siguiente paso** en una línea cuando no está
+listo («Descarga un modelo de decisión: ollama pull nimble», «Abre Ollama…», «Actualiza Ollama a
+0.35.0…»), precio «sin costo» y ningún aviso de nube; **probar** lo precarga antes. Sin modelos en
+`deciders/`, la pantalla lo dice.
 
-- El **primer** modelo que queda listo, si no hay uno activo, se activa solo como
+- **Tu llave, explicada** (fase A de llaves; spec `Llaves_Seguridad_v1`). La ayuda (`i`) tiene dos
+  páginas, «qué es» y «tu llave» (Tab), para que ninguna pierda el wordmark grande; abre en «tu
+  llave» si estás sobre una opción de la llave. «Tu llave, en simple · <proveedor>»: dónde vive
+  (la bóveda de Workspace, fuera del cerebro), a dónde viaja (solo a su sitio, https, a esa
+  dirección), quién la ve (puntos al pegarla; ni agentes, ni Historial; se borra de lo que se
+  manda) y un consejo. Cada frase tiene su prueba en `tests/test_modelos_llave.py`
+  (`CadaAfirmacionEsCierta`): si el código cambia, se pone rojo antes de que el texto mienta. Un
+  decisor local solo dice «<modelo> no usa llave: todo pasa en esta computadora». Conectar
+  recomienda «una llave solo para Workspace» y, SOLO si el META lo declara verificado
+  (`key_spend_limit`: OpenRouter), «con tope de gasto»; `keys_url` (OpenRouter:
+  `https://openrouter.ai/keys`) se muestra como texto, sin abrir nada. Desconectar dice cómo
+  dejarla muerta: «revócala también en <proveedor> (<keys_url> o su sitio)». No dice «llavero del
+  sistema» hasta la fase B.
+- El **primer** modelo que queda listo (al conectar la llave, al probarlo con éxito o, uno
+  local, al volver a mirar su estado), si no hay uno activo, se activa solo como
   `decisions.model` (aviso de una línea); los usos siguen apagados.
+- En Decisores → Ajustes, con más de 4 tarjetas de modelo van en filas de 3 (↑↓ entre filas);
+  debajo, dónde decide el enfocado: «en la nube · <proveedor>» o «en esta computadora».
 - En Decisores → Ajustes, la tarjeta de un modelo que no está listo dice «configúralo en
   Motores» y Enter abre esta pantalla con ese modelo elegido (como Agentes abre «Agregar
   agente»); al volver, Decisores refleja el estado nuevo.
@@ -454,7 +658,14 @@ preguntas y los `criteria`) y **apartados** (`CASOS_HO`, 3 por uso: no se tocan;
 afinado generaliza). Reporta acierto, latencia p50/p95, llamadas, fallos, tokens y costo
 (`--set tuned|heldout|all`, `--verbose` = cada caso con esperado, respuesta y
 probabilidades); tope duro de 150 llamadas, sin bitácora; `--dry` con Reglas. Sin llave no
-llama a Jev.
+llama a nadie. `--decider <id>` (de fábrica `jev`) y `--model <m>` miden cualquier decisor con
+los MISMOS casos (el modelo, solo en esa corrida: el guardado no cambia); la última línea
+(«resumen · <decisor>:<modelo> · acierto · p95 · costo») y `--json` (`acierto`, `p95_ms`,
+`costo_usd`) sirven para compararlos. Un modelo nuevo no pasa de «sugiere» sin medirse así. Una
+corrida COMPLETA (`--set all`, todos los usos, sin que el tope la corte) guarda su resultado en
+`<estado>/decisiones-medidas.json` (`decisions.record_measure`: decisor, modelo canónico, acierto,
+total, p95_ms, costo_usd, fecha, timeout_ms; jamás llaves ni casos; escritura atómica) y la lista
+de modelos lo muestra; una parcial (`--points`, `--set tuned`, cortada por el tope, `--dry`) no.
 
 ## Reglas
 

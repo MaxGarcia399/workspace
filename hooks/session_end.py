@@ -79,23 +79,29 @@ def _touch_workspace_updated(brain, sid):
     Único hook que escribe este JSON al cierre (evita writes concurrentes con
     skill_review/transcript_backup)."""
     try:
+        if _ROOT not in sys.path:
+            sys.path.insert(0, _ROOT)
+        import sessions_registry as reg
+    except Exception:
+        return                              # sin el registro (copia rota): no se estampa
+    try:
         for wf in glob.glob(os.path.join(brain, ".claude", "*-workspaces.json")):
             try:
                 ws = json.load(open(wf, encoding="utf-8"))
             except Exception:
                 continue
-            hit = False
-            for w in ws:
-                if isinstance(w, dict) and w.get("id") == sid:
-                    w["updated"] = datetime.datetime.now().isoformat(timespec="seconds")
-                    hit = True
-                    break
-            if hit:
-                tmp = wf + ".tmp"
-                with open(tmp, "w", encoding="utf-8") as f:
-                    json.dump(ws, f, indent=2, ensure_ascii=False)
-                _reemplazar(tmp, wf)
-                return
+            if not any(isinstance(w, dict) and w.get("id") == sid for w in ws):
+                continue
+
+            def estampar(ws):
+                for w in ws:
+                    if isinstance(w, dict) and w.get("id") == sid:
+                        w["updated"] = datetime.datetime.now().isoformat(timespec="seconds")
+                        return ws
+                return None
+            # el candado común de workspaces.json (Greptile 0.8.x, 8)
+            reg.actualizar_ws(wf, estampar)
+            return
     except Exception:
         pass
 

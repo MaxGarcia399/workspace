@@ -64,9 +64,10 @@ Esto comparte la memoria guardada. El historial completo del chat y las herramie
 |---|---|
 | Agentes | Crear o cargar un agente, elegir su motor y ajustar sus opciones |
 | Motores | Comprobar cuáles tienes instalados y con sesión iniciada, y conectar un modelo de decisión |
+| Conversaciones | Seguir en vivo lo que tus agentes se dicen entre sí, escribirles y cortar cuando quieras |
 | Usuarios | Indicar quién usa un agente en esta computadora |
 | Decisores | Encender, uso por uso, un modelo que elige entre opciones fijas (viene apagado), probarlo y ver su historial |
-| Temas | Cambiar la apariencia del menú |
+| Personalización | Cambiar la apariencia del menú |
 | Actualizaciones | Actualizar, elegir cómo recibir novedades o volver a la versión anterior |
 | Documentación | Entender cada función y ver el mapa de memoria con tus archivos reales |
 
@@ -80,7 +81,9 @@ Los permisos dependen del motor y de las opciones del agente. Workspace conserva
 
 Tus solicitudes y los archivos que el agente use pueden enviarse al proveedor de IA elegido. Que el cerebro sea local no convierte en local al modelo. Revisa la [guía de privacidad](manual/es/privacidad.md) antes de trabajar con información sensible.
 
-Decisores viene apagado y, así, no envía nada. El único modelo de decisión hoy es Jev, de TypeSafe, en la nube: se conecta una vez en Motores con tu propia llave de TypeSafe, y su consumo lo pagas a TypeSafe. Cada uso que enciendas le manda su pregunta, sus opciones y un contexto mínimo; Preguntar con Memoria o Cerebro le manda contenido de tu cerebro. Antes de salir se quitan llaves y contraseñas, y no salen tus archivos privados ni lo que es de otras personas en un cerebro compartido.
+Decisores viene apagado y, así, no envía nada. Los modelos de decisión se conectan una vez en Motores: Jev (de TypeSafe), OpenRouter o Liquid en la nube, cada uno con tu propia llave y su consumo lo pagas a ese proveedor, u Ollama en tu computadora, sin llave. Cada uso que enciendas con un modelo en la nube le manda su pregunta, sus opciones y un contexto mínimo; Preguntar con Memoria o Cerebro le manda contenido de tu cerebro. Antes de salir se quitan llaves y contraseñas, y no salen tus archivos privados ni lo que es de otras personas en un cerebro compartido.
+
+Las llaves de tus modelos de decisión, tu cuenta de Google y la contraseña del correo se guardan en el llavero de tu sistema (en Windows, cifradas con tu cuenta; si no hay llavero, en un archivo que solo tú puedes leer) y tus agentes no las reciben.
 
 Workspace se distribuye con licencia MIT. El acceso a los motores y modelos puede requerir suscripciones o consumo de API, que pagas a sus proveedores. La revisión opcional de skills también usa tu motor y puede consumir cuota.
 
@@ -94,6 +97,8 @@ Necesitas Python 3.9 o superior, Git y al menos un motor instalado con tu cuenta
 ```bash
 curl -fsSL https://raw.githubusercontent.com/MaxGarcia399/workspace/main/setup.sh | bash
 ```
+
+Se instala en `~/Workspace`, fuera de Escritorio y Documentos, para que macOS no pida permisos de carpeta. Si ya lo tenías en otro lado, lo actualiza ahí.
 
 </details>
 
@@ -113,12 +118,15 @@ Después, escribe `workspace`, crea o carga un agente y abre una pestaña. Si al
 
 Las actualizaciones son automáticas por defecto. Puedes cambiarlas a solo avisar o apagarlas desde Actualizaciones. `workspace update` actualiza cuando tú quieras y `workspace update --rollback` vuelve a la anterior. Los ajustes que una actualización deba hacer en el cerebro llevan respaldo. [Cómo funcionan las actualizaciones](manual/es/actualizaciones.md).
 
-### Novedades de la v0.8.1
+### Novedades de la v0.9.0
 
-- Decisores aparece en el hub, debajo de tus agentes: a la derecha, el modelo de decisión activo; sin modelo, «nuevo» sus primeros 7 días y después «configurar». ← → cambian el modelo activo, y Enter o el `0` lo abren.
-- Una pestaña ya no reabre una conversación vieja después de que Claude Code la bifurca (por ejemplo, al mandarla al fondo).
-- Memoria marca mejor como «hecho» lo que ya terminaste, y Revisar compara contra lo que pediste sin creerle al entregable lo que dice de sí mismo.
-- `workspace decidir` dice cuánto tardó el modelo en responder.
+- Decisores trae más modelos de decisión: OpenRouter (una llave, muchos modelos) y Liquid en la nube, y Ollama en tu computadora, sin llave. Se eligen de una lista, y solo los de decisión: los de chat no se pueden elegir.
+- Conversaciones, una sección nueva: tus agentes hablan entre sí en salas, cada uno en su pestaña y de cualquier motor, y tú lo sigues en vivo, les escribes y cortas cuando quieras.
+- Tus llaves pasan solas al llavero de tu sistema (en Windows, cifradas con tu cuenta), con respaldo y deshacer. `workspace llaves` dice de dónde sale cada una, sin mostrarla.
+- Tu llave de Jev ya no llega a tus agentes: si la tenías solo como variable de tu sistema, conéctala en Motores → Modelos de decisión.
+- Menos avisos del sistema: en Mac y Linux, una instalación nueva va a `~/Workspace`; Descubrir ya no entra a Escritorio ni Documentos salvo que lo pidas, y una línea te avisa antes de cada permiso que no se puede evitar ([Avisos de tu sistema](manual/es/avisos.md)).
+- El dictado por voz ahora solo copia el texto: si tu Atajo pegaba solo, agrégale `--pegar`.
+- «Un solo color» en Personalización: títulos y adornos con el color principal del tema. Decisores, Tono y Calendario también se ven bien en ventanas chicas.
 
 ### Historial resumido
 
@@ -126,6 +134,7 @@ Lo que fuimos añadiendo y corrigiendo, de lo más reciente al inicio del proyec
 
 | Versión | Lo que se añadió o cambió | Lo que se corrigió |
 |---|---|---|
+| 0.8.1 | Decisores aparece en el hub, debajo de tus agentes: ← → cambian el modelo activo y Enter o el `0` lo abren | Una pestaña ya no reabre una conversación vieja tras una bifurcación de Claude Code; Memoria marca mejor lo «hecho» y Revisar compara contra lo que pediste |
 | 0.8.0 | Decisores, una sección nueva que viene apagada: un modelo que elige entre opciones fijas (hoy Jev, en la nube), cada uso con su nivel | En Windows: la bóveda con tus llaves solo la lee tu usuario y Ctrl+C dentro de una sección vuelve al menú |
 | 0.7.0 | Registro local de cómo trabajan tus agentes (números de cada sesión, nunca la conversación) y `workspace metricas` | En Windows: la sesión de GitHub Copilot, rutas con acentos o «ñ», barras vacías y cierres simultáneos; Copilot ya no repite el inicio y el cierre |
 | 0.6.0 | Tres motores nuevos (GitHub Copilot, Cursor y Kiro), pestañas iguales en todas tus máquinas y archivar pestañas | Retomar Codex y Hermes 0.22.5, la maleta de Claude Code tras un cierre de golpe e instalar motores en Windows con Defender |
@@ -202,9 +211,10 @@ This shares saved memory. The full chat history and available tools depend on ea
 |---|---|
 | Agents | Create or load an agent, choose its engine and adjust its options |
 | Engines | Check which engines are installed and signed in, and connect a decision model |
+| Conversations | Follow live what your agents tell each other, write to them and cut in anytime |
 | Users | Identify who uses an agent on this computer |
 | Deciders | Turn on, use by use, a model that picks among fixed options (it comes off), try it and see its history |
-| Themes | Change the menu's appearance |
+| Personalization | Change the menu's appearance |
 | Updates | Update, choose how to receive updates or return to the previous version |
 | Documentation | Understand each feature and see the memory map with your real files |
 
@@ -218,7 +228,9 @@ Permissions depend on the engine and agent settings. Workspace keeps the engine'
 
 Your requests and files used by the agent may be sent to your chosen AI provider. A local brain does not make the model local. Read the [privacy guide](manual/en/privacy.md) before using sensitive information.
 
-Deciders comes switched off and, that way, sends nothing. The only decision model today is Jev, by TypeSafe, in the cloud: you connect it once in Engines with your own TypeSafe key, and you pay TypeSafe for its use. Each use you turn on sends it its question, its options and minimal context; Ask with Memory or Brain sends it content from your brain. Keys and passwords are removed before anything leaves, and your private files and what belongs to other people in a shared brain never leave.
+Deciders comes switched off and, that way, sends nothing. Decision models are connected once in Engines: Jev (by TypeSafe), OpenRouter or Liquid in the cloud, each with your own key and paid to that provider, or Ollama on your computer, with no key. Each use you turn on with a cloud model sends it its question, its options and minimal context; Ask with Memory or Brain sends it content from your brain. Keys and passwords are removed before anything leaves, and your private files and what belongs to other people in a shared brain never leave.
+
+Your decision models' keys, your Google account and your mail password are kept in your system keychain (on Windows, encrypted with your account; with no keychain, in a file only you can read) and your agents don't receive them.
 
 Workspace is distributed under the MIT license. Engines and models may require subscriptions or API usage paid to their providers. Optional skill review also uses your engine and may consume quota.
 
@@ -232,6 +244,8 @@ You need Python 3.9+, Git and at least one engine installed with your account co
 ```bash
 curl -fsSL https://raw.githubusercontent.com/MaxGarcia399/workspace/main/setup.sh | bash
 ```
+
+It installs into `~/Workspace`, outside Desktop and Documents, so macOS doesn't ask for folder permissions. If you already had it somewhere else, it updates it there.
 
 </details>
 
@@ -251,12 +265,15 @@ Then enter `workspace`, create or load an agent and open a tab. If something fai
 
 Updates are automatic by default. Choose notify-only or turn them off in Updates. `workspace update` updates on demand and `workspace update --rollback` returns to the previous version. Changes an update needs to make inside a brain are backed up first. [How updates work](manual/en/updates.md).
 
-### What's new in v0.8.1
+### What's new in v0.9.0
 
-- Deciders appears in the hub, below your agents: on the right, the active decision model; with no model, "new" for its first 7 days and then "set up". ← → switch the active model, and Enter or `0` opens it.
-- A tab no longer reopens an old conversation after Claude Code forks it (for example, when you send it to the background).
-- Memory better marks what you finished as «hecho» (done), and Review compares against what you asked for without believing what the deliverable says about itself.
-- `workspace decidir` tells how long the model took to answer.
+- Deciders brings more decision models: OpenRouter (one key, many models) and Liquid in the cloud, and Ollama on your computer, with no key. You pick them from a list, and only decision models: chat models can't be picked.
+- Conversations, a new section: your agents talk to each other in rooms, each in its own tab and on any engine, and you follow it live, write to them and cut in anytime.
+- Your keys move on their own to your system keychain (on Windows, encrypted with your account), with a backup and undo. `workspace keys` tells where each one comes from, without showing it.
+- Your Jev key no longer reaches your agents: if you only had it as a system variable, connect it in Engines → Decision models.
+- Fewer system notices: on Mac and Linux, a new install goes to `~/Workspace`; Discover no longer goes into Desktop or Documents unless you ask, and one line warns you before each permission that can't be avoided ([Your system's notices](manual/en/system-notices.md)).
+- Voice dictation now only copies the text: if your Shortcut pasted on its own, add `--paste` to it.
+- "Single color" in Personalization: titles and accents in the theme's main color. Deciders, Tone and Calendar also work well in small windows.
 
 ### Release history at a glance
 
@@ -264,6 +281,7 @@ What we added and fixed, from recent releases back to the start. These describe 
 
 | Version | Added or changed | Fixed |
 |---|---|---|
+| 0.8.1 | Deciders appears in the hub, below your agents: ← → switch the active model and Enter or `0` opens it | A tab no longer reopens an old conversation after Claude Code forks it; Memory better marks what's done and Review compares against what you asked for |
 | 0.8.0 | Deciders, a new section that comes switched off: a model that picks among fixed options (today Jev, in the cloud), each use with its level | On Windows: the vault with your keys can be read only by your user, and Ctrl+C inside a section goes back to the menu |
 | 0.7.0 | A local record of how your agents work (numbers for each session, never the conversation) and `workspace metrics` | On Windows: the GitHub Copilot session, paths with accents or «ñ», empty bars and simultaneous closes; Copilot no longer repeats session start and end |
 | 0.6.0 | Three new engines (GitHub Copilot, Cursor and Kiro), the same tabs on every machine and archiving tabs | Resuming Codex and Hermes 0.22.5, the Claude Code handoff after an abrupt close and installing engines on Windows with Defender |

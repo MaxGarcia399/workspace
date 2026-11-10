@@ -51,8 +51,8 @@ It will ask for:
    workspace doctor --bundle
    ```
 
-   It leaves `workspace-diagnostico-<date>.zip` on your Desktop (or wherever you say with
-   `--out <folder>`) and prints the path. It carries the doctor's report, your version, your
+   It leaves `workspace-diagnostico-<date>.zip` in `~/Workspace/Respaldos` (or wherever you
+   say with `--out <folder>`), prints the path and shows it to you in its folder, ready to attach. It carries the doctor's report, your version, your
    system, what works with each engine, your agents (name and engine, no paths) and the tail
    of Workspace's logs. It **blanks out** paths, your user name, your computer's name, emails,
    tokens and IPs, and **never** includes conversations, keys or the content of your brains.

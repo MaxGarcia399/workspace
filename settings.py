@@ -532,6 +532,23 @@ SETTINGS_SCHEMA = (
              "OFF = solo el contenido; el subtítulo pequeño se queda.",
      "applies": "hublayout.big_title()/title_reflection() devuelven [] "
                 "si está OFF."},
+    {"key": "ui.un_color", "group": "ui", "label": "Un solo color",
+     # Pedido de usuarios (2026-11-08): títulos y temas en UN color principal.
+     # Pin bool (default off → paleta intocada para toda instalación). ON =
+     # tuitheme lleva el wordmark al acento y el adorno a su tono (ver
+     # tuitheme._un_color); ok/err/bad y el texto se quedan. Vale para todo
+     # tema, incluidos los de herdr. Ciclable como pin del hub (EN VIVO).
+     "type": "bool", "default": False,
+     "help": "Títulos y adornos en UN solo color: el wordmark WORKSPACE (y el "
+             "de cada agente o sección) se pinta con el color principal del "
+             "tema, y los colores decorativos se vuelven tonos de ese mismo "
+             "color. El texto y los colores que avisan algo (ok, error) se "
+             "quedan. Vale para todos los temas, también los de herdr. OFF "
+             "(default) = los colores del tema tal cual.",
+     "applies": "tuitheme.palette() aplica el colapso al acento como última "
+                "transformación (memo por el ajuste, así el hub repinta EN "
+                "VIVO); theme_render.engine_palette() lleva accent_2/"
+                "accent_hi/cursor al tono del acento para los motores."},
     {"key": "ui.redlight", "group": "ui", "label": "Luz roja (modo noche)",
      # Pin bool (default off → paleta intocada para toda instalación). Cuando
      # está ON, tuitheme remapea TODA la paleta a un rojo/ámbar cálido nocturno
@@ -561,6 +578,21 @@ SETTINGS_SCHEMA = (
              "(ui.web_theme, todos disponibles). env WORKSPACE_THEME gana siempre.",
      "applies": "tuitheme.palette() → front.py/banner/pantallas pintan el "
                 "hub. El pin de Personalización del hub lo cicla."},
+    {"key": "ui.tema_herdr", "group": "ui", "label": "Seguir a herdr",
+     # Dentro de herdr (multiplexor) el tema lo manda herdr: Workspace pinta
+     # con el tema elegido allá y no pinta fondo (herdr_tema). «workspace» =
+     # usar el tema propio también dentro de herdr (lo de antes). Fuera de
+     # herdr este ajuste no hace nada. Solo aparece en Personalización cuando
+     # Workspace corre dentro de herdr (hub_pins_resolved).
+     "type": "enum", "default": "herdr", "choices": ("herdr", "workspace"),
+     "help": "Seguir a herdr: cuando Workspace corre dentro de herdr. Sí "
+             "(default) = pinta con el tema que elegiste en herdr y deja el "
+             "fondo a herdr, así todo combina; no = usa el tema de Workspace "
+             "también ahí. Fuera de herdr no cambia nada. env "
+             "WORKSPACE_TEMA_HERDR gana.",
+     "applies": "herdr_tema.seguir() → tuitheme.palette() (paleta de herdr, "
+                "sin OSC), theme.apply_colors() (no pinta fondo) y "
+                "theme_render.engine_palette() (tema de cada motor)."},
     {"key": "ui.web_theme", "group": "ui", "label": "Tema del dev panel (web)",
      "type": "enum", "default": "olympo",
      # SWITCHER curado a WEB_THEMES (hubtheme.web_picker), validación PERMISIVA
@@ -652,6 +684,17 @@ SETTINGS_SCHEMA = (
              "prima de la memoria — por eso el job viene OFF por default.",
      "applies": "nightly.run_retention() purga lo más viejo que esto al "
                 "final de cada pasada (job `retention`)."},
+    {"key": "otros.boveda", "group": "otros",
+     "label": "Dónde se guardan tus llaves", "type": "enum", "default": "auto",
+     "choices": ("auto", "keyring", "file"),
+     "help": "auto = el llavero del sistema (Llaves en Mac, DPAPI en Windows, "
+             "el llavero de tu sesión en Linux) y, si no está, un archivo que solo tú "
+             "lees, con un aviso · keyring = solo el llavero: sin él no se "
+             "guarda la llave · file = el archivo solo-tuyo de siempre (lo que "
+             "esté en el llavero vuelve al archivo al arrancar). `workspace "
+             "llaves` muestra de dónde sale cada una, sin el valor.",
+     "applies": "la bóveda de llaves (modo_guardado) → guardar una llave, la "
+                "migración al llavero (al arrancar) y `workspace llaves`."},
 )
 
 
@@ -676,6 +719,51 @@ def _decider_choices():
     return tuple(ids) + ("off",)
 
 
+def _decider_models_norm(value):
+    """decisions.decider_models con cada modelo en su nombre canónico
+    (decisions.normalize_model: «nimble» = «nimble:latest» en Ollama; barato,
+    sin red: también corre al LEER). Lo que no es texto se deja (al leerlo, un
+    valor que no sirve usa el de fábrica)."""
+    try:
+        import decisions
+    except Exception:
+        return dict(value)
+    out = {}
+    for k, v in value.items():
+        out[k] = decisions.normalize_model(k, v) if isinstance(v, str) else v
+    return out
+
+
+def _decider_models_check(value):
+    """AL GUARDAR (set, también desde la CLI): cada modelo NUEVO o cambiado
+    tiene que ser uno DE DECISIÓN de la lista de su decisor
+    (decisions.check_model; uno de chat → ValueError con el porqué). Lo que ya
+    estaba guardado igual no se vuelve a revisar (Ollama apagado no impide
+    guardar el de OpenRouter). Al leer no se revisa: el decisor cae solo a uno
+    de decisión."""
+    try:
+        import decisions
+    except Exception:
+        return value
+    try:
+        antes = (_load_store().get("settings") or {}).get("decisions.decider_models") or {}
+    except Exception:
+        antes = {}
+    antes = antes if isinstance(antes, dict) else {}
+    out = {}
+    for k, v in value.items():
+        if k in antes and antes[k] == v:
+            out[k] = v                                 # sin cambio
+            continue
+        if not isinstance(v, str):
+            raise ValueError("decisions.decider_models: el modelo de %s debe ser un texto" % k)
+        found, porque = decisions.check_model(k, v)
+        if not found:
+            raise ValueError(porque)
+        out[k] = found
+    return out
+
+
 _DECISION_POINTS = (
     ("agents.choose", "Decisores · elegir entre opciones (agentes)"),
     ("agents.review", "Decisores · revisar su trabajo (agentes)"),
@@ -685,6 +773,7 @@ _DECISION_POINTS = (
     ("workspace.evals", "Decisores · evals"),
     ("workspace.skills", "Decisores · skills"),
     ("workspace.security", "Decisores · seguridad"),
+    ("workspace.conversations", "Decisores · conversaciones"),
 )
 
 SETTINGS_SCHEMA = SETTINGS_SCHEMA + (
@@ -692,8 +781,9 @@ SETTINGS_SCHEMA = SETTINGS_SCHEMA + (
      "label": "Decisores · modelo general", "type": "enum", "default": "off",
      "choices": ("off", "jev"), "choices_fn": _decider_choices,
      "help": "Qué decisor responde cuando un uso pregunta: off = ninguno (de "
-             "fábrica) · jev = en la nube (TypeSafe; se configura en Motores → "
-             "Modelos de decisión, y el primero que queda listo se activa solo).",
+             "fábrica) · jev, openrouter, liquid = en la nube · ollama = en esta "
+             "computadora. Se configuran en Motores → Modelos de decisión, y el "
+             "primero que queda listo se activa solo.",
      "applies": "decisions.global_model() → decisions.ask/consult."},
     {"key": "decisions.context_budget", "group": "decisions",
      "label": "Decisores · presupuesto de contexto (tokens)", "type": "int", "default": 0,
@@ -707,6 +797,13 @@ SETTINGS_SCHEMA = SETTINGS_SCHEMA + (
              "(más barato y rápido; nunca lo sube), p. ej. {\"jev\": 16000}. Se ajusta en "
              "Motores → Modelos de decisión.",
      "applies": "decision_context.limit()."},
+    {"key": "decisions.decider_models", "group": "decisions",
+     "label": "Decisores · modelo de cada decisor", "type": "map", "default": {},
+     "help": "Mapa decisor → modelo, para los que traen varios (p. ej. "
+             "{\"openrouter\": \"liquid/d1\", \"ollama\": \"nimble:latest\"}). Uno que "
+             "no está en la lista del decisor no cuenta: usa el de fábrica. Se elige "
+             "en Motores → Modelos de decisión.",
+     "applies": "decisions.decider_model() → cada decisor al preguntar."},
     {"key": "decisions.notices", "group": "decisions",
      "label": "Decisores · avisos ya vistos", "type": "map", "default": {},
      "help": "Decisores en la nube para los que ya se avisó que «Memoria» o «Todo el "
@@ -1020,7 +1117,14 @@ def validate(key, value):
             return value
         raise ValueError("%s espera texto, no %r" % (key, value))
     if t == "map":
+        if key == "decisions.decider_models" and isinstance(value, str):
+            try:                       # desde la CLI: `settings set … '{"ollama": "nimble"}'`
+                value = json.loads(value)
+            except ValueError:
+                pass
         if isinstance(value, dict):
+            if key == "decisions.decider_models":
+                return _decider_models_norm(value)
             return value
         raise ValueError("%s espera objeto/mapa, no %r" % (key, value))
     if t == "list":
@@ -1210,6 +1314,20 @@ def hub_pins_resolved():
         keys = list(keys)
         if keys and "ui.background" not in keys:
             keys.append("ui.background")
+        # Un solo color: también vale dentro de herdr — siempre a la vista
+        # (los pins guardados de antes no lo traen).
+        if keys and "ui.un_color" not in keys:
+            keys.append("ui.un_color")
+        # Dentro de herdr: el ajuste que decide quién manda el tema, siempre a
+        # la vista (fuera de herdr no aparece: ahí no hace nada).
+        herdr_etq = ""
+        try:
+            import herdr_tema
+            if keys and herdr_tema.dentro_de_herdr() and "ui.tema_herdr" not in keys:
+                keys.append("ui.tema_herdr")
+            herdr_etq = herdr_tema.etiqueta()
+        except Exception:
+            herdr_etq = ""
         for k in keys:
             spec = _BY_KEY.get(k)
             if not spec:
@@ -1218,8 +1336,10 @@ def hub_pins_resolved():
                 val = get(k)
             except Exception:
                 continue
-            out.append({"key": k, "label": pin_label(k),
-                        "value": pin_value_display(k, val)})
+            disp = pin_value_display(k, val)
+            if k == "ui.theme" and herdr_etq:
+                disp = herdr_etq             # el que manda ahora (no el guardado)
+            out.append({"key": k, "label": pin_label(k), "value": disp})
     except Exception:
         return []
     return out
@@ -1325,6 +1445,31 @@ def set_stored(key, value):
     return v
 
 
+def set_entry(key, sub, value):
+    """Pone UNA entrada (`sub` → `value`) de un ajuste que es un mapa: leer,
+    cambiar y guardar el mapa bajo UN mismo candado (dos ventanas que cambian
+    entradas distintas a la vez no se pisan; leerlo con get() y guardarlo con
+    set() perdía la otra — Greptile 0.9.0, 4). Valida como set(): inválido →
+    ValueError sin escribir. Devuelve el mapa guardado (normalizado)."""
+    spec = _BY_KEY.get(key)
+    if spec is None:
+        raise ValueError("setting desconocido: %r (ver `settings.py list`)" % (key,))
+    if spec.get("readonly") or spec.get("type") != "map" or spec.get("delegated"):
+        raise ValueError("%s no es un mapa que se escriba por entradas" % (key,))
+    if key == "decisions.decider_models":
+        _decider_models_check({sub: value})   # FUERA del candado (puede preguntar al decisor)
+
+    def _rmw():
+        store = _load_store_for_write()   # SEC: no pisar un store corrupto mudo
+        s = store.setdefault("settings", {})
+        cur = dict(s[key]) if isinstance(s.get(key), dict) else {}
+        cur[sub] = value
+        s[key] = validate(key, cur)
+        _save_store(store)
+        return s[key]
+    return _with_store_lock(_rmw)       # G1: RMW serializado
+
+
 def set(key, value):   # noqa: A001 — nombre pedido por la API pública
     """Valida y persiste un setting. Inválido → ValueError SIN escribir.
     readonly → ValueError apuntando al mecanismo dueño. Delegados:
@@ -1338,6 +1483,8 @@ def set(key, value):   # noqa: A001 — nombre pedido por la API pública
     if spec.get("readonly"):
         raise ValueError("%s es de solo-lectura aquí — %s" % (key, spec["applies"]))
     v = validate(key, value)
+    if key == "decisions.decider_models":
+        v = _decider_models_check(v)          # solo modelos DE DECISIÓN (decisions.check_model)
     if key == "cerebro.cleanup_period_days":
         sp = _claude_settings()
         # SEC/Argus (espejo del read-guard R3-F1 de install.ensure_cleanup_days):

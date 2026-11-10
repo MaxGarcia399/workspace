@@ -1,5 +1,3 @@
-<!-- ARCHIVO GENERADO con `workspace comandos --markdown --lang es`: no lo edites a mano. tests/test_manual_commands.py vigila que coincida. -->
-
 # Comandos de Workspace
 
 Todo lo que puedes escribir en la terminal. Cada comando acepta su nombre en español y en inglés.
@@ -151,6 +149,18 @@ _también: `metrics`, `métricas`_
 
     workspace metricas importar
     workspace metricas borrar --mio
+
+### `workspace llaves [estado | auditar] [--json]`
+
+Tus llaves de Workspace: de dónde sale cada una (tu sistema, el llavero o el archivo) y una auditoría de restos en texto plano. Nunca muestra un valor.
+
+**Cuándo:** Para saber dónde quedó una llave, o revisar que no quede ninguna a la vista.
+
+_también: `keys`, `secretos`, `secrets`_
+
+**Ejemplos:**
+
+    workspace llaves auditar
 
 ### `workspace configurar-desarrollo`
 

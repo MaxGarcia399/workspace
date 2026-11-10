@@ -494,6 +494,11 @@ def launch(cfg, passthrough, plan=False, preselect=None, show_banner=True):
         # leen WORKSPACE_WS (con fallback al env específico por back-compat).
         env["WORKSPACE_WS"] = wname
         env["WORKSPACE_WID"] = wid
+        try:                         # su panel de herdr, para el aviso de las salas
+            from engines import _ui as _ui_panel
+            _ui_panel.registrar_panel(cfg, wid, "claude-code", env)
+        except Exception:
+            pass
         jsonl = os.path.join(_session_dir(brain), wid + ".jsonl")
         # Nivel 2 (sesiones.llevar_conversacion, apagado de fábrica): si la
         # conversación viajó en el cerebro y aquí no está (o la del cerebro es

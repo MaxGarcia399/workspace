@@ -65,7 +65,8 @@ and anything you edited by hand, or that Workspace didn't write as is (for examp
 ## Backup and safeguards
 
 - Before deleting it shows the list **WILL BE DELETED / KEPT / BACKUP**, with each brain by name.
-- It offers a **backup** of your settings as a zip on your Desktop (`--no-backup` to skip it).
+- It offers a **backup** of your settings as a zip in `~/Workspace/Respaldos` (outside the
+  Desktop) and shows it to you in its folder when it's done (`--no-backup` to skip it).
   The backup **doesn't carry your keys or tokens**: paste them again after reinstalling. If
   the backup fails, nothing is deleted.
 - Without a terminal to ask you (a script or an agent) it deletes nothing, unless you add

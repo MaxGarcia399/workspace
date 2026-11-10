@@ -22,13 +22,18 @@ Un comando:
 curl -fsSL https://raw.githubusercontent.com/MaxGarcia399/workspace/main/setup.sh | bash
 ```
 
-Lo instala en `~/Desktop/Workspace`. Si ya había una carpeta ahí, la respalda antes.
+Lo instala en `~/Workspace`, fuera de tu Escritorio, Documentos y Descargas: así macOS no te
+pide permiso para que la terminal entre a esas carpetas. Tus agentes nuevos nacen en
+`~/Workspace/Cerebros`. Si ya tenías Workspace en otro lado (por ejemplo, en
+`~/Desktop/Workspace`), el mismo comando lo detecta y lo actualiza ahí: no mueve nada. Si ya
+tienes una carpeta `~/Workspace` con tus propios archivos, no la toca: te pide elegir otra con
+`WORKSPACE_DIR="$HOME/Workspace-app"` delante del comando.
 
 ¿Prefieres ver qué corres antes de correrlo? Bien hecho. Haz lo mismo en dos pasos:
 
 ```bash
-git clone https://github.com/MaxGarcia399/workspace.git ~/Desktop/Workspace
-python3 ~/Desktop/Workspace/install.py
+git clone https://github.com/MaxGarcia399/workspace.git ~/Workspace
+python3 ~/Workspace/install.py
 ```
 
 ## Windows (PowerShell)
@@ -54,6 +59,9 @@ Workspace. Al terminar, **abre una terminal nueva** para que el comando `workspa
 
 Solo **tu máquina**: deja el comando `workspace`, conecta los avisos que necesitan los motores
 y guarda tu configuración local en `~/.claude/workspace/`. No crea cuentas ni envía nada.
+
+¿Te salió un aviso del sistema (permisos, «posible malware», administrador)? En
+[Avisos de tu sistema](avisos.md) está qué es cada uno y qué contestar.
 
 ## Siguiente paso
 

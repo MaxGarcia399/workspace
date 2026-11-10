@@ -105,6 +105,37 @@ Change it in **Agents** (pick the agent and Enter) (see [Permissions](engines.md
 - If you pass your own options when opening the engine (`-a` in Codex; `--mode` or `--project`
   in Antigravity), yours win.
 
+## Your keys: which engine can read them
+
+Workspace keeps the keys you give it (for example, a decision model's) in its vault, outside
+your brain (see [Privacy](privacy.md#credentials)). No engine gets it through the environment.
+On top of that, for the engines that have rules for it, Workspace denies them **reading the
+vault** (the file `~/.claude/workspace/secrets.local` and the folder
+`~/.claude/workspace/boveda/`) and, where possible, **asking the keychain for a key** (the
+`security` and `secret-tool` programs as a whole, with any subcommand: `security -i` too). It
+applies with any autonomy.
+
+| Engine | Read the vault | Ask the keychain for a key | How |
+|---|---|---|---|
+| Claude Code | denied ❔ | denied ❔ | `permissions.deny` with `Read(…)` and `Bash(security …)` in each tab's `--settings` and, with *brain* autonomy, also in the brain's `settings.local.json`. Per its docs it covers its read tools and `cat`/`head`/`tail`, not a script |
+| GitHub Copilot | denied ❔ | denied ❔ (macOS and Linux) | `--deny-tool=read(…)` and `--deny-tool=shell(security …)` on every run |
+| Cursor | denied ❔ | denied ❔ | `Read(**/…)` and `Shell(security:…)` in the brain's `.cursor/cli.json`; its `Read` does not stop a `cat` in its terminal |
+| Kiro | denied ❔ | ❌ | a separate `fs_read` deny rule (V3) and `fs_read.deniedPaths` (2.x) in its agent |
+| Antigravity | denied ❔ | denied ❔ | `read_file(…)` and `command(security …)` in the run's `--settings` |
+| Codex | ❌ | ❌ | its sandbox can read the whole disk; its permission profiles, which would allow it, are in beta and clash with the sandbox Workspace uses |
+| Gemini | ❌ | ❌ | it has no per-path read rule |
+| OpenCode | ❌ | ❌ | it has a read rule, but Workspace does not write its configuration |
+| OpenClaw | ❌ | ❌ | its policy filters tools by name, not by path |
+| Hermes | ❌ | ❌ | its read-deny list is fixed |
+
+❔ The rule follows each engine's official docs, but it was not tested with the program.
+
+**What this does not do.** A program or script running as your same user (for example,
+`python -c …` in the agent's terminal) can still ask the keychain for the key or read the file:
+the rules stop the agent's file tools and those two programs, not everything.
+What the keychain does protect is the disk, backups (Time Machine, File History), sync and the
+other users on the machine.
+
 ## Status bar and theme by engine
 
 | | Claude Code | Codex | Antigravity |

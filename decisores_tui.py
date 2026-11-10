@@ -9,7 +9,8 @@ navegables con flechas (foco = borde grueso en el acento; activo = ●):
              respuesta con una barra por opción (contexto = el resumen
              guardado de su pestaña más reciente, si lo hay).
   Ajustes    el modelo general (tarjetas con su disponibilidad real) y los
-             8 usos en rejillas 2×2 con su medidor ▮▯▯; espacio cambia el
+             9 usos en rejillas de 2 por fila con su medidor ▮▯▯ (Workspace
+             tiene 5: la 3.ª fila lleva uno); espacio cambia el
              nivel, Enter abre el detalle (nivel · modelo · umbral) y en el
              detalle Enter guarda y vuelve.
   Historial  la bitácora local: resumen + lista; s/n califica.
@@ -19,6 +20,7 @@ El modelo de datos vive en decisions.py (fachada) y deciders/ (decisores);
 esto es solo la superficie. Teclado: termios+select en Unix, msvcrt en
 Windows. Stdlib, Python 3.9+.
 """
+import datetime
 import os
 import sys
 import threading
@@ -33,6 +35,7 @@ import decisions as DC                                          # noqa: E402
 import decision_visible as DV                                   # noqa: E402
 import hublayout as HL                                          # noqa: E402
 import section_box as SB                                        # noqa: E402
+import ventanita as VT                                          # noqa: E402
 
 try:
     import i18n                                                 # noqa: E402
@@ -59,8 +62,7 @@ def _t(key, es, **kw):
 TABS = ("preguntar", "ajustes", "historial")
 #: (Las tarjetas de modelo salen de deciders/: los que ve el socio + Apagado.)
 NCOL = {"off": "DK", "observe": "B2", "suggest": "B", "decide": "OK"}
-LIGHT = "╭╮╰╯│─"
-HEAVY = "┏┓┗┛┃━"
+LIGHT, HEAVY = SB.LIGHT, SB.HEAVY
 #: Tiempo límite de una pregunta a mano (la nube tarda más que un hook).
 MANUAL_TIMEOUT_MS = 10000
 #: El medidor se recalcula cuando dejas de teclear (nunca en cada tecla).
@@ -91,6 +93,7 @@ def _point_name(pid):
         "workspace.evals": _t("decisores.point.evals.name", "Evals"),
         "workspace.skills": _t("decisores.point.skills.name", "Skills"),
         "workspace.security": _t("decisores.point.security.name", "Seguridad"),
+        "workspace.conversations": _t("decisores.point.conversations.name", "Conversaciones"),
     }.get(pid, _t("decisores.point.manual.name", "Pregunta"))
 
 
@@ -113,6 +116,9 @@ def _point_what(pid):
         "workspace.evals": _t("decisores.point.evals.what", "si una sesión salió bien"),
         "workspace.skills": _t("decisores.point.skills.what", "si algo vale la pena aprenderlo"),
         "workspace.security": _t("decisores.point.security.what", "qué tan riesgosa es una acción"),
+        "workspace.conversations": _t("decisores.point.conversations.what",
+                                      "si un pedido entre agentes pide algo, si la sala avanza y si "
+                                      "ya terminó"),
     }.get(pid, "")
 
 
@@ -149,9 +155,17 @@ def _shown(did):
 
 
 def _model_txt(m):
-    return {"jev": _t("decisores.model.jev.txt", "en la nube · TypeSafe"),
-            "off": _t("decisores.model.off.txt", "ningún uso pregunta nada")}.get(
-        m, _t("decisores.model.other.txt", "decisor instalado"))
+    """Dónde decide: «en la nube · <proveedor>» o «en esta computadora» (META
+    `local` y `provider`; jamás un modelo fijo)."""
+    if m == "off":
+        return _t("decisores.model.off.txt", "ningún uso pregunta nada")
+    meta = DC.meta(m)
+    if not meta:
+        return _t("decisores.model.other.txt", "decisor instalado")
+    if meta.get("local", False):
+        return _t("decisores.model.here.txt", "en esta computadora")
+    prov = meta.get("provider") or _model_name(m)
+    return _t("decisores.model.cloud.txt", "en la nube · {p}", p=prov)
 
 
 def _cards():
@@ -182,6 +196,9 @@ def _point_when(pid):
         "workspace.evals": _t("decisores.when.evals", "al cerrar cada sesión, con su extracto"),
         "workspace.skills": _t("decisores.when.skills", "al cerrar, si la «Revisión de skills» está encendida"),
         "workspace.security": _t("decisores.when.security", "cuando el escaneo de seguridad encuentra algo"),
+        "workspace.conversations": _t("decisores.when.conversations",
+                                      "en las salas: al llegar un pedido o una respuesta, y cada 6 "
+                                      "mensajes a quien abrió"),
     }.get(pid, "")
 
 
@@ -222,45 +239,10 @@ def _K():
     return SB.K()
 
 
-def pad(s, n):
-    return HL.pad(HL.clip(s, n), n)
-
-
-def center(s, n):
-    s = HL.clip(s, n)
-    left = max(0, (n - HL.vis(s)) // 2)
-    return HL.pad(" " * left + s, n)
-
-
-def caja(K, body, w, col, title="", heavy=False, tcol=None, centrar=False):
-    """Un cuadrito de ancho `w` (con bordes). Título incrustado arriba."""
-    w = max(6, w)
-    tl, tr, bl, br, v, h = HEAVY if heavy else LIGHT
-    R = K["R"]
-    if title:
-        t = " %s " % HL.clip(title, max(1, w - 5))
-        top = "%s%s%s%s%s%s%s%s" % (col, tl, h, R, tcol or col, t, R + col,
-                                    h * max(0, w - 3 - HL.vis(t)) + tr + R)
-    else:
-        top = "%s%s%s%s%s" % (col, tl, h * (w - 2), tr, R)
-    out = [top]
-    for ln in body:
-        inner = center(ln, w - 4) if centrar else pad(ln, w - 4)
-        out.append("%s%s%s %s %s%s%s" % (col, v, R, inner, col, v, R))
-    out.append("%s%s%s%s%s" % (col, bl, h * (w - 2), br, R))
-    return out
-
-
-def hjoin(bloques, gap=2):
-    alto = max(len(b) for b in bloques)
-    anchos = [max(HL.vis(x) for x in b) for b in bloques]
-    return [(" " * gap).join(HL.pad(b[i] if i < len(b) else "", a)
-                             for b, a in zip(bloques, anchos)) for i in range(alto)]
-
-
-def anchos(iw, n, gap=2):
-    n = max(1, n)
-    return [max(6, (iw - gap * (n - 1)) // n)] * n
+# Las piezas de dibujo (cuadrito, botón, título de grupo, unir en fila)
+# viven en section_box: las comparten Decisores y Conversaciones.
+pad, center, caja, hjoin, anchos = SB.pad, SB.center, SB.caja, SB.hjoin, SB.anchos
+titulo, boton = SB.titulo, SB.boton
 
 
 def tabs(K, on, iw):
@@ -270,13 +252,6 @@ def tabs(K, on, iw):
         out.append("%s%s %s %s%s" % (K["C"] + K["BO"], K["BL"], lab, K["BR"], K["R"]) if t == on
                    else "%s  %s  %s" % (K["DK"], lab, K["R"]))
     return center("   ".join(out), iw)
-
-
-def titulo(K, txt, iw, tono=0):
-    t = txt.upper()
-    wc = K["WCOL"]
-    return HL.clip("%s%s%s %s%s%s" % (wc[tono % len(wc)] + K["BO"], t, K["R"], K["DK"],
-                                     K["SEP"] * max(1, iw - HL.vis(t) - 1), K["R"]), iw)
 
 
 def medidor(K, lv):
@@ -297,15 +272,6 @@ def bar(K, p, n=22, tono=1):
 
 def wrap(txt, w):
     return SB._wrap(txt, max(4, w))
-
-
-def boton(K, label, w, foco, activo=False, acol="C", tinte=None):
-    """Botón-cuadrito: foco = borde grueso en acento; activo = texto con ●."""
-    col = (K["C"] + K["BO"]) if foco else (K[acol] if activo else K["DK"])
-    txt = ("%s● %s%s" % (K[acol] + K["BO"], label, K["R"]) if activo
-           else "%s%s%s" % ((K["WH"] + K["BO"]) if foco else (K[tinte] if tinte else K["GREY"]),
-                            label, K["R"]))
-    return caja(K, [txt], w, col, heavy=foco, centrar=True)
 
 
 def cur(K, sel):
@@ -490,8 +456,10 @@ def ajustes_body(S, K, iw):
     cards = _cards()
     S["mi"] = S["mi"] % len(cards)
     L.append(titulo(K, _t("decisores.settings.which_model", "¿qué modelo decide?"), iw, 0))
+    per = _por_fila(len(cards))
+    w = anchos(iw, per)[0]
     row = []
-    for i, (m, w) in enumerate(zip(cards, anchos(iw, len(cards)))):
+    for i, m in enumerate(cards):
         foco = foco_m and S["mi"] == i
         activo = modelo == m
         ok, est = _model_state(m)
@@ -501,10 +469,15 @@ def ajustes_body(S, K, iw):
                             "● " if activo else "", _model_name(m), K["R"])
         ready = ok and (m == "off" or DC.decider_status(m)["ready"])
         estc = K["DIM"] if ready or m == "off" else K["BAD"]
+        if HL.vis(est) > w - 4 and not ready and m != "off":
+            # con varios modelos la tarjeta es angosta: la pista de abajo dice el resto
+            est = _t("decisores.st.configure_short", "configúralo")
         row.append(caja(K, [nom, "%s%s%s" % (estc, est, K["R"])], w, col, heavy=foco, centrar=True))
-    if foco_m:
-        S["_cur"] = len(L) + 1
-    L += hjoin(row)
+        if len(row) == per or i == len(cards) - 1:          # con muchos modelos, en filas
+            if foco_m and i - len(row) < S["mi"] <= i:
+                S["_cur"] = len(L) + 1
+            L += hjoin(row)
+            row = []
     # el modelo configurado que no está (su archivo se borró, un id a mano):
     # antes quedaba en Apagado sin decir nada — va en el renglón vacío de abajo
     falta = DC.missing_model() if apagado else None
@@ -518,7 +491,7 @@ def ajustes_body(S, K, iw):
         L.append(titulo(K, _t("decisores.settings.where", "dónde ayuda") + " · " + _group_label(grupo),
                         iw, 2 + 2 * gi))
         usos = [(i, p) for i, p in enumerate(DC.POINTS) if p[1] == grupo]
-        for fila in (usos[:2], usos[2:]):
+        for fila in [usos[j:j + 2] for j in range(0, len(usos), 2)]:
             row = []
             for (i, (pid, _g, _k)), w in zip(fila, anchos(iw, 2)):
                 foco = (not foco_m) and S["ui"] == i
@@ -529,8 +502,11 @@ def ajustes_body(S, K, iw):
                 tcol = (K["WH"] + K["BO"]) if (foco or on) else K["GREY"]
                 a, n = DC.accuracy(pid)
                 extra = []
-                if on and conf["model"] != DC.GENERAL:
-                    extra.append(_model_name(conf["model"]))
+                if on:                         # el que decide, también si es el General
+                    quien = (_shown(DC.effective_model(pid)) if conf["model"] == DC.GENERAL
+                             else _model_name(conf["model"]))
+                    if quien:
+                        extra.append(quien)
                 if on and n:
                     extra.append("%d/%d" % (a, n))
                 med = medidor(K, nv if not apagado else "off")
@@ -962,14 +938,30 @@ def historial_body(S, K, iw):
 
 
 # ── ayuda (i / ?) ────────────────────────────────────────────────────────────
-def _info_txt(vista):
+#: Lo que la ayuda de UNA tarjeta agrega a la del detalle: lo medido que el
+#: socio necesita para elegir modelo (Medicion_Decisores_Conversaciones_v2).
+def _nota_del_uso(punto):
+    if punto == "workspace.conversations":
+        def nom(d):                    # el nombre de cada decisor sale de su META, no del texto
+            try:
+                return DC.decider_label(d)
+            except Exception:
+                return d
+        return [_t("decisores.info.detail.conversations",
+                   "Seguridad en salas funciona con {a}; con {b} u {c} casi nunca sube a «alto»",
+                   a=nom("jev"), b=nom("liquid"), c=nom("openrouter"))]
+    return []
+
+
+def _info_txt(vista, punto=None):
     if vista == "detalle":
         return (_t("decisores.info.detail.p", "Aquí afinas un solo uso: cuánto lo dejas hacer, con qué "
                    "modelo y qué tan seguro debe estar para decidir solo. Enter guarda y vuelve."),
                 [_t("decisores.info.detail.l1", "Apagado — no pregunta nada"),
                  _t("decisores.info.detail.l2", "Observa — mide sin cambiar nada"),
                  _t("decisores.info.detail.l3", "Sugiere — la muestra; no la aplica"),
-                 _t("decisores.info.detail.l4", "Decide — actúa solo sobre el umbral")])
+                 _t("decisores.info.detail.l4", "Decide — actúa solo sobre el umbral")]
+                + _nota_del_uso(punto))
     if vista == "ajustes":
         return (_t("decisores.info.settings.p", "Elige qué modelo decide y en qué partes ayuda. Cada "
                    "cuadrito es independiente: puedes prender Memoria y dejar Skills apagado."),
@@ -1021,9 +1013,9 @@ def _models_p():
               "decide y en qué usos ayuda; si a uno le falta algo, Enter en su tarjeta te lleva ahí.")
 
 
-def info_blocks(vista):
+def info_blocks(vista, punto=None):
     """Bloques del cuadro vertical (ventanas angostas)."""
-    texto, lista = _info_txt(vista)
+    texto, lista = _info_txt(vista, punto)
     out = [("flow", _flujo_que()), ("gap",), ("p", texto), ("list", lista)]
     if vista == "ajustes":
         out += [("h", _t("decisores.info.models", "modelos")), ("p", _models_p())]
@@ -1046,9 +1038,9 @@ def flujo(K, pasos, iw, tono):
     return [center(x, iw) for x in hjoin(bloques, gap=0)]
 
 
-def info_body(K, vista, iw):
+def info_body(K, vista, iw, punto=None):
     """La ayuda horizontal: qué es (flujo) · texto | viñetas · cómo lo hicimos."""
-    texto, lista = _info_txt(vista)
+    texto, lista = _info_txt(vista, punto)
     L = [titulo(K, _t("decisores.info.what", "qué es"), iw, 0), ""] + flujo(K, _flujo_que(), iw, 0) + [""]
     lw = (iw - 3) // 2
     izq = ["%s%s%s" % (K["WH"], ln, K["R"]) for ln in wrap(texto, lw)]
@@ -1071,12 +1063,13 @@ def info_body(K, vista, iw):
     return [HL.clip(x, iw) for x in L]
 
 
-def info_render(S, K, w, h, word, vista, titulo_caja):
+def info_render(S, K, w, h, word, vista, titulo_caja, punto=None):
     bw = max(60, min(96, w - 10))
     if bw < 70:                              # angosto: el cuadro vertical de siempre
-        return SB.info_frame(K, w, h, word, titulo_caja, info_blocks(vista), state=S["info"], box_w=60)
+        return SB.info_frame(K, w, h, word, titulo_caja, info_blocks(vista, punto), state=S["info"],
+                             box_w=60)
     st = S["info"] if isinstance(S["info"], dict) else {}
-    out = SB.frame(K, w, h, word, titulo_caja, lambda iw: info_body(K, vista, iw),
+    out = SB.frame(K, w, h, word, titulo_caja, lambda iw: info_body(K, vista, iw, punto),
                    ((u"↑↓", _t("decisores.k.move_info", "mover")),
                     ("Esc", _t("decisores.k.close", "cerrar"))),
                    box_w=bw, scroll=st.get("scroll", 0))
@@ -1134,7 +1127,8 @@ def render(S, w, h):
     if S.get("info"):
         cab = (_point_name(DC.POINT_IDS[S["det"]]) if det else _tab_label(tab)).upper()
         return info_render(S, K, w, h, word, "detalle" if det else tab,
-                           "%s · %s" % (_t("decisores.info.title", "AYUDA"), cab))
+                           "%s · %s" % (_t("decisores.info.title", "AYUDA"), cab),
+                           DC.POINT_IDS[S["det"]] if det else None)
     if vista in ("sesiones", "fuentes"):
         body_fn = sesiones_body if vista == "sesiones" else preview_body
         return SB.frame(K, w, h, word, "%s · %s" % (_tab_label("preguntar").upper(),
@@ -1183,6 +1177,13 @@ def _aviso_nube_linea(S, K, R, w):
     return [""] + ["%s%s%s" % (K["C"], ln, K["R"]) for ln in wrap(txt, w)]
 
 
+def _firma_peticion(S):
+    """Lo que identifica una pregunta en pantalla: agente, pregunta, opciones,
+    nivel de contexto y pestañas elegidas."""
+    return (_agent_id(S), S.get("preg", ""), tuple(_ops(S)), _ctx_level(S),
+            tuple(sorted(str(t) for t in _ctx_tabs(S))))
+
+
 def _preguntar(S, sync=False):
     ops = _ops(S)
     if len(ops) < 2:
@@ -1194,7 +1195,12 @@ def _preguntar(S, sync=False):
         return
     preg = S["preg"]
     nivel, agente, tabs = _ctx_level(S), _agent_id(S), _ctx_tabs(S)
-    S["pensando"], S["res"], S["detalle"] = modelo, None, False
+    # la respuesta va atada a ESTA petición: si mientras espera el socio
+    # cambia de agente, pregunta, opciones o contexto, se descarta (no aparece
+    # bajo lo nuevo — Greptile 0.8.x, 5)
+    yo = object()
+    firma = _firma_peticion(S)
+    S["pensando"], S["res"], S["detalle"], S["peticion"] = modelo, None, False, yo
     import decision_context as C
     # el aviso de la nube se decide AL MANDAR (no al elegir el nivel: ahí puede
     # que todavía no hubiera modelo) y se marca visto solo tras dibujarlo
@@ -1203,6 +1209,12 @@ def _preguntar(S, sync=False):
     def run():
         # si no cupo: recorta y reintenta (≤3) — se anota una sola vez
         r, ctx = C.ask(nivel, agente, preg, ops, modelo, tabs, timeout_ms=MANUAL_TIMEOUT_MS)
+        if S.get("peticion") is not yo:
+            return                         # ya hay otra petición: esta no pinta nada
+        S["peticion"] = None
+        if _firma_peticion(S) != firma:
+            S["pensando"] = None           # era de otra cosa: ni se muestra ni se guarda
+            return
         S["last_ctx"] = C.ledger_meta(ctx)
         if aviso and ctx.get("text") and _salio(r):
             r["aviso_nube"] = {"did": modelo, "lv": nivel}
@@ -1250,35 +1262,55 @@ def _accion_detalle(S, key):
             S["msg"] = str(e)
 
 
+def _filas_usos():
+    """Las filas de la rejilla, de arriba abajo: de 2 en 2 por grupo (Tus
+    agentes, luego Workspace), con el índice de cada uso en DC.POINTS."""
+    out = []
+    for grupo in ("agents", "workspace"):
+        idx = [i for i, p in enumerate(DC.POINTS) if p[1] == grupo]
+        out += [idx[j:j + 2] for j in range(0, len(idx), 2)]
+    return out
+
+
 def _mover_usos(S, key):
-    """Rejilla 2×2 por grupo: Tus agentes (0-3) arriba, Workspace (4-7) abajo."""
-    g, k = divmod(S["ui"], 4)
-    fila, col = divmod(k, 2)
+    """Rejilla de 2 por fila: Tus agentes arriba, Workspace abajo (su 3.ª fila
+    lleva un solo uso). ↑ desde la primera fila sube a los modelos."""
+    filas = _filas_usos()
+    r = next((k for k, f in enumerate(filas) if S["ui"] in f), 0)
+    c = filas[r].index(S["ui"]) if S["ui"] in filas[r] else 0
     if key in ("left", "right"):
-        S["ui"] = g * 4 + fila * 2 + (1 - col)
+        if len(filas[r]) == 2:
+            S["ui"] = filas[r][1 - c]
     elif key == "up":
-        if fila == 1:
-            S["ui"] -= 2
-        elif g == 1:
-            S["ui"] = 2 + col
+        if r > 0:
+            S["ui"] = filas[r - 1][min(c, len(filas[r - 1]) - 1)]
         else:
             S["zona"] = "modelo"
             cards = _cards()
             gm = DC.global_model()
             S["mi"] = cards.index(gm) if gm in cards else 0
     elif key == "down":
-        if fila == 0:
-            S["ui"] += 2
-        elif g == 0:
-            S["ui"] = 4 + col
+        if r + 1 < len(filas):
+            S["ui"] = filas[r + 1][min(c, len(filas[r + 1]) - 1)]
+
+
+def _por_fila(n):
+    """Tarjetas de modelo por fila: todas en una hasta 4; con más (varios
+    decisores), en filas de 3 — si no, los nombres no caben."""
+    return n if n <= 4 else 3
 
 
 def _accion_ajustes(S, key):
     if S["zona"] == "modelo":
         cards = _cards()
+        per = _por_fila(len(cards))
         m = cards[S["mi"] % len(cards)]
         if key in ("left", "right"):
             S["mi"] = (S["mi"] + (-1 if key == "left" else 1)) % len(cards)
+        elif key == "up" and S["mi"] >= per:
+            S["mi"] -= per
+        elif key == "down" and S["mi"] + per < len(cards):
+            S["mi"] += per
         elif key in (" ", "\r", "\n") and _not_ready(m):
             # se configura UNA vez, en Motores: allá vamos, con ese modelo elegido
             S["request"] = ("modelos", m)
@@ -1299,7 +1331,7 @@ def _accion_ajustes(S, key):
                                        st=est)
         elif key == "down":
             S["zona"] = "usos"
-            S["ui"] = min(1, S["mi"] // 2)
+            S["ui"] = min(1, (S["mi"] % per) // 2)
         return
     pid = DC.POINT_IDS[S["ui"]]
     if key in ("left", "right", "up", "down"):
@@ -1501,9 +1533,570 @@ def _accion(S, key):
     return True
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Ventanita (< 70 columnas o < 24 filas): el decisor EN VIVO, como la
+# ventanita de Conversaciones — un nivel a la vez:
+#   feed     lo que va decidiendo, la más nueva arriba; llega sola (cada
+#            dibujo relee la bitácora si cambió: decisions._entries cachea
+#            por tamaño + mtime). Enter abre una.
+#   detalle  la decisión entera: pregunta, opciones, qué hizo, cuánto tardó y
+#            costó; s/n califica. Esc vuelve.
+#   usos     (Tab) los 9 usos y su nivel; ←→ lo cambia y se guarda ya.
+# ═══════════════════════════════════════════════════════════════════════════
+#: (glifo, color) de lo que hizo: ◆ aplicó · ◇ sugirió · · observó.
+_VT_MODO = {"apply": ("◆", "OK"), "suggest": ("◇", "B"), "observe": ("·", "B2"),
+            "ask": ("?", "C"), "error": ("✗", "BAD")}
+_VT_MESES = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
+
+
+def _vt(S):
+    return S.setdefault("vt", {"vista": "feed", "sel": None, "top": None, "visto": None,
+                               "det": None, "scroll": 0, "ui": 0, "utop": 0, "ayuda": False,
+                               "info": None})
+
+
+def _vt_modo(e):
+    return (e.get("mode") or "ask") if e.get("ok") else "error"
+
+
+def _vt_cuando(e, completo=False):
+    """«08:56» si es de hoy · «ayer 08:56» · «5 oct 08:56» (con los
+    segundos y el año, `completo`)."""
+    ts = str(e.get("ts") or "")
+    h = ts[11:19] if completo else ts[11:16]
+    try:
+        d = datetime.date(int(ts[:4]), int(ts[5:7]), int(ts[8:10]))
+    except ValueError:
+        return h
+    hoy = datetime.date.today()
+    mes = _t("common.cal.month_short.%d" % d.month, _VT_MESES[d.month - 1])
+    if completo:
+        return "%d %s %d · %s" % (d.day, mes, d.year, h)
+    if d == hoy:
+        return h
+    if d == hoy - datetime.timedelta(days=1):
+        return _t("decisores.vt.yesterday", "ayer {h}", h=h)
+    return "%d %s %s" % (d.day, mes, h)
+
+
+def _vt_ms(ms):
+    try:
+        ms = int(ms)
+    except (TypeError, ValueError):
+        return ""
+    return "%d ms" % ms if ms < 1000 else "%.1f s" % (ms / 1000.0)
+
+
+def _vt_costo(e):
+    if e.get("cost_usd") is None:
+        return ""
+    import decision_context as C
+    return C.fmt_cost(e["cost_usd"])
+
+
+def _vt_texto(s):
+    return " ".join(str(s or "").split())
+
+
+def _vt_tarjeta(K, e, w, sel):
+    """Una decisión en una tarjeta de 2 líneas (la elegida, de borde grueso):
+    arriba qué uso y qué hizo (◆ aplicó, ◇ sugirió, · observó), qué tan
+    seguro y la hora; abajo la pregunta → la respuesta, lo que tardó y costó."""
+    iw = w - 4
+    modo = _vt_modo(e)
+    gl, gk = _VT_MODO.get(modo, ("·", "DIM"))
+    der = [VT.c(K, gk, _mode_name(e.get("mode") if e.get("ok") else "error"))]
+    if e.get("ok") and e.get("p") is not None:
+        der.append(VT.c(K, "WH", "%d %%" % round(float(e["p"]) * 100)))
+    der.append(VT.c(K, "DIM", _vt_cuando(e)))
+    der = VT.c(K, "DK", " · ").join(der)
+    uso = _point_name(e.get("point"))
+    if HL.vis(uso) + 3 + HL.vis(der) > iw:
+        uso = _point_short(e.get("point"))
+    l1 = VT.der(VT.c(K, gk, gl, True) + " " + VT.c(K, "WH", uso, sel), der, iw)
+    datos = [x for x in (_vt_ms(e.get("ms")), _vt_costo(e)) if x]
+    while datos and iw - HL.vis(" · ".join(datos)) - 1 < 24:
+        datos.pop()                                  # primero el costo, luego lo que tardó
+    d2 = VT.c(K, "DIM", " · ".join(datos)) if datos else ""
+    cabe = iw - (HL.vis(d2) + 2 if d2 else 0)      # dos de aire antes de los datos
+    q = _vt_texto(e.get("q")) or "—"
+    if e.get("ok"):
+        r, rk = _vt_texto(e.get("choice")) or "—", "WH"
+    else:
+        import decision_errors as DE
+        r, rk = DE.short(e.get("error")), "BAD"
+    rw = min(HL.vis(r), max(6, cabe * 45 // 100))
+    qv = HL.clip(q, max(4, cabe - 3 - rw))
+    izq = (VT.c(K, "GREY", qv) + VT.c(K, "DK", " → ")
+           + VT.c(K, rk, HL.clip(r, max(1, cabe - 3 - HL.vis(qv))), True))
+    l2 = VT.der(izq, d2, iw) if d2 else izq
+    borde = (K["C"] + K["BO"]) if sel else K[{"apply": "OK", "error": "BAD"}.get(modo, "DK")]
+    return caja(K, [l1, l2], w, borde, heavy=sel)
+
+
+def _vt_hoy():
+    """(decisiones de hoy, aplicadas) — de la bitácora ya leída (cacheada)."""
+    dia = datetime.date.today().isoformat()
+    hoy = [e for e in DC._entries() if str(e.get("ts") or "").startswith(dia)]
+    return len(hoy), sum(1 for e in hoy if e.get("ok") and e.get("mode") == "apply")
+
+
+def _vt_modelo(K):
+    """«◆ Jev» u «◆ OpenRouter · <modelo>»; en rojo si le falta algo."""
+    g = DC.global_model()
+    if g == DC.OFF:
+        return VT.c(K, "C", "◆ ", True) + VT.c(K, "DK", _t("decisores.vt.off", "sin modelo"))
+    listo = DC.decider_status(g).get("ready")
+    out = VT.c(K, "C", "◆ ", True) + VT.c(K, "WH" if listo else "BAD", DC.decider_label(g), True)
+    sub = DC.decider_model(g)
+    if sub:
+        out += VT.c(K, "DIM", " · " + sub)
+    if not listo:
+        out += VT.c(K, "BAD", " · " + _t("decisores.st.configure_short", "configúralo"))
+    return out
+
+
+def _vt_cabecera(K, W, quien, derecha=""):
+    """La fila de arriba: dónde estás (y el modelo) a la izquierda, lo vivo a
+    la derecha — que cede primero si no cabe."""
+    if derecha and HL.vis(quien) + HL.vis(derecha) + 2 > W:
+        derecha = ""
+    if not derecha:
+        return HL.clip(quien, W)
+    return VT.der(HL.clip(quien, W - HL.vis(derecha) - 2), derecha, W)
+
+
+def _vt_feed(S, K, W, alto):
+    vt = _vt(S)
+    H = DC.history(200, ok_only=False)
+    ids = [e.get("id") for e in H]
+    if vt["sel"] not in ids:
+        vt["sel"] = vt["visto"] = None                # siguiendo lo último
+    i = ids.index(vt["sel"]) if vt["sel"] else 0
+    nuevas = ids.index(vt["visto"]) if vt["sel"] and vt["visto"] in ids else 0
+    if nuevas:
+        der = VT.c(K, "OK", _t("decisores.vt.new", "● {n} nuevas", n=nuevas), True)
+    else:
+        n, ap = _vt_hoy()
+        der = (VT.c(K, "DIM", _t("decisores.vt.today", "hoy {n}", n=n))
+               + (VT.c(K, "DK", " · ") + VT.c(K, "OK", "◆ %d" % ap) if ap else "")) if n else ""
+    quien = " " + VT.c(K, "WH", HL.section_word("decisores"), True) + "  " + _vt_modelo(K)
+    cab = _vt_cabecera(K, W, quien, der)
+    out, zonas = [cab], []
+    if nuevas and der in cab:                       # clic en «● N nuevas»: arriba del todo
+        zonas.append((0, 0, W - HL.vis(der), W - 1, ("vt_arriba",)))
+    if not H:
+        vacio = (_t("decisores.vt.off_hint", "Sin modelo: se elige en Motores → Modelos de decisión")
+                 if DC.global_model() == DC.OFF else
+                 _t("decisores.vt.empty", "Aún no decide nada · Tab: prende un uso"))
+        out += [""] + [VT.c(K, "GREY", "  " + x) for x in SB._wrap(vacio, max(8, W - 4))]
+        return out, zonas
+    top = ids.index(vt["top"]) if vt["top"] in ids else 0
+    cuerpo, zl, top = VT.lista(K, W, [4] * len(H), i, alto - 1, top,      # tarjetas de 4 filas
+                               pintar=lambda j: _vt_tarjeta(K, H[j], W, j == i), ids=ids)
+    vt["top"] = ids[top]
+    vt["dibujada"] = ids[i]                          # s/n califican ESTA, no la que llegue después
+    zonas += [(a + 1, b + 1, c0, c1, acc) for a, b, c0, c1, acc in zl]
+    return out + cuerpo, zonas
+
+
+def _vt_entrada(S):
+    vt = _vt(S)
+    return next((e for e in DC.history(200, ok_only=False) if e.get("id") == vt["det"]), None)
+
+
+def _vt_kv(K, k, v, W):
+    return HL.clip(VT.c(K, "GREY", SB.pad(k, 10)) + VT.c(K, "WH", v), W)
+
+
+def _vt_detalle(S, K, W, alto):
+    """Una decisión entera: arriba (fijo) el uso, qué hizo, cuándo y con qué
+    modelo; abajo, desplazable, la pregunta, las opciones con la elegida, lo
+    que cambió, los datos y ¿acertó?."""
+    vt = _vt(S)
+    e = _vt_entrada(S)
+    if e is None:
+        vt["vista"] = "feed"
+        return _vt_feed(S, K, W, alto)
+    C = VT.Col(K, W)
+    modo = _vt_modo(e)
+    gl, gk = _VT_MODO.get(modo, ("·", "DIM"))
+    uso = _point_name(e.get("point"))
+    que = VT.c(K, gk, "%s %s" % (gl, _mode_name(e.get("mode") if e.get("ok") else "error")), True)
+    C.add([VT.der(HL.clip(VT.c(K, "C", "‹ ", True) + VT.c(K, "WH", uso, True),
+                          max(4, W - HL.vis(que) - 2)), que, W)])
+    C.zonas.append((0, 0, 0, max(2, min(W - 1, HL.vis(uso) + 2)), ("vt_volver",)))
+    sub = _vt_cuando(e, completo=True)
+    if _shown(e.get("decider")):
+        sub += " · " + _shown(e.get("decider"))
+    t = e.get("truth")
+    marca = (VT.c(K, "OK", "✓ " + _t("decisores.vt.right", "acertó")) if t is True else
+             VT.c(K, "BAD", "✗ " + _t("decisores.vt.wrong", "falló")) if t is False else "")
+    C.add([VT.der(VT.c(K, "GREY", "  " + sub), marca, W) if marca else
+           HL.clip(VT.c(K, "GREY", "  " + sub), W)])
+    C.add([VT.c(K, "DK", "─" * W)])
+    C.fijas = len(C.lineas)
+    C.add([titulo(K, _t("decisores.vt.question", "pregunta"), W, 0)])
+    C.add([VT.c(K, "WH", x) for x in SB._wrap(_vt_texto(e.get("q")) or "—", W)])
+    C.add(["", titulo(K, _t("decisores.vt.answer", "respuesta"), W, 2)])
+    if e.get("ok"):
+        el = _vt_texto(e.get("choice"))
+        for o in e.get("options") or [el]:
+            o = _vt_texto(o)
+            on = o == el
+            for j, x in enumerate(SB._wrap(o, max(8, W - 2))):
+                pre = ("● " if on else "  ") if j == 0 else "  "
+                C.add([VT.c(K, "OK" if on else "GREY", pre + x, on)])
+        if e.get("p") is not None:
+            C.add([VT.c(K, "DIM", _t("decisores.ask.sure_only", "{p} % seguro",
+                                     p=round(float(e["p"]) * 100)))])
+        fx = DV.efecto(e)
+        if fx:
+            C.add([VT.c(K, "C", x) for x in SB._wrap(fx, W)])
+    else:
+        C.add([VT.c(K, "BAD", x) for x in SB._wrap(
+            _error_txt(e.get("error"), e.get("decider"), where="probe",
+                       detail=e.get("error_detail"), elapsed_ms=e.get("ms")), W)])
+    C.add(["", titulo(K, _t("decisores.vt.details", "detalles"), W, 4)])
+    filas = []
+    if _shown(e.get("decider")):
+        filas.append((_t("decisores.vt.k.model", "modelo"), _shown(e.get("decider"))))
+    if e.get("level") in DC.LEVELS:
+        filas.append((_t("decisores.vt.k.level", "nivel"), _level_name(e["level"])))
+    if _vt_ms(e.get("ms")):
+        filas.append((_t("decisores.vt.k.took", "tardó"), _vt_ms(e.get("ms"))))
+    if _vt_costo(e):
+        filas.append((_t("decisores.vt.k.cost", "costo"), _vt_costo(e)))
+    tk = (e.get("tokens") or {}).get("in") if isinstance(e.get("tokens"), dict) else None
+    if tk is not None:
+        import decision_context as DCX
+        filas.append((_t("decisores.vt.k.tokens", "tokens"), "≈" + DCX.fmt_tokens(tk)))
+    ctx = e.get("ctx") if isinstance(e.get("ctx"), dict) else None
+    if ctx and ctx.get("level"):
+        filas.append((_t("decisores.vt.k.context", "contexto"), _sent_line(
+            {"ctx_level": ctx["level"], "ctx_mode": ctx.get("mode"),
+             "ctx_tokens": ctx.get("tokens")}) or _ctx_label(ctx["level"])))
+    C.add([_vt_kv(K, k, v, W) for k, v in filas])
+    if e.get("ok"):
+        C.add([""])
+        a = len(C.lineas)
+        si = "[s] " + _t("decisores.hist.yes", "sí")
+        no = "[n] " + _t("decisores.hist.no", "no")
+        pre = _t("decisores.hist.right", "¿acertó?") + "  "
+        C.add([VT.c(K, "WH", pre, True) + VT.c(K, "OK", si, True) + "   " + VT.c(K, "BAD", no, True)])
+        x = HL.vis(pre)
+        C.zonas.append((a, a, x, x + HL.vis(si) - 1, ("vt_nota", True)))
+        x += HL.vis(si) + 3
+        C.zonas.append((a, a, x, x + HL.vis(no) - 1, ("vt_nota", False)))
+    vis, a_pant, st, maxs, _alto_m = VT.ventana(C, alto, vt["scroll"])
+    vt["scroll"], vt["_max"] = st, maxs
+    return vis, VT.zonas_en(C, a_pant, W)
+
+
+def _vt_usos(S, K, W, alto):
+    """Los 9 usos (Tus agentes, Workspace) con su medidor; abajo, fijo, qué
+    decide el elegido y qué hace en su nivel."""
+    vt = _vt(S)
+    apagado = DC.global_model() == DC.OFF
+    vt["ui"] = max(0, min(len(DC.POINT_IDS) - 1, vt["ui"]))
+    quien = (" " + VT.c(K, "WH", HL.section_word("decisores"), True)
+             + VT.c(K, "DIM", " · " + _t("decisores.vt.uses", "usos")))
+    out = [_vt_cabecera(K, W, quien, _vt_modelo(K))]
+    bloques = []
+    for gi, grupo in enumerate(("agents", "workspace")):
+        usos = [i for i, p in enumerate(DC.POINTS) if p[1] == grupo]
+        for j, i in enumerate(usos):
+            pid = DC.POINT_IDS[i]
+            nv = DC.point_conf(pid)["level"]
+            sel = i == vt["ui"]
+            med = medidor(K, "off" if apagado else nv)
+            nom = _point_name(pid)
+            if HL.vis(nom) + 4 + HL.vis(med) > W:
+                nom = _point_short(pid)
+            on = nv != "off" and not apagado
+            fila = VT.der(cur(K, sel) + VT.c(K, "WH" if (sel or on) else "GREY", nom, sel), med, W)
+            bloques.append(([titulo(K, _group_label(grupo), W, 2 * gi)] if j == 0 else []) + [fila])
+    pid = DC.POINT_IDS[vt["ui"]]
+    nv = DC.point_conf(pid)["level"]
+    desc = [HL.clip(VT.c(K, "WH", _point_name(pid), True) + " " + VT.c(
+        K, "GREY", _t("decisores.settings.decides", "decide") + " " + _point_what(pid)), W),
+        HL.clip(VT.c(K, NCOL["off" if apagado else nv], _t(
+            "decisores.settings.master_off", "el modelo está en Apagado: ningún uso pregunta")
+            if apagado else "%s: %s" % (_level_name(nv), _level_txt(nv)), True), W)]
+    abajo = ([""] + desc) if alto - 1 >= 15 else desc if alto - 1 >= 8 else []
+    cuerpo, zl, vt["utop"] = VT.lista(K, W, bloques, vt["ui"], alto - 1 - len(abajo), vt["utop"],
+                                      "vt_uso")
+    zonas = [(a + 1, b + 1, c0, c1, acc) for a, b, c0, c1, acc in zl]
+    if abajo and not any(z[4][0] == "vt_mas" for z in zl):
+        while cuerpo and not cuerpo[-1]:            # caben todos: lo del elegido, justo debajo
+            cuerpo.pop()
+        abajo = ([""] + desc) if len(cuerpo) + len(desc) + 1 <= alto - 1 else desc
+    return out + cuerpo + abajo, zonas
+
+
+def _vt_pares(vista):
+    teclas = ("?", _t("decisores.vt.k.keys", "teclas"))
+    if vista in ("escribiendo", "sesiones", "fuentes"):        # lo de la vista grande, tal cual
+        return tuple(("Esc" if k == "v · Esc" else k, v) for k, v in _chips(vista)
+                     if k in ("Enter", "Esc", "v · Esc"))
+    if vista == "detalle":
+        return ((u"↑↓", _t("decisores.vt.k.scroll", "desplazar")),
+                ("s/n", _t("decisores.hist.right", "¿acertó?")),
+                ("Esc", _t("decisores.vt.k.back", "volver")), teclas)
+    if vista == "usos":
+        return ((u"↑↓", _t("decisores.vt.k.pick", "elegir")),
+                (u"←→", _t("decisores.vt.k.level", "nivel")),
+                ("Esc", _t("decisores.vt.k.back", "volver")), teclas)
+    return ((u"↑↓", _t("decisores.vt.k.pick", "elegir")),
+            ("Enter", _t("decisores.vt.k.open", "abrir")),
+            ("Tab", _t("decisores.vt.k.uses", "usos")), teclas)
+
+
+def _vt_ayuda(K, W, vista):
+    comunes = [("i", _t("decisores.vt.help.info", "cómo funciona")),
+               ("?", _t("decisores.vt.help.keys", "estas teclas")),
+               ("q", _t("decisores.k.quit", "salir"))]
+    if vista == "detalle":
+        filas = [("↑ ↓", _t("decisores.vt.help.scroll", "desplazar")),
+                 ("s · n", _t("decisores.vt.help.grade", "¿acertó? sí · no")),
+                 ("Esc ←", _t("decisores.vt.help.back", "volver a la lista"))]
+    elif vista == "usos":
+        filas = [("↑ ↓", _t("decisores.vt.help.pick_use", "elegir un uso")),
+                 ("← →", _t("decisores.vt.help.level", "bajar · subir su nivel")),
+                 (_t("decisores.k.space", "espacio"), _t("decisores.vt.help.next", "el siguiente nivel")),
+                 ("Esc Tab", _t("decisores.vt.help.back", "volver a la lista"))]
+    else:
+        filas = [("↑ ↓", _t("decisores.vt.help.pick", "elegir una decisión")),
+                 ("Enter →", _t("decisores.vt.help.open", "verla entera")),
+                 ("s · n", _t("decisores.vt.help.grade", "¿acertó? sí · no")),
+                 ("Tab", _t("decisores.vt.help.uses", "los usos y su nivel"))]
+    return VT.ayuda(K, W, filas + comunes)
+
+
+def render_ventanita(S, w, h):
+    K = _K()
+    vt = _vt(S)
+    if S.get("info"):
+        if vt.get("info") is None:                  # la ayuda que se abrió en la vista grande
+            return _render_grande(S, w, h)
+        word = HL.section_word("decisores")
+        return info_render(S, K, w, h, word, vt["info"], "%s · %s" % (
+            _t("decisores.info.title", "AYUDA"), _tab_label(vt["info"]).upper()))
+    W, H = max(1, w - 1), max(1, h - 1)
+    alto = H - 1                                     # menos el pie
+    vista = vt["vista"]
+    if _vt_a_medias(S):
+        cuerpo, zonas = _vt_a_medias_aviso(S, K, W, alto), []
+        vista = _vista(S)
+    elif vt.get("ayuda"):
+        cuerpo, zonas = _vt_ayuda(K, W, vista), []
+    elif vista == "detalle":
+        cuerpo, zonas = _vt_detalle(S, K, W, alto)
+    elif vista == "usos":
+        cuerpo, zonas = _vt_usos(S, K, W, alto)
+    else:
+        cuerpo, zonas = _vt_feed(S, K, W, alto)
+    pie, zp = VT.pie(_vt_pares(vista), W)
+    if not S.get("msg"):
+        zonas += [(alto, alto, a, b, ("tecla", k)) for a, b, k in zp]
+    S["_zonas"] = zonas
+    return VT.componer(K, W, H, cuerpo, alto, pie, S.get("msg", ""))
+
+
+def _vt_a_medias(S):
+    """¿Quedó algo a medias en la vista grande? (escribiendo la pregunta o
+    las opciones, eligiendo las sesiones del contexto, viendo sus fuentes)."""
+    return _vista(S) in ("escribiendo", "sesiones", "fuentes")
+
+
+def _vt_a_medias_aviso(S, K, W, alto):
+    """Lo que estaba a medias, a la vista y sin perderse: con la ventana chica
+    sus teclas no se vuelven atajos del feed; solo Enter / Esc, como siempre."""
+    quien = " " + VT.c(K, "WH", HL.section_word("decisores"), True) + "  " + _vt_modelo(K)
+    if _vista(S) == "escribiendo":
+        txt = _t("decisores.vt.pending_ask", "Tienes una pregunta a medias: agranda la ventana "
+                 "para seguir (mínimo 70×24).")
+    else:
+        txt = _t("decisores.vt.pending_ctx", "Estás eligiendo el contexto de una pregunta: "
+                 "agranda la ventana para seguir (mínimo 70×24).")
+    partes = [(3, [HL.clip(quien, W)]), (4, [""]),
+              (0, [VT.c(K, "WH", " " + x) for x in SB._wrap(txt, max(8, W - 2))])]
+    if S.get("preg"):
+        partes += [(5, [""]), (1, [VT.c(K, "C", " " + x) for x in SB._wrap(
+            "«%s»" % _vt_texto(S["preg"]), max(8, W - 2))[:3]])]
+    if _ops(S):
+        partes.append((2, [HL.clip(VT.c(K, "GREY", " " + " · ".join(_ops(S))), W)]))
+    return VT.caber(partes, alto)
+
+
+def _vt_mover(S, d):
+    """↑↓ en el feed: arriba del todo vuelve a seguir lo último que llega. Se
+    mueve desde la tarjeta que se DIBUJÓ elegida (si llegó otra, no cuenta)."""
+    vt = _vt(S)
+    ids = [e.get("id") for e in DC.history(200, ok_only=False)]
+    if not ids:
+        return
+    base = vt["sel"] if vt["sel"] in ids else vt.get("dibujada")
+    i = ids.index(base) if base in ids else 0
+    _vt_elegir(S, ids, max(0, min(len(ids) - 1, i + d)))
+
+
+def _vt_elegir(S, ids, i):
+    vt = _vt(S)
+    if i <= 0:
+        vt["sel"] = vt["visto"] = None
+        return
+    if vt["sel"] is None:
+        vt["visto"] = ids[0]                         # desde aquí cuentan las «nuevas»
+    vt["sel"] = ids[i]
+
+
+def _vt_abrir(S, eid=None):
+    """Abre una decisión POR SU ID: la del clic o, con Enter, la elegida que se
+    dibujó (nunca una que llegó después y aún no se vio)."""
+    vt = _vt(S)
+    ids = [e.get("id") for e in DC.history(200, ok_only=False)]
+    eid = eid if eid is not None else (vt["sel"] or vt.get("dibujada"))
+    if eid not in ids:
+        return
+    _vt_elegir(S, ids, ids.index(eid))
+    vt.update(vista="detalle", det=eid, scroll=0)
+
+
+def _vt_nota(S, entrada, si):
+    if entrada is None:
+        return
+    if not entrada.get("ok"):
+        S["msg"] = _t("decisores.msg.grade_fail", "Esa no respondió: no hay nada que calificar")
+    elif DC.mark(entrada["id"], si):
+        S["msg"] = "✓ " + (_t("decisores.msg.right", "Gracias: acertó") if si
+                           else _t("decisores.msg.wrong", "Gracias: falló"))
+
+
+def _vt_nivel(S, d=None, ciclo=False):
+    vt = _vt(S)
+    pid = DC.POINT_IDS[vt["ui"]]
+    lv = DC.point_conf(pid)["level"]
+    k = DC.LEVELS.index(lv)
+    k = (k + 1) % len(DC.LEVELS) if ciclo else max(0, min(len(DC.LEVELS) - 1, k + d))
+    if DC.LEVELS[k] == lv:
+        return
+    try:
+        DC.set_point(pid, level=DC.LEVELS[k])
+        S["msg"] = _saved(_point_name(pid), _level_name(DC.LEVELS[k]))
+    except ValueError as e:
+        S["msg"] = str(e)
+
+
+def _vt_clic(S, acc):
+    vt = _vt(S)
+    if acc[0] == "vt_item":
+        _vt_abrir(S, acc[1])
+    elif acc[0] == "vt_mas":
+        if vt["vista"] == "usos":
+            if isinstance(acc[1], int):              # (una zona vieja del feed lleva un id: nada)
+                vt["ui"] = max(0, min(len(DC.POINT_IDS) - 1, acc[1]))
+        else:                                        # (en el feed, el id de la tarjeta)
+            ids = [e.get("id") for e in DC.history(200, ok_only=False)]
+            if acc[1] in ids:
+                _vt_elegir(S, ids, ids.index(acc[1]))
+    elif acc[0] == "vt_arriba":
+        vt["sel"] = vt["visto"] = None
+    elif acc[0] == "vt_volver":
+        vt["vista"] = "feed"
+    elif acc[0] == "vt_nota":
+        _vt_nota(S, _vt_entrada(S), acc[1])
+    elif acc[0] == "vt_uso":
+        if vt["ui"] == acc[1]:
+            _vt_nivel(S, ciclo=True)                 # clic en el elegido: el siguiente nivel
+        vt["ui"] = acc[1]
+    return True
+
+
+def accion_ventanita(S, key):
+    """Las teclas y clics de la ventanita. False = salir."""
+    vt = _vt(S)
+    if S.get("info"):                                # el cuadro de `i`: sus teclas
+        if not isinstance(key, tuple):
+            SB.info_key(S, key)
+        if not S.get("info"):
+            vt["info"] = None
+        return True
+    if _vt_a_medias(S):                              # algo a medias: solo Enter / Esc, lo de siempre
+        acc, _r = VT.clic(S, key)
+        if acc and acc[0] == "tecla":
+            key = acc[1]
+        if key in ("\r", "\n", "\x1b"):
+            return _accion_grande(S, key)
+        return True
+    acc, rueda = VT.clic(S, key)
+    if isinstance(key, tuple):
+        if acc and acc[0] == "tecla":
+            key = acc[1]                             # la fila de teclas: como teclearla
+        elif rueda:
+            if vt["vista"] == "detalle":
+                vt["scroll"] = max(0, min(vt.get("_max", 0), vt["scroll"] + 3 * rueda))
+            elif vt["vista"] == "usos":
+                vt["ui"] = max(0, min(len(DC.POINT_IDS) - 1, vt["ui"] + rueda))
+            else:
+                _vt_mover(S, rueda)
+            return True
+        else:
+            S["msg"] = ""
+            return _vt_clic(S, acc) if acc else True
+    if vt.get("ayuda"):
+        vt["ayuda"] = False
+        return key not in ("q", "\x03")
+    S["msg"] = ""
+    if key in ("q", "\x03"):
+        return False
+    if key == "?":
+        vt["ayuda"] = True
+        return True
+    if key == "i":
+        vt["info"] = "ajustes" if vt["vista"] == "usos" else "historial"
+        S["info"] = {"scroll": 0}
+        return True
+    vista = vt["vista"]
+    if vista == "detalle":
+        if key in ("\x1b", "left", "\r", "\n"):
+            vt["vista"] = "feed"
+        elif key in ("up", "down"):
+            vt["scroll"] = max(0, min(vt.get("_max", 0), vt["scroll"] + (1 if key == "down" else -1)))
+        elif key in ("s", "y", "n"):
+            _vt_nota(S, _vt_entrada(S), key != "n")
+        return True
+    if vista == "usos":
+        if key in ("\x1b", "tab", "right_tab"):
+            vt["vista"] = "feed"
+        elif key in ("up", "down"):
+            vt["ui"] = max(0, min(len(DC.POINT_IDS) - 1, vt["ui"] + (1 if key == "down" else -1)))
+        elif key in ("left", "right"):
+            _vt_nivel(S, -1 if key == "left" else 1)
+        elif key == " ":
+            _vt_nivel(S, ciclo=True)
+        return True
+    if key == "\x1b":
+        return False
+    if key in ("tab", "right_tab"):
+        vt["vista"] = "usos"
+    elif key in ("up", "down"):
+        _vt_mover(S, 1 if key == "down" else -1)
+    elif key in ("\r", "\n", "right"):
+        _vt_abrir(S)
+    elif key in ("s", "y", "n"):
+        ids = {e.get("id"): e for e in DC.history(200, ok_only=False)}
+        _vt_nota(S, ids.get(vt.get("dibujada")), key != "n")
+    return True
+
+
+_render_grande = render
 import responsive_ui as _responsive  # noqa: E402
 render = _responsive.renderer(render, 'DECISORES')
+render = VT.con_ventanita(render, render_ventanita, "decisores")
 _accion = _responsive.action(_accion)
+_accion_grande = _accion
+_accion = VT.con_ventanita_accion(_accion, accion_ventanita)
 
 
 # ── drivers ──────────────────────────────────────────────────────────────────
@@ -1518,8 +2111,10 @@ def _size():
 def _ocupado(S):
     """¿Hay algo en camino? (el bucle redibuja seguido para mostrarlo)."""
     pv = S.get("preview")
+    # (la estimación del contexto solo se resuelve en la vista grande de
+    # Preguntar: en la ventanita no se espera, o redibujaría cada 0.15 s)
     return bool(S.get("pensando") or S.get("est_busy") or (pv and pv.get("ctx") is None)
-                or _est_pending(S))
+                or (_est_pending(S) and not S.get("_ventanita")))
 
 
 def _draw(tout, S, first=False):
@@ -1528,6 +2123,7 @@ def _draw(tout, S, first=False):
         _responsive.paint(tout, render(S, w, h), first=first)
     except Exception:
         return
+    VT.mouse(tout, S)                          # los clics, solo en la ventanita
     _tras_dibujar(S)
 
 
@@ -1552,7 +2148,7 @@ def _run_unix(S):
         tty.setraw(fd)
         tout.write("\033[?1049h\033[?25l")
         _draw(tout, S, first=True)
-        teclas = SB.KeyReader(fd)
+        teclas = SB.KeyReader(fd, mouse="todo")    # (los clics llegan solo en la ventanita)
         while True:
             key = teclas.get(0.15 if _ocupado(S) else 0.5)
             if key is None:
@@ -1568,6 +2164,7 @@ def _run_unix(S):
         pass
     finally:
         try:
+            VT.mouse_off(tout, S)
             tout.write("\033[?25h\033[?1049l")
             tout.flush()
             termios.tcsetattr(fd, termios.TCSADRAIN, old)

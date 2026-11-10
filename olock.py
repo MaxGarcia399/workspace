@@ -137,7 +137,19 @@ def holder_info(path):
 # ── adquisición OS-level ────────────────────────────────────────────────────
 def _acquire_os(lp, deadline, poll):
     while True:
-        fd = os.open(lp, os.O_CREAT | os.O_RDWR)
+        try:
+            fd = os.open(lp, os.O_CREAT | os.O_RDWR)
+        except PermissionError as e:
+            # Windows: el antivirus o el indexador tienen el .lock un momento
+            # (sharing violation): se reintenta como se reintenta el candado.
+            # En Mac/Linux un permiso negado no se arregla esperando (p. ej. el
+            # sandbox de un motor): sube tal cual, no como «ocupado»
+            if os.name != "nt" and getattr(e, "winerror", None) is None:
+                raise
+            if time.monotonic() >= deadline:
+                raise LockTimeout("lock ocupado (no se pudo abrir): %s" % lp)
+            time.sleep(poll)
+            continue
         try:
             _os_lock(fd)
         except OSError:
@@ -277,17 +289,25 @@ def sin_estado():
     en el lugar en vez de crear uno nuevo (2026-10-17). Se mide una vez."""
     global _SIN_ESTADO
     if _SIN_ESTADO is None:
-        try:
-            import tempfile
-            import paths as _paths
-            d = os.path.join(_paths.state_dir(), "locks")
-            os.makedirs(d, exist_ok=True)
-            fd, p = tempfile.mkstemp(prefix=".probe-", dir=d)
-            os.close(fd)
-            os.unlink(p)
-            _SIN_ESTADO = False
-        except Exception:
-            _SIN_ESTADO = True
+        ultimo = None
+        for intento in range(3):         # un fallo suelto (antivirus) no decide por todo el proceso
+            try:
+                import tempfile
+                import paths as _paths
+                d = os.path.join(_paths.state_dir(), "locks")
+                os.makedirs(d, exist_ok=True)
+                fd, p = tempfile.mkstemp(prefix=".probe-", dir=d)
+                os.close(fd)
+                os.unlink(p)
+                _SIN_ESTADO = False
+                return False
+            except Exception as e:
+                ultimo = e
+                if intento < 2:
+                    time.sleep(0.05 * (intento + 1))
+        if getattr(ultimo, "winerror", None) in (32, 33):
+            return True                  # transitorio (sharing violation): sin cachear
+        _SIN_ESTADO = True
     return _SIN_ESTADO
 
 

@@ -310,6 +310,11 @@ def menu_entries():
              _t("menu.engines.tag", "motores de agentes y modelos de decisión")),
             ("__agentes__", _t("menu.agents.label", "Agentes"),
              _t("menu.agents.tag", "cerebro, permisos y skills de cada agente")),
+            # «Conversaciones» (2026-11-08): lo que los agentes se dicen por
+            # el bus (messages.py) — hilos, presencia y «Abrir a B».
+            ("__conversaciones__", _t("menu.conversaciones.label", "Conversaciones"),
+             _t("menu.conversaciones.tag",
+                "lo que tus agentes se dicen entre sí: sigue cada charla y corta cuando quieras")),
             # «Usuarios» (2026-10-17): quién usa cada agente, con cédula (ID
             # fijo); crear, renombrar, unir y «soy yo» solo desde aquí.
             ("__usuarios__", _t("menu.users.label", "Usuarios"),
@@ -685,7 +690,30 @@ def _numbered(it):
     return next((i for i, x in enumerate(it) if x[0] == "__shell__"), _first_selectable(it))
 
 
-def launch(name):
+def _pedido_de_pestana(pedido):
+    """(agente, args) si una sección devolvió un pedido válido de abrir una
+    pestaña: agente del registro y solo `--open <id> --name <nombre>`."""
+    try:
+        if not isinstance(pedido, dict):
+            return None
+        ag, args = str(pedido.get("agente") or ""), list(pedido.get("args") or [])
+        if ag not in {a.get("name") for a in registry().get("agents", [])}:
+            return None
+        if len(args) != 4 or args[0] != "--open" or args[2] != "--name":
+            return None
+        import re
+        if not re.match(r"^[A-Za-z0-9._-]{1,64}$", str(args[1])) or not str(args[3]).strip() \
+                or str(args[3]).startswith("--"):
+            return None
+        return ag, args
+    except Exception:
+        return None
+
+
+def launch(name, args=()):
+    """Abre el agente `name` (dispatch). `args` = flags de dispatch para abrir
+    una pestaña concreta (`--open <id> --name <nombre>`, como Conversaciones
+    › «Abrir a B en este hilo»)."""
     sys.stdout.write("\033[2J\033[3J\033[H"); sys.stdout.flush()   # limpia + scrollback para el banner del agente
     os.environ["WORKSPACE_FROM_HUB"] = "1"   # Esc en el menú de sesiones regresa aquí
     # La terminal PARTIDA ya no se abre desde el hub (0.5, paso 1 de 2 antes
@@ -694,9 +722,10 @@ def launch(name):
     # normal, con las mismas pestañas y sesiones (el chat del split era este
     # mismo arranque: dispatch con la pestaña). `workspace split` sigue
     # funcionando si alguien lo escribe.
+    argv = [PY, DISPATCH, name] + [str(a) for a in args]
     if os.name == "nt":   # Windows: exec no reemplaza el proceso (consola rota) → subprocess (igual que dispatch._exec)
-        sys.exit(subprocess.run([PY, DISPATCH, name]).returncode)
-    os.execvp(PY, [PY, DISPATCH, name])   # handoff directo: al salir del agente, vuelves al shell
+        sys.exit(subprocess.run(argv).returncode)
+    os.execvp(PY, argv)   # handoff directo: al salir del agente, vuelves al shell
 
 
 def _listen_pids(port):
@@ -2190,6 +2219,20 @@ def _menu_machinery(tout):
                     return
             S["hb_msg"] = _t("hub.pin.saved", "{label} → {val} (guardado)",
                              label=p["label"], val=disp)
+            # Dentro de herdr los colores los pone herdr: decirlo en vez de
+            # fingir que el cambio se ve (se guarda y vale fuera de herdr).
+            if p["key"] in ("ui.theme", "ui.background", "ui.brightness",
+                            "ui.redlight"):
+                try:
+                    import herdr_tema
+                    etq = herdr_tema.etiqueta()
+                except Exception:
+                    etq = ""
+                if etq:
+                    S["hb_msg"] = _t(
+                        "hub.pin.herdr_manda",
+                        "{label} → {val} (guardado; dentro de herdr manda {tema})",
+                        label=p["label"], val=disp, tema=etq)
         except Exception:
             S["hb_msg"] = _t("hub.pin.fail", "no pude cambiar «{label}» — queda "
                              "igual", label=p["label"])
@@ -2467,6 +2510,7 @@ def _menu_machinery(tout):
                 full_draw(first=False)
         if sync_theme():
             full_draw(first=False)
+        _barrido_salas()
         S["frame"] += 1
 
     def _lz():
@@ -2875,6 +2919,24 @@ def _menu_machinery(tout):
                                  cycle_engine=cycle_engine, jump=jump,
                                  click=click, jkeys=JKEYS,
                                  jump_set=_JUMP_SET)
+
+
+_BARRIDO = []
+
+
+def _barrido_salas():
+    """Con el hub abierto: avisa en su panel de herdr a las pestañas de ESTA
+    máquina que una sala despierta y no escuchan (aviso_panel; cada 5 s, en
+    un hilo, sin frenar el dibujo). Falla suave."""
+    try:
+        if not _BARRIDO:
+            import aviso_panel
+            _BARRIDO.append(aviso_panel.Barrido())
+        if _BARRIDO[0] is not None:
+            _BARRIDO[0].tal_vez()
+    except Exception:
+        if not _BARRIDO:
+            _BARRIDO.append(None)               # sin el módulo: no se vuelve a intentar
 
 
 def _animated_loop_unix(tin, M):
@@ -5429,9 +5491,9 @@ def cmd_personal(kind, args):
 
 def cmd_voice(args):
     """`workspace voice` — dictado por voz GLOBAL, local (whisper.cpp). TOGGLE:
-    1er toque graba el micro; 2º transcribe y PEGA en el cursor. `--check`
-    reporta qué falta; `--setup` lo instala. Se enlaza a un atajo de teclado
-    (Atajos de macOS)."""
+    1er toque graba el micro; 2º transcribe y deja el texto COPIADO (con
+    `--pegar`, además lo pega en el cursor). `--check` reporta qué falta;
+    `--setup` lo instala. Se enlaza a un atajo de teclado (Atajos de macOS)."""
     try:
         import voice
     except Exception as e:
@@ -5464,7 +5526,16 @@ def _mail_load_creds():
     están; si falta cualquiera → (None, mensaje claro de cómo configurarlas)."""
     cfg = _read_json(_mail_config_path())     # {} si no existe / ilegible
     user = os.environ.get("WORKSPACE_SMTP_USER") or cfg.get("user")
-    passwd = os.environ.get("WORKSPACE_SMTP_PASS") or cfg.get("pass")
+    # la contraseña: la que exportó el socio → la bóveda (secret_store,
+    # CORREO_PASS) → la de un mail.json todavía sin migrar
+    passwd = os.environ.get("WORKSPACE_SMTP_PASS")
+    if not passwd:
+        try:
+            import secret_store
+            passwd = secret_store.get(secret_store.CORREO_PASS)
+        except Exception:
+            passwd = ""
+    passwd = passwd or cfg.get("pass")
     host = os.environ.get("WORKSPACE_SMTP_HOST") or cfg.get("host") or "smtp.gmail.com"
     port = os.environ.get("WORKSPACE_SMTP_PORT") or cfg.get("port") or 587
     try:
@@ -5478,7 +5549,7 @@ def _mail_load_creds():
             f"  {DIM}{_t('mail.creds.create', 'Crea una en: https://myaccount.google.com/apppasswords')}{R}\n\n"
             f"  {_t('mail.creds.ways', 'Configúralas de UNA de estas formas:')}\n"
             f"    1) {C}workspace mail --setup{R}  {DIM}"
-            f"{_t('mail.creds.way1', '(te las pide y crea ~/.claude/workspace/mail.json con permisos 0600)')}{R}\n"
+            f"{_t('mail.creds.way1', '(te las pide; la App Password va a la bóveda de Workspace, no a un archivo de texto)')}{R}\n"
             f"    2) {_t('mail.creds.way2', 'variables de entorno')} {C}WORKSPACE_SMTP_USER{R} "
             f"{_t('mail.creds.and', 'y')} {C}WORKSPACE_SMTP_PASS{R}\n"
         )
@@ -5487,28 +5558,59 @@ def _mail_load_creds():
 
 
 def _mail_save_creds(user, passwd, host="smtp.gmail.com", port=587):
-    """Escribe mail.json (0600) per-máquina. Devuelve la ruta."""
+    """Guarda la App Password en la bóveda de Workspace (secret_store,
+    CORREO_PASS: jamás al entorno de un motor) y escribe mail.json SIN ella
+    (usuario, host, puerto; 0600 y, en Windows, solo-dueño). Si la bóveda no
+    se puede escribir, la contraseña queda en mail.json como siempre (el
+    correo sigue funcionando) — salvo con el modo «keyring», donde no se
+    guarda en texto plano: RuntimeError. Devuelve la ruta de mail.json."""
     path = _mail_config_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     try:
         port = int(port)
     except (TypeError, ValueError):
         port = 587
-    data = {"user": user, "pass": passwd, "host": host, "port": port}
-    # Crear con 0600 desde el inicio (no exponer el secreto ni un instante).
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
-    fd = os.open(path, flags, 0o600)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, indent=2)
-            fh.write("\n")
+        import secret_store
+        # la contraseña y mail.json bajo el MISMO candado de la bóveda (el de
+        # migrar_correo): una migración en medio mezclaba usuario y contraseña
+        r = secret_store.set_secret(secret_store.CORREO_PASS, passwd, _y_luego=lambda: (
+            secret_store.guardar_correo_config({"user": user, "host": host, "port": port})))
+        if r.get("ok"):
+            return secret_store.correo_path()
+        if r.get("ocupado"):                 # candado ocupado ≠ sin llavero: nada en claro
+            raise RuntimeError(_t("mail.setup.busy", "La bóveda de Workspace está ocupada (otra "
+                                  "operación la está usando); no guardé nada — intenta de nuevo "
+                                  "en unos segundos."))
+        if r.get("despues"):                 # la contraseña se guardó pero mail.json no
+            raise RuntimeError(_t("mail.setup.cfg_failed", "No pude escribir mail.json ({e}); la "
+                                  "contraseña quedó como estaba. No cambié nada: intenta de nuevo.",
+                                  e=r.get("error") or "?") if r.get("revertido") else
+                               _t("mail.setup.cfg_failed_norevert", "No pude escribir mail.json "
+                                  "({e}) ni devolver la contraseña anterior: vuelve a correr "
+                                  "`workspace mail --setup`.", e=r.get("error") or "?"))
+        if secret_store.modo_guardado() == "keyring":
+            raise RuntimeError(r.get("error") or "sin llavero")
+    except RuntimeError:
+        raise
+    except Exception:
+        pass
+    data = {"user": user, "pass": passwd, "host": host, "port": port}
+    # Como siempre (mail.json con la contraseña), pero bajo el MISMO candado de
+    # la bóveda que migrar_correo y con reemplazo atómico (0600; en Windows,
+    # solo-dueño). Con el candado ocupado no se escribe nada: un error claro.
+    try:
+        import secret_store
+        cand = secret_store._locked()
+        cand.__enter__()
+    except Exception:
+        raise RuntimeError(_t("mail.setup.busy", "La bóveda de Workspace está ocupada (otra "
+                              "operación la está usando); no guardé nada — intenta de nuevo en "
+                              "unos segundos."))
+    try:
+        secret_store._escribir_privado(path, json.dumps(data, indent=2) + "\n")
     finally:
-        # os.chmod por si el archivo ya existía con otros permisos (en Windows
-        # es parcialmente no-op; el archivo queda en el perfil del usuario).
-        try:
-            os.chmod(path, 0o600)
-        except OSError:
-            pass
+        cand.__exit__(None, None, None)
     return path
 
 
@@ -5548,9 +5650,13 @@ def _mail_setup(user=None, passwd=None, host=None, port=None):
     if not user or not passwd:
         print(f"  {B}{_t('mail.setup.missing', '✗ Falta el correo o la App Password — no escribí nada.')}{R}")
         return 2
-    path = _mail_save_creds(user, passwd, host or "smtp.gmail.com", port or 587)
+    try:
+        path = _mail_save_creds(user, passwd, host or "smtp.gmail.com", port or 587)
+    except RuntimeError as e:
+        print(f"  {B}✗ {e}{R}")
+        return 2
     print(f"\n  {C}{_t('mail.setup.saved', '✓ Guardado en {path}', path=path)}{R} "
-          f"{DIM}{_t('mail.setup.saved_note', '(permisos 0600, per-máquina, fuera de git)')}{R}")
+          f"{DIM}{_t('mail.setup.saved_note', '(la App Password, en la bóveda de Workspace; per-máquina, fuera de git)')}{R}")
     print(f"  {DIM}{_t('mail.setup.try', 'Prueba: workspace mail --to {user} --subject ping --body hola --dry-run', user=user)}{R}")
     return 0
 
@@ -6442,6 +6548,8 @@ def _dispatch_table():
         "memoria": _run_module("memoria"),     # nota/ver/vigente/maleta + checkpoint/status
         # Decisores (usos de agentes): pregunta y responde JSON (decisions.cli).
         "decidir": lambda a: cmd_decidir(a),
+        # Bóveda de llaves: de dónde sale cada una y auditoría (sin valores).
+        "llaves": _run_module("secret_store", "cli"),
         "sesiones": _run_module("sesiones"),   # lista/archivar/desarchivar (sesiones v2)
         "identidad": _run_module("identidad"), # ver/soy/deshacer (sesiones v2)
         # Pane derecho del split (panel.py; lo corre mux.right_pane_cmd()).
@@ -6608,8 +6716,13 @@ def main():
     # uno (secret_store.engine_env). scrub_env va antes: quita lo que
     # exportaba un hub viejo y que sobrevive al re-exec. Falla-suave: sin
     # bóveda, no pasa nada.
+    # Antes que nada: si quedan llaves en texto plano y hay llavero del
+    # sistema, pasan al llavero (secret_store.al_arrancar: una vez, verificado,
+    # con respaldo y deshacer; barato si no hay nada). Silencioso: el aviso
+    # de una línea sale al abrir un agente (dispatch._boveda_al_abrir).
     try:
         import secret_store
+        secret_store.al_arrancar()
         secret_store.scrub_env()
         secret_store.load_into_env()
     except Exception:
@@ -6691,6 +6804,14 @@ def main():
     # sin que el usuario lo pidiera). El descubrimiento sigue disponible como acción
     # MANUAL (menú Agregar agente → Descubrir, o `agentsreg.py discover`).
     import theme
+    if "--banner" not in sys.argv:
+        # Dentro de herdr: el fondo REAL (OSC 11, una vez, timeout corto) para
+        # que el tema de herdr se lea sobre la terminal de verdad (herdr_tema).
+        try:
+            import herdr_tema
+            herdr_tema.consultar_fondo()
+        except Exception:
+            pass
     theme.apply_current()                         # fondo/tinta del tema (tui.osc) o los de la terminal
     _set_term_title("WORKSPACE")                  # la pestaña dice WORKSPACE, no el proceso
     it = items()
@@ -6735,6 +6856,8 @@ def main():
                                      "usuarios_tui"),
                     "__decisores__": (_t("menu.decisores.label", "Decisores").lower(),
                                       "decisores_tui"),
+                    "__conversaciones__": (_t("menu.conversaciones.label",
+                                              "Conversaciones").lower(), "conversaciones_tui"),
                     # la fila de Decisores sin modelo: directo a Motores →
                     # Modelos de decisión (2026-11-07)
                     "__modelos__": (_t("motores.menu.deciders", "Modelos de decisión").lower(),
@@ -6762,11 +6885,12 @@ def main():
         label, target = loopback[name]
         stamp = _code_stamp() if name == "__doctor__" else None
         theme.HOSTED = True                       # la sección deja el tema puesto al volver
+        pedido = None
         try:
             if callable(target):
                 target()
             else:
-                __import__(target).run()
+                pedido = __import__(target).run()
         except KeyboardInterrupt:
             # Ctrl+C en una sección: en Windows es una señal (no la tecla \x03
             # que la sección ya trata como «salir»): de vuelta al hub, sin
@@ -6785,6 +6909,12 @@ def main():
         # VIEJO en memoria: se reabre el hub en vez de volver a él.
         if stamp is not None and _code_stamp() != stamp:
             _restart_hub()
+        # Conversaciones › «Abrir a B en este hilo»: la sección pide abrir una
+        # pestaña de agente y el hub la abre como abre cualquiera.
+        abrir = _pedido_de_pestana(pedido)
+        if abrir:
+            launch(*abrir)
+            return
     if name == "__dev__":                         # abrir el panel de DEV (versiones/ramas) y al shell
         theme.reset(); cmd_dev([]); return
     if name == "__proyectos__":                   # abrir la app «Proyectos» y al shell

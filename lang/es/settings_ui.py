@@ -22,8 +22,15 @@ STRINGS = {
     'settings_ui.label.ui.background': 'Fondo independiente',
     'settings_ui.label.ui.brightness': 'Brillo',
     'settings_ui.label.ui.redlight': 'Luz roja (modo noche)',
+    'settings_ui.label.ui.un_color': 'Un solo color',
+    'settings_ui.help.ui.un_color': ('Títulos y adornos en un solo color: el principal del tema. '
+                                     'El texto y los colores que avisan algo se quedan. '
+                                     'Vale en todos los temas, también los de herdr.'),
     'settings_ui.label.ui.titles': 'Títulos grandes',
     'settings_ui.label.ui.theme': 'Tema del hub',
+    'settings_ui.label.ui.tema_herdr': 'Seguir a herdr',
+    'settings_ui.help.ui.tema_herdr': ('Dentro de herdr: sí = Workspace usa el tema de herdr y no pinta fondo; '
+                                       'no = usa su propio tema también ahí. Fuera de herdr no cambia nada.'),
     'settings_ui.label.ui.web_theme': 'Tema del dev panel (web)',
     'settings_ui.label.ui.split': 'Terminal partida',
     'settings_ui.label.ui.split_backend': 'Backend de la terminal partida',
@@ -38,6 +45,8 @@ STRINGS = {
         'Cada cerebro decide si su conversación de Claude Code viaja con él, para todas las máquinas y personas que lo usan: `workspace sesiones conversacion on|off --agente X`. Este ajuste es el de esta máquina para los cerebros que no han decidido. claude-code = al cerrar una pestaña, su conversación se guarda comprimida en el cerebro (motores/claude-code/conversaciones/<socio>/) y en tu otra máquina se retoma con --resume; al abrir solo se trae la tuya. En un cerebro compartido, todos los que lo usan pueden ver esas conversaciones: para privacidad, usa un cerebro aparte. No sube si pesa más que el tope o si trae algo que parece una llave, y nunca va al espejo de git. Con Obsidian Sync, prende «Sync all other types» en cada dispositivo. off (de fábrica) = se queda en cada máquina; la pestaña viaja igual con su memoria.',
 
     'settings_ui.choice.ui.background.tema': 'tema',
+    'settings_ui.choice.ui.tema_herdr.herdr': 'sí',
+    'settings_ui.choice.ui.tema_herdr.workspace': 'no',
     'settings_ui.choice.ui.background.negro': 'negro',
     'settings_ui.choice.ui.background.grafito': 'grafito',
     'settings_ui.choice.ui.background.azul': 'azul',

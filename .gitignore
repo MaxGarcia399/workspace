@@ -13,6 +13,11 @@ credentials/
 **/zenith-workspaces.json
 
 # ── Config y estado per-máquina ───────────────────────────────────────────────
+# Carpetas DEL SOCIO dentro de ~/Workspace (paths.USER_DIRNAMES): los cerebros
+# nuevos y los respaldos/diagnósticos. No son del harness: git no las ve (ni un
+# update ni un rollback las tocan) y el desinstalador las conserva.
+/Cerebros/
+/Respaldos/
 .claude/settings.local.json
 .obsidian/workspace.json
 .obsidian/workspace-mobile.json

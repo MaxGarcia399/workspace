@@ -55,13 +55,12 @@ def _config(ctx):
 
 def _brain_path(name, brain_dest=None):
     """Ruta del cerebro que `agent_admin.create` usa: `brain_dest` explícito
-    o el default `~/Desktop/<UPPER> - BRAIN` (mismo cómputo que create —
-    normaliza el nombre igual: strip+lower antes del upper)."""
+    o el default de `agent_admin.default_brain_dest` (el MISMO cómputo:
+    ~/Workspace/Cerebros/<UPPER> en Mac/Linux)."""
     if brain_dest:
         return os.path.abspath(os.path.expanduser(str(brain_dest)))
-    upper = str(name or "").strip().lower().upper()
-    return os.path.abspath(os.path.join(
-        os.path.expanduser("~"), "Desktop", "%s - BRAIN" % upper))
+    import agent_admin
+    return os.path.abspath(agent_admin.default_brain_dest(str(name or "").strip().lower()))
 
 
 def _registered_brain(name):
@@ -176,7 +175,7 @@ def verify_brain(ctx, step):
     brain = arts.get("agent_brain")
     if not brain:
         # sin artefacto directo: resolver por nombre (registro per-máquina
-        # primero — la fuente veraz — luego el default del Desktop)
+        # primero — la fuente veraz — luego el default de create)
         name = arts.get("agent_name") or (ctx.get("params") or {}).get("name")
         if name:
             name = str(name).strip().lower()
@@ -286,7 +285,7 @@ def verify_brain(ctx, step):
 
 def _resolve_brain(ctx):
     """El cerebro del agente (mismo orden que verify_brain): artefacto
-    `agent_brain`, si no por nombre (registro per-máquina > default Desktop)."""
+    `agent_brain`, si no por nombre (registro per-máquina > default de create)."""
     arts = ctx.get("artifacts") or {}
     brain = arts.get("agent_brain")
     if not brain:

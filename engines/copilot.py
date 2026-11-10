@@ -353,12 +353,77 @@ def brain_write_args(cfg, brain, passthrough=(), windows=None, env=None, exe=Non
     return reglas, "ok"
 
 
+def _lectura_que_cabe(extra, passthrough=(), exe=None):
+    """read_deny_args, salvo que en Windows no quepan en la línea de comandos
+    (la misma estimación que brain_write_args): entonces sin ellas (la bóveda
+    sigue sin llegarle por entorno)."""
+    reglas = read_deny_args(exe=exe)
+    if os.name == "nt":
+        estimado = (len(str(exe or BINARY)) + _MARGEN_ARGV
+                    + sum(len(str(a)) + 3 for a in list(passthrough or ()) + list(extra) + reglas))
+        if estimado > _TOPE_ARGV_WIN:
+            return []
+    return reglas
+
+
 def _t(key, es, en=None, **kw):
     try:
         import workspace_status
         return workspace_status.t(key, es, en, **kw)
     except Exception:
         return es.format(**kw) if kw else es
+
+
+def read_deny_args(windows=None, exe=None):
+    """`--deny-tool` que le niegan al agente LEER la bóveda de llaves de
+    Workspace (rutas_protegidas.lectura_negada: `secrets.local` y la carpeta
+    `boveda/`, con la ruta REAL, como las de escritura) y, fuera de Windows,
+    PEDIRLE un valor al llavero (`shell(security find-generic-password)`…,
+    rutas_protegidas.COMANDOS_LLAVERO). Con CUALQUIER autonomía: no recorta
+    nada que el agente necesite. Doc (`copilot help permissions`, cli-command-
+    reference): `read(path)` = «File or directory reads»; «Denial rules always
+    take precedence over allow rules, even when --allow-all is set»;
+    `shell(git push)` niega ese comando. La forma `<carpeta>/**` es la que
+    VERIFICAMOS para `write` (1.0.105); para `read`, SIN VERIFICAR en caja
+    negra. Cubre las herramientas de Copilot, no un `cat` (shell): eso lo
+    pregunta Copilot (solo `shell(<memoria>)` va permitido). Una ruta con lo
+    que Copilot no acepta (paréntesis) no lleva regla."""
+    import rutas_protegidas as R
+    win = (os.name == "nt") if windows is None else bool(windows)
+    raro = _NO_EXPRESABLE
+    try:
+        import memoria
+        if memoria.pasa_por_cmd(exe):
+            raro += _RARO_CMD
+    except Exception:
+        pass
+    out = []
+    # Doc (cli-command-reference, 2026-11-08): un deny de ruta es «exact or
+    # trailing-path-segment match; no glob support yet» y «resolves symlinks
+    # and ./.. segments, and is case-insensitive on macOS and Windows». Por
+    # eso, además de `<carpeta><sep>**` (la forma VERIFICADA para `write` en
+    # 1.0.105, también en Windows con `\\`: Copilot normaliza separadores y la
+    # letra de unidad), la carpeta misma y cada archivo de nombre fijo, EXACTOS.
+    # La ruta, como las de escritura (_raices): la REAL; en Windows con `\\`.
+    try:
+        import secret_store
+        fijos = tuple((p, R.ARCHIVO) for p in secret_store.archivos_boveda())
+    except Exception:
+        fijos = ()
+    for ruta, tipo in tuple(R.lectura_negada()) + fijos:
+        raices = _raices(ruta, windows)
+        for raiz, sep in raices:
+            if any(c in raiz for c in raro) or (sep == "/" and "\\" in raiz):
+                continue
+            out.append("--deny-tool=read(%s)" % _literal(raiz))
+            if tipo == R.CARPETA:
+                out.append("--deny-tool=read(%s%s**)" % (_literal(raiz), sep))
+    if not win:   # sin la forma `/usr/bin/…`: una regla que Copilot no acepte lo deja sin abrir
+        for c in R.COMANDOS_LLAVERO:
+            if not c.startswith("/"):
+                # el comando a secas y con cualquier argumento (doc: `shell(git:*)`)
+                out += ["--deny-tool=shell(%s)" % c, "--deny-tool=shell(%s:*)" % c]
+    return out
 
 
 def write_plan_line(cfg, brain, passthrough=(), exe=None):
@@ -538,7 +603,18 @@ def _run_quiet(cmd, runner=None, timeout=10):
                               stdin=subprocess.DEVNULL, env=_env_motor())
 
 
-def _auth_signal(runner=None, env=None, platform=None, gh=None, security=None):
+def _llavero_abierto():
+    """¿El llavero de inicio de sesión está abierto? secret_store.abierto():
+    solo mira su estado, jamás abre un diálogo. Falla-suave → False."""
+    try:
+        import secret_store
+        return bool(secret_store.abierto())
+    except Exception:
+        return False
+
+
+def _auth_signal(runner=None, env=None, platform=None, gh=None, security=None,
+                 abierto=None):
     """Señal de cuenta SIN tocar credenciales → 'byok' | 'env:<NOMBRE>' |
     'keychain' | 'gh' (hay con qué entrar), '' (Copilot no tendría nada) o
     None (no se puede saber). En el orden de búsqueda de Copilot:
@@ -547,12 +623,16 @@ def _auth_signal(runner=None, env=None, platform=None, gh=None, security=None):
          (solo si existen; el valor no se lee).
       3. macOS: el item `copilot-cli` del llavero, SIN su secreto
          (`security find-generic-password -s copilot-cli`, sin -w/-g: el
-         chequeo de la guía oficial; rc 44 = no hay item, VERIFICADO).
+         chequeo de la guía oficial; rc 44 = no hay item, VERIFICADO). Solo
+         con el llavero ABIERTO (`abierto`, por defecto _llavero_abierto): con
+         él bloqueado, `security` pediría la contraseña para desbloquearlo
+         (aviso B10) y la señal queda en «no sé».
       4. `gh auth status` (Copilot usa el token de gh si no hay otro).
     «Sin cuenta» ('') solo si el llavero dice explícitamente que no hay item y
     tampoco existe ~/.copilot/config.json (donde Copilot guarda el token en
     texto plano cuando no hay llavero). En Windows/Linux, sin variable ni gh,
-    es «no sé». `runner`/`env`/`platform`/`gh`/`security` son knobs de test."""
+    es «no sé». `runner`/`env`/`platform`/`gh`/`security`/`abierto` son knobs
+    de test (con `runner` y sin `abierto`, el llavero se da por abierto)."""
     env = _env_motor() if env is None else env
     env = env if env is not None else os.environ
     if str(env.get(BYOK_ENV) or "").strip():
@@ -565,7 +645,9 @@ def _auth_signal(runner=None, env=None, platform=None, gh=None, security=None):
     try:
         if platform == "darwin":
             sec = security if security is not None else "/usr/bin/security"
-            if sec and (runner is not None or os.path.isfile(sec)):
+            if abierto is None:
+                abierto = (lambda: True) if runner is not None else _llavero_abierto
+            if sec and (runner is not None or os.path.isfile(sec)) and abierto():
                 r = _run_quiet([sec, "find-generic-password", "-s", KEYCHAIN_SERVICE],
                                runner=runner)
                 rc = getattr(r, "returncode", 1)
@@ -842,7 +924,8 @@ def _plan(cfg, passthrough, brain, exe):
         extra = memoria_mcp.copilot_args()
     except Exception:
         extra = []
-    extra = list(extra) + brain_write_args(cfg, brain, passthrough, exe=exe)[0]
+    extra = (list(extra) + brain_write_args(cfg, brain, passthrough, exe=exe)[0]
+             + _lectura_que_cabe(extra, passthrough, exe))
     print("  argv        : copilot %s" % " ".join(
         _interactive_argv(cfg, passthrough, session_id="<uuid de la pestaña>", extra=extra)))
     print(line)
@@ -909,6 +992,11 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
         extra = list(extra) + wargs
         if motivo in ("ruta", "largo"):
             escritura = write_plan_line(cfg, brain, passthrough, exe=exe)
+    except Exception:
+        pass
+    # Ningún agente lee la bóveda de llaves (cualquier autonomía).
+    try:
+        extra = list(extra) + _lectura_que_cabe(extra, passthrough, exe)
     except Exception:
         pass
 

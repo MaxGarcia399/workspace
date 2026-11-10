@@ -386,10 +386,24 @@ def healthy(port, timeout=1.0):
         return False
 
 
+#: El gateway que enciende Workspace NO se anuncia por Bonjour (mDNS). En
+#: macOS el plugin `bonjour` de OpenClaw arranca solo y toda operación Bonjour
+#: pide permiso de red local: con iTerm2, VS Code, Cursor o Warp salía
+#: «quiere buscar y conectarse a dispositivos de tu red local» (aviso B8), y
+#: además anunciaba el gateway en la red del café. Workspace habla con él por
+#: 127.0.0.1: el anuncio no le sirve. Es el ENTORNO del proceso que lanza
+#: Workspace; la config del motor (discovery.mdns.*) no se toca.
+#: Doc oficial (VERIFICADO 2026-11-08): «OPENCLAW_DISABLE_BONJOUR=1 disables
+#: mDNS advertising outright, overriding discovery.mdns.mode»
+#: https://docs.openclaw.ai/gateway/config-runtime
+SIN_BONJOUR = {"OPENCLAW_DISABLE_BONJOUR": "1"}
+
+
 def _clean_env(env=None):
     """El gateway atiende a TODAS las pestañas: no hereda las variables de la
     pestaña que lo encendió (pestaña, agente, cerebro) ni nada de la bóveda
-    (secret_store.engine_env: es el motor que corre los turnos)."""
+    (secret_store.engine_env: es el motor que corre los turnos). Va sin
+    Bonjour (SIN_BONJOUR)."""
     env = dict(os.environ if env is None else env)
     try:
         import secret_store
@@ -400,6 +414,7 @@ def _clean_env(env=None):
     for k in list(env):
         if k.startswith("WORKSPACE_") or (k.endswith(("_WS", "_WID")) and env.get(k) in tab):
             env.pop(k, None)
+    env.update(SIN_BONJOUR)
     return env
 
 

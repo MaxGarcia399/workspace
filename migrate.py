@@ -199,6 +199,8 @@ class Context(object):
         self.dry_run = dry_run
         self._log = log
         self._brains = None
+        #: por qué se deshace (undo): "" (lo pidió el socio) | "rollback"
+        self.motivo = ""
 
     def log(self, msg):
         if self._log:
@@ -484,11 +486,14 @@ def modulo(mid, mdir=None):
     return m.load().module if m is not None else None
 
 
-def undo(mid, home=None, mdir=None, log=None):
+def undo(mid, home=None, mdir=None, log=None, motivo=""):
     """`workspace migrate --undo <id>`: deshace una migración que declare
     `undo(ctx)` (opcional en el contrato; hoy la tiene la del formato de
     cerebro v2). La propia migración decide qué es seguro revertir: jamás pisa
-    cambios hechos después. Devuelve (ok, [(objetivo, estado, mensaje)] | str)."""
+    cambios hechos después. `motivo` = "rollback" cuando lo pide la vuelta a
+    una versión anterior (updater.rollback, `ctx.motivo`): la migración puede
+    deshacerse sin «apagarse» (la próxima versión que la conozca vuelve a
+    aplicarla). Devuelve (ok, [(objetivo, estado, mensaje)] | str)."""
     m = next((x for x in discover(mdir) if x.id == mid), None)
     if m is None:
         return False, _t("migrate.undo.unknown", "no existe la migración {id}", id=mid)
@@ -505,7 +510,9 @@ def undo(mid, home=None, mdir=None, log=None):
             return False, _t("migrate.cli.busy", "Otro proceso está aplicando ajustes ahora mismo; "
                              "reintenta en un momento.")
     try:
-        return True, list(fn(Context(home=home, log=log)) or [])
+        ctx = Context(home=home, log=log)
+        ctx.motivo = motivo or ""
+        return True, list(fn(ctx) or [])
     except Exception as e:
         return False, "%s: %s" % (type(e).__name__, e)
     finally:

@@ -500,9 +500,15 @@ CREATE_STEPS = (
 
 def default_brain_dest(name):
     """La carpeta DEFAULT del cerebro de un agente nuevo (la misma que usa
-    create() sin brain_dest): ~/Desktop/<NOMBRE> - BRAIN."""
-    return os.path.join(os.path.expanduser("~"), "Desktop",
-                        "%s - BRAIN" % (name or "").strip().upper())
+    create() sin brain_dest). Mac y Linux: ~/Workspace/Cerebros/<NOMBRE>, fuera
+    de Escritorio, Documentos y Descargas (en Mac, cada app de terminal pide
+    permiso para entrar ahí). Windows, como siempre: ~/Desktop/<NOMBRE> - BRAIN.
+    Los cerebros que ya existen no se mueven: viven donde estén registrados."""
+    upper = (name or "").strip().upper()
+    if os.name == "nt":
+        return os.path.join(os.path.expanduser("~"), "Desktop", "%s - BRAIN" % upper)
+    import paths
+    return os.path.join(paths.brains_dir(), upper)
 
 
 def command_conflict(name):

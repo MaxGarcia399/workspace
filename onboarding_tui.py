@@ -957,6 +957,18 @@ def _b_apariencia(S, K, iw, full=2):
     der.append(HL.clip(" %s%s%s %s%s%s" % (
         K["DK"], _t("onboarding.apariencia.group.fondo", "fondo"), K["R"],
         K["WH"] + K["BO"], _fondo_val(fondo_act), K["R"]), iw))
+    try:
+        import herdr_tema
+        _herdr = herdr_tema.etiqueta()
+    except Exception:
+        _herdr = ""
+    if _herdr:
+        # Dentro de herdr esta pantalla NO es la vista previa: los colores los
+        # pone herdr. Se dice en una línea en vez de fingir.
+        der.append(HL.clip(" %s%s%s" % (K["B2"], _t(
+            "onboarding.apariencia.herdr_manda",
+            "dentro de herdr manda {tema}; esto vale fuera de herdr").replace(
+                "{tema}", _herdr), K["R"]), iw))
     if full >= 1:
         der.append("")
         der.append(_divisor(K, _t("onboarding.div.que_cambia", "qué cambia"),

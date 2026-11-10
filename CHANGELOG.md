@@ -8,6 +8,179 @@ Cómo leer esto: cada versión tiene su número (`MAYOR.MENOR.PARCHE`). Un
 cambio de PARCHE arregla cosas; uno de MENOR trae funciones nuevas sin romper
 nada; uno de MAYOR avisa con tiempo si algo cambia de forma.
 
+## 0.9.0 — 2026-11-09
+
+**Novedades**
+- **Decisores, con más modelos para elegir.** En Motores → Modelos de
+  decisión, además de Jev, ahora están:
+  - **OpenRouter**, en la nube: con una sola llave eliges entre muchos modelos
+    de decisión de varias marcas (de fábrica, Jev);
+  - **Liquid**, en la nube: d1.1 (de fábrica) y d1-ultra, cada uno con su
+    precio;
+  - **Ollama**, en tu computadora: sin llave ni costo, y tu contexto no sale
+    de tu máquina. Si le falta algo, Modelos te dice el siguiente paso en una
+    línea (abrirlo, actualizarlo a 0.35.0 o `ollama pull nimble`). La primera
+    pregunta después de un rato puede decir «cargando el modelo»; la
+    siguiente ya va rápido.
+
+  Cada llave se guarda con su propio nombre: conectar la de OpenRouter a
+  Decisores no les quita a tus motores la `OPENROUTER_API_KEY` que ya usan.
+- **Solo modelos de decisión.** OpenRouter, Liquid y Ollama también tienen
+  modelos de chat: esos no se pueden elegir ni guardar. En Ollama, los de chat
+  que tengas descargados no salen en la lista (una línea dice cuántos hay) y,
+  si el que tenías guardado ya no sirve, usa el primero de decisión que tengas
+  y te lo dice.
+- **El modelo se elige de una lista.** Enter o un clic sobre «modelo» la
+  abre: el actual va marcado con ● y cada fila dice la marca, el precio o «en
+  esta computadora». Con 10 o más, escribir filtra. La de OpenRouter trae los
+  10 que respondieron en nuestras pruebas, y el que tarda más de lo que
+  esperan los usos dice «lento». En Windows, por ahora, se elige con el
+  teclado.
+- **«Tu llave, en simple».** La ayuda (`i`) de Modelos de decisión tiene una
+  página nueva (Tab cambia entre «qué es» y «tu llave»): dónde vive tu llave
+  en tu sistema, a dónde viaja, quién la ve y un consejo. Al conectar te
+  recomienda una llave solo para Workspace, con tope de gasto donde el
+  proveedor lo permite (OpenRouter), y al desconectar te dice dónde revocarla.
+- **Conversaciones, una sección nueva: lo que tus agentes se dicen entre
+  sí.** Pídele a un agente en su pestaña «abre una conversación con … sobre
+  …»: abre una sala de hasta 6 agentes, cada uno en su pestaña y de cualquier
+  motor, con un objetivo y con lo que la da por hecha.
+  - Tú la sigues en vivo, con cada mensaje del color de quien habla. Desde
+    ahí escribes (al último que habló o a quien nombres con «@nombre»),
+    pausas, cierras, archivas o borras, y eliges cuánto se espera cada
+    respuesta (de 15 min a 24 h). Si un pedido vence, le das 30 min más, lo
+    cancelas o abres la pestaña de quien falta. En una ventana chica se ve
+    como en el celular: la lista o el chat. En Windows, por ahora, se usa con
+    el teclado.
+  - Todos leen y solo contesta a quien se le pide. Cada agente recibe el
+    objetivo de la sala al entrar y, junto con lo suyo, lo que pasó mientras
+    tanto.
+  - Probado con los 9 motores (Claude Code, Codex, OpenCode, Cursor, Kiro,
+    Copilot, Hermes, OpenClaw y Antigravity), con salas de cuatro motores
+    distintos y entre una Mac y una PC. Si los agentes están en máquinas
+    distintas, la sala viaja con tu cerebro y cada mensaje tarda lo que tarde
+    tu sincronización.
+  - Claude Code, Cursor y Antigravity se quedan escuchando y contestan solos.
+    A los demás, cuando les llega un pedido o una respuesta, Workspace les
+    escribe una línea en su panel de herdr para que lo atiendan. Lo hace solo
+    si el agente no está trabajando y no tienes ese panel enfocado, una vez
+    por mensaje, y el hub lo marca con «◆ avisé a …». Si no pudo, el hub dice
+    «esperando a …» y te da un botón «Avisar». A Hermes y OpenClaw, por
+    ahora, se les avisa solo con el botón. En Windows, el aviso trae el
+    comando para PowerShell.
+  - Si tu cerebro está en dos máquinas y el mismo agente tiene una pestaña
+    abierta en cada una, el primer pedido de una sala puede tardar hasta 2
+    min en llegar: Workspace espera a que tu sincronización diga cuál de las
+    dos lo tomó, para que no lo trabajen las dos.
+  - Al abrir una pestaña, el agente se entera solo de las salas que lo
+    esperan. Los agentes que crees desde ahora traen la skill que les enseña a
+    usarlas; los que ya tenías la leen de Workspace cuando una sala los
+    espera.
+  - Lo que pide otro agente es un pedido, no una orden tuya: lo delicado se
+    confirma en la pestaña de cada uno.
+- **Decisores › Conversaciones** (apagado de fábrica). Puede callar avisos de
+  pura cortesía («gracias», «quedo atento»), pausar una sala que da vueltas
+  sin avanzar y, a quien la abrió, sugerirle cerrarla cuando parece cumplida.
+  Nunca abre, escribe ni borra nada, y lo que hace lleva «◆». Con
+  Conversaciones encendido, Seguridad también revisa los mensajes entre
+  agentes y marca con «⚠» lo delicado: funciona bien con Jev, pero con Liquid
+  u OpenRouter casi nunca lo marca. Con Conversaciones apagado no revisa nada
+  de las salas.
+- **Un solo color.** En Personalización, «un color» pinta los títulos y los
+  adornos con el color principal del tema. El texto y los colores que avisan
+  algo se quedan.
+- **Si usas Workspace dentro de herdr,** sigue el tema que elegiste en herdr
+  y ya no pinta su propio fondo encima. En Personalización, «seguir a herdr»
+  (sí/no) lo cambia; esa fila solo aparece dentro de herdr.
+- **Decisores, Tono y Calendario ahora también se ven bien en ventanas
+  chicas.**
+
+**Cambio que notarás**
+- **Tu llave de Jev ya no llega a tus agentes.** Si la tenías solo como
+  variable de tu sistema, conéctala en Motores → Modelos de decisión para que
+  tus agentes puedan seguir preguntando.
+
+**Tus llaves pasan al llavero de tu sistema**
+
+Lo hace sola, una vez, al actualizar.
+- Las llaves que le das a Workspace (por ejemplo, la de un modelo de decisión
+  o la de tu cuenta de Google Calendar) dejan el archivo en texto plano:
+  - en macOS van a tu llavero (la app Llaves);
+  - en Windows quedan cifradas con tu cuenta (DPAPI): otra cuenta, o una copia
+    del archivo en otra PC, no las abre;
+  - en Linux van al llavero de tu sesión si tienes `secret-tool` y está
+    desbloqueado. Si no, siguen en un archivo que solo tú puedes leer, y te lo
+    dice en una línea.
+- Antes deja un respaldo cifrado, comprueba que cada llave se lee de vuelta y
+  solo entonces la quita del archivo. Si algo falla, todo queda como estaba.
+  Te avisa en una línea. Para deshacerlo:
+  `workspace migrate --undo 202611081500_boveda_al_llavero`. Si vuelves a la
+  versión anterior con `workspace update --rollback`, Workspace primero las
+  devuelve al archivo; si el llavero no responde, no vuelve atrás.
+- **La contraseña del correo también se guarda en el llavero.** Si ya la
+  tenías, pasa sola de `mail.json` (con respaldo y verificada antes de
+  quitarla de ahí) y en `mail.json` quedan solo tu usuario y el servidor.
+  `workspace llaves` también la muestra, sin el valor. Para deshacerlo:
+  `workspace migrate --undo 202611090000_correo_a_la_boveda`.
+- Si tenías el hub abierto mientras se actualizaba, lo que use llaves dirá
+  «sin llave» hasta que lo cierres y lo abras otra vez. No se pierde nada.
+- `workspace llaves` dice de dónde sale cada llave, sin mostrar ninguna, y
+  `workspace llaves auditar` busca restos en texto plano.
+- Tus agentes no reciben tus llaves. Además, a los motores que tienen reglas
+  para eso, Workspace les niega abrir la bóveda y, donde se puede, pedirle una
+  llave al llavero: la tabla está en Compatibilidad.
+- Una variable de tu sistema ya no puede mandar la llave de un modelo de
+  decisión a otro servidor: solo vale si apunta a esta computadora o al del
+  proveedor.
+- **Lo que no cubre:** un programa que corre con tu mismo usuario (por
+  ejemplo, un script en la terminal de un agente) todavía puede pedírsela al
+  llavero. Por eso conviene una llave solo para Workspace, con tope de gasto.
+
+**Menos avisos de tu sistema**
+- **En Mac y Linux, una instalación nueva va a `~/Workspace`** y tus agentes
+  nuevos nacen en `~/Workspace/Cerebros`: fuera de Escritorio, Documentos y
+  Descargas, para que macOS no te pida permiso de carpetas. Lo que ya tenías
+  no se mueve: si Workspace vive en tu Escritorio, el mismo comando lo
+  actualiza ahí. Si ya tienes una carpeta `~/Workspace` con tus cosas, no la
+  toca. En Windows, Workspace y tus agentes siguen donde siempre.
+- **El diagnóstico (`workspace doctor --bundle`) y el respaldo del
+  desinstalador** quedan en `~/Workspace/Respaldos`, ya no en el Escritorio,
+  y te los muestra en su carpeta. Al desinstalar, `Cerebros/` y `Respaldos/`
+  se conservan.
+- **En Mac, Descubrir ya no entra por su cuenta a Escritorio ni Documentos**
+  (eso podía abrir dos o tres permisos seguidos). Si tus cerebros están ahí,
+  pulsa `e` en Descubrir: la primera vez te dice qué va a pasar y la segunda
+  busca. La carpeta donde vive Workspace se sigue revisando sin pedirlo.
+- **Una línea antes de cada aviso que no se puede evitar.** Antes de instalar
+  Codex o Kiro en Windows, o Kiro en Mac, Motores te dice qué te va a
+  preguntar el sistema. Al conectar Google, antes de pedirte el archivo (en
+  Mac, de tu carpeta Descargas) y antes de abrir el navegador («Google no
+  verificó esta app»). La página nueva del manual, **Avisos de tu sistema**,
+  los junta todos: qué sale, por qué, qué contestar y qué pasa si dices No.
+- **El gateway de OpenClaw que enciende Workspace ya no se anuncia en tu
+  red** (Bonjour): iTerm2 o VS Code ya no te piden buscar dispositivos en tu
+  red local. Si lo encontrabas desde otro dispositivo por Bonjour, eso deja de
+  funcionar.
+- **Con el llavero de tu Mac bloqueado, Motores ya no te pide la contraseña**
+  para revisar tu sesión de GitHub Copilot: muestra que no lo sabe.
+- **El dictado por voz (`workspace voz`) ahora solo copia el texto:** suena
+  un aviso y lo pegas tú. macOS solo pide el micrófono, y el dictado ya no
+  lee lo que tenías copiado. **Si tenías un Atajo que pegaba solo, agrégale
+  `--pegar`**; si pegar falla, el texto igual queda copiado.
+
+**Arreglos de seguridad (Decisores, desde la 0.8.0)**
+- A Jev ya no viaja contexto marcado como privado ni archivos a los que se
+  llega por un enlace.
+- Una respuesta inválida del modelo ya no puede aplicar una decisión.
+- Un proxy https con contraseña se rechaza en vez de mandarla sin cifrar.
+- Borrar una llave del llavero se comprueba de verdad; si falla, se reintenta.
+
+**Arreglos**
+- **Codex:** los comandos de Workspace dentro de una pestaña de Codex usan la
+  identidad de esa pestaña. Antes, con otra pestaña de Codex abierta, podían
+  salir con la de la otra, y una nota de memoria podía guardarse en la
+  pestaña equivocada.
+
 ## 0.8.1 — 2026-11-07
 
 **Novedades**

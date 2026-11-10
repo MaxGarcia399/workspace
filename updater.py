@@ -268,6 +268,7 @@ REASONS = {
     "missing_commit": ("updater.reason.missing_commit", "la versión anterior ya no está disponible en esta copia"),
     "interrupted": ("updater.reason.interrupted", "actualización interrumpida — se quedó la versión que tenías"),
     "reset_failed": ("updater.reason.reset_failed", "la versión nueva no arrancó y no pude volver limpio a la anterior (¿un archivo bloqueado?)"),
+    "undo_failed": ("updater.reason.undo_failed", "no pude devolver tus llaves al archivo antes de volver (el llavero no respondió): no volví atrás; reintenta en un momento"),
 }
 
 
@@ -548,6 +549,34 @@ def rollback_target(root=ROOT, home=None):
     return None
 
 
+def deshacer_para_volver(destino, root=ROOT, home=None):
+    """Antes de volver a `destino` (un commit anterior): deshace, con el
+    código ACTUAL, las migraciones que lo piden (`UNDO_AL_VOLVER = True`) y
+    que `destino` no trae (`git ls-tree`). → [ids deshechos], o None si una
+    no se pudo deshacer o no se puede saber qué trae `destino` (entonces no
+    se vuelve). Idempotente: una sin nada que deshacer no hace nada."""
+    rc, out, _ = _git(root, "ls-tree", "--name-only", destino, "migrations/", timeout=10)
+    if rc != 0:
+        return None
+    en_destino = {os.path.splitext(os.path.basename(x.strip()))[0] for x in out.splitlines()}
+    try:
+        import migrate
+        hechas = []
+        for m in migrate.discover(os.path.join(root, "migrations")):
+            if m.id in en_destino:
+                continue
+            m.load()
+            if not m.module or not getattr(m.module, "UNDO_AL_VOLVER", False):
+                continue
+            ok, res = migrate.undo(m.id, home=home, motivo="rollback")
+            if not ok or any(st == "refused" for _t, st, _m in (res or [])):
+                return None
+            hechas.append(m.id)
+        return hechas
+    except Exception:
+        return None
+
+
 def rollback(root=ROOT, home=None):
     """Vuelve a la versión anterior al último update y la fija.
     Devuelve dict {ok, reason, from, to, from_version, to_version}."""
@@ -566,7 +595,35 @@ def rollback(root=ROOT, home=None):
             out["reason"] = "missing_commit"
             return out
         cur = e["to"]
-        rc, _, err = _git(root, "reset", "--hard", "--quiet", e["from"], timeout=60)
+        # Desde aquí hasta cambiar el código, NADA vuelve a migrar ni escribe
+        # en el llavero (secret_store.empezar_vuelta): un hub que arranque o
+        # que guarde una llave en medio volvería a sellar la bóveda y la
+        # versión anterior quedaría sin llaves. Sin barrera, no se vuelve.
+        try:
+            import secret_store
+            secret_store.empezar_vuelta()
+        except Exception:
+            out["reason"] = "undo_failed"
+            return out
+        try:
+            # ANTES de volver, con el código de AHORA: lo que la versión
+            # destino no conoce se deshace (p. ej. la bóveda en el llavero
+            # vuelve al archivo, que es lo único que lee la anterior). Si no
+            # se puede, no se vuelve: mejor seguir aquí que volver sin llaves.
+            deshechas = deshacer_para_volver(e["from"], root, home)
+            if deshechas is None:
+                out["reason"] = "undo_failed"
+                return out
+            out["undone"] = deshechas
+            rc, _, err = _git(root, "reset", "--hard", "--quiet", e["from"], timeout=60)
+        finally:
+            # con el código ya cambiado, un proceso de la versión nueva que
+            # siga abierto no migra (secret_store.codigo_vigente); si no
+            # cambió, la versión nueva sigue y vuelve a migrar sola
+            try:
+                secret_store.terminar_vuelta()
+            except Exception:
+                pass
         if rc != 0:
             out["reason"] = "failed"
             return out

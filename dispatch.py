@@ -995,6 +995,7 @@ def main():
         _sesiones_al_abrir(brain, entry["name"], preselect, avisar=avisar)
         _metricas_al_abrir(passthrough, avisar=avisar)
         _decisores_al_abrir(brain, passthrough, avisar=avisar)
+        _boveda_al_abrir(passthrough, avisar=avisar)
     mod.launch(cfg, passthrough, plan=plan, preselect=preselect, show_banner=show_banner)
 
 
@@ -1099,6 +1100,34 @@ def _metricas_al_abrir(passthrough, avisar=print):
                 return ""
             import metricas
             return metricas.aviso_pendiente() or ""
+        except Exception:
+            return ""
+    try:
+        if avisar is print:
+            txt = aviso()
+            if txt:
+                print(txt)
+        else:
+            avisar(aviso)
+    except Exception:
+        pass
+
+
+def _boveda_al_abrir(passthrough, avisar=print):
+    """La bóveda de llaves (secret_store): la línea de «tus llaves ahora
+    viven en el llavero… (deshacer: …)» UNA vez tras migrar, o —en el modo
+    auto, sin llavero ahora— que siguen en el archivo (una vez al día: nunca
+    en silencio). Como el de métricas: solo con una persona mirando (sin -p,
+    con terminal) y se decide al soltarlo. Jamás frena."""
+    if any(str(a) in ("-p", "--print") for a in (passthrough or ())):
+        return
+
+    def aviso():
+        try:
+            if not sys.stdout.isatty():
+                return ""
+            import secret_store
+            return secret_store.aviso_pendiente() or ""
         except Exception:
             return ""
     try:

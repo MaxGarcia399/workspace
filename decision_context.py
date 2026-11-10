@@ -66,6 +66,7 @@ import json
 import math
 import os
 import re
+import stat
 import sys
 import threading
 import time
@@ -117,8 +118,10 @@ PRIVATE_DIRS = frozenset(("privado", "private", "_privado", "_private"))
 #: Conversaciones y registros: no son conocimiento curado y llevan palabras de
 #: otras personas — las conversaciones crudas de los motores, la maleta, los
 #: chats (mensajes directos y el canal del equipo), el bus de mensajes entre
-#: agentes (msgs/) y el archivo frío de bitácoras. Se cuentan en «excluidos».
+#: agentes (msgs/), las salas de Conversaciones (conversaciones/: texto de otros
+#: agentes, no confiable) y el archivo frío de bitácoras. Se cuentan en «excluidos».
 _SKIP_REL = re.compile(r"^(motores/[^/]+/conversaciones/|STATE/sessions/[^/]+/maleta/|chats/|msgs/"
+                       r"|conversaciones/"
                        r"|STATE/log-archive/)", re.I)
 #: Nombres que delatan llaves o credenciales (también en español: claves,
 #: llaves, contraseñas, credenciales, secretos — con cualquier extensión).
@@ -193,24 +196,6 @@ def _cal_read():
         return {}
 
 
-def _cal_write(data):
-    try:
-        p = _cal_path()
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        tmp = "%s.%d.tmp" % (p, os.getpid())
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, ensure_ascii=False, indent=1, sort_keys=True)
-        os.replace(tmp, p)
-        try:                                   # Windows: solo para tu usuario
-            import acl_privada
-            acl_privada.solo_mio(p)
-        except Exception:
-            pass
-        return True
-    except Exception:
-        return False
-
-
 def _sane(v):
     try:
         v = float(v)
@@ -267,14 +252,20 @@ def calibrate(decider_id, raw_sent, input_tokens):
     sample = _sane(net / float(raw_sent))
     if sample is None:
         return None
-    data = _cal_read()
-    e = data.get(decider_id) if isinstance(data.get(decider_id), dict) else {}
-    old = _sane(e.get("factor")) or base_factor(decider_id)
-    new = old + FACTOR_ALPHA * (sample - old)
-    data[decider_id] = {"factor": round(new, 4), "n": int(e.get("n") or 0) + 1,
-                        "last": round(sample, 4), "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
-    _cal_write(data)
-    return new
+    hecho = {}
+
+    def mover(data):
+        # bajo el candado (decisions._actualizar_estado): dos decisores que
+        # calibran a la vez no se borran el factor (Greptile 0.8.x, 6)
+        e = data.get(decider_id) if isinstance(data.get(decider_id), dict) else {}
+        old = _sane(e.get("factor")) or base_factor(decider_id)
+        hecho["new"] = new = old + FACTOR_ALPHA * (sample - old)
+        data[decider_id] = {"factor": round(new, 4), "n": int(e.get("n") or 0) + 1,
+                            "last": round(sample, 4), "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
+        return data
+    import decisions
+    decisions._actualizar_estado(_cal_path(), mover)
+    return hecho.get("new")
 
 
 def proven_factor(decider_id, raw_sent):
@@ -541,14 +532,98 @@ def read_text(path, info=None):
     return text
 
 
+def _dentro(brain, path):
+    """¿`path` (ya resuelto, sin enlaces) queda dentro del cerebro real?"""
+    try:
+        rb = os.path.realpath(brain)
+        real = os.path.realpath(path)
+        return os.path.normcase(os.path.commonpath([rb, real])) == os.path.normcase(rb)
+    except (OSError, ValueError):
+        return False
+
+
+def _rel_dentro(brain, path):
+    """La ruta de `path` relativa al cerebro (dado tal cual o ya resuelto), o
+    None si queda fuera."""
+    ap = os.path.abspath(path)
+    for raiz in (os.path.abspath(brain), os.path.realpath(brain)):
+        try:
+            r = os.path.relpath(ap, raiz)
+        except ValueError:                 # otra unidad (Windows)
+            continue
+        if not (r == os.pardir or r.startswith(os.pardir + os.sep)):
+            return r
+    return None
+
+
+def _fiel(brain, path):
+    """¿`path` es DE VERDAD esa ruta dentro del cerebro? Su ruta real (sin
+    symlinks ni junctions en el camino) es la misma ruta dentro del cerebro
+    real. En Windows islink() no ve un junction (solo los symlinks; VERIFICADO
+    2026-11-09 por ssh en la PC: os.walk entra y realpath lo resuelve), así
+    que se compara la ruta real — revisor sobre ed793cd8, A."""
+    rel = _rel_dentro(brain, path)
+    if rel is None:
+        return False
+    esperado = os.path.normpath(os.path.join(os.path.realpath(brain), rel))
+    try:
+        return os.path.normcase(os.path.realpath(path)) == os.path.normcase(esperado)
+    except (OSError, ValueError):
+        return False
+
+
+def _hard_link(st):
+    """¿Un archivo con otra ruta para el MISMO contenido (st_nlink > 1)? Puede
+    ser privado/ o lo de otro socio con otro nombre: no se lee."""
+    return stat.S_ISREG(st.st_mode) and getattr(st, "st_nlink", 1) > 1
+
+
+def _archivo_seguro(brain, path, socio=None):
+    """¿Se puede leer `path` (que NO viene de _walk) para mandarlo a un
+    decisor? Los MISMOS controles que el recorrido: un archivo normal (no un
+    enlace) sin hard links, cuya ruta real es la suya dentro del cerebro, sin
+    carpetas privadas ni de las que nunca se leen en el camino, de texto y
+    que no es de otro socio ni de lo que nunca sale. Lo privado por
+    frontmatter lo mira read_text (Greptile final 0.9.0, 5)."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    rel = _rel_dentro(brain, path)
+    if rel is None or not stat.S_ISREG(st.st_mode) or _hard_link(st) or not _fiel(brain, path):
+        return False
+    partes = rel.replace(os.sep, "/").split("/")[:-1]
+    if any(x.lower() in PRIVATE_DIRS or x.lower() in SKIP_DIRS or x.startswith(".")
+           for x in partes):
+        return False
+    if socio is None:
+        socio = socio_activo(brain)
+    return _excluido(brain, os.path.join(brain, rel), st.st_size, socio) is None
+
+
 def _walk(brain, base=None, stats=None):
     """Archivos candidatos bajo `base` (default: todo el cerebro), sin las
     carpetas que nunca se leen, las privadas ni lo de otros socios. Si se da
-    `stats`, cuenta lo excluido por motivo. → [(path, size)]."""
+    `stats`, cuenta lo excluido por motivo. → [(path, size)]. Jamás sigue un
+    enlace (symlink): ni a un archivo (stat/open leerían el destino, que puede
+    ser privado/, de otro socio o de fuera) ni a una carpeta, tampoco la de
+    partida (Greptile 0.8.x, 3). Tampoco entra a una carpeta cuya ruta real no
+    es la suya (un junction de Windows, que islink() no ve) ni lee un archivo
+    con hard links (st_nlink > 1); lo saltado se cuenta como «enlace» en los
+    excluidos (revisor sobre ed793cd8, A)."""
     out = []
     base = base or brain
+    if os.path.islink(base) or not _dentro(brain, base) or not _fiel(brain, base):
+        if stats is not None and os.path.isdir(base):
+            stats["enlace"] = stats.get("enlace", 0) + 1
+        return out
     socio = socio_activo(brain)
+
+    def saltado():
+        if stats is not None:
+            stats["enlace"] = stats.get("enlace", 0) + 1
     for root, dirs, files in os.walk(base):
+        rroot = os.path.realpath(root)
         quedan = []
         for d in sorted(dirs):
             dl = d.lower()
@@ -558,13 +633,29 @@ def _walk(brain, base=None, stats=None):
                 if stats is not None:
                     stats["privado"] = stats.get("privado", 0) + _cuenta_textos(os.path.join(root, d))
                 continue
+            full = os.path.join(root, d)
+            try:
+                real = os.path.realpath(full)
+            except (OSError, ValueError):
+                real = ""
+            if os.path.islink(full) or os.path.normcase(real) != os.path.normcase(
+                    os.path.join(rroot, d)):
+                saltado()                  # junction o symlink: su contenido es de otro lado
+                continue
             quedan.append(d)
         dirs[:] = quedan
         for fn in sorted(files):
             p = os.path.join(root, fn)
             try:
-                st = os.stat(p)
+                st = os.lstat(p)
             except OSError:
+                continue
+            if not stat.S_ISREG(st.st_mode):
+                if stat.S_ISLNK(st.st_mode):
+                    saltado()
+                continue                   # un enlace (o algo que no es archivo): no se sigue
+            if _hard_link(st):
+                saltado()
                 continue
             motivo = _excluido(brain, p, st.st_size, socio)
             if motivo is None:
@@ -618,9 +709,12 @@ def memory_sources(brain):
     for rel in ("STATE/MEMORY.md", "STATE/INDEX.md"):
         p = os.path.join(brain, *rel.split("/"))
         try:
-            size = os.path.getsize(p)
+            st = os.lstat(p)
         except OSError:
             continue
+        if not stat.S_ISREG(st.st_mode) or _hard_link(st) or not _fiel(brain, p):
+            continue                       # un enlace, junction o hard link no se sigue
+        size = st.st_size
         if not _skip_file(brain, p, size):
             t = read_text(p)
             if t.strip():
@@ -671,6 +765,32 @@ def memory_excluded(brain):
     return n
 
 
+def resumen_pestana(brain, nombre, limit=1200):
+    """(texto, privado) del resumen (checkpoint) de una pestaña para mandarlo
+    a un decisor, con los MISMOS filtros que Cerebro: nada si el checkpoint o
+    la propia pestaña son privados (`privado: true`…), de otro socio o no son
+    archivos normales (un enlace no cuenta). Greptile 0.8.x, 2: antes se
+    mandaba el JSON del checkpoint sin mirar su frontmatter."""
+    try:
+        import sessions_registry as reg
+        import session_continuity as sc
+        socio = socio_activo(brain)
+        for p in (reg._md_path(str(brain), nombre), str(sc.checkpoint_path(brain, nombre))):
+            if not p or not os.path.exists(p):
+                continue
+            st = os.lstat(p)
+            if not stat.S_ISREG(st.st_mode) or _hard_link(st) or not _fiel(brain, p) \
+                    or _ajeno(_rel(brain, p), socio):
+                return "", True
+            info = {}
+            read_text(p, info)
+            if info.get("privado"):
+                return "", True
+        return sc.context(brain, nombre, limit=limit) or "", False
+    except Exception:
+        return "", False
+
+
 def tab_list(name):
     """Las pestañas del agente con su resumen (para «Sesiones…»), la más
     reciente primero. → [{"name", "slug", "text", "tokens"}]."""
@@ -680,21 +800,18 @@ def tab_list(name):
     brain = a["brain"]
     try:
         import sessions_registry as reg
-        import session_continuity as sc
         tabs = sorted(reg._pestanas(brain), key=lambda t: reg.ultimo_uso(t), reverse=True)
     except Exception:
         return []
     out = []
     for t in tabs:
         nombre = t.get("name", "")
-        txt = ""
-        try:
-            txt = sc.context(brain, nombre, limit=TAB_SUMMARY_CHARS) or ""
-        except Exception:
-            txt = ""
-        if not txt:
+        txt, privado = resumen_pestana(brain, nombre, TAB_SUMMARY_CHARS)
+        if not txt and not privado:
+            # sin checkpoint, el texto de la pestaña: con los MISMOS controles
+            # (un alias.md enlazado a privado/ no se lee — Greptile final, 5)
             p = t.get("archivo") or ""
-            txt = read_text(p)[:TAB_SUMMARY_CHARS] if p else ""
+            txt = read_text(p)[:TAB_SUMMARY_CHARS] if p and _archivo_seguro(brain, p) else ""
         out.append({"name": nombre, "slug": t.get("slug", ""), "text": txt,
                     "tokens": raw_tokens(txt)})
     return out

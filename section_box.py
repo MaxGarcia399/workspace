@@ -141,7 +141,9 @@ def frame(Kp, w, h, word, title, body, chips, msg="", cursor_line=None,
     como el cuadro de `i`); se marca con ▲▼. Devuelve también, en
     frame.last_max_scroll, el máximo desplazamiento posible, en
     frame.last_start, la primera fila que quedó a la vista, y en
-    frame.last_level, el nivel elegido (wordmark, filas de los botones).
+    frame.last_level, el nivel elegido (wordmark, filas de los botones). Para
+    los clics: la línea i del body se pinta en la fila (0-based) de pantalla
+    frame.last_body_row + i, y su columna 0 en frame.last_body_col.
 
     `stable_rows` = el alto MÁXIMO que puede tener el body (p. ej. con el
     texto más largo de una opción). La posición de la caja se calcula con ese
@@ -220,9 +222,11 @@ def frame(Kp, w, h, word, title, body, chips, msg="", cursor_line=None,
                             label=Kp["B"] + Kp["BO"])
         lp = " " * max(0, (W - pw - SIDE_GAP - pw2) // 2)
         caja = [HL.clip(lp + a + " " * SIDE_GAP + b, W) for a, b in zip(caja, caja2)]
+        frame.last_body_col = len(lp) + 2 + PAD
     else:
         lp = " " * max(0, (W - pw) // 2)
         caja = [HL.clip(lp + ln, W) for ln in caja]
+    frame.last_body_col = len(lp) + 2 + PAD                 # «│ » + el aire
     # composición vertical: la caja un poco ARRIBA del centro (como el hub),
     # calculada con el alto de REFERENCIA (estable): el borde de arriba no se
     # mueve aunque cambie el contenido
@@ -230,12 +234,79 @@ def frame(Kp, w, h, word, title, body, chips, msg="", cursor_line=None,
     grupo = ih_ref + 2 + 1
     libre = H - len(top) - grupo - len(pie)
     arriba = max(0, libre // 3)
+    frame.last_body_row = len(top) + arriba + 2 - start     # borde + la fila de aire
     L = list(top) + [""] * arriba + caja + [aviso]
     L += [""] * max(0, H - len(L) - len(pie)) + pie
     if len(L) > H:
         L = (L[:H - len(pie)] + pie) if len(pie) < H else L[:H]
     L += [""] * max(0, H - len(L))
     return [HL.clip(x, W) for x in L[:H]]
+
+
+frame.last_body_row = frame.last_body_col = 0
+
+
+# ── piezas de dibujo de las secciones con cuadritos (Decisores, Conversaciones) ──
+#: Bordes del cuadrito: fino (normal) y grueso (el que tiene el foco).
+LIGHT = "╭╮╰╯│─"
+HEAVY = "┏┓┗┛┃━"
+
+
+def pad(s, n):
+    return HL.pad(HL.clip(s, n), n)
+
+
+def center(s, n):
+    s = HL.clip(s, n)
+    left = max(0, (n - HL.vis(s)) // 2)
+    return HL.pad(" " * left + s, n)
+
+
+def caja(K, body, w, col, title="", heavy=False, tcol=None, centrar=False):
+    """Un cuadrito de ancho `w` (con bordes). Título incrustado arriba."""
+    w = max(6, w)
+    tl, tr, bl, br, v, h = HEAVY if heavy else LIGHT
+    R = K["R"]
+    if title:
+        t = " %s " % HL.clip(title, max(1, w - 5))
+        top = "%s%s%s%s%s%s%s%s" % (col, tl, h, R, tcol or col, t, R + col,
+                                    h * max(0, w - 3 - HL.vis(t)) + tr + R)
+    else:
+        top = "%s%s%s%s%s" % (col, tl, h * (w - 2), tr, R)
+    out = [top]
+    for ln in body:
+        inner = center(ln, w - 4) if centrar else pad(ln, w - 4)
+        out.append("%s%s%s %s %s%s%s" % (col, v, R, inner, col, v, R))
+    out.append("%s%s%s%s%s" % (col, bl, h * (w - 2), br, R))
+    return out
+
+
+def hjoin(bloques, gap=2):
+    alto = max(len(b) for b in bloques)
+    anchos = [max(HL.vis(x) for x in b) for b in bloques]
+    return [(" " * gap).join(HL.pad(b[i] if i < len(b) else "", a)
+                             for b, a in zip(bloques, anchos)) for i in range(alto)]
+
+
+def anchos(iw, n, gap=2):
+    n = max(1, n)
+    return [max(6, (iw - gap * (n - 1)) // n)] * n
+
+
+def titulo(K, txt, iw, tono=0):
+    t = txt.upper()
+    wc = K["WCOL"]
+    return HL.clip("%s%s%s %s%s%s" % (wc[tono % len(wc)] + K["BO"], t, K["R"], K["DK"],
+                                     K["SEP"] * max(1, iw - HL.vis(t) - 1), K["R"]), iw)
+
+
+def boton(K, label, w, foco, activo=False, acol="C", tinte=None):
+    """Botón-cuadrito: foco = borde grueso en acento; activo = texto con ●."""
+    col = (K["C"] + K["BO"]) if foco else (K[acol] if activo else K["DK"])
+    txt = ("%s● %s%s" % (K[acol] + K["BO"], label, K["R"]) if activo
+           else "%s%s%s" % ((K["WH"] + K["BO"]) if foco else (K[tinte] if tinte else K["GREY"]),
+                            label, K["R"]))
+    return caja(K, [txt], w, col, heavy=foco, centrar=True)
 
 
 # ── lista + detalle dentro de la MISMA caja ──────────────────────────────────
@@ -248,13 +319,17 @@ def pick_list(Kp, items, sel, iw, height, title="", sel_tail=""):
     `sel_tail` = glifo al FINAL de la fila elegida (p. ej. «▸»: Enter/→ abre
     sus opciones); se reservan 2 columnas en todas las filas. Un 4º elemento
     opcional = la clave de color del TEXTO cuando no está elegido (p. ej. la
-    fila «+ agregar» en acento)."""
+    fila «+ agregar» en acento). En pick_list.last_rows queda, por cada línea
+    devuelta, el índice del elemento que pinta (None: título o «▲/▼ n más»):
+    para saber qué fila se clicó."""
     Kp = HL.cols(Kp)
     out = []
+    filas_de = []
     if title:
         out.append(HL.clip("%s%s%s %s%s%s" % (Kp["B2"] + Kp["BO"], title, Kp["R"], Kp["DK"],
                                               Kp["SEP"] * max(1, iw - HL.vis(title) - 1),
                                               Kp["R"]), iw))
+        filas_de.append(None)
         height -= 1
     n = len(items)
     height = max(1, height)
@@ -268,6 +343,7 @@ def pick_list(Kp, items, sel, iw, height, title="", sel_tail=""):
     if arriba:
         out.append("%s▲ %s%s" % (Kp["DIM"], _t("sbox.more", "{n} más", "{n} more", n=arriba),
                                  Kp["R"]))
+        filas_de.append(None)
     cola = 2 if sel_tail else 0
     iw_l = max(4, iw - cola)
     for i in range(start, min(n, start + height)):
@@ -287,10 +363,16 @@ def pick_list(Kp, items, sel, iw, height, title="", sel_tail=""):
         if on and sel_tail:
             fila = HL.pad(fila, iw_l) + " %s%s%s" % (Kp["C"] + Kp["BO"], sel_tail, Kp["R"])
         out.append(HL.clip(fila, iw))
+        filas_de.append(i)
     if abajo:
         out.append("%s▼ %s%s" % (Kp["DIM"], _t("sbox.more", "{n} más", "{n} more", n=abajo),
                                  Kp["R"]))
+        filas_de.append(None)
+    pick_list.last_rows = filas_de
     return out
+
+
+pick_list.last_rows = []
 
 
 #: Ancho de la separación entre columnas: aire + regla + aire («  │  »).
@@ -508,13 +590,21 @@ class KeyReader:
         «v», tecleados rápido o mientras la pantalla iba atrasada) son DOS
         teclas: "\\x1b" y luego la otra — nunca una secuencia perdida;
       · pending(): ¿quedan teclas por leer? (para no redibujar a media
-        ráfaga: pegar 60 letras es UN dibujo, no 60).
+        ráfaga: pegar 60 letras es UN dibujo, no 60);
+      · con `mouse=True` (la pantalla prendió los clics SGR-1006), un clic
+        IZQUIERDO es la «tecla» "mouse:<columna>:<fila>" (1-based, como la
+        terminal); la rueda, soltar o arrastrar se descartan. Sin `mouse`,
+        todo igual que siempre;
+      · con `mouse="todo"` (la pantalla prendió además el movimiento, 1003),
+        cada evento llega como lo lee mouse_event: ("mouse", x, y),
+        ("rueda", ±1, x, y) o ("hover", x, y); soltar → "".
     `read` y `ready` se pueden cambiar (pruebas)."""
 
-    def __init__(self, fd, read=None, ready=None):
+    def __init__(self, fd, read=None, ready=None, mouse=False):
         import os as _os
         import select as _select
         self.fd = fd
+        self.mouse = "todo" if mouse == "todo" else bool(mouse)
         self.buf = b""
         self._read = read or (lambda n: _os.read(fd, n))
         self._ready = ready or (lambda t: bool(_select.select([fd], [], [], t)[0]))
@@ -551,6 +641,10 @@ class KeyReader:
                         break
                     i += 1
                 seq, self.buf = self.buf[1:i + 1], self.buf[i + 1:]
+                if self.mouse and seq[:2] == b"[<" and seq[-1:] in (b"M", b"m"):
+                    if self.mouse == "todo":
+                        return mouse_event(bytes(seq)) or ""
+                    return mouse_key(bytes(seq))
                 return _SECUENCIAS.get(bytes(seq), "")
             self.buf = self.buf[1:]                    # Esc solo: su propia tecla
             return "\x1b"
@@ -559,6 +653,47 @@ class KeyReader:
             pass
         ch, self.buf = self.buf[:n].decode("utf-8", "replace"), self.buf[n:]
         return "tab" if ch == "\t" else ch
+
+
+def mouse_event(seq):
+    """La ÚNICA lectura de un evento SGR-1006 (b"[<b;x;yM" o «…m», x/y
+    1-based, como la terminal); shift/alt/ctrl (bits 4, 8, 16) no cambian
+    qué evento es:
+      ("mouse", x, y)      presionar el botón izquierdo;
+      ("rueda", ±1, x, y)  la rueda: -1 = arriba, +1 = abajo;
+      ("hover", x, y)      el puntero se movió (con 1003; con un botón
+                           apretado = arrastre);
+      None                 soltar, otro botón, la rueda de lado o basura."""
+    try:
+        b, x, y = (int(v) for v in seq[2:-1].decode("ascii").split(";"))
+    except Exception:
+        return None
+    b &= ~28
+    if b & 64:
+        return ("rueda", -1 if b == 64 else 1, x, y) if b in (64, 65) else None
+    if b & 32:
+        return ("hover", x, y)
+    if seq[-1:] == b"M" and b == 0:
+        return ("mouse", x, y)
+    return None
+
+
+def mouse_key(seq):
+    """b"[<0;12;7M" → "mouse:12:7" (clic izquierdo; shift/alt/ctrl no lo
+    invalidan, como en la portada). Rueda, soltar o arrastrar → ""."""
+    ev = mouse_event(seq)
+    return "mouse:%d:%d" % ev[1:] if ev and ev[0] == "mouse" else ""
+
+
+def parse_mouse(key):
+    """"mouse:12:7" → (12, 7) (1-based), o None si no es un clic."""
+    if not (isinstance(key, str) and key.startswith("mouse:")):
+        return None
+    try:
+        _m, x, y = key.split(":")
+        return int(x), int(y)
+    except ValueError:
+        return None
 
 
 # ── teclas en Windows (consola o ConPTY por SSH) ─────────────────────────────

@@ -30,10 +30,12 @@ personal de cualquier otro usuario, en Mac/Linux/Windows), usuario → <usuario>
 <equipo>, emails → <email>, tokens/API keys (patrones de secret_scan) →
 <secreto:tipo>, IPs → <ip> (loopback se deja: no identifica a nadie).
 
-Dónde queda: en el ESCRITORIO del usuario (el lugar que un cliente encuentra
-sin ayuda para adjuntar un archivo; en Windows se pregunta al sistema por la
-carpeta real, que puede estar redirigida a OneDrive) o, si no hay escritorio,
-en la carpeta actual. `--out DIR` lo pisa. Se imprime la ruta completa.
+Dónde queda: en ~/Workspace/Respaldos (paths.exports_dir), FUERA del
+Escritorio: en Mac, escribir en el Escritorio pide permiso de carpeta a cada
+app de terminal, y en Windows un Escritorio redirigido a OneDrive subiría el
+zip a la nube. Se imprime la ruta completa y, con una persona mirando, se
+muestra marcado en Finder / el Explorador (revelar) para adjuntarlo sin
+buscarlo. `--out DIR` lo pisa.
 
 Falla-suave por pieza: si una sección no se puede armar, el zip lleva una
 línea honesta en su lugar («no disponible: …») — el bundle siempre sale.
@@ -536,29 +538,42 @@ def _leeme(red, incluidos, fallos):
     return "\n".join(L)
 
 
-def escritorio():
-    """La carpeta Escritorio REAL del usuario, o '' si no hay una usable.
-    Windows: se pregunta al sistema (puede estar redirigida a OneDrive)."""
-    if os.name == "nt":
-        try:
-            import ctypes
-            from ctypes import wintypes
-            buf = ctypes.create_unicode_buffer(wintypes.MAX_PATH)
-            # CSIDL_DESKTOPDIRECTORY = 0x10
-            if ctypes.windll.shell32.SHGetFolderPathW(None, 0x10, None, 0, buf) == 0 \
-                    and os.path.isdir(buf.value):
-                return buf.value
-        except Exception:
-            pass
-    d = os.path.join(os.path.expanduser("~"), "Desktop")
-    return d if os.path.isdir(d) else ""
+def salida():
+    """Carpeta default del zip: ~/Workspace/Respaldos (fuera del Escritorio)."""
+    return _paths.exports_dir()
+
+
+def revelar_cmd(path, plataforma=None):
+    """argv que muestra `path` marcado en su carpeta: Finder (`open -R`), el
+    Explorador (`explorer /select,`) o, en Linux, el gestor de archivos sobre
+    su carpeta (`xdg-open`). None si no hay cómo."""
+    plataforma = plataforma or sys.platform
+    if plataforma == "darwin":
+        return ["open", "-R", path]
+    if plataforma.startswith("win"):
+        return ["explorer", "/select,", path]      # mismo argv que docs_tui
+    return ["xdg-open", os.path.dirname(path) or "."]
+
+
+def revelar(path, runner=None):
+    """Muestra `path` en Finder / el Explorador (revelar_cmd). Falla-suave:
+    True si se lanzó. No espera: el gestor de archivos sigue solo."""
+    cmd = revelar_cmd(path)
+    if not cmd:
+        return False
+    try:
+        (runner or subprocess.Popen)(cmd, stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL)
+        return True
+    except Exception:
+        return False
 
 
 def build(out_dir=None, doctor_runner=None, redactor=None, now=None):
     """Arma el zip y devuelve (ruta, redactor). `doctor_runner`/`redactor`
     inyectables (tests herméticos). Nunca levanta por una sección rota."""
     red = redactor or default_redactor()
-    out_dir = out_dir or escritorio() or os.getcwd()
+    out_dir = out_dir or salida()
     stamp = (now or datetime.datetime.now()).strftime("%Y%m%d-%H%M%S")
     out_dir = os.path.abspath(os.path.expanduser(out_dir))
     dest = os.path.join(out_dir, "workspace-diagnostico-%s.zip" % stamp)
@@ -612,6 +627,8 @@ def main(argv=None):
     n = sum(red.counts.values())
     print("  ✓ " + _t("diag.done", "Listo. Adjunta este archivo a tu mensaje de soporte:"))
     print("    " + dest)
+    if out is None and sys.stdout.isatty() and not os.environ.get("WORKSPACE_NO_REVEAL"):
+        revelar(dest)                 # lo muestra en su carpeta, listo para adjuntar
     print("  " + _t("diag.redacted", "Se tacharon {n} dato(s) personales antes de "
                     "crearlo; LEEME.txt dentro del zip dice qué y qué NO va.")
           .replace("{n}", str(n)))

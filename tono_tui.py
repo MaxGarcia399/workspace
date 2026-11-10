@@ -29,6 +29,7 @@ if ROOT not in sys.path:
 import personalidad as P                                       # noqa: E402
 import hublayout as HL                                         # noqa: E402
 import section_box as SB                                       # noqa: E402
+import ventanita as VT                                         # noqa: E402
 # i18n (lado cliente): la pantalla TONO se ve en el idioma activo. Falla-suave
 # — sin el módulo, `_t()` devuelve el español inline (ES byte-idéntico).
 try:
@@ -499,16 +500,236 @@ def _accion(S, key):
     return True
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Ventanita (< 70 columnas o < 24 filas): como la de Conversaciones — un
+# nivel a la vez:
+#   diales  los 10 en una columna (nombre, barra corta, valor); ↑↓ elige,
+#           ←→ ajusta (se guarda igual que siempre); debajo, en una línea,
+#           qué hace el nivel del elegido. Enter lo abre.
+#   dial    sus 5 niveles escritos y lo que se le inyecta al agente; ←→
+#           sigue ajustando. Esc vuelve.
+# ═══════════════════════════════════════════════════════════════════════════
+#: Dónde empieza la barra en la fila de un dial (cursor 2 + nombre 12 + aire).
+_VT_BARRA = 15
+
+
+def _vt(S):
+    return S.setdefault("vt", {"vista": "diales", "top": 0, "scroll": 0, "ayuda": False})
+
+
+def _vt_cabecera(S, K, W):
+    """« TONO  ‹ GLOBAL (todos) ›  1/4»: para quién (‹ › lo cambian, como
+    Tab) — y las zonas de las flechas."""
+    dests = S["dests"]
+    i = S["di"] % len(dests)
+    nom = _nombre(dests[i]) if dests[i] else _t("tono.box.dials_global", "GLOBAL (todos)")
+    izq = " " + VT.c(K, "WH", HL.section_word("tono"), True) + "  "
+    if len(dests) < 2:
+        return HL.clip(izq + VT.c(K, "C", nom, True), W), []
+    x = HL.vis(izq)
+    pos = VT.c(K, "DK", "%d/%d" % (i + 1, len(dests)))
+    cab = izq + VT.c(K, "C", "‹ ", True) + VT.c(K, "WH", nom, True) + VT.c(K, "C", " ›", True)
+    zonas = [(0, 0, x, x + 1, ("tecla", "right_tab"))]
+    if HL.vis(cab) + 2 + HL.vis(pos) <= W:
+        zonas.append((0, 0, HL.vis(cab) - 2, HL.vis(cab) - 1, ("tecla", "tab")))
+        return VT.der(cab, pos, W), zonas
+    return HL.clip(cab, W), zonas
+
+
+def _vt_desc(S, K, dest, W):
+    """Qué hace el nivel del dial elegido, en una línea (Enter lo abre)."""
+    orden = _orden()
+    if S["si"] >= len(orden):
+        return ""
+    d = orden[S["si"]]
+    v = P.niveles(dest)[d["key"]]
+    txt = d["niveles"].get(v) or _t("tono.neutral", NEUTRO_TXT)
+    return HL.clip(VT.c(K, "C", "%d · " % v, True) + VT.c(K, "WH", " ".join(str(txt).split())), W)
+
+
+def _vt_diales(S, K, dest, W, alto):
+    vt = _vt(S)
+    cab, zonas = _vt_cabecera(S, K, W)
+    out = [cab]
+    if alto >= 14:
+        out.append(VT.c(K, "DK", "─" * W))
+    niv = P.niveles(dest)
+    bloques = [[_fila(S, K, d, i, niv[d["key"]], W)] for i, d in enumerate(_orden())]
+    if S.get("continuar"):
+        en = S["si"] >= len(_orden())
+        bloques.append([HL.clip("%s%s" % (_vt_cursor(K, en), VT.c(K, "C" if en else "B2", _t(
+            "tono.continuar", "✦ continuar"), True)), W)])
+    desc = _vt_desc(S, K, dest, W)
+    abajo = (["", desc] if alto - len(out) >= 14 else [desc]) if desc and alto - len(out) >= 6 else []
+    lineas, zl, vt["top"] = VT.lista(K, W, bloques, S["si"], alto - len(out) - len(abajo), vt["top"])
+    if abajo and not any(z[4][0] == "vt_mas" for z in zl):
+        while lineas and not lineas[-1]:            # caben todos: el texto, justo debajo
+            lineas.pop()
+        abajo = ["", desc] if len(out) + len(lineas) + 2 <= alto else [desc]
+    dy = len(out)
+    for a, b, c0, c1, acc in zl:
+        if acc[0] == "vt_item" and acc[1] < len(_orden()):
+            # la barra: un clic en el cuadrito k la deja en el nivel k
+            zonas += [(dy + a, dy + a, _VT_BARRA + k, _VT_BARRA + k, ("vt_fija", acc[1], k + 1))
+                      for k in range(5)]
+        elif acc[0] == "vt_item":
+            acc = ("vt_continuar",)
+        zonas.append((dy + a, dy + b, c0, c1, acc))
+    return out + lineas + abajo, zonas
+
+
+def _vt_cursor(K, sel):
+    return ("%s%s%s " % (K["C"] + K["BO"], K["PTR"], K["R"])) if sel else "  "
+
+
+def _vt_dial(S, K, dest, W, alto):
+    """Un dial entero: el eje, sus 5 niveles (el actual, completo) y lo que
+    viaja hoy al agente."""
+    vt = _vt(S)
+    d = _orden()[min(S["si"], len(_orden()) - 1)]
+    v = P.niveles(dest)[d["key"]]
+    C = VT.Col(K, W)
+    para = _nombre(dest) if dest else "GLOBAL"
+    der = VT.c(K, "DIM", para + " · ") + VT.c(K, "WH", "%d/5" % v, True)
+    C.add([VT.der(HL.clip(VT.c(K, "C", "‹ ", True) + VT.c(K, "WH", d["label"], True),
+                          max(4, W - HL.vis(der) - 2)), der, W)])
+    C.zonas.append((0, 0, 0, min(W - 1, HL.vis(d["label"]) + 2), ("vt_volver",)))
+    C.add([VT.c(K, "DK", "─" * W)])
+    C.fijas = len(C.lineas)
+    C.add(_cuerpo_dial(S, K, dest, W, full=1))
+    vis, a_pant, st, maxs, _alto_m = VT.ventana(C, alto, vt["scroll"])
+    vt["scroll"], vt["_max"] = st, maxs
+    return vis, VT.zonas_en(C, a_pant, W)
+
+
+def _vt_pares(S, vista):
+    teclas = ("?", _t("tono.vt.k.keys", "teclas"))
+    if vista == "dial":
+        return ((u"←→", _t("tono.hint.level", "nivel")),
+                (u"↑↓", _t("tono.vt.k.scroll", "desplazar")),
+                ("Esc", _t("tono.vt.k.back", "volver")), teclas)
+    if S.get("continuar"):
+        return ((u"↑↓", _t("tono.hint.dial", "dial")), (u"←→", _t("tono.hint.level", "nivel")),
+                ("Enter", _t("tono.hint.continue", "continúa")), teclas)
+    return ((u"↑↓", _t("tono.hint.dial", "dial")), (u"←→", _t("tono.hint.level", "nivel")),
+            ("Enter", _t("tono.vt.k.see", "ver")), ("Tab", _t("tono.hint.agent", "agente")), teclas)
+
+
+def _vt_ayuda(K, W, vista, continuar=False):
+    comunes = [("i", _t("tono.hint.info", "cómo funciona")),
+               ("?", _t("tono.vt.help.keys", "estas teclas")),
+               ("q", _t("tono.vt.help.quit", "salir"))]
+    if vista == "dial":
+        filas = [("← →", _t("tono.vt.help.level", "bajar · subir el nivel")),
+                 ("1-5", _t("tono.vt.help.direct", "nivel directo")),
+                 ("↑ ↓", _t("tono.vt.help.scroll", "desplazar")),
+                 ("Esc", _t("tono.vt.help.back", "volver a los diales"))]
+    else:
+        filas = [("↑ ↓", _t("tono.vt.help.pick", "elegir un dial")),
+                 ("← →", _t("tono.vt.help.level", "bajar · subir el nivel")),
+                 ("1-5", _t("tono.vt.help.direct", "nivel directo")),
+                 ("Enter", _t("tono.hint.continue", "continúa") if continuar
+                  else _t("tono.vt.help.open", "sus 5 niveles y qué se envía")),
+                 ("Tab", _t("tono.vt.help.agent", "otro agente (⇧Tab: atrás)")),
+                 ("p · r", _t("tono.vt.help.preset", "siguiente modo · todo a neutro"))]
+    return VT.ayuda(K, W, filas + comunes)
+
+
+def render_ventanita(S, w, h):
+    if S.get("info"):                                # el cuadro de `i`, como siempre
+        return _render_grande(S, w, h)
+    _sync_destinos(S)
+    K = _K()
+    vt = _vt(S)
+    dests = S["dests"]
+    dest = dests[S["di"] % len(dests)]
+    W, H = max(1, w - 1), max(1, h - 1)
+    alto = H - 1                                     # menos el pie
+    if vt["vista"] == "dial" and (S.get("continuar") or S["si"] >= len(_orden())):
+        vt["vista"] = "diales"
+    if vt.get("ayuda"):
+        cuerpo, zonas = _vt_ayuda(K, W, vt["vista"], S.get("continuar")), []
+    elif vt["vista"] == "dial":
+        cuerpo, zonas = _vt_dial(S, K, dest, W, alto)
+    else:
+        cuerpo, zonas = _vt_diales(S, K, dest, W, alto)
+    pie, zp = VT.pie(_vt_pares(S, vt["vista"]), W)
+    if not S.get("msg"):
+        zonas += [(alto, alto, a, b, ("tecla", k)) for a, b, k in zp]
+    S["_zonas"] = zonas
+    return VT.componer(K, W, H, cuerpo, alto, pie, S.get("msg", ""))
+
+
+def accion_ventanita(S, key):
+    """Las teclas y clics de la ventanita. False = salir. Lo que cambia un
+    dial pasa por _accion: se guarda exactamente igual que siempre."""
+    vt = _vt(S)
+    if S.get("info"):
+        return True if isinstance(key, tuple) else _accion_grande(S, key)
+    acc, rueda = VT.clic(S, key)
+    if isinstance(key, tuple):
+        if acc and acc[0] == "tecla":
+            key = acc[1]
+        elif rueda and vt["vista"] == "dial":
+            vt["scroll"] = max(0, min(vt.get("_max", 0), vt["scroll"] + 3 * rueda))
+            return True
+        elif rueda:
+            key = "down" if rueda > 0 else "up"
+        elif not acc:
+            return True
+        elif acc[0] == "vt_continuar":
+            return False                             # el botón: sigue el primer arranque
+        elif acc[0] == "vt_volver":
+            vt["vista"] = "diales"
+            return True
+        elif acc[0] in ("vt_item", "vt_mas"):
+            abrir = acc[0] == "vt_item" and S["si"] == acc[1] and not S.get("continuar")
+            S["si"], S["msg"] = acc[1], ""
+            if abrir:                                # clic en el elegido: ábrelo
+                vt.update(vista="dial", scroll=0)
+            return True
+        elif acc[0] == "vt_fija":
+            S["si"] = acc[1]
+            return _accion_grande(S, str(acc[2]))
+        else:
+            return True
+    if vt.get("ayuda"):
+        vt["ayuda"] = False
+        return key not in ("q", "\x03")
+    if key == "?":
+        vt["ayuda"] = True
+        return True
+    if vt["vista"] == "dial":
+        if key in ("\x1b", "\r", "\n"):
+            vt["vista"] = "diales"
+            S["msg"] = ""
+            return True
+        if key in ("up", "down"):
+            vt["scroll"] = max(0, min(vt.get("_max", 0), vt["scroll"] + (1 if key == "down" else -1)))
+            return True
+        return _accion_grande(S, key)
+    if key in ("\r", "\n") and not S.get("continuar") and S["si"] < len(_orden()):
+        vt.update(vista="dial", scroll=0)
+        S["msg"] = ""
+        return True
+    return _accion_grande(S, key)
+
+
+_render_grande = render
 import responsive_ui as _responsive
 render = _responsive.renderer(render, 'TONO')
+render = VT.con_ventanita(render, render_ventanita, "tono")
 _accion = _responsive.action(_accion)
+_accion_grande = _accion
+_accion = VT.con_ventanita_accion(_accion, accion_ventanita)
 
 def _draw(tout, S, first=False):
     w, h = _size()
     try:
         _responsive.paint(tout, render(S, w, h), first=first)
     except Exception:
-        pass
+        return
+    VT.mouse(tout, S)                        # los clics, solo en la ventanita
 
 
 def _run_unix(S):
@@ -536,6 +757,8 @@ def _run_unix(S):
                     seq = os.read(fd, 2).decode("utf-8", "replace")
                     key = {"[A": "up", "[B": "down", "[C": "right",
                            "[D": "left", "[Z": "right_tab"}.get(seq, "\x1b")
+                    if seq == "[<":          # un clic o la rueda (solo en la ventanita)
+                        key = VT.resto_mouse(fd)
                 else:
                     key = "\x1b"
             elif ch == "\t":
@@ -545,6 +768,7 @@ def _run_unix(S):
             _draw(tout, S)
     finally:
         try:
+            VT.mouse_off(tout, S)
             tout.write("\033[?1049l")
             tout.flush()
             termios.tcsetattr(fd, termios.TCSADRAIN, old)

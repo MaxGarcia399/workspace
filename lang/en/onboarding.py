@@ -173,6 +173,7 @@ STRINGS = {
     "onboarding.apariencia.group.fondo": "background",
     "onboarding.apariencia.activo": "active",
     "onboarding.apariencia.div_donde": "where it lives",
+    "onboarding.apariencia.herdr_manda": "inside herdr, {tema} rules; this applies outside herdr",
     "onboarding.apariencia.changes_p1": "The theme paints the whole hub — "
                                         "wordmark, boxes, sliders — and saves "
                                         "instantly: this screen is ALREADY "
@@ -207,7 +208,8 @@ STRINGS = {
                                     "see the BRAIN about to be born and the "
                                     "engine it runs on → it's created LIVE, "
                                     "step by step. It's born self-contained in "
-                                    "~/Desktop/<NAME> - BRAIN, usable when "
+                                    "its own folder (Mac and Linux: "
+                                    "~/Workspace/Cerebros/<NAME>), usable when "
                                     "done.",
     "onboarding.agente.cargar.label": "load an existing agent",
     "onboarding.agente.cargar.desc": "Connect a brain that already exists (a "
@@ -217,9 +219,10 @@ STRINGS = {
                                      "· statusline · launcher · theme) runs "
                                      "LIVE, step by step.",
     "onboarding.agente.descubrir.label": "discover brains on disk",
-    "onboarding.agente.descubrir.desc": "Scans Desktop / Documents / vaults "
-                                        "for folders with "
-                                        ".workspace/agent.json and lets you "
+    "onboarding.agente.descubrir.desc": "Looks for folders with "
+                                        ".workspace/agent.json (Obsidian "
+                                        "vaults, ~/Workspace/Cerebros, your "
+                                        "usual folders) and lets you "
                                         "connect them — you see which are new "
                                         "and which are already set. A MANUAL "
                                         "action — Workspace never connects "

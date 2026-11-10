@@ -517,6 +517,9 @@ def _detalle(S, K, d, iw):
                 out += ['%s%s%s' % (K['WH'], ln, K['R']) for ln in SB._wrap(txt, iw)[:3]]
             out += ['%s%s%s' % (K['DIM'], ln, K['R']) for ln in SB._wrap(
                 _t('motores.c.src', 'fuente oficial: {u}', 'official source: {u}', u=rec['source']), iw)[:2]]
+            if rec.get('aviso'):           # el diálogo que va a salir, ANTES de Enter
+                out.append('')
+                out += ['%s%s%s' % (K['B'], ln, K['R']) for ln in SB._wrap(rec['aviso'], iw)[:4]]
         return out, 0
     activo = S.get('focus') == 'detail'
     ops = options(S, d)
@@ -1083,6 +1086,10 @@ def run():
         # Varios comandos (reinstalar, cambiar de cuenta) van en orden y paran
         # en el primero que falle.
         rc, problem = (1, why)
+        if ready and kind in ('install', 'reinstall'):
+            aviso = _aviso_instalar(eid)
+            if aviso:                      # una línea, antes de que salga el diálogo
+                print('\n  ' + aviso)
         if ready:
             for c in (cmd if cmd and isinstance(cmd[0], (list, tuple)) else [cmd]):
                 rc, problem = launch(list(c), cwd=(opts or {}).get('cwd'))
@@ -1096,6 +1103,16 @@ def run():
             pass
         refresh(S, announce=False)
         S['msg'] = after_message(S, kind, eid, rc, problem, ready)
+
+
+def _aviso_instalar(eid):
+    """La línea del diálogo que abre el instalador oficial (engine_install.
+    recipe → «aviso»), o ''."""
+    try:
+        import engine_install
+        return (engine_install.recipe(eid) or {}).get('aviso') or ''
+    except Exception:
+        return ''
 
 
 def launch(cmd, cwd=None):

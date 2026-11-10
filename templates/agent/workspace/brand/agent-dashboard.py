@@ -199,30 +199,49 @@ def save_workspaces(ws):
         json.dump(ws, f, indent=2, ensure_ascii=False)
     os.replace(tmp, WS_FILE)   # atómico: el picker es camino crítico del arranque
 
+def _actualizar_workspaces(cambiar):
+    """Leer-cambiar-guardar WS_FILE bajo el candado común de TODOS sus
+    escritores (sessions_registry.actualizar_ws — Greptile 0.8.x, 8): la
+    pestaña que el menú crea o estampa no pisa la de otra ventana. Con un
+    Workspace sin esa función (una copia vieja), como antes."""
+    try:
+        import sessions_registry as _reg
+        actualizar = _reg.actualizar_ws
+    except Exception:
+        actualizar = None
+    if actualizar is not None:
+        return actualizar(WS_FILE, cambiar)
+    ws = cambiar(load_workspaces())
+    if ws is not None:
+        save_workspaces(ws)
+    return ws is not None
+
 def add_workspace(name):
     import uuid
-    ws = load_workspaces()
     wid = str(uuid.uuid4())
     now = _now_iso()
-    ws.append({"name": name, "id": wid,
-               "created": now, "last_opened": now, "updated": now})
-    save_workspaces(ws)
+
+    def agregar(ws):
+        ws.append({"name": name, "id": wid,
+                   "created": now, "last_opened": now, "updated": now})
+        return ws
+    _actualizar_workspaces(agregar)
     return wid
 
 def mark_opened(wid):
     """Apertura HUMANA (picker): estampa last_opened+updated. Best-effort."""
     try:
-        ws = load_workspaces()
         now = _now_iso()
-        for w in ws:
-            if w.get("id") == wid:
-                w.setdefault("created", now)
-                w["last_opened"] = now
-                w["updated"] = now
-                break
-        else:
-            return
-        save_workspaces(ws)
+
+        def estampar(ws):
+            for w in ws:
+                if w.get("id") == wid:
+                    w.setdefault("created", now)
+                    w["last_opened"] = now
+                    w["updated"] = now
+                    return ws
+            return None
+        _actualizar_workspaces(estampar)
     except Exception:
         pass
 

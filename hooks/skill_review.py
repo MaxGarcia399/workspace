@@ -17,6 +17,9 @@ Ahora son dos momentos, y ninguno lanza procesos:
     si hay una revisión pendiente, se la entrega al agente como parte de su
     contexto de arranque. El agente la hace en esa sesión, a la vista del socio
     y con su misma cuenta, y la reporta en su bloque 🧠. Se entrega UNA vez.
+    La limpieza de vistas nunca borra la del pendiente, y un pendiente sin
+    vista no se gasta: queda con rastro en <estado>/logs/skill-review.log y
+    caduca a las 24 h (SIN_VISTA_SECONDS) si la vista no aparece.
 
 La opción NO cambia: viene apagada; `"skill_review": true|false` en el
 agent.json del agente gana; si no dice nada, manda `hooks.skill_review`
@@ -232,12 +235,32 @@ def write_neutral_transcript(transcript, outdir, engine=""):
         return ""
 
 
+def _nombre_vista(view):
+    """Nombre de archivo de una vista (sin la ruta; acepta las dos barras)."""
+    return os.path.basename(str(view or "").replace("\\", "/"))
+
+
+def _vista_del_pendiente(outdir):
+    """Nombre de la vista que referencia el pending.json de `outdir`, o ''."""
+    try:
+        with open(os.path.join(outdir, "pending.json"), encoding="utf-8") as fh:
+            return _nombre_vista(json.load(fh).get("view"))
+    except Exception:
+        return ""
+
+
 def _prune_views(outdir, keep=KEEP_VIEWS):
-    """Deja solo las `keep` vistas más recientes (no se acumulan)."""
+    """Deja solo las `keep` vistas más recientes (no se acumulan), MÁS la que
+    referencia el pendiente vigente aunque sea más vieja (queda una de más).
+    Antes, con 3+ cierres antes de la siguiente apertura, la limpieza borraba
+    la vista de la revisión pendiente y esta se perdía (diagnóstico 9-nov)."""
+    protegida = _vista_del_pendiente(outdir)
     try:
         views = sorted((f for f in os.listdir(outdir)
                         if f.startswith("sesion-") and f.endswith(".md")), reverse=True)
         for f in views[keep:]:
+            if f == protegida:
+                continue
             try:
                 os.remove(os.path.join(outdir, f))
             except OSError:
@@ -541,12 +564,88 @@ def _con_decisor(task, d):
     return task + ("\n" + linea + "\n" if linea else "")
 
 
+#: Un pendiente cuya vista no está NO se gasta: sigue para la próxima apertura
+#: y cada intento deja una línea en <estado>/logs/skill-review.log. Antes de
+#: este plazo, el siguiente cierre que deje revisión lo reemplaza (la vista
+#: nueva sí existe). Si la vista no aparece y pasa este plazo desde el primer
+#: intento fallido, la apertura siguiente lo retira: pending.json →
+#: perdido.json (con sus intentos) y la línea «pendiente_retirado» en el log.
+SIN_VISTA_SECONDS = 24 * 3600
+
+
+def _log(rec):
+    """Rastro mínimo (<estado>/logs/skill-review.log, el mismo patrón que
+    memoria.log): qué pasó con un pendiente. Nunca contenido de la sesión:
+    solo el nombre del cerebro y el de la vista, sin rutas."""
+    try:
+        d = os.path.join(_state_dir(), "logs")
+        os.makedirs(d, exist_ok=True)
+        rec = dict(rec, ts=datetime.datetime.now().isoformat(timespec="seconds"))
+        with open(os.path.join(d, "skill-review.log"), "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({k: (v if isinstance(v, int) else str(v)[:200])
+                                 for k, v in rec.items()}, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def _vista_vigente(brain, view):
+    """La vista del pendiente si existe: la ruta guardada o, si el cerebro
+    cambió de lugar, el mismo archivo en su carpeta de revisión actual. ''
+    si no está."""
+    view = str(view or "")
+    if not view:
+        return ""
+    if os.path.isfile(view):
+        return view
+    nombre = _nombre_vista(view)
+    if nombre.startswith("sesion-") and nombre.endswith(".md"):
+        alt = os.path.join(_review_dir(brain), nombre)
+        if os.path.isfile(alt):
+            return alt
+    return ""
+
+
+def _sin_vista(brain, pp, pending):
+    """El pendiente apunta a una vista que no está: NO se gasta. Cuenta el
+    intento en el propio pendiente (`sin_vista`), deja rastro y, pasado
+    SIN_VISTA_SECONDS desde el primer intento, lo retira a perdido.json."""
+    nombre = _nombre_vista(pending.get("view"))
+    sv = pending.get("sin_vista") if isinstance(pending.get("sin_vista"), dict) else {}
+    ahora = int(time.time())
+    try:
+        desde = int(sv.get("desde_ts"))
+    except (TypeError, ValueError):
+        desde = ahora
+    try:
+        intentos = int(sv.get("intentos") or 0) + 1
+    except (TypeError, ValueError):
+        intentos = 1
+    try:   # si un cierre lo reemplazó mientras tanto, el nuevo manda: no se pisa
+        with open(pp, encoding="utf-8") as fh:
+            if _nombre_vista(json.load(fh).get("view")) != nombre:
+                return
+    except Exception:
+        return
+    pending = dict(pending, sin_vista={"intentos": intentos, "desde_ts": desde})
+    retirar = ahora - desde >= SIN_VISTA_SECONDS
+    try:
+        _write_json(pp, pending)
+        if retirar:
+            os.replace(pp, os.path.join(os.path.dirname(pp), "perdido.json"))
+    except Exception:
+        pass
+    _log({"evento": "pendiente_retirado" if retirar else "pendiente_sin_vista",
+          "cerebro": os.path.basename(os.path.normpath(brain)), "vista": nombre,
+          "intentos": intentos})
+
+
 def start_context(brain):
     """Texto para el contexto de arranque, o '' si no hay nada que entregar.
     Consume el pendiente (se entrega UNA vez). Antes archiva las propuestas
     que el agente ya resolvió (archivar_resueltas): no se vuelven a pedir.
     Con el uso «Skills» de Decisores en «decide», una sesión que el decisor
-    juzgó sin skill (sobre el umbral) se consume sin entregarse."""
+    juzgó sin skill (sobre el umbral) se consume sin entregarse. Si la vista
+    del pendiente no está, NO se consume (_sin_vista: rastro y caducidad)."""
     archivar_resueltas(brain)
     if os.environ.get("WORKSPACE_NO_SKILL_REVIEW") or not review_enabled(brain):
         return ""
@@ -556,14 +655,23 @@ def start_context(brain):
             pending = json.load(fh)
     except Exception:
         return ""
-    view = str((pending or {}).get("view") or "")
+    if not isinstance(pending, dict):    # no es un pendiente: fuera, con rastro
+        try:
+            os.replace(pp, os.path.join(os.path.dirname(pp), "perdido.json"))
+        except OSError:
+            pass
+        _log({"evento": "pendiente_ilegible",
+              "cerebro": os.path.basename(os.path.normpath(brain))})
+        return ""
+    view = _vista_vigente(brain, pending.get("view"))
+    if not view:
+        _sin_vista(brain, pp, pending)
+        return ""
     try:
         os.replace(pp, os.path.join(os.path.dirname(pp), "delivered.json"))
     except OSError:
         return ""
-    if not view or not os.path.isfile(view):
-        return ""
-    return _con_decisor(build_task(brain, view), (pending or {}).get("decisor")) or ""
+    return _con_decisor(build_task(brain, view), pending.get("decisor")) or ""
 
 
 def start_main():

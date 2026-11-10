@@ -40,6 +40,7 @@ STRINGS = {
     "uninstall.plan.engines_clean": "the conversations of Workspace's profiles in OpenClaw "
                                     "and Hermes, in a backup folder next to each profile "
                                     "(see below)",
+    "uninstall.plan.user_dirs": "inside the Workspace folder, your folders: {p}",
     "uninstall.plan.harness": "Workspace folder: {p}",
     "uninstall.plan.harness_kept": "Workspace folder (--keep-folder): {p}",
     "uninstall.plan.keep": "KEPT (untouched)",

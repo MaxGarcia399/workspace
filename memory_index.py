@@ -118,11 +118,19 @@ def _title_of(text, path):
     return os.path.splitext(os.path.basename(path))[0]
 
 
+#: Lo que NUNCA se indexa aunque una fuente lo abarque: las salas de
+#: Conversaciones (texto de otros agentes: contenido no confiable, no memoria)
+#: y el bus de mensajes.
+NUNCA = ("conversaciones", "msgs")
+
+
 def _iter_source_files(brain):
     """Genera (abs_path, categoría) de todo lo indexable. Falla-suave: rutas
     inexistentes se saltan."""
     brain = os.path.expanduser(brain)
     for sub, pattern, cat in SOURCES:
+        if sub.split("/")[0] in NUNCA:
+            continue
         # `sub` usa '/' como separador canónico en SOURCES; lo partimos para que
         # os.path.join arme la ruta con os.sep nativo (en Windows, '\'). Si no,
         # join conserva el '/' interno y os.walk propaga separadores MEZCLADOS.
@@ -136,6 +144,8 @@ def _iter_source_files(brain):
                 if fn.upper().startswith("README"):
                     continue
                 p = os.path.join(root, fn)
+                if os.path.relpath(p, brain).replace(os.sep, "/").split("/")[0] in NUNCA:
+                    continue
                 rel = os.path.relpath(p, base).replace(os.sep, "/")
                 if pattern and not re.fullmatch(pattern, rel):
                     continue

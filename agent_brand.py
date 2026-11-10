@@ -403,7 +403,7 @@ def theme_colors():
         P = tuitheme.palette()
         return {"HEAD": P.C, "MODEL": P.B, "LBL": P.DIM, "VAL": P.WH,
                 "SEP": P.DK, "FILL": P.C, "EMPT": P.INACTIVE,
-                "OK": P.OK, "ERR": P.ERR, "WARN": P.B2}
+                "OK": P.OK, "ERR": P.ERR, "WARN": getattr(P, "WARN", P.B2)}
     except Exception:
         return None
 

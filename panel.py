@@ -1083,27 +1083,24 @@ def _stamp_opened(ctx, wid):
     (tmp + os.replace, mismo formato que mark_opened del dashboard). Si falla,
     solo se pierde el ordenamiento — regenerable. Jamás levanta."""
     try:
-        import json
         from datetime import datetime
+        import sessions_registry as reg
         path = os.path.join(ctx.brain or "", ".claude",
                             "%s-workspaces.json" % ctx.agent)
-        with open(path, encoding="utf-8") as fh:
-            ws = json.load(fh)
-        if not isinstance(ws, list):
+        if not os.path.isfile(path):
             return
         now = datetime.now().isoformat(timespec="seconds")
-        for w in ws:
-            if isinstance(w, dict) and w.get("id") == wid:
-                w.setdefault("created", now)
-                w["last_opened"] = now
-                w["updated"] = now
-                break
-        else:
-            return
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(ws, f, indent=2, ensure_ascii=False)
-        os.replace(tmp, path)
+
+        def estampar(ws):
+            for w in ws:
+                if isinstance(w, dict) and w.get("id") == wid:
+                    w.setdefault("created", now)
+                    w["last_opened"] = now
+                    w["updated"] = now
+                    return ws
+            return None
+        # el candado común de workspaces.json (Greptile 0.8.x, 8)
+        reg.actualizar_ws(path, estampar)
     except Exception:
         pass
 
@@ -1236,31 +1233,23 @@ def _register_workspace(ctx, wid, name, now=None):
 
     `now` = callable → datetime (default datetime.now), inyectable para tests."""
     try:
-        import json
+        import sessions_registry as reg
         if now is None:
             from datetime import datetime
             now = datetime.now
         path = os.path.join(ctx.brain or "", ".claude",
                             "%s-workspaces.json" % ctx.agent)
         try:
-            with open(path, encoding="utf-8") as fh:
-                ws = json.load(fh)
-            if not isinstance(ws, list):
-                ws = []
-        except Exception:
-            ws = []                            # ausente/roto → arrancar lista
-        try:
             ts = now().isoformat(timespec="seconds")
         except Exception:
             ts = ""
-        ws.append({"name": name, "id": wid,
-                   "created": ts, "last_opened": ts, "updated": ts})
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(ws, f, indent=2, ensure_ascii=False)
-        os.replace(tmp, path)
-        return True
+
+        def agregar(ws):                       # ausente/roto → arrancar lista
+            ws.append({"name": name, "id": wid,
+                       "created": ts, "last_opened": ts, "updated": ts})
+            return ws
+        # el candado común de workspaces.json (Greptile 0.8.x, 8)
+        return bool(reg.actualizar_ws(path, agregar))
     except Exception:
         return False
 

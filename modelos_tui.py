@@ -7,10 +7,23 @@ modelos con su estado; a la derecha las opciones del elegido, que se aplican
 AHÍ MISMO (sin pantallas de detalle):
 
   conectar llave    campo ENMASCARADO en la columna → bóveda de Workspace
-                    (es lo ÚNICO que hay que configurar: Jev habla con su API
-                    con la stdlib, no hay SDK que instalar)
+                    (en la nube es lo ÚNICO que hay que configurar: cada uno
+                    habla con su API con la stdlib, no hay nada que instalar)
   desconectar       con confirmación
-  probar            una llamada real chiquita: latencia, tokens y costo
+  Ollama            un decisor LOCAL (en esta computadora, sin llave): su
+                    estado real (no instalado · apagado · versión vieja · sin
+                    modelo · listo) y el siguiente paso en una línea
+                    («ollama pull nimble»); Enter vuelve a mirar
+  modelo            el de cada decisor que trae varios, SOLO de decisión
+                    (OpenRouter, Liquid, los de decisión descargados en Ollama:
+                    los de chat ni se ofrecen, se cuentan). Enter (o un clic)
+                    ABRE LA LISTA (section_box.pick_list, la de siempre), con el
+                    actual marcado y una pista por fila (marca, precio o «en
+                    esta computadora»); ↑↓ mueve, Enter elige y guarda
+                    (`decisions.set_decider_model`), Esc cierra sin cambiar; con
+                    10 o más, escribir filtra (como la búsqueda de la portada)
+  probar            una llamada real chiquita: latencia, tokens y costo (uno
+                    local, además, se precarga en segundo plano)
   contexto          el límite MEDIDO del modelo (META `context_tokens`);
                     Enter elige uno menor (`decisions.model_limits`: más
                     barato y rápido; nunca más de lo que el modelo admite)
@@ -71,13 +84,108 @@ def ready(did):
     return selectable(did) and bool(DC.decider_status(did).get("ready"))
 
 
+def _detail_txt(detail):
+    """El estado (no listo) en pocas palabras, según status()."""
+    return {"no_key": _t("decisores.st.no_key", "sin llave"),
+            "ollama_missing": _t("modelos.st.missing", "no instalado"),
+            "ollama_off": _t("modelos.st.off", "apagado"),
+            "ollama_old": _t("modelos.st.old", "versión vieja"),
+            "no_model": _t("modelos.st.no_model", "sin modelo"),
+            "checking": _t("modelos.st.checking", "comprobando…")}.get(
+        detail, _t("modelos.st.not_ready", "no listo"))
+
+
 def state(did):
-    """(texto, color) del estado en la lista — como engines_tui.status_of."""
+    """(texto, color) del estado en la lista — como engines_tui.status_of. El
+    estado REAL: el status() del decisor (sin llave, o el de Ollama)."""
     if not selectable(did):
         return _t("modelos.st.missing", "no instalado"), "DIM"
-    if DC.meta(did).get("key_env") and not DC.key_source(did):
-        return _t("decisores.st.no_key", "sin llave"), "ERR"
-    return _t("decisores.st.ready", "listo"), "OK"
+    st = DC.decider_status(did)
+    if st.get("ready"):
+        return _t("decisores.st.ready", "listo"), "OK"
+    return _detail_txt(st.get("detail")), "ERR"
+
+
+def is_local(did):
+    """¿Corre en ESTA computadora? (META `local`: sin llave ni aviso de nube)."""
+    return bool(DC.meta(did).get("local", False))
+
+
+def next_step(did):
+    """El siguiente paso de un decisor LOCAL que no está listo, en una línea
+    («Descarga un modelo de decisión: ollama pull nimble»), o ''."""
+    if not selectable(did):
+        return ""
+    st = DC.decider_status(did)
+    if st.get("ready"):
+        return ""
+    d = st.get("detail")
+    cmd = _pull_cmd(did)
+    if d == "ollama_missing":
+        return _t("modelos.next.missing", "Instala Ollama desde ollama.com y vuelve aquí")
+    if d == "ollama_off":
+        return _t("modelos.next.off", "Abre Ollama (o en una terminal: ollama serve) y vuelve "
+                  "aquí")
+    if d == "ollama_old":
+        return _t("modelos.next.old", "Actualiza Ollama a 0.35.0 o más nueva (tienes {v})",
+                  v=st.get("version") or "?")
+    if d == "no_model":
+        return _t("modelos.next.no_model", "Descarga un modelo de decisión: {cmd}", cmd=cmd)
+    return ""
+
+
+def _pull_cmd(did, model=None):
+    try:
+        fn = getattr(DC.load(did), "pull_cmd", None)
+        return str(fn(model) or "") if callable(fn) else ""
+    except Exception:
+        return ""
+
+
+def model_list(did):
+    """[{"id", "decision"}] de un decisor con varios modelos ([] si trae uno)."""
+    try:
+        return DC.decider_models(did)
+    except Exception:
+        return []
+
+
+def current_model(did):
+    try:
+        return DC.decider_model(did)
+    except Exception:
+        return ""
+
+
+def _model_value(did):
+    """«nimble:latest» (la lista solo trae modelos de decisión)."""
+    return current_model(did) or _t("modelos.model.none", "ninguno descargado")
+
+
+def local_notes(did):
+    """Las líneas de un decisor local que ya está listo: el modelo guardado que
+    no sirvió y cuál se usa en su lugar, y cuántos de chat hay (no se ofrecen:
+    no sirven para decidir). [] si no hay nada que decir."""
+    if not is_local(did):
+        return []
+    st = DC.decider_status(did)
+    out = []
+    fb = st.get("fallback") if isinstance(st.get("fallback"), dict) else None
+    if st.get("ready") and fb and st.get("model"):
+        key, es = (("modelos.note.fallback_chat", "Uso {m}: {x} no es un modelo de decisión")
+                   if fb.get("why") == "not_decision" else
+                   ("modelos.note.fallback_missing", "Uso {m}: {x} ya no está descargado"))
+        out.append(_t(key, es, m=st["model"], x=fb.get("from") or "?"))
+    try:
+        n = int(st.get("chat_models") or 0)
+    except (TypeError, ValueError):
+        n = 0
+    if n == 1:
+        out.append(_t("modelos.note.chat_one", "1 modelo de chat descargado no sirve para decidir"))
+    elif n > 1:
+        out.append(_t("modelos.note.chat_many", "{n} modelos de chat descargados no sirven para "
+                      "decidir", n=n))
+    return out
 
 
 def ctx_limit(did):
@@ -139,6 +247,9 @@ def _price_rows(did):
     m = DC.meta(did)
     if m.get("local", True):
         return [("price", _t("modelos.info.price", "precio"), _t("modelos.info.free", "sin costo"))]
+    if m.get("price_in_per_m") is None and m.get("price_from_response"):
+        return [("price", _t("modelos.info.price", "precio"),
+                 _t("modelos.info.price_resp", "lo dice cada respuesta"))]
     if m.get("price_in_per_m") is None:
         return [("price", _t("modelos.info.price", "precio"), _t("modelos.info.noprice", "precio n/d"))]
     out = [("price", _t("modelos.info.in", "entrada"),
@@ -154,6 +265,15 @@ def options(S, did):
     """[(clave, etiqueta, valor)] del modelo — como engines_tui.options:
     valor = estado; "" = acción (›)."""
     out = []
+    if is_local(did) and not DC.meta(did).get("key_env"):
+        st = DC.decider_status(did)
+        if st.get("ready"):
+            val = _t("modelos.local.here", "en esta computadora")
+            if st.get("version"):
+                val += " · " + str(st["version"])
+        else:
+            val = _detail_txt(st.get("detail"))
+        out.append(("local", DC.meta(did).get("provider") or name(did), val))
     if DC.meta(did).get("key_env"):
         src = DC.key_source(did)
         if src == "store":
@@ -163,10 +283,233 @@ def options(S, did):
             out.append(("key", _t("modelos.k.key", "llave"), _t("modelos.key.env", "del entorno")))
         else:
             out.append(("connect", _t("modelos.o.connect", "conectar llave"), ""))
-    out.append(("probe", _t("modelos.o.probe", "probar"),
-                "" if ready(did) else _t("modelos.probe.needs", "necesita la llave")))
+    if model_list(did):
+        out.append(("model", _t("modelos.k.model", "modelo"), _model_value(did)))
+    out.append(("probe", _t("modelos.o.probe", "probar"), "" if ready(did) else _probe_needs(did)))
     out.append(("ctx", _t("modelos.info.ctx", "contexto"), _ctx_value(did)))
     return out + _price_rows(did)
+
+
+def _probe_needs(did):
+    """Lo que le falta para poder probarlo (la fila «probar» de uno no listo)."""
+    if DC.meta(did).get("key_env") and not DC.key_source(did):
+        return _t("modelos.probe.needs", "necesita la llave")
+    return _t("modelos.probe.when_ready", "cuando esté listo")
+
+
+# ── tu llave, en simple (Información y la pantalla de conectar) ──────────────
+def _site(did):
+    m = DC.meta(did)
+    return m.get("site") or m.get("provider") or name(did)
+
+
+def key_tip(did):
+    """La recomendación al conectar: una llave solo para Workspace y, si el
+    proveedor lo permite por llave (META `key_spend_limit`), con tope de gasto."""
+    m = DC.meta(did)
+    if m.get("key_spend_limit"):
+        return _t("modelos.llave.tip_cap", "Mejor una llave solo para Workspace, con tope de gasto "
+                  "({p} lo permite)", p=m.get("provider") or name(did))
+    return _t("modelos.llave.tip", "Mejor una llave solo para Workspace")
+
+
+def keys_line(did):
+    """«Tus llaves en OpenRouter: https://openrouter.ai/keys» (META `keys_url`;
+    solo texto, no se abre nada), o ''."""
+    m = DC.meta(did)
+    if not m.get("keys_url"):
+        return ""
+    return _t("modelos.llave.keys_url", "Tus llaves en {p}: {url}", p=m.get("provider") or name(did),
+              url=m["keys_url"])
+
+
+def revoke_line(did):
+    """Cómo dejarla muerta de verdad tras desconectarla: revocarla en el proveedor."""
+    m = DC.meta(did)
+    return _t("modelos.llave.revoke", "revócala también en {p} ({url})",
+              p=m.get("provider") or name(did), url=m.get("keys_url") or _site(did))
+
+
+#: (dónde, modo, momento) de la bóveda, recién leído: la pantalla se pinta en
+#: cada tecla y mirar el llavero lee archivos (sin llamar a nadie).
+_DONDE = {"t": 0.0, "v": None}
+
+
+def _boveda_ahora():
+    """(sistema, modo) de la bóveda AHORA: dónde se guardaría una llave nueva
+    (secret_store.sistema: llavero | dpapi | secret-tool | archivo) y el modo
+    elegido (auto | keyring | file). Falla-suave → ("archivo", "auto")."""
+    if _DONDE["v"] is not None and time.time() - _DONDE["t"] < 3:
+        return _DONDE["v"]
+    try:
+        import secret_store
+        v = (secret_store.sistema(), secret_store.modo_guardado())
+    except Exception:
+        v = ("archivo", "auto")
+    _DONDE.update(t=time.time(), v=v)
+    return v
+
+
+def donde_vive(did):
+    """De dónde sale la llave de `did` HOY: ("entorno", var) si viene de una
+    variable de tu sistema; (llavero | dpapi | secret-tool | archivo, var) si
+    está en la bóveda (su fuente real, secret_store.fuente); y, sin llave,
+    adónde iría una nueva (secret_store.sistema)."""
+    src, var = "", ""
+    try:
+        src, var = DC._key_origin(did)
+    except Exception:
+        pass
+    if src == "env":
+        return "entorno", var
+    if src == "store":
+        try:
+            import secret_store
+            f = secret_store.fuente(var, env={})
+            if f:
+                return f, var
+        except Exception:
+            pass
+    return _boveda_ahora()[0], var
+
+
+def _permiso_archivo():
+    return (_t("modelos.llave.perm_win", "solo tu usuario") if os.name == "nt" else "0600")
+
+
+def where_text(donde):
+    """«Dónde vive», por sistema y según la fuente real (ver donde_vive)."""
+    cola = _t("modelos.llave.where_tail", "fuera de tu cerebro: no se sincroniza ni se sube a "
+              "ningún lado. Nosotros nunca la vemos.")
+    if donde == "llavero":
+        return _t("modelos.llave.where_llavero", "En el llavero de tu Mac (cifrado), ") + cola
+    if donde == "dpapi":
+        return _t("modelos.llave.where_dpapi", "En esta computadora, cifrada con tu cuenta de "
+                  "Windows, ") + cola
+    if donde == "secret-tool":
+        return _t("modelos.llave.where_secret_tool", "En el llavero de tu sistema, ") + cola
+    if _boveda_ahora()[1] == "file":
+        return _t("modelos.llave.where_file_chosen", "En un archivo solo tuyo ({perm}), porque así "
+                  "quedó configurado en esta computadora, ", perm=_permiso_archivo()) + cola
+    return _t("modelos.llave.where_file", "En esta computadora, en un archivo solo tuyo ({perm}) "
+              "— tu sistema no tiene llavero disponible —, ", perm=_permiso_archivo()) + cola
+
+
+def _lista(nombres):
+    if len(nombres) <= 1:
+        return "".join(nombres)
+    return ", ".join(nombres[:-1]) + _t("modelos.llave.and", " y ") + nombres[-1]
+
+
+def agents_text(donde):
+    """«Tus agentes», honesto (revisión 2026-11-08): ningún motor la RECIBE
+    (engine_env); en los motores con la regla (rutas_protegidas.no_la_leen)
+    sus herramientas de archivos no pueden abrir la bóveda y, con la llave en
+    el llavero, su terminal no puede usar `security` / `secret-tool`; de los
+    demás dice que no hay esa regla; y nunca promete más: un programa que
+    corra con tu usuario aún podría pedirla. Jamás «no pueden leerla»."""
+    import rutas_protegidas as R
+    si = R.no_la_leen(donde)
+    con = [n for m, n in R.MOTORES if m in si]
+    sin = [n for m, n in R.MOTORES if m not in si]
+    if donde in ("llavero", "secret-tool"):
+        regla = _t("modelos.llave.agents_rule_kc2", "sus herramientas de archivos no pueden abrir "
+                   "la bóveda y su terminal no puede usar `security` ni `secret-tool`")
+        aun = _t("modelos.llave.agents_still_kc", "pedírsela al llavero")
+    elif donde == "dpapi":
+        regla = _t("modelos.llave.agents_rule2", "sus herramientas de archivos no pueden abrir la "
+                   "bóveda")
+        aun = _t("modelos.llave.agents_still_dpapi", "descifrarla")
+    else:
+        regla = _t("modelos.llave.agents_rule2", "sus herramientas de archivos no pueden abrir la "
+                   "bóveda")
+        aun = _t("modelos.llave.agents_still_file", "leer el archivo")
+    return _t("modelos.llave.agents_p2", "Tus agentes no la reciben. En {con}, {regla}. En {sin} "
+              "no hay esa regla. Un programa que corra con tu usuario aún podría {aun}.",
+              con=_lista(con), regla=regla, sin=_lista(sin), aun=aun)
+
+
+def _en_sesion_txt(did, var):
+    """Con qué deciden los usos DENTRO de las sesiones de tus agentes cuando la
+    llave viene de una variable exclusiva de Workspace (que ningún motor
+    recibe), en el orden en que el decisor la busca ahí: la variable estándar
+    del proveedor si la exportaste (y se cobra a esa llave), la guardada en
+    Workspace, o ninguna (revisor sobre ed793cd8, D)."""
+    std = ""
+    try:
+        std = str((DC.meta(did) or {}).get("key_env_std") or "")
+        from deciders import _systemone as SO
+        if std and (os.environ.get(std) or "").strip() and not SO._cargada_por_la_boveda(std):
+            return _t("modelos.llave.where_env_solo_std", "Tus agentes no la reciben: dentro de sus "
+                      "sesiones los usos deciden con {std}, la de tu sistema, y se cobra a esa "
+                      "llave.", std=std)
+        import secret_store
+        if secret_store.has(var):
+            return _t("modelos.llave.where_env_solo_saved", "Tus agentes no la reciben: dentro de sus "
+                      "sesiones los usos deciden con la que guardaste en Workspace.")
+    except Exception:
+        pass
+    return _t("modelos.llave.where_env_solo", "Tus agentes no la reciben, así que los usos dentro de "
+              "sus sesiones no deciden con ella: guárdala aquí para que también decidan ahí.")
+
+
+def key_facts(did):
+    """«Tu llave, en simple»: [(qué, en palabras)] para un decisor con llave, o
+    None si no usa (uno local). Cada frase describe lo que el código hace HOY
+    (secret_store, rutas_protegidas, deciders/_systemone, decisions.redact,
+    esta pantalla); «Dónde vive» y «Tus agentes», según dónde vive de verdad
+    (donde_vive) — tests/test_modelos_llave.py prueba cada frase."""
+    m = DC.meta(did)
+    if not m.get("key_env"):
+        return None
+    if m.get("key_spend_limit"):
+        consejo = _t("modelos.llave.advice_cap", "Crea en {site} una llave solo para Workspace, con "
+                     "un tope de gasto.", site=_site(did))
+    else:
+        consejo = _t("modelos.llave.advice", "Crea en {site} una llave solo para Workspace.",
+                     site=_site(did))
+    consejo += " " + _t("modelos.llave.advice_revoke", "Si algún día dudas, desconéctala aquí y "
+                        "revócala allá: con eso queda muerta en todos lados.")
+    donde, var = donde_vive(did)
+    # una variable ESTÁNDAR del proveedor exportada en tu sistema SÍ llega a
+    # los motores (es para ellos); una exclusiva de Workspace, jamás
+    # (secret_store.es_solo_workspace — Greptile 0.8.x, 1)
+    estandar = False
+    if donde == "entorno":
+        try:
+            import secret_store
+            estandar = not secret_store.es_solo_workspace(var)
+        except Exception:
+            estandar = False
+        dv = _t("modelos.llave.where_env", "La lee de una variable de tu sistema ({var}): "
+                "Workspace no la guarda. Nosotros nunca la vemos.", var=var)
+        dv += " " + (_t("modelos.llave.where_env_std", "Los motores que abras también la reciben: "
+                        "es la variable estándar del proveedor.") if estandar else
+                     _en_sesion_txt(did, var))
+    else:
+        dv = where_text(donde)
+    quien = (_t("modelos.llave.who_env_std", "Al pegarla ves puntos. No aparece en el Historial y, "
+                "si se cuela en un texto que mandas a un decisor, se borra antes de enviarlo.")
+             if estandar else
+             _t("modelos.llave.who_p2", "Al pegarla ves puntos. Ningún motor la recibe en su "
+                "entorno, no aparece en el Historial y, si se cuela en un texto que mandas a un "
+                "decisor, se borra antes de enviarlo."))
+    agentes = (_t("modelos.llave.agents_env_std", "Tus agentes la reciben en su entorno, como "
+                  "cualquier variable de tu sistema. Si no quieres eso, quítala de tu sistema y "
+                  "guárdala aquí.") if estandar else
+               agents_text(_boveda_ahora()[0] if donde == "entorno" else donde))
+    return [(_t("modelos.llave.where_h", "Dónde vive"), dv),
+            (_t("modelos.llave.travel_h", "A dónde viaja"),
+             _t("modelos.llave.travel_p", "Solo al proveedor que elegiste ({site}), siempre cifrada "
+                "(https) y a esa dirección exacta.", site=_site(did))),
+            (_t("modelos.llave.who_h", "Quién la ve"), quien),
+            (_t("modelos.llave.agents_h", "Tus agentes"), agentes),
+            (_t("modelos.llave.advice_h", "Consejo"), consejo)]
+
+
+def key_local_txt(did):
+    return _t("modelos.llave.local", "{m} no usa llave: todo pasa en esta computadora.",
+              m=name(did))
 
 
 # ── estado ───────────────────────────────────────────────────────────────────
@@ -237,7 +580,8 @@ def _rows(S, K, did, iw):
             out.append(HL.clip("%s%s%s%s%s%s" % (cur, tinta, lab, K["R"],
                                                  " " * max(1, iw - 3 - HL.vis(lab)), flecha), iw))
             continue
-        vcol = {"key": K["OK"], "probe": K["DK"]}.get(key, K["DIM"])
+        vcol = {"key": K["OK"], "probe": K["DK"],
+                "local": K["OK"] if ready(did) else K["ERR"]}.get(key, K["DIM"])
         out.append(HL.clip("%s%s%s%s%s%s%s" % (cur, tinta, HL.pad(lab, lab_w), K["R"], vcol, val,
                                                K["R"]), iw))
     return out, fila
@@ -253,9 +597,21 @@ def _area(S, K, did, iw):
     if ll and ll.get("did") == did:
         return _key_lines(K, iw, ll)
     out = []
+    if S.get("revocar") == did:
+        out += [""] + ["%s%s%s" % (K["C"] + K["BO"], ln, K["R"]) for ln in DT.wrap(
+            _t("modelos.llave.revoke_full", "Para dejarla muerta de verdad, {r}",
+               r=revoke_line(did)), iw)[:3]]
     pr = S.get("probe")
     if pr and pr.get("did") == did:
         out += [""] + _probe_lines(K, iw, pr)
+    paso = next_step(did) if not out else ""
+    if paso:                                    # un local que no está listo: qué hacer
+        out = [""] + ["%s%s%s" % (K["C"] + K["BO"], ln, K["R"]) for ln in DT.wrap(
+            "→ " + paso, iw)[:2]]
+    notas = local_notes(did) if not pr or pr.get("did") != did else []
+    if notas:                                   # sin esperar a nadie: qué se usa y por qué
+        out = (out or [""]) + ["%s%s%s" % (K["DIM"], ln, K["R"]) for n in notas
+                               for ln in DT.wrap(n, iw)[:2]]
     if not out and S.get("focus") == "detail":
         ops = options(S, did)
         key = ops[min(S.get("opt", 0), len(ops) - 1)][0]
@@ -263,10 +619,18 @@ def _area(S, K, did, iw):
                              "Workspace): nunca se muestra ni llega a un motor."),
                "probe": _t("modelos.area.probe", "Una pregunta mínima de verdad: si responde, cuánto "
                            "tarda y cuántos tokens usa."),
-               "ctx": _t("modelos.area.ctx", "Lo más que admite el modelo, medido con llamadas "
-                         "reales. Enter elige un límite menor: más barato y más rápido."),
-               "price": _t("modelos.area.price", "Por millón de tokens. Aproximado, de agregadores "
-                           "de terceros.")}.get(key)
+               "ctx": (_t("modelos.area.ctx_local", "La ventana que este modelo carga en esta "
+                          "computadora. Enter elige un límite menor: más rápido.") if is_local(did)
+                       else _t("modelos.area.ctx", "Lo más que admite el modelo, medido con "
+                               "llamadas reales. Enter elige un límite menor: más barato y más "
+                               "rápido.")),
+               "local": _t("modelos.area.local", "Corre en esta computadora: tu contexto no sale "
+                           "de aquí y no hay llave ni costo. Enter vuelve a mirar su estado."),
+               "model": _t("modelos.area.model", "Enter pasa al siguiente modelo y lo guarda. "
+                           "Pruébalo antes de dejarlo decidir: cada modelo acierta distinto."),
+               "price": None if is_local(did) else _t("modelos.area.price", "Por millón de "
+                                                     "tokens. Aproximado, de agregadores de "
+                                                     "terceros.")}.get(key)
         if txt:
             out = [""] + ["%s%s%s" % (K["DIM"], ln, K["R"]) for ln in DT.wrap(txt, iw)[:3]]
     return out
@@ -285,6 +649,27 @@ def _confirm_lines(S, K, iw, c):
     return [HL.clip(x, iw) for x in L]
 
 
+def key_where_line():
+    """La línea bajo la caja de pegar: adónde va una llave NUEVA en este
+    sistema ahora (secret_store.sistema y el modo), nunca en general."""
+    donde, modo = _boveda_ahora()
+    cola = _t("modelos.key.where_tail", " · nunca se muestra ni llega a un motor")
+    if donde == "llavero":
+        return _t("modelos.key.where_llavero", "se guarda en el llavero de tu Mac (cifrado)") + cola
+    if donde == "dpapi":
+        return _t("modelos.key.where_dpapi", "se guarda cifrada con tu cuenta de Windows") + cola
+    if donde == "secret-tool":
+        return _t("modelos.key.where_secret_tool", "se guarda en el llavero de tu sistema") + cola
+    if modo == "keyring":
+        return _t("modelos.key.where_keyring_none", "tu sistema no tiene llavero disponible y esta "
+                  "computadora quedó configurada para usar solo el llavero: no se podrá guardar")
+    if modo == "file":
+        return _t("modelos.key.where_file_chosen", "se guarda en un archivo solo tuyo ({perm}), "
+                  "porque así quedó configurado en esta computadora", perm=_permiso_archivo()) + cola
+    return _t("modelos.key.where_file", "se guarda en un archivo solo tuyo ({perm}) — tu sistema "
+              "no tiene llavero disponible", perm=_permiso_archivo()) + cola
+
+
 def _key_lines(K, iw, ll):
     did = ll["did"]
     buf = ll["buf"]
@@ -294,9 +679,10 @@ def _key_lines(K, iw, ll):
     txt = ("%s%s%s %s(%d)%s" % (K["WH"] + K["BO"], puntos, K["R"], K["DK"], len(buf), K["R"]) if buf
            else "%s%s%s" % (K["DK"], _t("decisores.key.ph", "pega aquí tu llave"), K["R"]))
     L += DT.caja(K, [txt + "%s▏%s" % (K["C"] + K["BO"], K["R"])], iw, K["C"] + K["BO"], heavy=True)
-    L += ["%s%s%s" % (K["DK"], ln, K["R"]) for ln in DT.wrap(_t(
-        "modelos.key.where", "se guarda en esta computadora (bóveda de Workspace) · nunca se muestra "
-        "ni llega a un motor"), iw)[:3]]
+    L += ["%s%s%s" % (K["DK"], ln, K["R"]) for ln in DT.wrap(key_where_line(), iw)[:3]]
+    L += ["%s%s%s" % (K["C"], ln, K["R"]) for ln in DT.wrap(key_tip(did), iw)[:3]]
+    if keys_line(did):
+        L += ["%s%s%s" % (K["DIM"], ln, K["R"]) for ln in DT.wrap(keys_line(did), iw)[:2]]
     return [HL.clip(x, iw) for x in L]
 
 
@@ -320,11 +706,239 @@ def _probe_lines(K, iw, pr):
 
 
 def _detalle(S, K, did, iw):
+    """La columna de opciones → (líneas, fila del cursor, {línea: lo clicable})."""
+    pk = S.get("pick")
+    if pk and pk.get("did") == did:
+        return _pick_lines(S, K, did, iw)
     filas, fila = _rows(S, K, did, iw)
     area = _area(S, K, did, iw)
     if S.get("llave") or S.get("confirm"):
         fila = len(filas) + max(0, len(area) - 2)
-    return filas + area, fila
+    return filas + area, fila, {n: ("opt", n) for n in range(len(filas))}
+
+
+# ── la lista de modelos (Enter o clic sobre «modelo») ────────────────────────
+#: Con tantos o más modelos, escribir filtra (como la búsqueda de la portada).
+FILTER_MIN = 10
+#: Filas a la vista de la lista (más: ▲/▼ n más, como en todo el hub).
+PICK_ROWS = 8
+
+
+#: Más lento que esto (el tiempo límite de los usos), la fila dice «lento».
+SLOW_MS = 1500
+
+
+def _medida_txt(m):
+    """«95/97 · 0.3 s» (+ «· lento» si su p95 pasa el tiempo límite de los usos)."""
+    txt = "%d/%d" % (int(m.get("acierto") or 0), int(m.get("total") or 0))
+    p95 = m.get("p95_ms")
+    if isinstance(p95, (int, float)):
+        txt += " · %.1f s" % (p95 / 1000.0)
+        if p95 > SLOW_MS:
+            txt += " · " + _t("modelos.pick.slow", "lento")
+    return txt
+
+
+def pick_items(did):
+    """[(id, pista)] de los modelos DE DECISIÓN del decisor (los de
+    decisions.decider_models: lo que check_model acepta; jamás uno de chat).
+    Con medición (decisions.measures, la escribe el chequeo en vivo), la pista
+    es lo MEDIDO («95/97 · 0.3 s») y esos van primero, por acierto y luego p95;
+    sin medición, la marca, el precio o «en esta computadora» — nada inventado."""
+    medidos, resto = [], []
+    mod = DC.load(did)
+    info = getattr(mod, "model_info", None) if mod is not None else None
+    local = is_local(did)
+    try:
+        medidas = DC.measures(did)
+    except Exception:
+        medidas = {}
+    for x in model_list(did):
+        if not x.get("decision", True):
+            continue
+        m = medidas.get(x["id"]) or medidas.get(DC.normalize_model(did, x["id"]))
+        if m:
+            medidos.append((x["id"], _medida_txt(m), m))
+            continue
+        d = {}
+        if callable(info):
+            try:
+                d = info(x["id"]) or {}
+            except Exception:
+                d = {}
+        pista = ""
+        if local:
+            pista = _t("modelos.local.here", "en esta computadora")
+        elif d.get("price_in_per_m") is not None:
+            pista = _t("modelos.pick.price", "${p} por M de entrada", p=d["price_in_per_m"])
+        elif d.get("brand"):
+            pista = str(d["brand"])
+        if d.get("slow"):
+            pista = (pista + " · " if pista else "") + _t("modelos.pick.slow", "lento")
+        resto.append((x["id"], pista))
+
+    def clave(t):
+        m = t[2]
+        tasa = (m.get("acierto") or 0) / float(m.get("total") or 1)
+        p95 = m.get("p95_ms") if isinstance(m.get("p95_ms"), (int, float)) else float("inf")
+        return (-tasa, p95)
+    medidos.sort(key=clave)
+    return [(i, p) for i, p, _m in medidos] + resto
+
+
+def _filtro(S, items):
+    pk = S.get("pick") or {}
+    if len(items) < FILTER_MIN or not pk.get("q"):
+        return items
+    q = HL._lz_norm(pk["q"])
+    return [it for it in items if q in HL._lz_norm(it[0] + " " + it[1])]
+
+
+def open_pick(S, did):
+    """Abre la lista del decisor (si trae 2 o más). → True si la abrió."""
+    items = pick_items(did)
+    if len(items) < 2:
+        return False
+    ids = [i for i, _p in items]
+    cur = current_model(did)
+    S["pick"] = {"did": did, "q": "", "sel": ids.index(cur) if cur in ids else 0}
+    return True
+
+
+def close_pick(S):
+    S["pick"] = None
+    did = selected(S)
+    if did:
+        keys = [o[0] for o in options(S, did)]
+        if "model" in keys:
+            S["opt"] = keys.index("model")
+
+
+def _pick_lines(S, K, did, iw):
+    """La columna con la lista: título, búsqueda (si son muchos), las filas
+    (pick_list) y, en Ollama, cuántos de chat no sirven (al pie, no como filas)."""
+    pk = S["pick"]
+    todos = pick_items(did)
+    items = _filtro(S, todos)
+    pk["sel"] = max(0, min(pk.get("sel", 0), len(items) - 1)) if items else 0
+    cur = current_model(did)
+    tit = _t("modelos.pick.title", "modelo de {m}", m=name(did))
+    out = [HL.clip("%s%s%s %s%s%s" % (K["B2"] + K["BO"], tit, K["R"], K["DK"],
+                                      K["SEP"] * max(1, iw - HL.vis(tit) - 1), K["R"]), iw)]
+    if len(todos) >= FILTER_MIN:
+        q = pk.get("q") or ""
+        if q:
+            out.append(HL.clip("%s› %s%s%s%s▏%s" % (K["C"] + K["BO"], K["R"], K["WH"], q, K["C"],
+                                                   K["R"]), iw))
+        else:
+            out.append(HL.clip("%s› %s%s" % (K["DK"], _t("hub.lanzador.search_ph", "buscar…"),
+                                             K["R"]), iw))
+    clic, fila = {}, len(out)
+    if items:
+        filas = []
+        for mid, pista in items:
+            txt = ("● " if mid == cur else "  ") + mid
+            if HL.vis(txt) + HL.vis(pista) + 5 > iw:
+                pista = ""                     # el nombre entero gana a la pista
+            filas.append((txt, pista, "DIM"))
+        lineas = SB.pick_list(K, filas, pk["sel"], iw, min(len(filas), PICK_ROWS))
+        base = len(out)
+        for j, idx in enumerate(SB.pick_list.last_rows):
+            if idx is not None:
+                clic[base + j] = ("pick", items[idx][0])
+                if idx == pk["sel"]:
+                    fila = base + j
+        out += lineas
+    else:
+        out.append(HL.clip("%s%s%s" % (K["DIM"], _t("modelos.pick.no_match", "nada coincide con "
+                                                     "«{q}»", q=pk.get("q") or ""), K["R"]), iw))
+    chat = int(DC.decider_status(did).get("chat_models") or 0) if is_local(did) else 0
+    if chat:
+        out.append("")
+        nota = (_t("modelos.note.chat_one", "1 modelo de chat descargado no sirve para decidir")
+                if chat == 1 else _t("modelos.note.chat_many", "{n} modelos de chat descargados "
+                                     "no sirven para decidir", n=chat))
+        out += ["%s%s%s" % (K["DIM"], ln, K["R"]) for ln in DT.wrap(nota, iw)[:2]]
+    return out, fila, clic
+
+
+def _pick_choose(S, did, mid):
+    """Elegir un modelo de la lista: se guarda, aviso de una línea y de vuelta
+    a las opciones con el nuevo a la vista."""
+    try:
+        nuevo = DC.set_decider_model(did, mid)
+    except ValueError as e:
+        S["msg"] = str(e) or _t("modelos.msg.model_err", "No pude guardar ese modelo · intenta "
+                                "de nuevo")
+        return
+    close_pick(S)
+    S["focus"] = "detail"
+    S["msg"] = "✓ " + _t("modelos.msg.model", "Modelo de {m}: {x} · guardado", m=name(did), x=nuevo)
+    if is_local(did):
+        DC.warm(did)
+    if (S.get("probe") or {}).get("did") == did and not busy(S):
+        S["probe"] = None                     # el resultado de antes era de otro modelo
+
+
+def pick_act(S, key):
+    """Teclas con la lista abierta: ↑↓ mueve · Enter elige · Esc / ← cierra sin
+    cambiar · con 10 o más, escribir filtra (Retroceso borra, Ctrl+U limpia).
+    Con algo escrito, el primer Esc solo limpia el filtro (la lista sigue
+    abierta, en el mismo modelo); el siguiente cierra."""
+    pk = S["pick"]
+    did = pk["did"]
+    todos = pick_items(did)
+    filtra = len(todos) >= FILTER_MIN
+    items = _filtro(S, todos)
+    if key == "\x1b" and filtra and pk.get("q"):
+        sel = items[max(0, min(pk.get("sel", 0), len(items) - 1))][0] if items else None
+        ids = [i for i, _p in todos]
+        pk["q"], pk["sel"] = "", ids.index(sel) if sel in ids else 0
+        return
+    if key in ("\x1b", "left") or (key in ("q", "Q") and not filtra):
+        close_pick(S)
+        return
+    if key in ("up", "down", "tab"):
+        if items:
+            pk["sel"] = (pk.get("sel", 0) + (-1 if key == "up" else 1)) % len(items)
+        return
+    if key in ("\r", "\n") or (key == " " and not filtra):
+        if items:
+            _pick_choose(S, did, items[max(0, min(pk.get("sel", 0), len(items) - 1))][0])
+        return
+    if not filtra:
+        return
+    if key in ("\x7f", "\x08"):
+        pk["q"], pk["sel"] = (pk.get("q") or "")[:-1], 0
+    elif key == "\x15":
+        pk["q"], pk["sel"] = "", 0
+    elif len(key) == 1 and key.isprintable() and key != " ":
+        pk["q"], pk["sel"] = ((pk.get("q") or "") + key)[:40], 0
+
+
+# ── clics (mouse primero: cada fila de la lista y de las opciones) ───────────
+def click(S, x, y):
+    """Un clic en (x, y) (1-based, como la terminal): una fila de la lista de
+    modelos elige ese modelo; una opción la aplica (como Enter: «modelo» abre
+    la lista); un decisor de la izquierda lo elige."""
+    hit = S.get("_hit") or {}
+    if not hit or S.get("info") or S.get("llave") or S.get("confirm"):
+        return
+    fila = (y - 1) - SB.frame.last_body_row
+    col = (x - 1) - SB.frame.last_body_col
+    j = fila - hit.get("det_off", 0)
+    if col >= hit.get("det_col", 0) and j in hit.get("det", {}):
+        tipo, v = hit["det"][j]
+        if tipo == "pick":
+            _pick_choose(S, selected(S), v)
+            return
+        S["focus"], S["opt"] = "detail", v
+        _aplica(S)
+        return
+    i = fila - hit.get("list_off", 0)
+    if col < hit.get("list_w", 0) and i in hit.get("list", {}):
+        S["pick"] = None
+        S["model"], S["focus"], S["opt"] = hit["list"][i], "list", 0
 
 
 def _items(S):
@@ -346,14 +960,28 @@ def _cuerpo(S, K, iw):
     items = _items(S)
     sel = S["model"] % len(S["models"])
     tail = "◂" if der else "▸"
+    if S.get("pick"):
+        # la lista de modelos usa la caja ENTERA: el nombre largo y lo medido
+        # («95/97 · 0.3 s · lento») caben juntos; Esc vuelve a las dos columnas
+        lineas, fila, clic = _detalle(S, K, did, iw)
+        S["_cur"] = fila
+        S["_hit"] = {"det_off": 0, "det_col": 0, "det": clic, "list_off": 0, "list_w": 0,
+                     "list": {}}
+        return lineas
     if iw < LIST_W + SB.SPLIT_GAP + 26:
         arriba = SB.pick_list(K, items, sel, iw, min(len(items), 8), sel_tail=tail)
-        opciones, fila = _detalle(S, K, did, iw)
+        lista = {j: i for j, i in enumerate(SB.pick_list.last_rows) if i is not None}
+        opciones, fila, clic = _detalle(S, K, did, iw)
         S["_cur"] = len(arriba) + 2 + fila if der else min(sel, len(arriba) - 1)
+        S["_hit"] = {"det_off": len(arriba) + 2, "det_col": 0, "det": clic,
+                     "list_off": 0, "list_w": iw, "list": lista}
         etiqueta = "%s · %s" % (name(did), ET._t("motores.opts", "opciones", "options"))
         return SB.stack(K, arriba, opciones, iw, label=etiqueta, active=der)
-    opciones, fila = _detalle(S, K, did, iw - LIST_W - SB.SPLIT_GAP)
+    opciones, fila, clic = _detalle(S, K, did, iw - LIST_W - SB.SPLIT_GAP)
     izq = SB.pick_list(K, items, sel, LIST_W, max(len(opciones), min(len(items), 8)), sel_tail=tail)
+    S["_hit"] = {"det_off": 0, "det_col": LIST_W + SB.SPLIT_GAP, "det": clic, "list_off": 0,
+                 "list_w": LIST_W,
+                 "list": {j: i for j, i in enumerate(SB.pick_list.last_rows) if i is not None}}
     S["_cur"] = fila if der else min(sel, len(izq) - 1)
     return SB.split(K, izq, opciones, iw, LIST_W)
 
@@ -378,7 +1006,12 @@ def key_act(S, key):
         S["llave"] = None
         S["msg"] = "✓ " + _t("modelos.msg.key_ok", "{m} conectado · la llave quedó guardada en esta "
                              "computadora", m=name(did))
-        _auto_activate(S, did)
+        if r.get("aviso"):                # sin llavero del sistema: se dice, nunca en silencio
+            S["msg"] = r["aviso"]
+        if _auto_activate(S, did) and r.get("aviso"):
+            # «listo y activo» no tapa el aviso de la bóveda: va primero, por si
+            # la línea se corta (Greptile 0.9.0, 8)
+            S["msg"] = r["aviso"] + " · " + S["msg"]
         keys = [o[0] for o in options(S, did)]
         S["opt"] = keys.index("probe")
         return
@@ -399,6 +1032,8 @@ def start_probe(S, did):
         pr["res"] = DC.consult(DC.MANUAL, "choice", PROBE_Q, PROBE_OPTS, "", decider=did,
                                timeout_ms=PROBE_TIMEOUT_MS, level="ask", log=False)
         pr["running"] = False
+        if (pr["res"] or {}).get("ok"):
+            _auto_activate(S, did)
     th = threading.Thread(target=run, daemon=True, name="decider-probe")
     th.start()
     return th
@@ -408,7 +1043,7 @@ def start_probe(S, did):
 def _info_txt():
     return (_t("modelos.info.list.p", "Los motores trabajan (programan, escriben, conversan); los "
                "modelos de decisión eligen entre opciones fijas y dicen qué tan seguros están. Aquí "
-               "los dejas listos una sola vez: conectas tu llave y lo pruebas."),
+               "los dejas listos una sola vez: conectas tu llave (o abres Ollama) y lo pruebas."),
             [_t("modelos.info.detail.l2", "Llave — enmascarada, en la bóveda"),
              _t("modelos.info.detail.l3", "Probar — latencia, tokens y costo reales"),
              _t("modelos.info.detail.l4", "Dónde decide: en la sección Decisores")])
@@ -423,26 +1058,60 @@ def _flujo_que():
 def _flujo_como():
     return [(_t("modelos.info.c1", "lee deciders/"), _t("modelos.info.c1n", "cada uno con su META")),
             (_t("modelos.info.c2", "su API, directo"), _t("modelos.info.c2n", "sin paquetes extra")),
-            (_t("modelos.info.c3", "llave a la bóveda"), _t("modelos.info.c3n", "0600, ningún motor")),
+            (_t("modelos.info.c3", "llave a la bóveda"), _c3n()),
             (_t("modelos.info.c4", "mismo contrato"), _t("modelos.info.c4n", "decide() para todos"))]
+
+
+def _c3n():
+    donde = _boveda_ahora()[0]
+    if donde in ("llavero", "secret-tool"):
+        return _t("modelos.info.c3n_kc", "en el llavero, ningún motor")
+    if donde == "dpapi":
+        return _t("modelos.info.c3n_dpapi", "cifrada, ningún motor")
+    return _t("modelos.info.c3n", "0600, ningún motor")
 
 
 def _como_p():
     return _t("modelos.info.how.p", "Cada modelo es un archivo en deciders/ con su META (nombre, "
               "llave, límite, precio): esta pantalla se arma sola con eso, con el mismo diseño que "
-              "la de motores de agentes. Jev habla con la API de TypeSafe con lo que ya trae "
-              "Python, sin paquetes extra. El primero que queda listo se activa en Decisores, "
-              "con los usos apagados.")
+              "la de motores de agentes. Todos hablan System One con lo que ya trae Python, sin "
+              "paquetes extra; Ollama, en esta computadora. El primero que queda listo se activa "
+              "en Decisores, con los usos apagados.")
 
 
-def info_blocks():
+def _llave_titulo():
+    return _t("modelos.llave.title", "Tu llave, en simple")
+
+
+def key_blocks(did):
+    """La página «Tu llave, en simple» del decisor elegido (en bloques)."""
+    hechos = key_facts(did) if did else None
+    if hechos is None:
+        return [("h", _llave_titulo()), ("p", key_local_txt(did) if did else "")]
+    out = [("h", _llave_titulo() + " · " + (DC.meta(did).get("provider") or name(did))),
+           ("kv", hechos)]
+    if keys_line(did):
+        out += [("gap",), ("dim", keys_line(did))]
+    return out
+
+
+def _otra_pagina(page):
+    return (_t("modelos.info.page_que", "qué es") if page == "llave"
+            else _t("modelos.info.page_llave", "tu llave"))
+
+
+def info_blocks(did=None, page="que"):
+    if page == "llave":
+        return [("dim", "Tab · " + _otra_pagina(page)), ("gap",)] + key_blocks(did)
     texto, lista = _info_txt()
-    return [("flow", _flujo_que()), ("gap",), ("p", texto), ("list", lista), ("gap",),
-            ("h", _t("decisores.info.how", "cómo lo hicimos")), ("flow", _flujo_como()),
-            ("p", _como_p()), ("dim", DT._como_dim())]
+    return [("dim", "Tab · " + _otra_pagina(page)), ("flow", _flujo_que()), ("gap",), ("p", texto),
+            ("list", lista), ("gap",), ("h", _t("decisores.info.how", "cómo lo hicimos")),
+            ("flow", _flujo_como()), ("p", _como_p()), ("dim", DT._como_dim())]
 
 
-def info_body(K, iw):
+def info_body(K, iw, did=None, page="que"):
+    if page == "llave":
+        return [HL.clip(x, iw) for x in SB.render_blocks(K, key_blocks(did), iw)]
     texto, lista = _info_txt()
     L = [DT.titulo(K, _t("decisores.info.what", "qué es"), iw, 0), ""] + DT.flujo(K, _flujo_que(), iw, 0) + [""]
     lw = (iw - 3) // 2
@@ -463,12 +1132,18 @@ def info_body(K, iw):
 
 
 def info_render(S, K, w, h, titulo_caja):
+    """La ayuda (i): dos páginas — «qué es» y «tu llave» (Tab pasa de una a
+    otra; así ninguna pierde el wordmark grande)."""
     bw = max(60, min(96, w - 10))
-    if bw < 70:
-        return SB.info_frame(K, w, h, word(), titulo_caja, info_blocks(), state=S["info"], box_w=60)
     st = S["info"] if isinstance(S["info"], dict) else {}
-    out = SB.frame(K, w, h, word(), titulo_caja, lambda iw: info_body(K, iw),
-                   ((u"↑↓", _t("decisores.k.move_info", "mover")), ("Esc", _t("decisores.k.close", "cerrar"))),
+    page = st.get("page", "que")
+    did = selected(S)
+    if bw < 70:
+        return SB.info_frame(K, w, h, word(), titulo_caja, info_blocks(did, page), state=S["info"],
+                             box_w=60)
+    out = SB.frame(K, w, h, word(), titulo_caja, lambda iw: info_body(K, iw, did, page),
+                   ((u"↑↓", _t("decisores.k.move_info", "mover")), ("Tab", _otra_pagina(page)),
+                    ("Esc", _t("decisores.k.close", "cerrar"))),
                    box_w=bw, scroll=st.get("scroll", 0))
     st["scroll"] = max(0, min(st.get("scroll", 0), SB.frame.last_max_scroll))
     return out
@@ -476,6 +1151,15 @@ def info_render(S, K, w, h, titulo_caja):
 
 # ── marco (las fichas de engines_tui) ────────────────────────────────────────
 def _chips(S):
+    pk = S.get("pick")
+    if pk:
+        esc = (_t("modelos.k.clear_filter", "limpia") if pk.get("q")
+               and len(pick_items(pk["did"])) >= FILTER_MIN else _t("modelos.k.close", "cierra"))
+        out = ((u"↑↓", _t("modelos.k.move", "mueve")), ("Enter", _t("modelos.k.choose", "elige")),
+               ("Esc", esc))
+        if len(pick_items(pk["did"])) >= FILTER_MIN:
+            out += (("abc", _t("hub.lanzador.hint.search", "busca")),)
+        return out
     if S.get("llave") is not None:
         return (("Enter", _t("decisores.k.save", "guardar")), ("Ctrl+U", _t("decisores.k.clear", "borrar")),
                 ("Esc", ET._t("motores.k.cancel", "cancela", "cancel")))
@@ -515,8 +1199,11 @@ def _confirm_act(S, key):
         S["confirm"] = None
         r = DC.disconnect(c["did"])
         S["msg"] = ("✓ " + _t("decisores.msg.key_removed", "{m} desconectado: la llave se borró de "
-                              "esta computadora", m=name(c["did"]))) if r.get("ok") else \
+                              "esta computadora", m=name(c["did"])) + " · " +
+                    revoke_line(c["did"])) if r.get("ok") else \
             _t("decisores.msg.key_store", "No pude guardarla en la bóveda de Workspace")
+        if r.get("ok"):
+            S["revocar"] = c["did"]            # y abajo, entero (el aviso se corta en 80 columnas)
         return
     S["confirm"] = None                     # No gracias / Esc / cualquier otra tecla
     S["msg"] = _t("modelos.msg.no_disconnect", "La llave sigue conectada")
@@ -535,11 +1222,22 @@ def _aplica(S):
         S["confirm"] = {"kind": "disconnect", "did": did, "btn": 1}
     elif key == "key" and DC.key_source(did) == "env":
         S["msg"] = _t("decisores.msg.key_env", "La llave viene del entorno del sistema ({var}): "
-                      "quítala ahí", var=DC.key_env(did))
+                      "quítala ahí", var=DC.key_var(did) or DC.key_env(did))
+    elif key == "local":
+        _recheck(S, did)
+    elif key == "model":
+        if not open_pick(S, did):              # uno solo (o ninguno): no hay qué elegir
+            lista = model_list(did)
+            S["msg"] = (_t("modelos.msg.one_model", "{m} tiene un solo modelo de decisión: {x}",
+                           m=name(did), x=lista[0]["id"]) if lista else
+                        (next_step(did) or _t("modelos.model.none", "ninguno descargado")))
     elif key == "probe":
         if not ready(did):
-            S["msg"] = _t("modelos.msg.probe_needs", "Para probarlo hace falta la llave")
+            S["msg"] = (next_step(did) if is_local(did) and next_step(did) else
+                        _t("modelos.msg.probe_needs", "Para probarlo hace falta la llave"))
         else:
+            if is_local(did):
+                DC.warm(did)              # cargar el modelo en frío no cabe en la prueba
             start_probe(S, did)
     elif key == "ctx":
         import decision_context as C
@@ -547,6 +1245,29 @@ def _aplica(S):
         S["msg"] = _t("modelos.msg.limit", "Límite de contexto de {m}: {n} tokens · guardado",
                       m=name(did), n=C.fmt_exact(n))
     return True
+
+
+def _recheck(S, did):
+    """Enter en el estado de un decisor local: vuelve a mirar (sin caché)."""
+    try:
+        fn = getattr(DC.load(did), "invalidate", None)
+        if callable(fn):
+            fn()
+    except Exception:
+        pass
+    txt, _col = state(did)
+    S["msg"] = _t("modelos.msg.recheck", "{m}: {st}", m=name(did), st=txt)
+    if ready(did):
+        _auto_activate(S, did)
+
+
+def _en_la_llave(S):
+    """¿El socio está sobre una opción de la llave? (la ayuda abre en «tu llave»)."""
+    did = selected(S)
+    if not did or S.get("focus") != "detail":
+        return False
+    ops = options(S, did)
+    return bool(ops) and ops[min(S.get("opt", 0), len(ops) - 1)][0] in ("connect", "key", "disconnect")
 
 
 def _move(S, d):
@@ -562,13 +1283,32 @@ def _move(S, d):
 
 def act(S, key):
     """True = sigue · False = sale (Esc/q desde la lista)."""
+    xy = SB.parse_mouse(key)
+    if xy is not None:                         # un clic: nunca sale de la pantalla
+        if not busy(S):
+            S["msg"] = ""
+        click(S, *xy)
+        return True
+    if S.get("pick") and key != "\x03":
+        S["msg"] = ""
+        pick_act(S, key)
+        return True
     if S.get("llave") is not None:
         key_act(S, key)
         return True
     if S.get("confirm"):
         _confirm_act(S, key)
         return True
+    S.pop("revocar", None)
+    if S.get("info") and key in ("tab", "right_tab", "right", "left"):
+        inf = S["info"]
+        inf["page"] = "que" if inf.get("page", "que") == "llave" else "llave"
+        inf["scroll"] = 0
+        return True
+    abre = not S.get("info") and key in SB.INFO_KEYS
     if SB.info_key(S, key):
+        if abre and isinstance(S.get("info"), dict) and _en_la_llave(S):
+            S["info"]["page"] = "llave"
         return True
     if key == "\x03":
         return False
@@ -609,11 +1349,13 @@ def _size():
         return 112, 44
 
 
-def loop(S, render_fn, act_fn, busy_fn=busy):
-    """El bucle de teclado de una pantalla (Unix y Windows)."""
+def loop(S, render_fn, act_fn, busy_fn=busy, mouse=False):
+    """El bucle de teclado de una pantalla (Unix y Windows). `mouse` = prende los
+    clics (SGR-1006, como la portada) mientras la pantalla está abierta; en
+    Windows, por ahora, solo teclado (completo)."""
     if os.name == "nt":
         return _loop_windows(S, render_fn, act_fn, busy_fn)
-    return _loop_unix(S, render_fn, act_fn, busy_fn)
+    return _loop_unix(S, render_fn, act_fn, busy_fn, mouse)
 
 
 def _draw(tout, S, render_fn, first=False):
@@ -624,7 +1366,7 @@ def _draw(tout, S, render_fn, first=False):
         pass
 
 
-def _loop_unix(S, render_fn, act_fn, busy_fn):
+def _loop_unix(S, render_fn, act_fn, busy_fn, mouse=False):
     import termios
     import tty
     fd = os.open("/dev/tty", os.O_RDWR)
@@ -632,9 +1374,10 @@ def _loop_unix(S, render_fn, act_fn, busy_fn):
     old = termios.tcgetattr(fd)
     try:
         tty.setraw(fd)
-        tout.write("\033[?1049h\033[?25l")
+        tout.write("\033[?1049h\033[?25l" + ("\033[?1000h\033[?1006h" if mouse else ""))
         _draw(tout, S, render_fn, first=True)
         teclas = SB.KeyReader(fd)
+        teclas.mouse = mouse                           # los clics, como la portada
         while True:
             key = teclas.get(0.15 if busy_fn(S) else 0.5)
             if key is None:
@@ -650,7 +1393,7 @@ def _loop_unix(S, render_fn, act_fn, busy_fn):
         pass
     finally:
         try:
-            tout.write("\033[?25h\033[?1049l")
+            tout.write(("\033[?1000l\033[?1006l" if mouse else "") + "\033[?25h\033[?1049l")
             tout.flush()
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
             os.close(fd)
@@ -707,7 +1450,7 @@ def run(did=None):
         print("\n".join(render(S, 112, 44)))
         return 0
     try:
-        return loop(S, render, act)
+        return loop(S, render, act, mouse=True)
     except KeyboardInterrupt:                          # Ctrl+C: salir (como «q»)
         return 0
     except Exception as e:

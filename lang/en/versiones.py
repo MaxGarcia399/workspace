@@ -77,6 +77,7 @@ STRINGS = {
     "version.paused_manual": "⚠ you went back to the previous version: v{v} stays paused until a newer one",
     "updater.reason.interrupted": "update interrupted — you kept the version you had",
     "updater.reason.reset_failed": "the new version didn't start and I couldn't cleanly go back to the previous one (a locked file?)",
+    "updater.reason.undo_failed": "I couldn't move your keys back to the file before going back (the keychain didn't respond): I didn't go back; try again in a moment",
     "updater.notify.applying": "Updating Workspace… (checking that the new version starts on this machine)",
     "updater.auto.rollback_failed": "⚠ The new Workspace version didn't start and I couldn't cleanly go back to the previous one. Run `workspace doctor` (and if it persists, `workspace doctor --bundle` to ask for help).",
 }

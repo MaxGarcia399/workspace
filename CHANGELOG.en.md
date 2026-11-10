@@ -8,6 +8,186 @@ How to read this: every version has a number (`MAJOR.MINOR.PATCH`). A PATCH
 change fixes things; a MINOR one brings new features without breaking
 anything; a MAJOR one warns you well in advance if something changes shape.
 
+## 0.9.0 — 2026-11-09
+
+**New**
+- **Deciders, with more models to choose from.** In Engines → Decision models,
+  besides Jev, you now have:
+  - **OpenRouter**, in the cloud: with a single key you pick among many
+    decision models from several brands (Jev by default);
+  - **Liquid**, in the cloud: d1.1 (the default) and d1-ultra, each with its
+    own price;
+  - **Ollama**, on your computer: no key and no cost, and your context never
+    leaves your machine. If something is missing, Models tells you the next
+    step in one line (open it, update it to 0.35.0 or `ollama pull nimble`).
+    The first question after a while may say it is "loading the model"; the
+    next one is fast.
+
+  Each key is saved under its own name: connecting your OpenRouter key to
+  Deciders doesn't take away the `OPENROUTER_API_KEY` your engines already
+  use.
+- **Only decision models.** OpenRouter, Liquid and Ollama also have chat
+  models: those can't be picked or saved. In Ollama, the chat models you have
+  downloaded don't show up in the list (one line says how many there are)
+  and, if the one you had saved no longer works, it uses the first decision
+  model you have and tells you.
+- **You pick the model from a list.** Enter or a click on "model" opens it:
+  the current one is marked with ● and each row shows the brand, the price or
+  "on this computer". With 10 or more, typing filters. OpenRouter's list has
+  the 10 that answered in our tests, and the one that takes longer than the
+  uses wait says "slow". On Windows, for now, you choose with the keyboard.
+- **"Your key, in plain words."** The help (`i`) in Decision models has a new
+  page (Tab switches between "what it is" and "your key"): where your key
+  lives on your system, where it travels, who sees it and a tip. When you
+  connect, it recommends a key just for Workspace, with a spending cap where
+  the provider allows it (OpenRouter), and when you disconnect it tells you
+  where to revoke it.
+- **Conversations, a new section: what your agents say to each other.** Ask
+  an agent in its tab to "open a conversation with … about …": it opens a
+  room of up to 6 agents, each in its own tab and on any engine, with a goal
+  and with what counts as done.
+  - You follow it live, each message in the color of whoever is speaking.
+    From there you write (to whoever spoke last, or to whoever you name with
+    "@name"), pause, close, archive or delete, and choose how long each reply
+    is awaited (15 min to 24 h). If a request expires, you give it 30 more
+    minutes, cancel it, or open the tab of whoever is missing. In a small
+    window it looks like your phone: the list or the chat. On Windows, for
+    now, it works with the keyboard.
+  - Everyone reads; only whoever is asked replies. Each agent gets the room's
+    goal when it joins and, along with its own messages, what happened in the
+    meantime.
+  - Tested with all 9 engines (Claude Code, Codex, OpenCode, Cursor, Kiro,
+    Copilot, Hermes, OpenClaw and Antigravity), with rooms of four different
+    engines and between a Mac and a PC. When agents are on different
+    machines, the room travels with your brain, and each message takes as
+    long as your sync takes.
+  - Claude Code, Cursor and Antigravity keep listening and reply on their
+    own. For the others, when a request or a reply arrives, Workspace types a
+    line into their herdr pane so they pick it up. It does so only when the
+    agent isn't working and you don't have that pane focused, once per
+    message, and the hub marks it "◆ notified …". If it couldn't, the hub
+    shows "waiting for …" and gives you a "Notify" button. Hermes and
+    OpenClaw, for now, are notified only with the button. On Windows, the
+    notice carries the command for PowerShell.
+  - If your brain is on two machines and the same agent has a tab open on
+    each, a room's first request can take up to 2 min to arrive: Workspace
+    waits for your sync to tell which of the two took it, so both don't work
+    on it.
+  - When a tab opens, the agent learns on its own which rooms are waiting for
+    it. Agents you create from now on come with the skill that teaches them to
+    use rooms; the ones you already had read it from Workspace when a room is
+    waiting for them.
+  - What another agent asks is a request, not an order from you: anything
+    sensitive is confirmed in each agent's own tab.
+- **Deciders › Conversations** (off by default). It can mute pure-courtesy
+  pings ("thanks", "standing by"), pause a room that goes in circles without
+  progress, and suggest to whoever opened a room that they close it when it
+  looks done. It never opens, writes or deletes anything, and what it does is
+  marked "◆". With Conversations on, Security also reviews messages between
+  agents and flags sensitive ones with "⚠": it works well with Jev, but with
+  Liquid or OpenRouter it rarely flags anything. With Conversations off it
+  reviews nothing in rooms.
+- **Single color.** In Personalization, "one color" paints titles and
+  accents in the theme's main color. Text and the colors that warn you about
+  something stay as they are.
+- **If you use Workspace inside herdr,** it follows the theme you chose in
+  herdr and no longer paints its own background on top. In Personalization,
+  "follow herdr" (yes/no) changes it; that row only appears inside herdr.
+- **Deciders, Tone and Calendar now also work well in small windows.**
+
+**A change you'll notice**
+- **Your Jev key no longer reaches your agents.** If you only had it as a
+  system variable, connect it in Engines → Decision models so your agents can
+  keep asking.
+
+**Your keys move to your system keychain**
+
+It does this on its own, once, when it updates.
+- The keys you give Workspace (for example, a decision model's or your Google
+  Calendar account's) leave the plain-text file:
+  - on macOS they go to your Keychain (the Keychain Access app);
+  - on Windows they are encrypted with your account (DPAPI): another account,
+    or a copy of the file on another PC, can't open them;
+  - on Linux they go to your session's keyring if you have `secret-tool` and
+    it is unlocked. If not, they stay in a file only you can read, and it
+    tells you in one line.
+- First it leaves an encrypted backup, checks that every key reads back and
+  only then removes it from the file. If anything fails, everything stays as
+  it was. It tells you in one line. To undo it:
+  `workspace migrate --undo 202611081500_boveda_al_llavero`. If you go back to
+  the previous version with `workspace update --rollback`, Workspace first
+  returns them to the file; if the keychain doesn't answer, it doesn't go
+  back.
+- **The mail password is stored in the keychain too.** If you already had
+  it, it moves on its own from `mail.json` (with a backup, and checked before
+  it is removed from there), and `mail.json` keeps only your user and the
+  server. `workspace keys` shows it too, without the value. To undo it:
+  `workspace migrate --undo 202611090000_correo_a_la_boveda`.
+- If your hub was open while it updated, whatever uses keys will say "no key"
+  until you close it and open it again. Nothing is lost.
+- `workspace keys` tells where each key comes from, without showing any, and
+  `workspace keys audit` looks for plain-text leftovers.
+- Your agents don't receive your keys. On top of that, for engines that have
+  rules for it, Workspace denies them opening the vault and, where possible,
+  asking the keychain for a key: the table is in Compatibility.
+- A variable on your system can no longer send a decision model's key to
+  another server: it only counts if it points to this computer or to the
+  provider's.
+- **What it doesn't cover:** a program running as your same user (for
+  example, a script in an agent's terminal) can still ask the keychain for
+  it. That's why a key just for Workspace, with a spending cap, is a good
+  idea.
+
+**Fewer system notices**
+- **On Mac and Linux, a new install goes to `~/Workspace`** and your new
+  agents are born in `~/Workspace/Cerebros`: outside Desktop, Documents and
+  Downloads, so macOS doesn't ask you for folder permissions. What you
+  already had doesn't move: if Workspace lives on your Desktop, the same
+  command updates it there. If you already have a `~/Workspace` folder with
+  your own things, it leaves it alone. On Windows, Workspace and your agents
+  stay where they always were.
+- **The diagnostics bundle (`workspace doctor --bundle`) and the uninstaller's
+  backup** go to `~/Workspace/Respaldos`, no longer to the Desktop, and it
+  shows them to you in their folder. When you uninstall, `Cerebros/` and
+  `Respaldos/` are kept.
+- **On Mac, Discover no longer goes into Desktop or Documents on its own**
+  (that could open two or three permission prompts in a row). If your brains
+  are there, press `e` in Discover: the first time it tells you what will
+  happen and the second time it searches. The folder where Workspace lives is
+  still checked without asking.
+- **One line before each notice that can't be avoided.** Before installing
+  Codex or Kiro on Windows, or Kiro on Mac, Engines tells you what the system
+  is about to ask. When connecting Google, before asking for the file (on Mac,
+  from your Downloads folder) and before opening the browser ("Google hasn't
+  verified this app"). The manual's new page, **Your system's notices**, puts
+  them all together: what shows up, why, what to answer and what happens if
+  you say No.
+- **The OpenClaw gateway that Workspace turns on no longer announces itself
+  on your network** (Bonjour): iTerm2 or VS Code no longer ask to find
+  devices on your local network. If you found it from another device through
+  Bonjour, that stops working.
+- **With your Mac's Keychain locked, Engines no longer asks for your
+  password** to check your GitHub Copilot session: it shows that it doesn't
+  know.
+- **Voice dictation (`workspace voice`) now only copies the text:** a sound
+  plays and you paste it. macOS only asks for the microphone, and dictation no
+  longer reads what you had copied. **If you had a Shortcut that pasted on
+  its own, add `--paste` to it**; if pasting fails, the text is still copied.
+
+**Security fixes (Deciders, since 0.8.0)**
+- Context marked private and files reached through a link are no longer sent
+  to Jev.
+- An invalid answer from the model can no longer apply a decision.
+- An https proxy with a password is refused instead of sending it
+  unencrypted.
+- Deleting a key from the keychain is actually verified, and retried if it
+  fails.
+
+**Fixes**
+- **Codex:** Workspace commands inside a Codex tab use that tab's identity.
+  Before, with another Codex tab open, they could run as the other one, and a
+  memory note could be saved to the wrong tab.
+
 ## 0.8.1 — 2026-11-07
 
 **New**

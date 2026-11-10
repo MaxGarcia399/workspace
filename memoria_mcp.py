@@ -1029,17 +1029,42 @@ def _cursor_deny(windows=None):
     import rutas_protegidas as R
     win = (os.name == "nt") if windows is None else bool(windows)
     out = (["Write(**/%s/**)" % d for d in R.CARPETAS]
-           + ["Write(**/%s)" % f for f in R.ARCHIVOS + R.EXACTAS])
+           + ["Write(**/%s)" % f for f in R.ARCHIVOS + R.EXACTAS]
+           + _cursor_deny_lectura(False))
     if win:
         for d in R.CARPETAS:
             out += ["Write(**\\%s\\**)" % v.replace("/", "\\") for v in _cursor_variantes(d)]
         for f in R.ARCHIVOS + R.EXACTAS:
             out += ["Write(**\\%s)" % v.replace("/", "\\") for v in _cursor_variantes(f)]
+        out += _cursor_deny_lectura(True)
     sin_repetir = []
     for r in out:
         if r not in sin_repetir:
             sin_repetir.append(r)
     return tuple(sin_repetir)
+
+
+def _cursor_deny_lectura(win):
+    """Que el agente de Cursor no LEA la bóveda de llaves de Workspace
+    (rutas_protegidas.lectura_negada_relativa) ni le pida un valor al
+    llavero (COMANDOS_LLAVERO, `Shell(comando:args)`). Doc «permissions»:
+    `Read(pathOrGlob)` «Supports glob patterns»; `Shell(commandBase)` con
+    «an optional `command:args` syntax» (`Shell(curl:*)`). Con `**/` delante
+    (el archivo viaja con el cerebro: sin la ruta de esta máquina); en
+    Windows también con `\\`, como las de escritura. SIN VERIFICAR en caja
+    negra (Cursor no se prueba sin cuenta): no se sabe si `**/` alcanza una
+    ruta fuera del proyecto. `Read` no frena un `cat` de su terminal."""
+    import rutas_protegidas as R
+    out = []
+    for rel, tipo in R.lectura_negada_relativa():
+        if win:                            # solo la forma con `\\` (la de `/` ya va)
+            r = rel.replace("/", "\\")
+            out.append("Read(**\\%s\\**)" % r if tipo == R.CARPETA else "Read(**\\%s)" % r)
+        else:
+            out.append("Read(**/%s/**)" % rel if tipo == R.CARPETA else "Read(**/%s)" % rel)
+    if not win:   # `Shell(commandBase)`: el programa con cualquier subcomando
+        out += ["Shell(%s)" % c for c in R.COMANDOS_LLAVERO]
+    return out
 
 
 CURSOR_DENY = _cursor_deny()
@@ -1296,8 +1321,28 @@ def _sin_repetir(xs):
     return out
 
 
+def _kiro_lectura():
+    """(2.x `fs_read.deniedPaths`, V3 `match` de una regla deny de `fs_read`)
+    para la bóveda de llaves de Workspace (rutas_protegidas.
+    lectura_negada_relativa). Doc «permissions» (V3): «Deny always wins
+    across all scopes»; una regla de capacidad «applies to every tool that
+    performs that operation». V3 descarta una regla con un patrón absoluto
+    (VERIFICADO 3.1.0 con fs_write): por eso `**/` (relativo, sin la ruta de
+    esta máquina) y en una regla APARTE (si V3 no la acepta, no se lleva las
+    demás). 2.x (estilo gitignore) además con `~/`. SIN VERIFICAR en caja
+    negra que `**/` alcance una ruta fuera del cerebro. No frena un `cat`
+    de su terminal (fuera de su sandbox)."""
+    import rutas_protegidas as R
+    v2, v3 = [], []
+    for rel, tipo in R.lectura_negada_relativa():
+        cola = "/**" if tipo == R.CARPETA else ""
+        v3.append("**/" + rel + cola)
+        v2 += ["**/" + rel + cola, "~/" + rel + cola]
+    return v2, v3
+
+
 def kiro_agente_config(brain, root=None, python=None, kiro_dir=None, autonomia=None,
-                       _negar=None, decidir=None):
+                       _negar=None, decidir=None, _lectura=None):
     """El agente `workspace`, válido en las DOS líneas de Kiro (doc «agent
     configuration reference», https://kiro.dev/docs/custom-agents/configuration-reference/:
     V3 no usa `allowedTools` ni `toolsSettings`, pero carga el archivo si trae
@@ -1323,6 +1368,7 @@ def kiro_agente_config(brain, root=None, python=None, kiro_dir=None, autonomia=N
     b = os.path.abspath(str(brain))
     libre = kiro_escribe_sin_preguntar(autonomia)
     deny_v2, deny_v3 = _negar or _kiro_denies()
+    lee_v2, lee_v3 = _kiro_lectura() if _lectura is None else _lectura
     fs_write = {"allowedPaths": [KIRO_ESCRIBE]} if libre else {}
     fs_write["deniedPaths"] = list(deny_v2)
     reglas = [{"capability": "fs_read", "match": ["./**"], "effect": "allow"}]
@@ -1331,6 +1377,11 @@ def kiro_agente_config(brain, root=None, python=None, kiro_dir=None, autonomia=N
     reglas += [{"capability": "mcp", "match": _reglas(SERVIDOR + "/%s", decidir=decidir),
                 "effect": "allow"},
                {"capability": "fs_write", "match": list(deny_v3), "effect": "deny"}]
+    if lee_v3:          # la bóveda de llaves: una regla APARTE (ver _kiro_lectura)
+        reglas.append({"capability": "fs_read", "match": list(lee_v3), "effect": "deny"})
+    ajustes = {"fs_write": fs_write}
+    if lee_v2:
+        ajustes["fs_read"] = {"deniedPaths": list(lee_v2)}
     return {
         "name": KIRO_AGENTE,
         "description": KIRO_MARCA + " el agente por defecto de Kiro para los cerebros de "
@@ -1348,7 +1399,7 @@ def kiro_agente_config(brain, root=None, python=None, kiro_dir=None, autonomia=N
         # (rutas_protegidas): 2.x `deniedPaths` (gana al `allowedPaths`) y V3
         # una regla `deny` (gana a cualquier allow). VERIFICADO 3.1.0 (V2 y V3,
         # tests/e2e/kiro_permisos.py).
-        "toolsSettings": {"fs_write": fs_write},
+        "toolsSettings": ajustes,
         "includeMcpJson": True,
         "model": None,
         "permissions": {"rules": reglas},
@@ -1371,12 +1422,15 @@ def ensure_kiro_agente(brain, root=None, python=None, avisos=None, autonomia=Non
     # el archivo sigue siendo el de Workspace, sin respaldo ni aviso)
     antes = (list(KIRO_DENY_V2_ANTES), list(KIRO_DENY_V3_ANTES))
     nuestros = []
+    # y con o sin la regla de lectura de la bóveda (la de antes de 2026-11-08 no la traía)
     for dec in (None, True, False):
         for a in (autonomia, otra):
             for negar in (None, antes):
-                n = kiro_agente_config(brain, root, python, autonomia=a, _negar=negar, decidir=dec)
-                if n != want and n not in nuestros:
-                    nuestros.append(n)
+                for lectura in (None, ((), ())):
+                    n = kiro_agente_config(brain, root, python, autonomia=a, _negar=negar,
+                                           decidir=dec, _lectura=lectura)
+                    if n != want and n not in nuestros:
+                        nuestros.append(n)
     return _rehacer(brain, os.path.join(".kiro", "agents", KIRO_AGENTE + ".json"),
                     want, avisos, nuestros=tuple(nuestros))
 
@@ -1531,7 +1585,25 @@ def agy_deny(brain):
     import rutas_protegidas as R
     real = os.path.realpath(str(brain))
     orden = [".agents"] + [r for r in R.CARPETAS + R.ARCHIVOS + R.EXACTAS if r != ".agents"]
-    return _sin_repetir(["write_file(%s)" % os.path.join(real, *r.split("/")) for r in orden])
+    return _sin_repetir(["write_file(%s)" % os.path.join(real, *r.split("/")) for r in orden]
+                        + agy_deny_lectura())
+
+
+def agy_deny_lectura():
+    """Que el agente de agy no LEA la bóveda de llaves de Workspace
+    (rutas_protegidas.lectura_negada, ruta absoluta real: `read_file(<carpeta>)`
+    cubre lo de adentro) ni le pida un valor al llavero (`command(…)`, que agy
+    compara por prefijo desde la 1.5.1). Doc
+    https://antigravity.google/docs/permissions?tab=cli: «Matches absolute
+    paths or paths relative to project workspace roots»; «Denying `read_file`
+    on a path immediately blocks `write_file` on that path»; Deny > Ask >
+    Allow. SIN VERIFICAR en caja negra (agy no se prueba sin cuenta); un
+    `cat` de su terminal no lo cubre `read_file` (sí el `command(…)`, por su
+    prefijo)."""
+    import rutas_protegidas as R
+    out = ["read_file(%s)" % os.path.realpath(ruta) for ruta, _t in R.lectura_negada()]
+    out += ["command(%s)" % c for c in R.COMANDOS_LLAVERO]
+    return out
 
 
 def ensure_agy_mcp(brain, root=None, python=None, avisos=None):

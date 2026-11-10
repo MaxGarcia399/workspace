@@ -115,6 +115,16 @@ def background_color(theme_bg=None, theme_fg=None):
         return None
 
 
+def _herdr_manda():
+    """¿Workspace corre dentro de herdr siguiendo su tema? (herdr_tema.seguir).
+    Entonces no pinta fondo/tinta/cursor por OSC. Falla-suave → False."""
+    try:
+        import herdr_tema
+        return herdr_tema.seguir()
+    except Exception:
+        return False
+
+
 def apply(name):
     """Aplica el tema `name` (fondo/texto/cursor) vía OSC. No-op si no existe."""
     apply_colors(_themes().get(name) or {})
@@ -148,6 +158,11 @@ def apply_colors(t):
     ya trae resuelto el fondo aparte y la luz roja (RESUELTO): se pinta tal
     cual (antes se le volvía a aplicar el fondo aparte y se perdía el rojo)."""
     global _PAINTED
+    if _herdr_manda():
+        # Dentro de herdr el fondo, la tinta y el cursor son de herdr (o de
+        # la terminal): pintarlos aquí era lo que se veía «raro o incompleto».
+        _PAINTED = None
+        return
     resuelto = bool(getattr(t, "RESUELTO", False))
     t = dict(t or {})
     bg = None if resuelto else background_color(t.get("bg"), t.get("fg"))

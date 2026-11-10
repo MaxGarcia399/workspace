@@ -496,13 +496,46 @@ def engine_theme(engine, palette, name):
     return data
 
 
+def _un_color(pal):
+    """ui.un_color en la paleta de los motores: accent_2, accent_hi y cursor
+    pasan al TONO del acento conservando su luminancia (mismo contraste); el
+    fondo, la tinta, los neutros y los semánticos (success/warning/danger/
+    info) se quedan. Apagado → la paleta tal cual. Jamás levanta."""
+    try:
+        import tuitheme
+        if not tuitheme._un_color_on():
+            return pal
+        acc = _hex(pal.get("accent"))
+        if not acc:
+            return pal
+        out = dict(pal)
+        for k in ("accent_2", "accent_hi", "cursor"):
+            v = _hex(out.get(k))
+            if v:
+                out[k] = tuitheme.al_tono(v, acc)
+        return out
+    except Exception:
+        return pal
+
+
 def engine_palette(theme_id=None, osc=None):
     """La paleta que ven los MOTORES: la del tema del hub con el fondo, la
     tinta y el cursor que Workspace PINTA en la terminal (`osc`; por defecto
     tuitheme.palette().OSC, que ya trae el fondo elegido aparte y la luz
     roja) y cada color de lectura legible sobre ese fondo (legible_palette).
     Sin nada pintado (terminal sin color, tema sin tui.osc) queda el fondo
-    propio del tema. None si el tema no tiene paleta (olympo embebido)."""
+    propio del tema. None si el tema no tiene paleta (olympo embebido).
+    DENTRO DE HERDR (herdr_tema.seguir) la paleta es la del tema de herdr:
+    el motor se ve con los mismos colores que la barra y los bordes de herdr."""
+    if theme_id is None:
+        try:
+            import herdr_tema
+            if herdr_tema.seguir():
+                sem = herdr_tema.semantica()
+                if sem:
+                    return legible_palette(_un_color(complete(sem)))
+        except Exception:
+            pass
     try:
         import tuitheme
         tid = tuitheme.resolve_id(theme_id)
@@ -525,7 +558,7 @@ def engine_palette(theme_id=None, osc=None):
         pal["background"] = bg
         pal["surface"] = mix(bg, pal["foreground"], .04)
         pal["border"] = mix(bg, pal["foreground"], .15)
-    return legible_palette(pal)
+    return legible_palette(_un_color(pal))
 
 
 def hub_engine_palette():

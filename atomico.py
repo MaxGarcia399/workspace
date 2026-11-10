@@ -158,6 +158,26 @@ def pasajero(exc):
     return getattr(exc, "winerror", None) in WINERROR_PASAJEROS
 
 
+def leer(ruta, encoding="utf-8", intentos=None):
+    """El texto de `ruta`, reintentando con las mismas esperas que
+    `reemplazar` ante cualquier OSError que no sea «no existe» (el antivirus
+    o el indexador lo tienen abierto un instante: WinError 5/32/33). Si no
+    se logra, relanza el último error; FileNotFoundError, sin reintento.
+    Leer mal NO es «ilegible»: quien llama no debe apartar ni pisar nada."""
+    n = max(1, int(intentos or intentos_por_defecto()))
+    for k in range(n):
+        try:
+            with open(ruta, encoding=encoding) as fh:
+                return fh.read()
+        except FileNotFoundError:
+            raise
+        except OSError:
+            if k < n - 1:
+                time.sleep(ESPERA * (k + 1))
+                continue
+            raise
+
+
 def _borrar(tmp):
     try:
         if tmp and os.path.lexists(tmp):

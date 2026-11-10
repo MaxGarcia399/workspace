@@ -185,6 +185,16 @@ def _que(point, c, aplicado, nota=""):
     if point == "workspace.evals":
         return (_t("decisores.visible.q_evals_apply", "tu última sesión quedó «{c}»", c=c) if aplicado
                 else _t("decisores.visible.q_evals", "tu última sesión parece «{c}»", c=c))
+    if point == "workspace.conversations":
+        if c == "solo informa":
+            return (_t("decisores.visible.q_conv_info_apply", "lo tomé como aviso: no despertó a nadie")
+                    if aplicado else _t("decisores.visible.q_conv_info", "este pedido parece que solo informa"))
+        if c in ("en bucle", "se desvió"):
+            return (_t("decisores.visible.q_conv_pause_apply", "pausé la sala: parece {c}", c=c)
+                    if aplicado else _t("decisores.visible.q_conv_pause", "la sala parece {c}", c=c))
+        if c == "sí":
+            return _t("decisores.visible.q_conv_done", "parece cumplido: ciérrala con conversar cerrar")
+        return _t("decisores.visible.q_conv", "«{c}»", c=c)
     if point == "workspace.skills":
         que = (_t("decisores.visible.q_skills_yes", "tu última sesión amerita una skill")
                if c.lower() in ("sí", "si", "yes") else
@@ -235,6 +245,7 @@ def efecto(e, corto=False):
             return {"workspace.memory": _t("decisores.visible.row_memory", "nota → {c}", c=c),
                     "workspace.security": _t("decisores.visible.row_security", "aviso → alto"),
                     "workspace.evals": _t("decisores.visible.row_evals", "sesión → {c}", c=c),
+                    "workspace.conversations": _t("decisores.visible.row_conv", "sala → {c}", c=c),
                     "workspace.skills": (_t("decisores.visible.row_skills_yes", "revisión entregada")
                                          if si else
                                          _t("decisores.visible.row_skills_no", "revisión omitida")),
@@ -252,6 +263,8 @@ def efecto(e, corto=False):
             return _t("decisores.visible.fx_security", "aplicó: aviso subió a alto")
         if point == "workspace.evals":
             return _t("decisores.visible.fx_evals", "aplicó: sesión «{c}»", c=c)
+        if point == "workspace.conversations":
+            return _t("decisores.visible.fx_conv", "aplicó: sala «{c}»", c=c)
         if point == "workspace.skills":
             return (_t("decisores.visible.fx_skills_yes", "aplicó: revisión entregada") if si else
                     _t("decisores.visible.fx_skills_no", "aplicó: revisión omitida"))
@@ -386,11 +399,8 @@ def _leer_json(path):
 
 def _escribir(path, texto):
     try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp = "%s.%d.tmp" % (path, os.getpid())
-        with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
-            fh.write(texto)
-        os.replace(tmp, path)
+        import atomico                         # temporal ÚNICO (no solo el pid)
+        atomico.escribir(path, texto, fsync=False)
         try:                                   # Windows: solo para tu usuario
             import acl_privada
             acl_privada.solo_mio(path)
@@ -425,20 +435,22 @@ def anotar_cierre(brain, point, v, sesion="", tab="", nota=""):
     try:
         if not brain or not isinstance(v, dict) or v.get("mode") not in ("suggest", "apply"):
             return False
-        path = _ultima_path(brain)
-        d = _leer_json(path) or {}
-        ahora = time.time()
-        mismo = (sesion and d.get("sesion") == sesion) or (
-            not sesion and not d.get("sesion") and ahora - float(d.get("t") or 0) < 600)
-        if not mismo:
-            d = {"brain": os.path.realpath(os.path.expanduser(brain)), "sesion": sesion or "",
-                 "tab": tab or "", "usos": {}}
-        d["t"], d["visto"] = ahora, []
-        d.setdefault("usos", {})[point] = {
-            "choice": v.get("choice"), "mode": v.get("mode"), "decider": v.get("decider"),
-            "p": round(float(v.get("p") or 0.0), 4) if v.get("p_known", True) else None,
-            "nota": nota or ""}
-        return _escribir(path, json.dumps(d, ensure_ascii=False))
+        def anotar(d):
+            # bajo el candado: Evals y Skills del MISMO cierre (dos procesos)
+            # ya no se borran uno al otro (Greptile 0.8.x, 6)
+            ahora = time.time()
+            mismo = (sesion and d.get("sesion") == sesion) or (
+                not sesion and not d.get("sesion") and ahora - float(d.get("t") or 0) < 600)
+            if not mismo:
+                d = {"brain": os.path.realpath(os.path.expanduser(brain)), "sesion": sesion or "",
+                     "tab": tab or "", "usos": {}}
+            d["t"], d["visto"] = ahora, []
+            d.setdefault("usos", {})[point] = {
+                "choice": v.get("choice"), "mode": v.get("mode"), "decider": v.get("decider"),
+                "p": round(float(v.get("p") or 0.0), 4) if v.get("p_known", True) else None,
+                "nota": nota or ""}
+            return d
+        return _D()._actualizar_estado(_ultima_path(brain), anotar)
     except Exception:
         return False
 
@@ -460,26 +472,34 @@ def linea_ultima(brain, canal):
         if not brain or not encendido():
             return ""
         path = _ultima_path(brain)
-        d = _leer_json(path)
-        if not d:
+        if not os.path.exists(path):
             return ""
-        visto = list(d.get("visto") or [])
-        if canal in visto:
-            return ""
-        if time.time() - float(d.get("t") or 0) > ULTIMA_MAX_S:
-            _borrar(path)
-            return ""
-        orden = ("workspace.evals", "workspace.skills")
-        usos = d.get("usos") or {}
-        partes = [_uso_ultima(p, usos[p]) for p in orden if isinstance(usos.get(p), dict)]
+        D = _D()
+        out = {"partes": []}
+
+        def ver(d):
+            # bajo el candado: marcar «visto» no pisa un uso que otro cierre anota
+            if not d:
+                return None
+            visto = list(d.get("visto") or [])
+            if canal in visto:
+                return None
+            if time.time() - float(d.get("t") or 0) > ULTIMA_MAX_S:
+                return D.BORRAR
+            orden = ("workspace.evals", "workspace.skills")
+            usos = d.get("usos") or {}
+            out["partes"] = [_uso_ultima(p, usos[p]) for p in orden if isinstance(usos.get(p), dict)]
+            if not out["partes"]:
+                return None
+            visto.append(canal)
+            if set(visto) >= {"agente", "hub"}:
+                return D.BORRAR
+            d["visto"] = visto
+            return d
+        D._actualizar_estado(path, ver)
+        partes = out["partes"]
         if not partes:
             return ""
-        visto.append(canal)
-        if set(visto) >= {"agente", "hub"}:
-            _borrar(path)
-        else:
-            d["visto"] = visto
-            _escribir(path, json.dumps(d, ensure_ascii=False))
         if canal == "agente":
             partes.insert(0, _t("decisores.visible.last_session_agent", "Decisores en tu última "
                                 "sesión (muéstraselo al socio en tu primera respuesta, en un "
@@ -696,15 +716,26 @@ def _nuevo_vigente(ahora):
         if _ya_los_conoce():
             return False
         path = _novedades_path()
+        out = {}
+
+        def desde_cuando(d):
+            # bajo el candado: hub-novedades.json puede traer otras claves
+            try:
+                out["desde"] = float(d.get("decisores_desde"))
+            except (TypeError, ValueError):
+                out["desde"] = None
+            if out["desde"] is None or out["desde"] > ahora:
+                d["decisores_desde"] = out["desde"] = round(ahora, 3)
+                return d
+            return None
         d = _leer_json(path) or {}
         try:
             desde = float(d.get("decisores_desde"))
         except (TypeError, ValueError):
             desde = None
         if desde is None or desde > ahora:
-            d["decisores_desde"] = round(ahora, 3)
-            _escribir(path, json.dumps(d, ensure_ascii=False))
-            desde = ahora
+            _D()._actualizar_estado(path, desde_cuando)
+            desde = out.get("desde", ahora)
         return (ahora - desde) < NUEVO_DIAS * 86400
     except Exception:
         return False
@@ -713,7 +744,7 @@ def _nuevo_vigente(ahora):
 def boton_hub(ahora=None):
     """Los datos de la fila de Decisores de la portada:
         {"activo": id del modelo general u «off», "modelo": su nombre (META
-         label, jamás uno fijo), "estado": listo · sin_llave · pausa ('' sin
+         label, jamás uno fijo), "estado": listo · sin_llave · no_listo · pausa ('' sin
          modelo), "listos": [(id, nombre)] de los modelos LISTOS que se ven
          (←→ cicla entre ellos y «apagado»), "configurado": hay modelo activo
          o alguno listo, "nuevo": el «nuevo» va (sin nada configurado), "usos"}
@@ -736,6 +767,8 @@ def boton_hub(ahora=None):
                     "nuevo": (not listos) and _nuevo_vigente(ahora)}
         if D.key_env(g) and not D.key_source(g):
             estado = "sin_llave"
+        elif not D.decider_status(g).get("ready"):
+            estado = "no_listo"           # uno local: Ollama apagado, sin modelo…
         elif D.breaker_open(g):
             estado = "pausa"
         else:

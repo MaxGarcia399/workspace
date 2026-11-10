@@ -66,8 +66,8 @@ tal cual (por ejemplo, un tema `workspace-*` sin su registro), se deja como est√
 
 - Antes de borrar te muestra la lista **SE BORRA / SE CONSERVA / RESPALDO**, con cada cerebro
   por su nombre.
-- Te ofrece un **respaldo** de tus ajustes en un zip en el Escritorio (`--no-backup` para no
-  hacerlo). El respaldo **no lleva tus claves ni tokens**: al reinstalar las vuelves a pegar.
+- Te ofrece un **respaldo** de tus ajustes en un zip en `~/Workspace/Respaldos` (fuera del
+  Escritorio) y al terminar te lo muestra en su carpeta (`--no-backup` para no hacerlo). El respaldo **no lleva tus claves ni tokens**: al reinstalar las vuelves a pegar.
   Si el respaldo falla, no se borra nada.
 - Sin una terminal donde preguntarte (un script o un agente) no borra nada, salvo que a√±adas
   `--yes`.

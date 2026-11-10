@@ -105,6 +105,36 @@ Se cambia en **Agentes** (elige el agente y Enter) (ver [Permisos](motores.md#pe
 - Si al abrir el motor pasas tus propias opciones (`-a` en Codex; `--mode` o `--project` en
   Antigravity), ganan las tuyas.
 
+## Tus llaves: qué motor puede leerlas
+
+Workspace guarda las llaves que le das (por ejemplo, la de un modelo de decisión) en su bóveda,
+fuera de tu cerebro (ver [Privacidad](privacidad.md#credenciales)). Ningún motor la recibe por
+entorno. Además, a los motores que tienen reglas para eso, Workspace les niega **leer la
+bóveda** (el archivo `~/.claude/workspace/secrets.local` y la carpeta
+`~/.claude/workspace/boveda/`) y, donde se puede, **pedirle una llave al llavero** (los
+programas `security` y `secret-tool` enteros, con cualquier subcomando: también `security -i`).
+Va con cualquier autonomía.
+
+| Motor | Leer la bóveda | Pedirle una llave al llavero | Cómo |
+|---|---|---|---|
+| Claude Code | negado ❔ | negado ❔ | `permissions.deny` con `Read(…)` y `Bash(security …)` en el `--settings` de cada pestaña y, con autonomía *cerebro*, también en el `settings.local.json` del cerebro. Según su doc cubre sus herramientas de leer y `cat`/`head`/`tail`, no un script |
+| GitHub Copilot | negado ❔ | negado ❔ (macOS y Linux) | `--deny-tool=read(…)` y `--deny-tool=shell(security …)` en cada corrida |
+| Cursor | negado ❔ | negado ❔ | `Read(**/…)` y `Shell(security:…)` en el `.cursor/cli.json` del cerebro; su `Read` no frena un `cat` de su terminal |
+| Kiro | negado ❔ | ❌ | una regla `fs_read` de negar aparte (V3) y `fs_read.deniedPaths` (2.x) en su agente |
+| Antigravity | negado ❔ | negado ❔ | `read_file(…)` y `command(security …)` en el `--settings` de la corrida |
+| Codex | ❌ | ❌ | su caja deja leer todo el disco; sus perfiles de permisos, que lo permitirían, están en beta y chocan con la caja que usa Workspace |
+| Gemini | ❌ | ❌ | no tiene una regla de lectura por ruta |
+| OpenCode | ❌ | ❌ | tiene regla de lectura, pero Workspace no escribe su configuración |
+| OpenClaw | ❌ | ❌ | su política filtra herramientas por nombre, no por ruta |
+| Hermes | ❌ | ❌ | su lista de lectura negada es fija |
+
+❔ La regla sigue la documentación oficial de cada motor, pero no se probó con el programa.
+
+**Lo que esto no hace.** Un programa o un script que corre con tu mismo usuario (por ejemplo,
+`python -c …` en la terminal del agente) aún puede pedirle la llave al llavero o leer el archivo:
+las reglas frenan las herramientas de archivos del agente y esos dos programas, no todo. Lo que el llavero sí protege es el disco, los respaldos (Time Machine, Historial de
+archivos), la sincronización y a los demás usuarios de la máquina.
+
 ## Barra de estado y tema por motor
 
 | | Claude Code | Codex | Antigravity |

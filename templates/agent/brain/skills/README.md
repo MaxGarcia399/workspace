@@ -4,7 +4,7 @@ Capacidades operacionales de {{AGENT_DISPLAY}}, organizadas por categoría. **An
 tarea no trivial, revisar `skills/INDEX-LITE.md`** (tier 1) y, si la categoría aplica, este
 catálogo. El protocolo completo del Skill Loop está en `BRAIN.md §6`.
 
-**Total: 6 skills**
+**Total: 7 skills**
 
 ## {{SKILL_CATS}} (0) — el dominio de {{AGENT_DISPLAY}}
 
@@ -18,7 +18,7 @@ no por scaffold. Crear las carpetas de categoría con la primera skill de cada u
 | `investigación/deep-research/` | El motor: descomponer → abanico → verificación adversarial → síntesis citada. |
 | `investigación/research-session/` | Flujo completo: acotar → investigar → documento citado → catalogar. Incluye la regla "¿mío o del agente bibliotecario?". |
 
-## meta (4) — el sistema de skills
+## meta (5) — el sistema de skills y el trabajo con otros agentes
 
 | Skill | Qué hace |
 |---|---|
@@ -26,6 +26,7 @@ no por scaffold. Crear las carpetas de categoría con la primera skill de cada u
 | `meta/skill-improver/` | Cómo aplico feedback (general vs. preferencia personal). |
 | `meta/skill-curator/` | Poda y consolidación semanal, sola: copia previa, protegidas, never-delete. |
 | `meta/reload-brain/` | Recargar mis archivos core a mitad de sesión + reportar cambios del pipeline. |
+| `meta/colaborar-por-bus/` | Conversar con otro agente (u otra máquina) por el bus para sacar una tarea entre los dos, a la vista del socio. |
 
 ---
 

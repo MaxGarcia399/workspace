@@ -56,6 +56,7 @@ if ROOT not in sys.path:
 import personal as P                                           # noqa: E402
 import hublayout as HL                                         # noqa: E402
 import section_box as SB                                       # noqa: E402
+import ventanita as VT                                         # noqa: E402
 try:
     import clip_image                                          # noqa: E402
 except Exception:                                              # falla-suave
@@ -582,17 +583,27 @@ def _dia_body(S, K, inner, alto=0):
     return out
 
 
-def render(S, w, h):
-    K = _K()
-    # AVISO de la agenda (dañada y apartada, evento ilegible — personal.py):
-    # gana la línea de mensaje en cualquier vista; el socio tiene que verlo.
-    # Una copia apartada SIN REVISAR (aunque la haya apartado otro proceso)
-    # se sigue diciendo cada vez que la línea queda libre.
+def _avisos_agenda(S):
+    """AVISO de la agenda (dañada y apartada, evento ilegible — personal.py):
+    gana la línea de mensaje en cualquier vista; el socio tiene que verlo.
+    Una copia apartada SIN REVISAR (aunque la haya apartado otro proceso) se
+    sigue diciendo cada vez que la línea queda libre."""
     aviso = P.tomar_aviso()
     if aviso:
         S["msg"] = aviso
     elif not S.get("msg"):
         S["msg"] = P.aviso_copias()
+
+
+def _render_info(S, K, w, h):
+    return SB.info_frame(K, w, h, HL.section_word('calendario'),
+                         _t("cal.info.title", "CÓMO FUNCIONA TU CALENDARIO"),
+                         _info_blocks(S, K), state=S["info"], box_w=74)
+
+
+def render(S, w, h):
+    K = _K()
+    _avisos_agenda(S)
     if S["modo"] in ("add", "edit", "ver"):
         return _task_form_render(S, K, w, h)
     if S["modo"] == "queue":
@@ -602,9 +613,7 @@ def render(S, w, h):
     if S["modo"] == "gcal":
         return _gcal_render(S, K, w, h)
     if S.get("info"):
-        return SB.info_frame(K, w, h, HL.section_word('calendario'),
-                             _t("cal.info.title", "CÓMO FUNCIONA TU CALENDARIO"),
-                             _info_blocks(S, K), state=S["info"], box_w=74)
+        return _render_info(S, K, w, h)
     pares = _pares()
     # cabecera COMPARTIDA (wordmark + subtítulo + atajos clave + regla). El
     # wordmark grande cede bajo 32 filas (no 30): con 30-31 se comía la última
@@ -1769,6 +1778,441 @@ def _accion(S, key):
     return True
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Ventanita (< 70 columnas o < 26 filas): como la de Conversaciones — un
+# nivel a la vez:
+#   agenda  el día elegido y lo que viene, por días (con las ATRASADAS si el
+#           día es hoy); ←→ cambia de día (como siempre), ↑↓ elige, Enter abre.
+#   evento  el evento entero: idea, prompt, imágenes y resultado; x / l / f
+#           como siempre. Esc vuelve.
+# Lo que se escribe o se elige con el mes a la vista (alta, edición, mover,
+# cola, papelera, Google) pide la ventana grande: un aviso y Esc lo cierra.
+# ═══════════════════════════════════════════════════════════════════════════
+#: Hasta dónde se ve «lo que viene» (lo mismo que PRÓXIMOS).
+VT_DIAS = 60
+#: El MES de 6 semanas pide 26 filas (su mínimo): con 24-25 filas, en vez del
+#: aviso «mínimo 66×26», la ventanita. (Las demás secciones: 24.)
+VT_ALTO = 26
+
+
+def _vt(S):
+    return S.setdefault("vt", {"vista": "agenda", "eid": None, "dia": None, "top": 0,
+                               "scroll": 0, "ayuda": False, "evento": None})
+
+
+def _vt_orden(e):
+    return (1 if e.get("done") else 0, 0 if e.get("prio") == "alta" else 1,
+            e.get("time") or "99:99", e.get("title") or "")
+
+
+def _vt_fecha(e):
+    try:
+        return datetime.date.fromisoformat(str(e.get("date") or "")[:10])
+    except ValueError:
+        return None
+
+
+def _vt_clave(e):
+    """La identidad de un evento en la agenda: su id (uno de Google sin id,
+    por título, fecha y hora)."""
+    return ("id", e["id"]) if e.get("id") else ("g", e.get("title"), e.get("date"), e.get("time"))
+
+
+def _vt_items(S, fijo=None):
+    """[(grupo, fecha, evento)]: el día elegido (las hechas al final, como el
+    DÍA), las atrasadas si ese día es hoy, y lo que viene (sin las hechas).
+    `fijo` = la clave del elegido: si lo acabas de tachar, se queda donde
+    estaba (tachado) mientras siga elegido — x lo revive a ÉL."""
+    f = S["sel"]
+    hoy = datetime.date.today()
+    dia = sorted(P.events_on(f.isoformat()) + _g_on(f.isoformat()), key=_vt_orden)
+    atr = list(P.overdue()) if f == hoy else []
+    tope = (f + datetime.timedelta(days=VT_DIAS)).isoformat()
+    prox = [e for e in list(P.events()) + _g_events()
+            if f.isoformat() < str(e.get("date") or "") <= tope and not e.get("done")]
+    if fijo is not None and all(_vt_clave(e) != fijo for e in dia + atr + prox):
+        e = next((x for x in P.events() if _vt_clave(x) == fijo), None)
+        d = str((e or {}).get("date") or "")
+        if e is not None and f == hoy and (hoy - datetime.timedelta(days=60)).isoformat() <= d < hoy.isoformat():
+            atr.append(e)
+        elif e is not None and f.isoformat() < d <= tope:
+            prox.append(e)
+    atr.sort(key=lambda e: (e["date"], e.get("time") or "99:99"), reverse=True)    # (como overdue)
+    prox.sort(key=lambda e: (e["date"], e.get("time") or "99:99", e.get("title") or ""))
+    return ([("dia", f, e) for e in dia] + [("atr", _vt_fecha(e), e) for e in atr if _vt_fecha(e)]
+            + [("prox", _vt_fecha(e), e) for e in prox if _vt_fecha(e)])
+
+
+def _vt_seleccion(S):
+    """(items, índice del elegido, ¿se fue?). El elegido se sigue por su id:
+    si ya no está en la agenda (lo borraron o lo movieron desde otro lado), se
+    dice cuál se fue — nunca se cae callado en otro — y quien llama con una
+    tecla NO actúa en esa pulsación (`se fue`)."""
+    vt = _vt(S)
+    if vt["dia"] != S["sel"]:                        # otro día: desde su primer evento
+        vt.update(dia=S["sel"], eid=None, top=0)
+    items = _vt_items(S, vt["eid"])
+    claves = [_vt_clave(e) for _g, _d, e in items]
+    se_fue = vt["eid"] is not None and vt["eid"] not in claves
+    if se_fue:
+        S["msg"] = _t("cal.vt.gone", "«{t}» ya no está en esta agenda", t=vt.get("titulo") or "")
+        vt["eid"] = None
+    i = claves.index(vt["eid"]) if vt["eid"] in claves else 0
+    vt["eid"] = claves[i] if claves else None
+    vt["titulo"] = items[i][2].get("title") if items else ""
+    return items, i, se_fue
+
+
+def _vt_dia(K, d, W, eleg=False):
+    """«lunes 5 de octubre · hoy ─────» (el elegido, en el acento)."""
+    hoy = datetime.date.today()
+    txt = _t("cal.day.header", "{dow} {day} de {month}", dow=_dia_largo(d.weekday()),
+             day=d.day, month=_mes_largo(d.month))
+    if d == hoy:
+        txt += " " + _t("cal.day.today", "· hoy")
+    elif d == hoy + datetime.timedelta(days=1):
+        txt += " " + _t("cal.vt.tomorrow", "· mañana")
+    col = (K["C"] + K["BO"]) if eleg else (K["B2"] + K["BO"])
+    return HL.clip("%s%s%s %s%s%s" % (col, txt, K["R"], K["DK"], K["SEP"] * max(1, W - HL.vis(txt) - 1),
+                                      K["R"]), W)
+
+
+def _vt_fila(K, e, W, sel, atrasada=None):
+    """Un evento en una fila: hora (o la fecha, si está atrasada), ! si es
+    prioridad alta, el título (tachado si está hecho) y, a la derecha, LISTA /
+    EN CURSO / BLOQUEADA o ◦g."""
+    cur = (K["C"] + K["BO"] + K["PTR"] + K["R"] + " ") if sel else "  "
+    if atrasada:
+        cuando = "%s%s%s" % ((K["BAD"] or K["B"]) + K["BO"], ("%d %s" % (
+            atrasada.day, _mes_corto(atrasada.month))).rjust(6), K["R"])
+    else:
+        cuando = "%s%s%s" % (K["DK"] if e.get("done") else K["B2"] + K["BO"],
+                             (e.get("time") or "·").rjust(5), K["R"])
+    titulo = e.get("title") or ""
+    if e.get("done"):
+        txt = _tachada(K, titulo)
+    else:
+        txt = _prio_tag(K, e) + "%s%s%s" % ((K["WH"] + K["BO"]) if sel else K["GREY"], titulo, K["R"])
+    der = ""
+    if e.get("google"):
+        der = _g_tag(K).strip()
+    elif not e.get("done"):
+        st = P.task_status(e)
+        if st in ("ready", "in_progress", "blocked"):
+            der = "%s%s%s" % (K[{"ready": "OK", "in_progress": "C", "blocked": "BAD"}[st]],
+                              _status_labels()[st], K["R"])
+    izq = cur + cuando + "  " + txt
+    if der and HL.vis(izq) + 2 + HL.vis(der) > W:
+        izq = HL.clip(izq, max(8, W - HL.vis(der) - 2))
+    return VT.der(izq, der, W) if der else HL.clip(izq, W)
+
+
+def _vt_cabecera(S, K, W):
+    """« CALENDARIO          ◄ hoy · lu 5 oct ►»: ◄ ► cambian de día."""
+    f = S["sel"]
+    lab = "%s %d %s" % (_dow(f.weekday()), f.day, _mes_corto(f.month))
+    if f == datetime.date.today():
+        lab = _t("cal.vt.today", "hoy") + " · " + lab
+    der = "%s◄%s %s%s%s %s►%s" % (K["C"] + K["BO"], K["R"], K["WH"], lab, K["R"], K["C"] + K["BO"], K["R"])
+    izq = " " + "%s%s%s%s" % (K["WH"], K["BO"], HL.section_word('calendario'), K["R"])
+    if HL.vis(izq) + HL.vis(der) + 2 > W:
+        izq = ""
+    x = W - HL.vis(der)
+    return VT.der(izq, der, W), [(0, 0, max(0, x), max(0, x), ("tecla", "left")),
+                                 (0, 0, W - 1, W - 1, ("tecla", "right"))]
+
+
+def _vt_agenda(S, K, W, alto):
+    vt = _vt(S)
+    cab, zonas = _vt_cabecera(S, K, W)
+    out = [cab]
+    if alto >= 14:
+        out.append("")
+    items, i, _se_fue = _vt_seleccion(S)
+    titulo_dia = _vt_dia(K, S["sel"], W, True)
+    if not any(g == "dia" for g, _d, _e in items):
+        nada = [titulo_dia, "%s  %s%s" % (K["DK"], _t("cal.day.none", "sin eventos este día"), K["R"])]
+    else:
+        nada = []
+    bloques, previo = [], None
+    for j, (g, d, e) in enumerate(items):
+        enc = []
+        if j == 0 and nada:
+            enc += nada + [""]
+        if g == "atr" and (previo is None or previo[0] != "atr"):
+            n = sum(1 for x in items if x[0] == "atr" and not x[2].get("done"))
+            etq = _t("cal.box.overdue", "ATRASADAS · {n}", n=n)
+            enc += ([""] if j else []) + [HL.clip("%s%s%s %s%s%s" % (
+                (K["BAD"] or K["B"]) + K["BO"], etq, K["R"], K["DK"],
+                K["SEP"] * max(1, W - HL.vis(etq) - 1), K["R"]), W)]
+        elif g == "dia" and previo is None:
+            enc.append(titulo_dia)
+        elif g == "prox" and (previo is None or previo[0] != "prox" or previo[1] != d):
+            enc += ([""] if j else []) + [_vt_dia(K, d, W)]
+        bloques.append(enc + [_vt_fila(K, e, W, j == i, atrasada=d if g == "atr" else None)])
+        previo = (g, d)
+    if not bloques:
+        return out + nada, zonas
+    lineas, zl, vt["top"] = VT.lista(K, W, bloques, i, alto - len(out), vt["top"],
+                                     ids=[_vt_clave(e) for _g, _d, e in items])
+    zonas += [(a + len(out), b + len(out), c0, c1, acc) for a, b, c0, c1, acc in zl]
+    return out + lineas, zonas
+
+
+def _vt_actual(S):
+    """El evento abierto, recién leído del almacén (tras x / l / f se ve el
+    cambio); uno de Google, como se abrió."""
+    vt = _vt(S)
+    ev = vt.get("evento") or {}
+    if ev.get("google"):
+        return ev
+    return next((e for e in P.events() if e.get("id") == ev.get("id")), None)
+
+
+def _vt_evento(S, K, W, alto):
+    vt = _vt(S)
+    e = _vt_actual(S)
+    if e is None:
+        vt["vista"] = "agenda"
+        return _vt_agenda(S, K, W, alto)
+    C = VT.Col(K, W)
+    hora = "%s%s%s" % (K["B2"] + K["BO"], e.get("time") or "", K["R"]) if e.get("time") else ""
+    titulo = "%s‹ %s%s%s%s" % (K["C"] + K["BO"], K["R"], K["WH"] + K["BO"], e.get("title") or "", K["R"])
+    C.add([VT.der(HL.clip(titulo, max(4, W - HL.vis(hora) - 2)), hora, W) if hora else HL.clip(titulo, W)])
+    C.zonas.append((0, 0, 0, min(W - 1, HL.vis(e.get("title") or "") + 2), ("vt_volver",)))
+    d = _vt_fecha(e) or S["sel"]
+    datos = [_t("cal.day.header", "{dow} {day} de {month}", dow=_dia_largo(d.weekday()),
+                day=d.day, month=_mes_largo(d.month))]
+    if not e.get("google"):
+        st = P.task_status(e)
+        datos.append("%s%s%s" % (K[{"draft": "DK", "ready": "OK", "in_progress": "C", "blocked": "BAD",
+                                    "done": "DK"}[st]], _status_labels()[st], K["GREY"]))
+    if e.get("prio") == "alta":
+        datos.append("%s! %s%s" % (K["C"] + K["BO"], _t("cal.vt.prio", "prioridad alta"), K["GREY"]))
+    if e.get("google"):
+        datos.append("Google")
+    C.add([HL.clip("%s  %s%s" % (K["GREY"], " · ".join(datos), K["R"]), W)])
+    C.add(["%s%s%s" % (K["DK"], "─" * W, K["R"])])
+    C.fijas = len(C.lineas)
+    for clave, campo, vacio in (("cal.box.idea", "notes", _t("cal.vt.no_idea", "sin descripción")),
+                                ("cal.box.prompt", "prompt", _t("cal.vt.no_prompt", "sin prompt"))):
+        nombre = _t(clave, "IDEA / DESCRIPCIÓN" if campo == "notes" else "PROMPT PARA EL AGENTE")
+        C.add([SB.titulo(K, nombre, W, 0 if campo == "notes" else 2)])
+        txt = str(e.get(campo) or "")
+        if txt.strip():
+            C.add(["%s%s%s" % (K["WH"], x, K["R"]) for x in _lineas(txt, W)])
+        else:
+            C.add(["%s%s%s" % (K["DIM"], vacio, K["R"])])
+        imgs = [it for it in ((e.get("images") or {}).get("detail" if campo == "notes" else "prompt") or [])]
+        if imgs:
+            C.add([_chip_line(K, imgs, -1, W)])
+        C.add([""])
+    if e.get("result"):
+        C.add(["%s%s%s" % (K["GREY"], x, K["R"]) for x in _lineas(
+            _t("cal.ficha.result", "Resultado: {text}", text=e["result"]), W)] + [""])
+    if not e.get("google"):
+        a = len(C.lineas)
+        partes, x = [], 0
+        for tecla, txt in (("x", _t("cal.hint.done", "hecha")), ("l", _t("cal.hint.ready_draft",
+                                                                         "lista/borrador")),
+                           ("f", _t("cal.vt.prio_short", "prioridad"))):
+            b = "[%s] %s" % (tecla, txt)
+            if x + HL.vis(b) > W:
+                break
+            partes.append("%s[%s]%s %s%s%s" % (K["C"] + K["BO"], tecla, K["R"], K["GREY"], txt, K["R"]))
+            C.zonas.append((a, a, x, x + HL.vis(b) - 1, ("tecla", tecla)))
+            x += HL.vis(b) + 3
+        C.add(["   ".join(partes)])
+    vis, a_pant, st, maxs, _alto_m = VT.ventana(C, alto, vt["scroll"])
+    vt["scroll"], vt["_max"] = st, maxs
+    return vis, VT.zonas_en(C, a_pant, W)
+
+
+def _vt_otra(S, K, W, alto):
+    """Una vista de la ventana grande (escribir, mover, cola, papelera,
+    Google) con la ventana chica: qué es y cómo salir, sin perder nada."""
+    que = {"add": _t("cal.vt.mode.add", "Estás escribiendo una ficha nueva."),
+           "edit": _t("cal.vt.mode.edit", "Estás editando una ficha."),
+           "move": _t("cal.vt.mode.move", "Estás moviendo un evento a otro día."),
+           "queue": _t("cal.vt.mode.queue", "Estás en la cola de tareas listas."),
+           "trash": _t("cal.vt.mode.trash", "Estás en la papelera."),
+           "gcal": _t("cal.vt.mode.gcal", "Estás en tus cuentas de Google.")}.get(
+        S["modo"], _t("cal.vt.mode.other", "Esta vista es de la ventana grande."))
+    cab = [" %s%s%s%s" % (K["WH"], K["BO"], HL.section_word('calendario'), K["R"])]
+    partes = [(2, cab), (3, [""])]
+    for prio, (txt, col) in enumerate(((que, "WH"), (_t("cal.vt.bigger", "Agranda la ventana para seguir "
+                                                         "(mínimo 70×26): todo sigue ahí."), "GREY"))):
+        partes.append((prio, ["%s %s%s" % (K[col], x, K["R"]) for x in SB._wrap(txt, max(8, W - 2))]))
+    return VT.caber(partes, alto)
+
+
+def _vt_pares(S, vista):
+    teclas = ("?", _t("cal.vt.k.keys", "teclas"))
+    if S["modo"] not in ("nav", "ver"):
+        if S["modo"] in ("add", "edit"):
+            return (("Ctrl+S", _t("cal.hint.save", "guarda")), ("Esc", _t("cal.hint.cancel", "cancela")))
+        return (("Esc", _t("cal.hint.back", "vuelve")),)
+    if vista == "evento":
+        return ((u"↑↓", _t("cal.vt.k.scroll", "desplazar")), ("x", _t("cal.hint.done", "hecha")),
+                ("Esc", _t("cal.vt.k.back", "volver")), teclas)
+    return ((u"↑↓", _t("cal.vt.k.pick", "elegir")), (u"←→", _t("cal.hint.day", "día")),
+            ("Enter", _t("cal.vt.k.open", "abrir")), teclas)
+
+
+def _vt_ayuda(K, W, vista):
+    comunes = [("i", _t("cal.hint.info", "cómo funciona")), ("?", _t("cal.vt.help.keys", "estas teclas")),
+               ("q", _t("cal.vt.help.quit", "salir"))]
+    if vista == "evento":
+        filas = [("↑ ↓", _t("cal.vt.k.scroll", "desplazar")),
+                 ("x l f", _t("cal.vt.help.toggles", "hecha · lista · prioridad")),
+                 ("Esc ←", _t("cal.vt.help.back", "volver a la agenda"))]
+    else:
+        filas = [("↑ ↓", _t("cal.vt.help.pick", "elegir un evento")),
+                 ("← →", _t("cal.vt.help.day", "día anterior · siguiente")),
+                 ("t  n p", _t("cal.vt.help.jump", "hoy · mes siguiente, anterior")),
+                 ("Enter", _t("cal.vt.help.open", "abrir el evento")),
+                 ("x l f", _t("cal.vt.help.toggles", "hecha · lista · prioridad"))]
+    return VT.ayuda(K, W, filas + comunes)
+
+
+def render_ventanita(S, w, h):
+    K = _K()
+    _avisos_agenda(S)
+    if S.get("info"):
+        return _render_info(S, K, w, h)
+    vt = _vt(S)
+    W, H = max(1, w - 1), max(1, h - 1)
+    alto = H - 1                                     # menos el pie
+    if S["modo"] not in ("nav", "ver"):
+        cuerpo, zonas = _vt_otra(S, K, W, alto), []
+    elif vt.get("ayuda"):
+        cuerpo, zonas = _vt_ayuda(K, W, vt["vista"]), []
+    elif vt["vista"] == "evento":
+        cuerpo, zonas = _vt_evento(S, K, W, alto)
+    else:
+        cuerpo, zonas = _vt_agenda(S, K, W, alto)
+    pie, zp = VT.pie(_vt_pares(S, vt["vista"]), W)
+    if not S.get("msg"):
+        zonas += [(alto, alto, a, b, ("tecla", k)) for a, b, k in zp]
+    S["_zonas"] = zonas
+    return VT.componer(K, W, H, cuerpo, alto, pie, S.get("msg", ""))
+
+
+def _vt_titulo(clave):
+    """El título de un evento por su clave (también si ya se archivó)."""
+    if clave and clave[0] == "g":
+        return clave[1] or ""
+    e = next((x for x in P.events(include_archived=True) if _vt_clave(x) == clave), None)
+    return (e or {}).get("title") or ""
+
+
+def _vt_mover(S, d):
+    vt = _vt(S)
+    items, i, se_fue = _vt_seleccion(S)
+    if items and not se_fue:                         # (si se fue: solo el aviso)
+        e = items[max(0, min(len(items) - 1, i + d))][2]
+        vt.update(eid=_vt_clave(e), titulo=e.get("title"))
+
+
+def _vt_elegido(S):
+    """El evento elegido que se dibujó, o None — también si se fue: esa
+    pulsación no cae en otro (el aviso ya lo dice)."""
+    items, i, se_fue = _vt_seleccion(S)
+    return items[i][2] if items and not se_fue else None
+
+
+def _vt_abrir(S, e):
+    if e is not None:
+        _vt(S).update(vista="evento", evento=dict(e), scroll=0)
+
+
+def accion_ventanita(S, key):
+    """Las teclas y clics de la ventanita. False = salir."""
+    vt = _vt(S)
+    if S.get("info"):
+        if not isinstance(key, tuple):
+            SB.info_key(S, key)
+        return True
+    acc, rueda = VT.clic(S, key)
+    if isinstance(key, tuple):
+        if acc and acc[0] == "tecla":
+            key = acc[1]
+        elif rueda and vt["vista"] == "evento" and S["modo"] in ("nav", "ver"):
+            vt["scroll"] = max(0, min(vt.get("_max", 0), vt["scroll"] + 3 * rueda))
+            return True
+        elif rueda:
+            key = "down" if rueda > 0 else "up"
+        elif not acc:
+            return True
+        elif acc[0] == "vt_volver":
+            vt["vista"] = "agenda"
+            return True
+        elif acc[0] in ("vt_item", "vt_mas"):            # la zona lleva la clave de lo dibujado
+            items, _i, _se_fue = _vt_seleccion(S)
+            e = next((e for _g, _d, e in items if _vt_clave(e) == acc[1]), None)
+            if e is None:
+                S["msg"] = _t("cal.vt.gone", "«{t}» ya no está en esta agenda", t=_vt_titulo(acc[1]))
+                return True
+            vt.update(eid=acc[1], titulo=e.get("title"))
+            if acc[0] == "vt_item":
+                _vt_abrir(S, e)                      # un clic en el evento: ábrelo
+            return True
+        else:
+            return True
+    if S["modo"] not in ("nav", "ver"):              # una vista de la ventana grande
+        if key == "\x1b" or (key == "\x13" and S["modo"] in ("add", "edit")):
+            return _accion_grande(S, key)
+        return True
+    if vt.get("ayuda"):
+        vt["ayuda"] = False
+        return key not in ("q", "Q", "\x03")
+    S["msg"] = ""
+    if key in ("q", "Q", "\x03"):
+        return False
+    if key == "?":
+        vt["ayuda"] = True
+        return True
+    if key in ("i", "I"):
+        S["info"] = {"scroll": 0}
+        return True
+    evento = vt["vista"] == "evento"
+    # el elegido, solo para las teclas que actúan sobre él: leerlo gasta el
+    # aviso de «se fue» (y lo cambia por el primero), y ↑↓ tienen que verlo
+    # para no dar el paso (revisor final, 2)
+    actua = key in ("x", "X", " ", "l", "L", "f", "F", "!", "\r", "\n")
+    e = (_vt_actual(S) if evento else _vt_elegido(S)) if actua else None
+    if evento and e is None and key in ("x", "X", " ", "l", "L", "f", "F", "!"):
+        S["msg"] = _t("cal.vt.gone", "«{t}» ya no está en esta agenda",
+                      t=(vt.get("evento") or {}).get("title") or "")
+        return True
+    if key in ("x", "X", " ") and e:
+        _toggle_hecha(S, e)
+    elif key in ("l", "L") and e:
+        _toggle_ready(S, e)
+    elif key in ("f", "F", "!") and e:
+        _toggle_prioridad(S, e)
+    elif key in ("e", "E", "a", "A", "m", "M", "d", "D", "v", "V", "b", "B", "g", "G"):
+        S["msg"] = _t("cal.vt.bigger_short", "eso, con la ventana grande (mínimo 70×26)")
+    elif evento:
+        if key in ("\x1b", "left", "\r", "\n"):
+            vt["vista"] = "agenda"
+        elif key in ("up", "down"):
+            vt["scroll"] = max(0, min(vt.get("_max", 0), vt["scroll"] + (1 if key == "down" else -1)))
+    elif key == "\x1b":
+        return False
+    elif key in ("left", "right"):
+        S["sel"] += datetime.timedelta(days=-1 if key == "left" else 1)
+    elif key in ("up", "down"):
+        _vt_mover(S, 1 if key == "down" else -1)
+    elif key in ("t", "T"):
+        S["sel"] = datetime.date.today()
+    elif key in ("n", "N", "p", "P"):
+        S["sel"] = _mes_mov(S["sel"], 1 if key in ("n", "N") else -1)
+    elif key in ("\r", "\n"):
+        _vt_abrir(S, e)
+    return True
+
+
 # ── drivers (mismo patrón que el hub y tono_tui) ──────────────────────────
 import responsive_ui as _responsive
 # mínimo REAL del calendario (no es la cajita): 26 filas = todos los días de
@@ -1776,14 +2220,18 @@ import responsive_ui as _responsive
 # compacta y los botones; 66 columnas = la rejilla del MES sin cortar ningún
 # día (la semana del cursor, «[16]», mide una columna más) + la caja del DÍA
 render = _responsive.renderer(render, 'CALENDARIO', min_size=(66, 26))
+render = VT.con_ventanita(render, render_ventanita, "calendario", alto=VT_ALTO)
 _accion = _responsive.action(_accion)
+_accion_grande = _accion
+_accion = VT.con_ventanita_accion(_accion, accion_ventanita)
 
 def _draw(tout, S, first=False):
     w, h = _size()
     try:
         _responsive.paint(tout, render(S, w, h), first=first)
     except Exception:
-        pass
+        return
+    VT.mouse(tout, S)                        # los clics, solo en la ventanita
 
 
 def _finish_google_connect(S):
@@ -1831,6 +2279,8 @@ def _run_unix(S):
                            "[D": "left", "[H": "home", "[F": "end", "[Z": "right_tab",
                            "[1~": "home", "[4~": "end", "[3~": "delete",
                            "[5~": "pageup", "[6~": "pagedown"}.get(seq, "")
+                    if seq.startswith("[<"):  # un clic o la rueda (solo en la ventanita)
+                        key = SB.mouse_event(seq.encode("ascii", "ignore")) or ""
                 else:
                     key = "\x1b"
             elif ch == "\t":
@@ -1874,6 +2324,7 @@ def _run_unix(S):
             _draw(tout, S)
     finally:
         try:
+            VT.mouse_off(tout, S)
             tout.write("\033[?1049l")
             tout.flush()
             termios.tcsetattr(fd, termios.TCSADRAIN, old)

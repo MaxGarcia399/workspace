@@ -176,6 +176,7 @@ STRINGS = {
     "onboarding.apariencia.group.fondo": "fondo",
     "onboarding.apariencia.activo": "activo",
     "onboarding.apariencia.div_donde": "dónde queda",
+    "onboarding.apariencia.herdr_manda": "dentro de herdr manda {tema}; esto vale fuera de herdr",
     "onboarding.apariencia.changes_p1": "El tema pinta todo el hub — wordmark, "
                                         "cajas, sliders — y se guarda al "
                                         "instante: esta pantalla YA está "
@@ -212,8 +213,9 @@ STRINGS = {
     "onboarding.agente.crear.desc": "Un agente desde cero: formulario corto → "
                                     "ves el CEREBRO que va a nacer y el motor "
                                     "con el que corre → se crea EN VIVO, paso "
-                                    "por paso. Nace autocontenido en "
-                                    "~/Desktop/<NOMBRE> - BRAIN, usable al "
+                                    "por paso. Nace autocontenido en su "
+                                    "propia carpeta (Mac y Linux: "
+                                    "~/Workspace/Cerebros/<NOMBRE>), usable al "
                                     "terminar.",
     "onboarding.agente.cargar.label": "cargar agente existente",
     "onboarding.agente.cargar.desc": "Conecta un cerebro que ya existe (una "
@@ -223,9 +225,10 @@ STRINGS = {
                                      "statusline · launcher · tema) corre EN "
                                      "VIVO, paso por paso.",
     "onboarding.agente.descubrir.label": "descubrir cerebros en el disco",
-    "onboarding.agente.descubrir.desc": "Escanea Desktop / Documents / vaults "
-                                        "buscando carpetas con "
-                                        ".workspace/agent.json y te deja "
+    "onboarding.agente.descubrir.desc": "Busca carpetas con "
+                                        ".workspace/agent.json (vaults de "
+                                        "Obsidian, ~/Workspace/Cerebros, tus "
+                                        "carpetas comunes) y te deja "
                                         "conectarlas — ves cuáles son nuevas y "
                                         "cuáles ya están. Acción MANUAL — "
                                         "Workspace jamás conecta nada solo.",

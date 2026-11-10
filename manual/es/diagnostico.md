@@ -51,8 +51,8 @@ problema"**. Te pedirá:
    workspace doctor --bundle
    ```
 
-   Deja `workspace-diagnostico-<fecha>.zip` en tu Escritorio (o donde digas con
-   `--out <carpeta>`) e imprime la ruta. Lleva el reporte del doctor, tu versión, tu sistema,
+   Deja `workspace-diagnostico-<fecha>.zip` en `~/Workspace/Respaldos` (o donde digas con
+   `--out <carpeta>`), imprime la ruta y te lo muestra en su carpeta, listo para adjuntar. Lleva el reporte del doctor, tu versión, tu sistema,
    qué funciona con cada motor, tus agentes (nombre y motor, sin rutas) y el final de los
    registros de Workspace. **Tacha** rutas, tu usuario, el nombre de tu equipo, correos,
    tokens e IPs, y **nunca** incluye conversaciones, claves ni el contenido de tus cerebros.

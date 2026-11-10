@@ -53,20 +53,25 @@ def _engines_status():
 
 
 def _deciders_status():
-    """«Jev listo» — falla-suave: si algo de Decisores truena, la puerta abre
+    """«Jev listo» (con uno solo) · «Jev · Ollama listos» · «4 modelos ·
+    ninguno listo» — falla-suave: si algo de Decisores truena, la puerta abre
     igual (el cuadrito de motores es lo esencial)."""
-    partes, col = [], "DK"
     try:
-        for did in MT.models():
-            if did not in MT.DC.deciders():
-                continue
-            st, c = MT.state(did)
-            partes.append("%s %s" % (MT.name(did), st.split(" · ")[0]))
-            if c == "OK":
-                col = "OK"
+        ids = [d for d in MT.models() if d in MT.DC.deciders()]
+        if not ids:
+            return "", "DK"
+        estados = [(MT.name(d),) + tuple(MT.state(d)) for d in ids]
     except Exception:
         return "", "DK"
-    return " · ".join(partes), col
+    if len(estados) == 1:
+        n, st, c = estados[0]
+        return "%s %s" % (n, st.split(" · ")[0]), "OK" if c == "OK" else "DK"
+    listos = [n for n, _st, c in estados if c == "OK"]
+    if not listos:
+        return _t("motores.menu.deciders_none", "{n} modelos · ninguno listo", n=len(estados)), "DK"
+    if len(listos) == 1:
+        return _t("motores.menu.deciders_one", "{m} listo", m=listos[0]), "OK"
+    return _t("motores.menu.deciders_many", "{m} listos", m=" · ".join(listos)), "OK"
 
 
 def initial():

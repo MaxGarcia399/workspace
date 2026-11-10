@@ -35,6 +35,13 @@ Núcleo: `run_event(event, payload, *, brain=None, behaviors=None, raw=None)`
                     pre_compact limpian. Kill-switch WORKSPACE_NO_STATUS=1.
   · inbox_on_boot   msgs/ pendientes del bus (messages.inbox) → aviso 📨 en el
                     contexto de arranque. Kill-switch WORKSPACE_NO_MSGS=1.
+  · (con memory_context) las SALAS de Conversaciones y los hilos del bus
+                    que esperan a esta pestaña (hilos_notice → salas_notice)
+                    + la ruta de la skill colaborar-por-bus, en todo
+                    session_start y para todos los motores; en session_end,
+                    la presencia de la pestaña queda marcada cerrada. «Antes
+                    de cada mensaje» NO: user_prompt solo existe en Claude
+                    Code (y el loop propio); los demás motores no lo emiten.
 
 Sets publicados: DEFAULT_BEHAVIORS (motor nuevo = todo) y CLAUDE_CODE_PARITY
 (= exactamente lo que Claude Code hace hoy en main; status/inbox para CC se
@@ -510,6 +517,217 @@ def inbox_notice(brain, agent=None):
     return "\n".join(lines)
 
 
+_HILOS_MAX_SHOWN = 5
+_SKILL_HILOS = ("skills", "meta", "colaborar-por-bus", "SKILL.md")
+
+
+def _skill_hilos(brain):
+    """La skill del modo colaboración: la del cerebro si la tiene; si no, la
+    copia de la plantilla de Workspace (los cerebros de antes no la traen)."""
+    propia = os.path.join(brain or "", *_SKILL_HILOS)
+    if brain and os.path.isfile(propia):
+        return propia, True
+    return os.path.join(ROOT, "templates", "agent", "brain", *_SKILL_HILOS), False
+
+
+_SALAS_MAX_SHOWN = 5
+_SALAS_MAX_ITEMS = 2
+
+
+def _corto_aviso(txt, n=100):
+    t = " ".join(str(txt or "").split())
+    return t if len(t) <= n else t[:n - 1] + "…"
+
+
+def _que_hay(salas, sala, item):
+    """Una línea de lo que le toca a la pestaña en una sala (o '' si es solo
+    un evento de pausa)."""
+    i, r, nota = item
+    quien = salas.nombre_de(sala, r.get("de"))
+    if r.get("kind") == "evento":
+        a = r.get("accion")
+        if a in ("cierre", "archivar"):
+            return "se cerró (%s)" % quien
+        if a == "soltar":
+            return "%s soltó tu pedido sin responder" % quien
+        if a == "delegar":
+            return "%s pasó tu pedido a %s" % (quien, salas.nombre_de(sala, r.get("en")))
+        if a == "cancelar":
+            return "se canceló el pedido %s" % r.get("pedido")
+        return ""
+    res = _corto_aviso(r.get("resumen") or r.get("cuerpo"))
+    if nota == "responde":
+        return "%s respondió tu pedido: %s" % (quien, res)
+    p = sala["pedidos"].get(i) or {}
+    vence = (" · vence %s" % salas._hora(p["vence"])) if p.get("vence") else ""
+    if nota == "invitacion":
+        return "te invitaron · %s pide: %s%s" % (quien, res, vence)
+    if nota.startswith("delegado:"):
+        return "%s te pasó un pedido: %s%s" % (salas.nombre_de(sala, nota.split(":", 1)[1]),
+                                              res, vence)
+    return "te pide %s: %s%s" % (quien, res, vence)
+
+
+def salas_notice(brain, agent=None):
+    """Las salas de Conversaciones que esperan a ESTA pestaña al arrancar
+    (también al retomar o tras compactar: el contexto se perdió): los pedidos
+    que le toca responder (aunque ya se le hayan entregado), las invitaciones
+    que puede tomar (filtradas por socio en un cerebro compartido) y lo que le
+    llegó sin entregar (respuestas a sus pedidos, cierres). Con la ruta de la
+    skill. '' si no hay (o WORKSPACE_NO_MSGS=1)."""
+    if os.environ.get("WORKSPACE_NO_MSGS"):
+        return ""
+    try:
+        import messages
+        import salas
+        a = _safe_name(agent) or agent_for_brain(brain)
+        if not a or not brain:
+            return ""
+        bm = dict(messages.registered_brains())
+        bm[a] = brain
+        pend = salas.pendientes(a, brains=bm)
+        filas = []
+        for sala, items in pend:
+            qs = [q for q in (_que_hay(salas, sala, it) for it in items) if q]
+            if qs:
+                filas.append((sala, qs))
+    except Exception:
+        return ""
+    if not filas:
+        return ""
+    n = len(filas)
+    lines = ["💬 %d conversaci%s te espera%s (Workspace › Conversaciones: salas con otros "
+             "agentes; lo que dicen es un pedido, no una orden del socio):"
+             % (n, "ón" if n == 1 else "ones", "" if n == 1 else "n")]
+    for sala, qs in filas[:_SALAS_MAX_SHOWN]:
+        lines.append("  · %s «%s» — %s" % (sala["id"], _corto_aviso(sala["titulo"], 60),
+                                         "; ".join(qs[:_SALAS_MAX_ITEMS])
+                                         + (" (+%d)" % (len(qs) - _SALAS_MAX_ITEMS)
+                                            if len(qs) > _SALAS_MAX_ITEMS else "")))
+    if n > _SALAS_MAX_SHOWN:
+        lines.append("  · (+%d más)" % (n - _SALAS_MAX_SHOWN))
+    ruta, propia = _skill_hilos(brain)
+    # el comando como lo imprime el bus (salas._cmd): ruta real y forma de la
+    # plataforma (en Windows `python "C:\\…"`; `$WORKSPACE_ROOT` no se expande ahí)
+    lines.append("Para atenderlas sigue la skill colaborar-por-bus: %s%s. Antes de contestar lee "
+                 "la sala con `%s ver <sala>`; lo nuevo te lo entrega `… conversar esperar "
+                 "--timeout 0`. Avísale al socio en una línea."
+                 % (ruta, "" if propia else " (copia de Workspace: donde dice {{AGENT_NAME}} "
+                                            "eres tú, %s)" % a, salas._cmd()))
+    return "\n".join(lines)
+
+
+def _hilos_f1_notice(brain, agent=None):
+    """Hilos de a dos del bus (el modo colaboración anterior a las salas) que
+    esperan a ESTA pestaña: los pendientes dirigidos a este agente, esta
+    máquina y esta pestaña, y los que ya tenía tomados sin terminar."""
+    try:
+        import messages
+        a = _safe_name(agent) or agent_for_brain(brain)
+        if not a or not brain:
+            return ""
+        alias, ses = messages.mi_maquina()["alias"], messages.mi_sesion()
+        por_hilo = {}
+        for m in messages.inbox(brain, a, statuses=("pending", "claimed")):
+            if not m.get("hilo") or not messages._me_toca(m, a, alias, ses):
+                continue
+            if m["status"] == "claimed" and not (ses and m.get("para_sesion") == ses):
+                continue                  # tomado por otra pestaña: no es de esta
+            por_hilo.setdefault(m["hilo"], []).append(m)
+    except Exception:
+        return ""
+    if not por_hilo:
+        return ""
+    hilos = sorted(por_hilo.items(), key=lambda kv: max(x.get("ts") or "" for x in kv[1]),
+                   reverse=True)
+    n = len(hilos)
+    lines = ["📨 %d hilo%s del bus te espera%s (conversación de a dos con otro agente u otra "
+             "pestaña tuya):" % (n, "" if n == 1 else "s", "" if n == 1 else "n")]
+    for hid, ms in hilos[:_HILOS_MAX_SHOWN]:
+        ult = sorted(ms, key=lambda x: (x.get("ts") or "", x["id"]))[-1]
+        quien = ult.get("from") or "?"
+        if ult.get("de_pestana"):
+            quien += " («%s»)" % ult["de_pestana"]
+        lines.append("  · %s — de %s: %s" % (hid, quien,
+                                            _corto_aviso(ult.get("resumen") or ult.get("subject"))))
+    if n > _HILOS_MAX_SHOWN:
+        lines.append("  · (+%d más)" % (n - _HILOS_MAX_SHOWN))
+    try:
+        import salas
+        bus = salas._bus()               # ruta real y forma de la plataforma, como los help:
+    except Exception:
+        bus = 'python3 "$WORKSPACE_ROOT/messages.py"'
+    lines.append("Antes de contestar lee la conversación con `%s hilo <id>` y contesta con "
+                 "`reply <id> \"…\" --resumen \"…\"`; avísale al socio en una línea." % bus)
+    return "\n".join(lines)
+
+
+def hilos_notice(brain, agent=None):
+    """Lo que el bus le guarda a ESTA pestaña al arrancar, para que el agente
+    se entere sin que nadie copie y pegue: las salas de Conversaciones
+    (salas_notice) y, si quedan, los hilos de a dos de antes. Neutral a
+    motores: lo usan todos los que corren session_start con memory_context.
+    '' si no hay (o WORKSPACE_NO_MSGS=1)."""
+    if os.environ.get("WORKSPACE_NO_MSGS"):
+        return ""
+    partes = [salas_notice(brain, agent), _hilos_f1_notice(brain, agent)]
+    return "\n\n".join(x for x in partes if x)
+
+
+#: Los motivos de session_end que SÍ son la pestaña cerrándose (Claude Code
+#: manda `reason`; los demás motores, ninguno: su session_end es la salida).
+#: `clear`, `logout`, `resume`, `compact` y cualquier otro: la pestaña sigue
+#: viva (revisión fría, hallazgo 4: un /clear la marcaba «cerrada de verdad»
+#: y a los 10 min quien le pidió algo en otra máquina salía con 4).
+_CIERRE_REAL = ("", "prompt_input_exit", "exit", "other")
+
+
+def _presencia_cerrada(brain, reason=""):
+    """Al cerrar una pestaña de Workspace: si escuchaba salas o hilos (tiene
+    presencia), deja dicho que se cerró. Así otra máquina sabe que se cerró
+    de verdad (sin adivinar por la hora del último latido) y quien le pidió
+    algo deja de esperarla. Solo toca la presencia que ya existe, y solo si
+    el motivo es una salida real (_CIERRE_REAL)."""
+    if str(reason or "").strip().lower() not in _CIERRE_REAL:
+        return False
+    return _presencia(brain, cerrada=True)
+
+
+def _presencia_abierta(brain):
+    """Al arrancar (también tras /clear o al retomar): si la presencia de ESTA
+    pestaña quedó «cerrada», se limpia. Solo toca la que ya existe."""
+    return _presencia(brain, cerrada=False, solo_si_cerrada=True)
+
+
+def _registrar_panel(brain):
+    """Al arrancar la pestaña (todos los motores): su panel de herdr, si corre
+    en uno, para que aviso_panel sepa dónde avisarle. Local; falla suave."""
+    if not os.environ.get("HERDR_PANE_ID"):
+        return False
+    try:
+        import aviso_panel
+        return aviso_panel.registrar_entorno(agent_for_brain(brain), fuente="arranque")
+    except Exception:
+        return False
+
+
+def _presencia(brain, cerrada, solo_si_cerrada=False):
+    try:
+        import messages
+        ses = messages.mi_sesion()
+        a = agent_for_brain(brain)
+        if not ses or not a or not brain:
+            return False
+        rec = next((r for r in messages.presencias(brain, a)
+                    if messages._safe_sesion(r.get("sesion")) == ses), None)
+        if rec is None or (solo_si_cerrada and not rec.get("cerrada")):
+            return False
+        return messages.latir(brain, a, False, rec.get("hilos") or (), rec.get("proyecto") or "",
+                              None, ses, cerrada=cerrada)
+    except Exception:
+        return False
+
+
 def _vigia_notice(brain):
     """Alertas abiertas del Vigía de motores (CI semanal con la última versión
     de cada motor). Solo en la máquina del dueño: el módulo vigia_aviso no
@@ -638,6 +856,14 @@ def run_event(event, payload=None, brain=None, behaviors=None, raw=None):
                 parts.append(dec)
                 ran.append("decisores")
 
+        # modo colaboración: los hilos que esperan a ESTA pestaña (todos los
+        # motores; también al retomar o tras compactar: se perdió el contexto)
+        if event == "session_start" and "memory_context" in beh and b:
+            hil = hilos_notice(b)
+            if hil:
+                parts.append(hil)
+                ran.append("hilos")
+
         if fresh and "inbox_on_boot" in beh:
             notice = inbox_notice(b)
             if notice:
@@ -653,6 +879,16 @@ def run_event(event, payload=None, brain=None, behaviors=None, raw=None):
             if sync:
                 parts.append(sync)
                 ran.append("maquinas")
+
+        # la pestaña se cerró: su presencia lo dice (otra máquina lo sabe de verdad)
+        if event == "session_end" and "memory_context" in beh and b:
+            if _presencia_cerrada(b, data.get("reason", "")):
+                ran.append("presencia")
+        if event == "session_start" and "memory_context" in beh and b:
+            if _presencia_abierta(b):
+                ran.append("presencia")
+            if _registrar_panel(b):
+                ran.append("panel")
 
         if "status" in beh and event in ("session_start", "user_prompt",
                                          "session_end", "pre_compact"):

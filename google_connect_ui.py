@@ -1,6 +1,7 @@
 """Shared classic-terminal Google connector for onboarding and Calendar."""
 import getpass
 import os
+import sys
 
 import google_auth
 from i18n import t as _translate
@@ -19,11 +20,23 @@ def result_message(result):
              t("cal.oauth.error.failed", "No se pudo conectar Google"))
 
 
+def _aviso(clave):
+    """Aviso de una línea ANTES del diálogo que va a salir (avisos_sistema)."""
+    try:
+        import avisos_sistema
+        return avisos_sistema.texto(clave)
+    except Exception:
+        return ""
+
+
 def connect():
     login = None
     try:
         if not google_auth.configured():
             print(t("cal.oauth.setup", "Workspace necesita un cliente OAuth de escritorio registrado en Google Cloud."))
+            if sys.platform == "darwin":
+                # C2: el JSON suele estar en Descargas → macOS pregunta
+                print(_aviso("google.descargas"))
             print(t("cal.oauth.import", "Arrastra el JSON del cliente a esta terminal (Enter cancela):"))
             path = input("  > ").strip().strip("\"'")
             # Dragging a macOS path escapes spaces; accept it without shell execution.
@@ -34,6 +47,7 @@ def connect():
             if not result.get("ok"):
                 return result
         label = input(t("cal.oauth.label", "Nombre del calendario (Enter = Google): ")).strip()
+        print(_aviso("google.no_verificada"))      # C3: la pantalla de Google, antes
         print(t("cal.oauth.wait", "Autoriza Calendar en el navegador · Ctrl+C cancela · espera máxima 3 minutos"))
         login = google_auth.Login(label=label or "Google")
         while not login.done.wait(0.2):

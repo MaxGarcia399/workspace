@@ -197,6 +197,45 @@ def deny_protegidas(brain, windows=None):
     return out
 
 
+def deny_lectura(windows=None):
+    """Las reglas `deny` de Claude Code que le niegan al agente LEER la bóveda
+    de llaves de Workspace (rutas_protegidas.lectura_negada: `secrets.local`
+    y sus temporales, la carpeta `boveda/`) y PEDIRLE un valor al llavero del
+    sistema (rutas_protegidas.COMANDOS_LLAVERO). Doc oficial
+    (https://code.claude.com/docs/en/permissions): `Read(//ruta)` es ABSOLUTA
+    (`/ruta` con una sola barra es relativa a la config); Windows `//c/…`;
+    `~/` también vale; deny gana en todos los modos, también
+    bypassPermissions; un deny de Read aplica a Read/Grep/Glob y a los
+    comandos de archivo que Claude Code reconoce en Bash (`cat`, `head`,
+    `tail`, `sed`…), NO a un script cualquiera (eso solo lo frena su sandbox,
+    que Workspace no prende). SIN VERIFICAR en caja negra (2026-11-08)."""
+    import rutas_protegidas as R
+    out = []
+
+    def esc(r):
+        return "".join("\\" + c if c in _GITIGNORE_COMODINES else c for c in r)
+    for ruta, tipo in R.lectura_negada():
+        cands = [ruta] if windows else [os.path.abspath(ruta), os.path.realpath(ruta)]
+        for p in cands:
+            r = esc(_rule_root(p, windows))
+            reglas = (["Read(%s/**)" % r] if tipo == R.CARPETA
+                      else ["Read(%s)" % r, "Read(%s.tmp-*)" % r])
+            out += [x for x in reglas if x not in out]
+    for rel, tipo in R.lectura_negada_relativa():
+        x = "Read(~/%s/**)" % esc(rel) if tipo == R.CARPETA else "Read(~/%s)" % esc(rel)
+        if x not in out:
+            out.append(x)
+    out += ["Bash(%s:*)" % c for c in R.COMANDOS_LLAVERO]     # el programa entero
+    return out
+
+
+def deny_workspace(brain, windows=None):
+    """Todo el deny de Workspace para Claude Code: no escribir la config
+    protegida del cerebro (deny_protegidas) y no leer la bóveda de llaves
+    (deny_lectura)."""
+    return deny_protegidas(brain, windows) + deny_lectura(windows)
+
+
 def claude_permissions(autonomy, brain):
     """El bloque `permissions` que WORKSPACE quiere para esa autonomía. Con
     «brain» el allow del cerebro va SIEMPRE con su deny (deny_protegidas):
@@ -204,7 +243,7 @@ def claude_permissions(autonomy, brain):
     archivo, no solo en la sesión del lanzador."""
     if autonomy == "ask":
         return {"allow": [], "deny": []}
-    return {"allow": brain_rules(brain), "deny": deny_protegidas(brain)}
+    return {"allow": brain_rules(brain), "deny": deny_workspace(brain)}
 
 
 def _render_deny(new, cur, prev, want_deny):
@@ -266,7 +305,7 @@ def completar_deny(settings, brain):
     cur = settings.get("permissions")
     if not isinstance(cur, dict):
         return False
-    want = deny_protegidas(brain)
+    want = deny_workspace(brain)
     new = dict(cur)
     if not _render_deny(new, cur, prev, want):
         return False
@@ -383,13 +422,27 @@ def find_brain(name, cfg, ask=True):
     raw = cfg.get("brain", "")
     target = os.path.basename(os.path.normpath(raw)) if raw else ""
     if target:
+        # En Mac, sin entrar a Escritorio/Documentos/iCloud (salvo que Workspace
+        # viva ahí): cada uno pide permiso a la app de terminal y esto corre
+        # solo, al instalar/actualizar (aviso C1).
+        try:
+            import agentsreg
+            bloqueada = agentsreg._bloqueo(WORKSPACE)
+        except Exception:
+            bloqueada = None
         for vp in obsidian_vaults():                 # registro de Obsidian (lo más fiable)
+            if bloqueada is not None and bloqueada(vp):
+                continue
             if os.path.basename(os.path.normpath(vp)) == target and os.path.isdir(vp):
                 return os.path.abspath(vp), True
-        for r in (os.path.dirname(WORKSPACE), HOME, os.path.join(HOME, "Desktop"),
+        # spots comunes
+        for r in (os.path.dirname(WORKSPACE), HOME, _paths.brains_dir(HOME),
+                  os.path.join(HOME, "Desktop"),
                   os.path.join(HOME, "Documents"), os.path.join(HOME, "Documents", "Obsidian"),
-                  os.path.join(HOME, "Obsidian")):    # spots comunes
+                  os.path.join(HOME, "Obsidian")):
             cand = os.path.join(r, target)
+            if bloqueada is not None and bloqueada(cand):
+                continue
             if os.path.isdir(cand):
                 return os.path.abspath(cand), True
     if not ask or not _stdin_tty():

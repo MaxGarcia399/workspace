@@ -147,6 +147,84 @@ def _atomic_write(path, data):
         return False
 
 
+def _apartar_ilegible(path):
+    """Un workspaces.json ilegible se aparta —no se pisa ni se borra— con un
+    aviso de una línea. → la ruta nueva, o '' si no se pudo."""
+    import uuid
+    dest = "%s.ilegible-%s-%s" % (path, datetime.datetime.now().strftime("%y%m%dT%H%M%S"),
+                                  uuid.uuid4().hex[:6])
+    try:
+        os.replace(path, dest)
+    except OSError:
+        return ""
+    try:
+        sys.stderr.write("⚠ Workspace: no pude leer %s; quedó aparte en %s (no se borró)\n"
+                         % (path, dest))
+    except Exception:
+        pass
+    return dest
+
+
+def actualizar_ws(path, cambiar, timeout=5):
+    """EL camino para escribir `.claude/<agente>-workspaces.json`: leer,
+    cambiar y guardar bajo UN candado común (olock.local_lock: el `.lock` en
+    `<cerebro>/.claude/locks/`, que no viaja por Obsidian), con temporal
+    único + os.replace. TODOS sus escritores pasan por aquí: el espejo de un
+    fork (_espejar_id), la pestaña nueva (_mirror_to_claude), el panel
+    (_register_workspace, _stamp_opened), el hook de cierre y el menú de
+    pestañas de los dashboards. Sin esto, un fork que espejaba su id pisaba
+    la pestaña que otra ventana acababa de crear (Greptile 0.8.x, 8).
+    `cambiar(ws)` recibe la lista actual ([] si no hay) y devuelve la nueva,
+    o None para no escribir. JAMÁS escribe fuera del candado: si sigue
+    ocupado tras `timeout`, reintenta UNA vez y, si no, devuelve False (el
+    que lo tiene puede tardar —en Windows, los reintentos de os.replace— y
+    escribir sin él borraba la pestaña que ese otro acababa de agregar:
+    Greptile final 0.9.0, 1). → True si escribió. Falla-suave."""
+    try:
+        from olock import local_lock, LockTimeout
+    except Exception:
+        return False                       # sin candado, no se escribe
+    lk = None
+    for _intento in range(2):
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            lk = local_lock(path, timeout=timeout)
+            lk.__enter__()
+            break
+        except LockTimeout:
+            lk = None
+            continue
+        except Exception:
+            return False
+    if lk is None:
+        return False
+    try:
+        import atomico
+        try:
+            # una lectura que falla (el antivirus, un instante) se reintenta
+            # como el reemplazo; si sigue, no se escribe nada (revisor final)
+            ws = json.loads(atomico.leer(path, "utf-8-sig"))
+            if not isinstance(ws, list):
+                raise ValueError("no es una lista")
+        except FileNotFoundError:
+            ws = []
+        except ValueError:
+            # ilegible NO es vacío —JSON roto, UTF-8 malo, otra forma—: se
+            # aparta intacto y se avisa antes de guardar; si no se puede
+            # apartar, no se escribe (Greptile final, 3)
+            if not _apartar_ilegible(path):
+                return False
+            ws = []
+        except OSError:
+            return False
+        nuevo = cambiar(ws)
+        return False if nuevo is None else _atomic_write(path, nuevo)
+    except Exception:
+        return False
+    finally:
+        lk.__exit__(None, None, None)
+
+
 # ── store local (resume-ids per-máquina) ────────────────────────────────────
 def _brain_key(brain):
     """Clave del cerebro en el store local: realpath (dos cerebros con el
@@ -709,19 +787,20 @@ def _mirror_to_claude(brain, agent, name, wid):
     """Espeja la pestaña al `.claude/<agente>-workspaces.json` per-máquina si
     no está (match por id y slug; jamás duplica ni toca lo existente) — los
     dashboards/hooks de Claude Code siguen con su archivo de siempre."""
-    try:
-        path = _ws_path(brain, agent)
-        ws = _read_json(path, [])
-        sl = _slug(name)
+    sl = _slug(name)
+
+    def agregar(ws):
         for w in ws:
             if isinstance(w, dict) and (
                     (wid and w.get("id") == wid)
                     or _slug(w.get("name", "")) == sl):
-                return False
+                return None
         now = _now()
         ws.append({"name": name, "id": wid, "created": now,
                    "last_opened": now, "updated": now})
-        return _atomic_write(path, ws)
+        return ws
+    try:
+        return actualizar_ws(_ws_path(brain, agent), agregar)
     except Exception:
         return False
 
@@ -813,17 +892,18 @@ def _espejar_id(brain, agent, name, antes, nuevo):
     una fila en el picker, el panel y el chat del dev panel."""
     if not agent:
         return False
-    try:
-        path = _ws_path(brain, agent)
-        ws = _read_json(path, [])
-        sl = _slug(name)
+    sl = _slug(name)
+
+    def espejar(ws):
         mias = [w for w in ws if isinstance(w, dict) and _slug(w.get("name", "")) == sl]
         if not mias or any(w.get("id") == nuevo for w in mias):
-            return False
+            return None
         w = next((w for w in mias if w.get("id") == antes), mias[0])
         w["id"] = nuevo
         w["updated"] = _now()
-        return _atomic_write(path, ws)
+        return ws
+    try:
+        return actualizar_ws(_ws_path(brain, agent), espejar)
     except Exception:
         return False
 

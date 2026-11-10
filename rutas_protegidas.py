@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""WORKSPACE · rutas_protegidas — lo que el AGENTE no escribe nunca en su cerebro.
+"""WORKSPACE · rutas_protegidas — lo que el AGENTE no escribe nunca en su cerebro
+(y, al final, lo que no LEE nunca: la bóveda de llaves, lectura_negada).
 
 Con autonomía «brain» cada motor escribe en el cerebro sin preguntar. Pero el
 cerebro lo comparten TODOS los motores, git y Obsidian: si un motor escribe la
@@ -135,6 +136,83 @@ def es_protegida(rel):
         if p == r or p.startswith(r + "/"):
             return True
     return p in tuple(a.lower() for a in ARCHIVOS)
+
+
+# ── lo que el agente no LEE nunca (fuera del cerebro) ──────────────────────
+#: La bóveda de llaves de Workspace (secret_store.rutas_sensibles): el archivo
+#: `secrets.local` (y sus temporales) y la carpeta `boveda/` (índice,
+#: respaldos, estado). Fuera del cerebro, en el dir de estado: rutas
+#: ABSOLUTAS de esta máquina (lectura_negada). Cada motor que lo soporta las
+#: niega como regla de LECTURA (además de que ningún motor recibe la bóveda
+#: por entorno: secret_store.engine_env). Ver manual/es/compatibilidad.md.
+LECTURA_DOC = ("https://code.claude.com/docs/en/permissions "
+               "https://cursor.com/docs/cli/reference/permissions "
+               "https://kiro.dev/docs/permissions/ "
+               "https://antigravity.google/docs/permissions?tab=cli "
+               "https://docs.github.com/en/copilot/reference/cli-command-reference")
+
+#: Segunda capa: los programas que le PIDEN un valor al llavero del sistema
+#: (macOS `security`, Linux `secret-tool`), ENTEROS: cualquier subcomando,
+#: también `security -i` con el pedido por la entrada estándar (revisión
+#: 2026-11-08: con solo `find-generic-password`, `printf … | security -i` lo
+#: sacaba). Se niegan donde el motor niega comandos por su prefijo. No es un
+#: muro: un script cualquiera del mismo usuario (`python -c …`) aún puede
+#: pedírselo al llavero (el llavero protege el disco, los respaldos y la
+#: sincronización, no frente a un programa de tu usuario).
+COMANDOS_LLAVERO = ("security", "/usr/bin/security", "secret-tool")
+
+
+#: Los motores que aplican lectura_negada (regla de LECTURA de la bóveda) y
+#: los que además niegan COMANDOS_LLAVERO. Fuente ÚNICA de lo que se le DICE
+#: al socio («Tu llave, en simple», modelos_tui): tests/test_rutas_protegidas.py
+#: y tests/test_modelos_llave.py comprueban que cada uno tiene su regla. Los
+#: demás (Codex, Gemini, OpenCode, OpenClaw, Hermes) no tienen esa regla.
+NIEGAN_LEER = ("claude-code", "copilot", "cursor", "kiro", "antigravity")
+NIEGAN_COMANDOS = ("claude-code", "copilot", "cursor", "antigravity")
+#: Todos los motores de Workspace, con el nombre que ve el socio.
+MOTORES = (("claude-code", "Claude Code"), ("codex", "Codex"), ("antigravity", "Antigravity"),
+           ("opencode", "OpenCode"), ("openclaw", "OpenClaw"), ("hermes", "Hermes"),
+           ("kiro", "Kiro"), ("copilot", "GitHub Copilot"), ("cursor", "Cursor"),
+           ("gemini", "Gemini"))
+
+
+def no_la_leen(donde):
+    """Los motores cuyo agente NO puede leer una llave que vive en `donde`
+    (secret_store.sistema / fuente): con el llavero de macOS o secret-tool
+    hace falta negar también los comandos del llavero (la llave no está en
+    un archivo); con DPAPI o el archivo basta la regla de lectura. → ids."""
+    if donde in ("llavero", "secret-tool"):
+        return tuple(m for m in NIEGAN_LEER if m in NIEGAN_COMANDOS)
+    return NIEGAN_LEER
+
+
+def lectura_negada():
+    """((ruta absoluta, ARCHIVO|CARPETA), …) de la bóveda de esta máquina.
+    Falla-suave → ()."""
+    try:
+        import secret_store
+        archivo, carpeta = secret_store.rutas_sensibles()
+        return ((archivo, ARCHIVO), (carpeta, CARPETA))
+    except Exception:
+        return ()
+
+
+def lectura_negada_relativa():
+    """Las mismas, RELATIVAS al HOME y con `/` (`.claude/workspace/…`): para
+    la config que viaja con el cerebro a otras máquinas (cada motor la arma
+    con `**/` delante). Falla-suave → ()."""
+    import os
+    try:
+        home = os.path.realpath(os.path.expanduser("~"))
+        out = []
+        for ruta, tipo in lectura_negada():
+            rel = os.path.relpath(os.path.realpath(ruta), home)
+            if rel.startswith(".."):
+                continue
+            out.append((rel.replace(os.sep, "/"), tipo))
+        return tuple(out)
+    except Exception:
+        return ()
 
 
 def sin_mayusculas(rel):

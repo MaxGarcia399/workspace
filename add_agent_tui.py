@@ -196,18 +196,18 @@ MENU_OPTS = (
     ("crear", "crear agente nuevo",
      ("Un agente desde cero: formulario corto → ves el CEREBRO que va a "
       "nacer y el motor con el que corre → se crea EN VIVO, paso por "
-      "paso. Nace autocontenido en ~/Desktop/<NOMBRE> - BRAIN, usable al "
-      "terminar.",)),
+      "paso. Nace autocontenido en su propia carpeta (Mac y Linux: "
+      "~/Workspace/Cerebros/<NOMBRE>), usable al terminar.",)),
     ("cargar", "cargar agente existente",
      ("Conecta un cerebro que ya existe (una carpeta): ves QUÉ trae "
       "(identidad, marcas de cerebro, colisiones) antes de conectar, y el "
       "cableado (hooks · statusline · launcher · tema) corre EN VIVO, "
       "paso por paso.",)),
     ("descubrir", "descubrir cerebros en el disco",
-     ("Escanea Desktop / Documents / vaults buscando carpetas con "
-      ".workspace/agent.json y te deja conectarlas — ves cuáles son nuevas "
-      "y cuáles ya están. Acción MANUAL — Workspace jamás conecta nada "
-      "solo.",)),
+     ("Busca carpetas con .workspace/agent.json (vaults de Obsidian, "
+      "~/Workspace/Cerebros, tus carpetas comunes) y te deja conectarlas — "
+      "ves cuáles son nuevas y cuáles ya están. Acción MANUAL — Workspace "
+      "jamás conecta nada solo.",)),
 )
 
 # ── transparencia: qué significa cada pieza del cerebro ─────────────────────
@@ -358,11 +358,12 @@ def _valida_nombre(v):
         return ("bad", choque)
     try:
         if os.path.exists(agent_admin.default_brain_dest(v)):
-            return ("bad", _t("addagent.ui.name.folder_exists", "la carpeta ~/Desktop/%s - BRAIN ya existe")
-                    % v.upper())
+            return ("bad", _t("addagent.ui.name.folder_exists", "la carpeta %s ya existe")
+                    % _ruta_corta(agent_admin.default_brain_dest(v)))
     except Exception:
         pass
-    return ("ok", _t("addagent.ui.name.available", "disponible — su cerebro: ~/Desktop/%s - BRAIN") % v.upper())
+    return ("ok", _t("addagent.ui.name.available", "disponible — su cerebro: %s")
+            % _ruta_corta(agent_admin.default_brain_dest(v)))
 
 
 def _mmss(secs):
@@ -695,20 +696,34 @@ def _ruta_corta(p):
 
 
 # ── escaneo de DESCUBRIR en 2º plano ─────────────────────────────────────────
-_SCAN_DONDE = ("vaults de Obsidian (obsidian.json)",
-               "junto a Workspace · raíz del disco (Windows, 1 nivel)",
-               "~ · ~/Desktop · ~/Documents (+ OneDrive)",
-               "~/Documents/Obsidian · ~/Obsidian  (acotado: 1 nivel, tope de tiempo)")
+def _scan_donde(S=None):
+    """[(clave i18n, texto ES)] de dónde busca Descubrir. En Mac, Escritorio y
+    Documentos solo a pedido (tecla e, con su aviso antes): entrar ahí abre un
+    diálogo de permiso de macOS por cada carpeta (aviso C1)."""
+    mac = agentsreg._mac()
+    pedidas = bool(((S or {}).get("scan") or {}).get("protegidas"))
+    return [("addagent.ui.scan.where.0", "vaults de Obsidian (obsidian.json)"),
+            ("addagent.ui.scan.where.1",
+             "~/Workspace/Cerebros · junto a Workspace · tu carpeta personal (1 nivel)"),
+            (("addagent.ui.scan.where.2_mac_on", "Escritorio y Documentos (los pediste)")
+             if pedidas else ("addagent.ui.scan.where.2_mac",
+                              "Escritorio y Documentos: solo si los pides (tecla e)"))
+            if mac else ("addagent.ui.scan.where.2", "~/Desktop · ~/Documents (+ OneDrive)"),
+            ("addagent.ui.scan.where.3_mac", "~/Obsidian (acotado: 1 nivel, tope de tiempo)")
+            if mac and not pedidas else
+            ("addagent.ui.scan.where.3",
+             "~/Documents/Obsidian · ~/Obsidian (acotado: 1 nivel, tope de tiempo)")]
 
 
-def _lanza_scan(S):
-    """agentsreg.discover() en un hilo: el listdir de Desktop/Documents puede
+def _lanza_scan(S, protegidas=False):
+    """agentsreg.discover() en un hilo: el listdir de las carpetas puede
     tardar (discos de red) y además discover escribe AVISOS de colisión a
     stderr — capturados aquí y mostrados en la UI (antes se imprimían encima
-    del alt-screen raw)."""
+    del alt-screen raw). `protegidas` (Mac): también Escritorio y Documentos,
+    que el socio pidió con la tecla e después de leer el aviso."""
     if (S.get("scan") or {}).get("state") == "busy":
         return
-    S["scan"] = {"state": "busy", "avisos": [], "reg": {}}
+    S["scan"] = {"state": "busy", "avisos": [], "reg": {}, "protegidas": protegidas}
     S["found"], S["estados"], S["di"] = [], {}, 0
 
     def _w():
@@ -718,7 +733,7 @@ def _lanza_scan(S):
         sys.stdout, sys.stderr = io.StringIO(), io.StringIO()
         sys.stdin = io.StringIO("")
         try:
-            found = agentsreg.discover() or []
+            found = agentsreg.discover(protegidas=protegidas) or []
         except Exception:
             found = []
         finally:
@@ -751,7 +766,7 @@ def _lanza_scan(S):
             else:
                 estados[n] = "otro"
         S["found"], S["estados"] = found, estados
-        S["scan"] = {"state": "done", "avisos": avisos, "reg": reg}
+        S["scan"] = {"state": "done", "avisos": avisos, "reg": reg, "protegidas": protegidas}
         S["buscado"] = True
 
     threading.Thread(target=_w, daemon=True).start()
@@ -1296,7 +1311,7 @@ def _b_cargar(S, K, iw):
     out.append(HL.clip(" %s%s%s %s%s%s%s%s%s█%s" % (
         K["C"] + K["BO"], K["PTR"], K["R"], K["DK"], pre, K["R"],
         K["WH"], shown, K["C"] + K["BO"], K["R"]), iw))
-    out.append(HL.clip(("   %s" + _t("addagent.ui.load.path_hint", "~ y espacios valen · ej. ~/Desktop/ALFA - BRAIN") + "%s") % (K["DK"], K["R"]), iw))
+    out.append(HL.clip(("   %s" + _t("addagent.ui.load.path_hint", "~ y espacios valen · ej. ~/Mis cerebros/ALFA") + "%s") % (K["DK"], K["R"]), iw))
     out.append("")
     out.append(_divisor(K, _t("addagent.ui.load.loaded_here", "cargados en esta máquina"), iw))
     ags = agentsreg.agents()
@@ -1439,25 +1454,38 @@ def _desc_mark(K, est):
     return "%s%s%s" % (K[ckey], ch if ch is not None else K["CHECK"], K["R"])
 
 
-def _b_descubrir(S, K, iw):
+def _aviso_protegidas(K, iw):
+    """El aviso de una línea ANTES de buscar en Escritorio/Documentos (Mac):
+    qué va a preguntar macOS y qué pasa si dices No, y cómo confirmar."""
+    import avisos_sistema
     out = []
+    for sub in _wrap(avisos_sistema.texto("descubrir.protegidas"), max(8, iw - 3)):
+        out.append(HL.clip(" %s%s%s" % (K["B"], sub, K["R"]), iw))
+    out.append(HL.clip(" %s%s%s" % (K["DIM"], avisos_sistema.texto("descubrir.confirma"),
+                                     K["R"]), iw))
+    out.append("")
+    return out
+
+
+def _b_descubrir(S, K, iw):
+    out = _aviso_protegidas(K, iw) if S.get("desc_proteg") else []
     scan = S.get("scan") or {}
     if scan.get("state") == "busy":
         out.append(HL.clip(" %s %s%s%s"
                            % (_icono(K, "run"), K["DIM"], _t("addagent.ui.discover.scanning", "escaneando el disco…"), K["R"]), iw))
         out.append("")
-        for i, d in enumerate(_SCAN_DONDE):
+        for key, d in _scan_donde(S):
             out.append(HL.clip(" %s·%s %s%s%s" % (K["DK"], K["R"], K["DK"],
-                                                  _t("addagent.ui.scan.where.%d" % i, d), K["R"]), iw))
+                                                  _t(key, d), K["R"]), iw))
         return out
     found = S["found"]
     if not found:
         out.append(HL.clip(" %s%s%s" % (K["DK"], _t("addagent.ui.discover.none", "no encontré cerebros con .workspace/agent.json"), K["R"]), iw))
         out.append("")
         out.append(_divisor(K, _t("addagent.ui.discover.where_title", "dónde busqué"), iw))
-        for i, d in enumerate(_SCAN_DONDE):
+        for key, d in _scan_donde(S):
             out.append(HL.clip(" %s·%s %s%s%s" % (K["DK"], K["R"], K["DIM"],
-                                                  _t("addagent.ui.scan.where.%d" % i, d), K["R"]), iw))
+                                                  _t(key, d), K["R"]), iw))
         out.append("")
         out.append(HL.clip(" %s%s%s" % (K["DIM"], _t("addagent.ui.discover.elsewhere", "¿está en otro lado? usa «cargar» y teclea la ruta"), K["R"]), iw))
         return out
@@ -1508,7 +1536,7 @@ def _b_descubrir_det(S, K, iw, full=2):
         return out
     found = S["found"]
     if not found:
-        for ln in (_t("addagent.ui.discover.shallow", "El escaneo es superficial a propósito: un nivel bajo Desktop/Documents + los vaults de Obsidian — no se recorre todo el disco."),):
+        for ln in (_t("addagent.ui.discover.shallow", "El escaneo es superficial a propósito: un nivel en tus carpetas comunes + los vaults de Obsidian — no se recorre todo el disco."),):
             for sub in _wrap(ln, max(8, iw - 3)):
                 out.append(HL.clip(" %s%s%s" % (K["GREY"], sub, K["R"]), iw))
         return out
@@ -1774,6 +1802,11 @@ _BOX_W = {"menu": 52, "crear": 64, "plan": 60, "brain": 78, "run": 60, "lrun": 6
           "skills": 64}
 
 
+def _aviso_t(clave):
+    import avisos_sistema
+    return avisos_sistema.texto(clave)
+
+
 def _chips_vista(v, S=None):
     """Pie corto por vista: elegir/escribir · la acción · la ayuda · salir.
     `S` solo cuenta en «stale»: sin nada que borrar, no se ofrece limpiar."""
@@ -1792,8 +1825,9 @@ def _chips_vista(v, S=None):
                     T("addagent.chip.path", "la ruta", "the path")),
                    ("Enter", T("addagent.chip.connect", "conecta", "connect")), ayuda, vuelve),
         "descubrir": (elige, ("Enter", T("addagent.chip.connect", "conecta", "connect")),
-                      ("a", T("addagent.chip.new_ones", "los nuevos", "the new ones")),
-                      ayuda, vuelve),
+                      ("a", T("addagent.chip.new_ones", "los nuevos", "the new ones")))
+                     + ((("e", _aviso_t("descubrir.tecla")),) if agentsreg._mac() else ())
+                     + (ayuda, vuelve),
         "skills": (elige, (T("addagent.ui.hintkey.space", "Espacio"),
                            T("addagent.chip.mark", "marca", "mark")),
                    ("Enter", T("addagent.chip.apply", "aplica", "apply")), ayuda, vuelve),
@@ -2581,12 +2615,23 @@ def _accion(S, key):
     if v == "descubrir":
         n = len(S["found"])
         ocupado = (S.get("scan") or {}).get("state") == "busy"
+        pendiente = S.pop("desc_proteg", False)   # el aviso de «e» dura una tecla
+        if key in ("e", "E") and agentsreg._mac():
+            # Mac: Escritorio/Documentos solo a pedido — 1ª e: el aviso de una
+            # línea (qué preguntará macOS); 2ª e: busca también ahí
+            if ocupado:
+                return True
+            if pendiente:
+                _lanza_scan(S, protegidas=True)
+            else:
+                S["desc_proteg"] = True
+            return True
         if key == "up" and n:
             S["di"] = (S["di"] - 1) % n
         elif key == "down" and n:
             S["di"] = (S["di"] + 1) % n
         elif key in ("r", "R") and not ocupado:
-            _lanza_scan(S)
+            _lanza_scan(S, protegidas=bool((S.get("scan") or {}).get("protegidas")))
         elif key in ("\r", "\n") and n and not ocupado:
             a = S["found"][S["di"]]
             est = S["estados"].get(a["name"], "")

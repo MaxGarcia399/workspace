@@ -14,7 +14,9 @@
 #  Red de seguridad: ANTES de borrar, cada carpeta prueba con sus marcadores que
 #  es de Workspace (y que no contiene un cerebro); si una falla, no se borra
 #  nada (exit 2). Lista qué se borra y qué se conserva, y respalda el estado
-#  per-máquina en un zip (Escritorio) salvo --no-backup.
+#  per-máquina en un zip (~/Workspace/Respaldos, fuera del Escritorio) salvo
+#  --no-backup. Las carpetas del socio dentro de la de Workspace (Cerebros/,
+#  Respaldos/: paths.USER_DIRNAMES) se conservan.
 #
 #  Opcional (--limpiar-todo / --clean-all, o la pregunta interactiva): limpia
 #  también cerebros y motores — SOLO lo que Workspace escribió en ellos, con
@@ -95,7 +97,38 @@ def workspace_root():
     here = os.path.dirname(os.path.abspath(__file__))
     if os.path.basename(here).upper().startswith("WORKSPACE"):
         return here
+    # Detectar, no suponer: la carpeta a la que apunta el comando `workspace`;
+    # si no, la de una instalación nueva (~/Workspace) y, al final, la de antes
+    # (el Escritorio: solo se mira si no hubo otra pista).
+    lanzada = _paths.installed_root(HOME)
+    if lanzada and _is_harness(lanzada):
+        return lanzada
+    nueva = _paths.workspace_home(HOME)
+    if _is_harness(nueva):
+        return nueva
     return os.path.join(HOME, "Desktop", "WORKSPACE")
+
+
+def _carpetas_del_socio(root):
+    """[nombre] de las carpetas DEL SOCIO que viven dentro de la de Workspace
+    (Cerebros/, Respaldos/: paths.USER_DIRNAMES) y existen. No son del harness:
+    se conservan al borrarla."""
+    return [n for n in _paths.USER_DIRNAMES if os.path.lexists(os.path.join(root, n))]
+
+
+def rm_harness(root):
+    """Borra la carpeta de Workspace. Si adentro están las carpetas del socio
+    (_carpetas_del_socio), borra todo lo demás y las deja donde están: sus
+    rutas (cerebros registrados, respaldo recién creado) no cambian."""
+    keep = _carpetas_del_socio(root)
+    if not keep:
+        rm_path(root, _t("uninstall.x.main.5", "carpeta de Workspace"))
+        return
+    for n in sorted(os.listdir(root)):
+        if n not in keep:
+            rm_path(os.path.join(root, n), _t("uninstall.x.main.5", "carpeta de Workspace"))
+    info(f"{DIM}" + _t("uninstall.kept_inside", "conservado: {p}").replace(
+        "{p}", ", ".join(os.path.join(root, k) for k in keep)) + R)
 
 
 #: Forma EXACTA de los shims `.cmd` de Windows (install.win_cmd_shims):
@@ -391,7 +424,10 @@ STATE_MARKERS = ("settings.json", "agents.local.json", "onboarded.json", "socio.
                  "continuity", "transcripts-backup")
 #: Lo que se CONSERVA aunque viva dentro del estado (la promesa: los
 #: transcripts no se tocan; su respaldo local tampoco).
-STATE_KEEP = ("transcripts-backup",)
+STATE_KEEP = ("transcripts-backup",
+              # lo que no se pudo borrar del llavero del sistema (cerrado, por
+              # SSH): secret_store lo borra la próxima vez que arranque
+              "llavero-pendiente")
 
 
 def _norm(p):
@@ -442,8 +478,11 @@ def guard_dir(path, kind, cerebros=()):
         return _t("uninstall.guard.home", "es tu carpeta personal (o la contiene)")
     if os.path.islink(path) or not os.path.isdir(path):
         return _t("uninstall.guard.notdir", "no es una carpeta")
+    # dentro de la carpeta de Workspace, Cerebros/ y Respaldos/ son del socio:
+    # se conservan (rm_harness), así que un cerebro ahí no frena el desinstalar
+    suyas = [os.path.join(path, n) for n in _paths.USER_DIRNAMES] if kind == "harness" else []
     for n, b in cerebros:
-        if _inside(b, path):
+        if _inside(b, path) and not any(_inside(b, s) for s in suyas):
             return _t("uninstall.guard.brain",
                       "contiene el cerebro «{n}» ({b})").replace("{n}", n).replace("{b}", b)
     if kind == "harness" and not _is_harness(path):
@@ -523,45 +562,60 @@ def _home_de_prueba():
                              != os.path.normcase(os.path.realpath(perfil)))
 
 
-def _desktop():
-    if _home_de_prueba():
-        d = os.path.join(HOME, "Desktop")
-        return d if os.path.isdir(d) else HOME
-    try:
-        import diag_bundle
-        return diag_bundle.escritorio()
-    except Exception:
-        d = os.path.join(HOME, "Desktop")
-        return d if os.path.isdir(d) else ""
+def backup_dir():
+    """Dónde queda el respaldo: ~/Workspace/Respaldos (paths.exports_dir), en
+    todo sistema. Fuera del Escritorio: en Mac no pide permiso de carpeta y en
+    Windows un Escritorio de OneDrive no lo sube a la nube. Sobrevive al
+    desinstalar (rm_harness conserva Respaldos/). Con un HOME de prueba, bajo
+    ese HOME (jamás la carpeta real del socio)."""
+    return _paths.exports_dir(HOME)
 
 
 def backup_path():
     import datetime
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    return os.path.join(_desktop() or os.getcwd(), "workspace-respaldo-%s.zip" % stamp)
+    return os.path.join(backup_dir(), "workspace-respaldo-%s.zip" % stamp)
+
+
+def _revelar(path):
+    """Muestra el respaldo marcado en Finder / el Explorador (solo con una
+    persona mirando y con el HOME real). Falla-suave."""
+    if DRY or _home_de_prueba() or not sys.stdout.isatty():
+        return
+    try:
+        import diag_bundle
+        diag_bundle.revelar(path)
+    except Exception:
+        pass
 
 
 def _is_secret_file(name):
     """Archivos con credenciales (API keys, tokens de OAuth): NO viajan en un
-    zip que queda en el Escritorio. La bóveda es `secrets.local`
+    zip que queda en Respaldos. La bóveda es `secrets.local`
     (secret_store); el resto se reconoce por nombre."""
     low = name.lower()
-    return (low == "secrets.local" or "secret" in low or "token" in low
-            or "credential" in low or low.endswith((".key", ".pem")))
+    return (low == "secrets.local" or low.startswith("secrets.local.") or "secret" in low
+            or "token" in low or "credential" in low or low.endswith((".key", ".pem")))
+
+
+#: Carpetas del estado que jamás van al zip: la bóveda v2 (índice, respaldos
+#: de la migración al llavero — uno puede estar en texto plano —, estado).
+_SECRET_DIRS = ("boveda",)
 
 
 def make_backup(state, dest):
     """Zip del estado per-máquina (ajustes, atajos, agentes registrados,
     temas…) — para reinstalar y recuperarlo tal cual. Sin el respaldo de
     transcripts (se conserva en disco) y SIN credenciales: un zip en el
-    Escritorio no debe llevar tus claves (se vuelven a pegar al reinstalar).
+    zip suelto no debe llevar tus claves (se vuelven a pegar al reinstalar).
     Atómico: tmp + rename."""
     import zipfile
+    os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
     tmp = dest + ".tmp"
     with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
         for dp, dns, fns in os.walk(state):
             if dp == state:
-                dns[:] = [d for d in dns if d not in STATE_KEEP]
+                dns[:] = [d for d in dns if d not in STATE_KEEP and d not in _SECRET_DIRS]
             for fn in fns:
                 if _is_secret_file(fn):
                     continue
@@ -572,6 +626,31 @@ def make_backup(state, dest):
                     pass
     os.replace(tmp, dest)
     return dest
+
+
+def forget_keychain():
+    """Las llaves que Workspace guardó en el llavero del sistema (secret_store:
+    Llaves de macOS, secret-tool en Linux) se van con él: si no, quedarían
+    huérfanas allá. En Windows (DPAPI) el cifrado vive en el estado y se borra
+    con él. Falla-suave: una línea si borró algo."""
+    if DRY:
+        dry(_t("uninstall.dry_keychain", "borraría las llaves de Workspace del llavero del sistema"))
+        return
+    try:
+        import secret_store
+        n = secret_store.olvidar_llavero()
+        quedan = secret_store.pendientes_llavero()
+    except Exception:
+        n, quedan = 0, 0
+    if n:
+        ok(_t("uninstall.keychain_ok", "llaves de Workspace quitadas del llavero del sistema: {n}")
+           .replace("{n}", str(n)))
+    if quedan:
+        # nunca en silencio: el llavero estaba cerrado (p. ej. por SSH)
+        info(f"{B}⚠{R} " + _t("uninstall.keychain_left",
+             "{n} elemento(s) de Workspace quedaron en el llavero del sistema (estaba cerrado): se "
+             "borran solos la próxima vez que abras Workspace, o búscalos como «workspace.» en tu "
+             "llavero").replace("{n}", str(quedan)))
 
 
 def rm_state(state):
@@ -611,6 +690,7 @@ def _plan_print(root, state, app, cerebros, backup, clean=False, sin_publicar=""
                 "generó Workspace): {n}", n=", ".join(temas)))
     if os.path.isdir(app):
         item(_t("uninstall.plan.app", "app de escritorio: {p}").replace("{p}", app))
+    suyas = _carpetas_del_socio(root) if os.path.isdir(root) else []
     if not KEEP_FOLDER and not sin_publicar and os.path.isdir(root):
         item(_t("uninstall.plan.harness", "carpeta de Workspace: {p}").replace("{p}", root))
     print(f"  {B}" + _t("uninstall.plan.keep", "SE CONSERVA (no se toca)") + R)
@@ -619,6 +699,9 @@ def _plan_print(root, state, app, cerebros, backup, clean=False, sin_publicar=""
              .replace("{b}", b))
     if not cerebros:
         item(_t("uninstall.plan.brains", "tus cerebros (carpetas de agentes), estén donde estén"))
+    if suyas and not KEEP_FOLDER and not sin_publicar:
+        item(_t("uninstall.plan.user_dirs", "dentro de la carpeta de Workspace, tus carpetas: {p}",
+                p=", ".join(os.path.join(root, n) for n in suyas)))
     if KEEP_FOLDER:
         item(_t("uninstall.plan.harness_kept", "carpeta de Workspace (--keep-folder): {p}")
              .replace("{p}", root))
@@ -1394,6 +1477,7 @@ def main():
         moved = apply_clean_all(citems)   # ANTES de borrar el estado y el harness
     restore_retention()   # ANTES de borrar el estado (lee pre-install.json de ahí)
     reset_theme()         # ANTES de borrar el estado (agentes y registro de temas viven ahí)
+    forget_keychain()     # ANTES de borrar el estado (el índice dice qué hay en el llavero)
     rm_state(state)
     if IS_WIN:
         strip_profile_windows()
@@ -1410,7 +1494,7 @@ def main():
     elif not _is_harness(root):   # SEC-06: no borrar una carpeta que no sea el harness
         info(_t("uninstall.x.main.4", "{dim}aviso: {root} no parece una carpeta de Workspace (sin front.py/dispatch.py/install.py) — NO borro la carpeta. Usa --workspace <ruta> si es otra.{r}", dim=DIM, root=root, r=R))
     else:
-        rm_path(root, _t("uninstall.x.main.5", "carpeta de Workspace"))
+        rm_harness(root)
 
     if DRY:
         print(_t("uninstall.x.main.6_dry", "\n  {c}Simulacro.{r} No se tocó nada: arriba está lo que haría.", c=C, r=R))
@@ -1426,6 +1510,7 @@ def main():
     if backup and not DRY:
         print(f"  {DIM}" + _t("uninstall.backup_where", "Tu respaldo: {p}").replace(
             "{p}", backup) + R)
+        _revelar(backup)
     if not DRY:
         print(_t("uninstall.x.main.8", "  {dim}Abre una terminal NUEVA para soltar el PATH/greeter viejos.{r}", dim=DIM, r=R))
     print()

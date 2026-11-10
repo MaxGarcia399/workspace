@@ -473,6 +473,128 @@ def _theme_args(cfg, passthrough):
         return []
 
 
+# ── el entorno de la PESTAÑA en los comandos de Codex ──────────────────────
+# Codex (≥0.16x) puede correr los comandos del agente en el daemon
+# COMPARTIDO `codex app-server`, que conserva el entorno de la pestaña que lo
+# ARRANCÓ: la pestaña de un agente corre entonces sus comandos con la
+# identidad de otra (WORKSPACE_AGENT_NAME, WS, WID…), el sobre de las salas
+# firma como esa otra pestaña y `workspace memoria nota` escribe en su
+# memoria (prueba en vivo de salas, 2026-11-08). Visto en vivo con codex
+# 0.166: un `codex` SIN ningún `-c` se engancha al daemon; con cualquier
+# `-c`, los comandos corren en el proceso de la pestaña. Arreglo, que cubre
+# las dos vías: `-c shell_environment_policy.set.<VAR>=<valor>` por cada
+# variable de pestaña, que Codex aplica a cada comando de ESTA sesión. Una variable por `-c` (clave punteada): se SUMA al
+# `set` que el socio tenga en su config.toml en vez de reemplazarlo. Las que
+# la pestaña no tiene van vacías ("" = sin valor para quien las lee), para
+# tapar la que dejó la pestaña que arrancó el daemon. Si el socio pasa su
+# propio `-c shell_environment_policy…`, gana el suyo y no se agrega nada.
+
+#: Variables de identidad de la pestaña (nada de la bóveda: solo esto viaja,
+#: y queda a la vista en el argv).
+TAB_ENV = ("WORKSPACE_ROOT", "WORKSPACE_BRAIN", "WORKSPACE_AGENT_NAME", "WORKSPACE_WS",
+           "WORKSPACE_WID", "WORKSPACE_ENGINE", "WORKSPACE_SESSION_ENGINE",
+           "WORKSPACE_SESSION_ID", "WORKSPACE_SESSION_PID", "WORKSPACE_SOCIO",
+           # el panel de herdr de ESTA pestaña: un `conversar` lo registra para
+           # el aviso de las salas (aviso_panel); con las del daemon, registraría
+           # la pestaña en el panel de OTRA. Sin herdr van vacías (tapan las otras).
+           "HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "HERDR_SOCKET_PATH")
+#: Nombre de pestaña heredado de versiones viejas: se tapa si no es el del agente.
+_TAB_ENV_LEGADO = ("ZENITH_WS", "ZENITH_WID")
+ENV_POLICY = "shell_environment_policy"
+_ENV_KEY_RX = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+#: Lo que el cmd.exe de un lanzador .cmd vuelve a leer dentro de un argumento.
+_CMD_RARO = frozenset('&|<>^%!"')
+
+
+def toml_str(valor, cmd=False):
+    """`valor` como string TOML para un `-c` de Codex. Literal ('…', sin
+    escapes: las rutas de Windows con «\\» y los espacios pasan tal cual)
+    siempre que se pueda; si trae «'» o caracteres de control, basic string
+    ("…") con escapes. `cmd` = el argumento pasa por el cmd.exe de un
+    lanzador .cmd (Windows/npm): lo que cmd.exe interpretaría (& | < > ^ % !
+    y las comillas dobles) también va como \\uXXXX, así la única comilla
+    doble que queda es la que abre y cierra."""
+    v = str(valor)
+    control = any(ord(c) < 0x20 or ord(c) == 0x7F for c in v)
+    raro = cmd and any(c in _CMD_RARO for c in v)
+    if "'" not in v and not control and not raro:
+        return "'%s'" % v
+    out = []
+    for c in v:
+        o = ord(c)
+        if c == "\\":
+            out.append("\\\\")
+        elif c == '"' or o < 0x20 or o == 0x7F or (cmd and c in _CMD_RARO):
+            out.append("\\u%04x" % o)
+        else:
+            out.append(c)
+    return '"%s"' % "".join(out)
+
+
+def _env_policy_override(passthrough):
+    """¿El socio trae su propio `-c shell_environment_policy…`?"""
+    pt = [str(a) for a in passthrough or []]
+    for i, a in enumerate(pt):
+        if a in ("-c", "--config"):
+            val = pt[i + 1] if i + 1 < len(pt) else ""
+        elif a.startswith("--config="):
+            val = a[len("--config="):]
+        elif a.startswith("-c") and len(a) > 2:
+            val = a[2:]
+        else:
+            continue
+        val = val.strip()
+        if val.startswith(ENV_POLICY) and val[len(ENV_POLICY):][:1] in (".", "=", " "):
+            return True
+    return False
+
+
+def _pasa_por_cmd():
+    try:
+        import memoria
+        return memoria.pasa_por_cmd(_exe())
+    except Exception:
+        return False
+
+
+def tab_env(cfg, env=None):
+    """{variable: valor} de la pestaña: las de TAB_ENV (vacías si la pestaña
+    no las tiene), las de pestaña propias del agente (<AGENTE>_WS/_WID) y el
+    motor = codex. El cerebro sale de la config del agente si la trae."""
+    env = os.environ if env is None else env
+    out = {k: str(env.get(k) or "") for k in TAB_ENV}
+    brain = (cfg or {}).get("_brain")
+    if brain:
+        out["WORKSPACE_BRAIN"] = str(brain)
+    out["WORKSPACE_ENGINE"] = out["WORKSPACE_SESSION_ENGINE"] = "codex"
+    propias = ()
+    try:
+        from engines import claude_code as _cc
+        propias = _cc.session_env_names(cfg or {})
+    except Exception:
+        pass
+    for k in propias:
+        if _ENV_KEY_RX.match(str(k)):
+            out[k] = str(env.get(k) or "")
+    for k in _TAB_ENV_LEGADO:
+        if k not in out:
+            out[k] = ""
+    return out
+
+
+def _tab_env_args(cfg, passthrough, env=None, cmd=None):
+    """Los `-c shell_environment_policy.set.<VAR>=<valor>` de la pestaña, o []
+    si el socio trajo su propio shell_environment_policy."""
+    if _env_policy_override(passthrough):
+        return []
+    cmd = _pasa_por_cmd() if cmd is None else cmd
+    args = []
+    for k, v in sorted(tab_env(cfg, env).items()):
+        if _ENV_KEY_RX.match(k):
+            args += ["-c", "%s.set.%s=%s" % (ENV_POLICY, k, toml_str(v, cmd=cmd))]
+    return args
+
+
 def _autonomy(cfg):
     try:
         from engines import _ui
@@ -528,7 +650,11 @@ def _interactive_argv(cfg, passthrough, resume_sid="", first_prompt=""):
         y SIN prompt de arranque (la conversación ya tiene el contexto).
       · `first_prompt` → pestaña nueva en un harness sin hooks: el arranque
         + la memoria de ESA pestaña van como primer prompt (paridad honesta
-        con el hook SessionStart de Claude Code)."""
+        con el hook SessionStart de Claude Code).
+
+    El entorno de la pestaña viaja en `-c shell_environment_policy.set.…`
+    (ver _tab_env_args): los comandos corren en el daemon compartido de
+    Codex, no en este proceso. También al reanudar."""
     argv = []
     pt = list(passthrough or [])
     resume_sid = str(resume_sid or "").strip()
@@ -556,6 +682,7 @@ def _interactive_argv(cfg, passthrough, resume_sid="", first_prompt=""):
     argv += _status_line_args(cfg, pt)
     argv += _terminal_title_args(cfg, pt)
     argv += _theme_args(cfg, pt)
+    argv += _tab_env_args(cfg, pt)
     # A bare hub launch starts boot immediately. Explicit prompts, flags and
     # resume/fork commands remain owned by the caller. Al REANUDAR no se
     # inyecta prompt (el hilo ya está en contexto; el socio sigue donde iba).

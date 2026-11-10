@@ -4,19 +4,22 @@
 # Uso (one-liner):
 #   curl -fsSL https://raw.githubusercontent.com/MaxGarcia399/workspace/main/setup.sh | bash
 #
-# O manual:  git clone https://github.com/MaxGarcia399/workspace.git ~/Desktop/Workspace
-#            python3 ~/Desktop/Workspace/install.py
+# O manual:  git clone https://github.com/MaxGarcia399/workspace.git ~/Workspace
+#            python3 ~/Workspace/install.py
 #
 # Overrides: WORKSPACE_DIR (destino) · WORKSPACE_REPO (org/repo) · WORKSPACE_TOKEN (fork privado).
 set -euo pipefail
 
-DEST="${WORKSPACE_DIR:-$HOME/Desktop/Workspace}"
+# Instalación nueva → ~/Workspace. Si ya tienes Workspace en otro lado (p. ej.
+# ~/Desktop/Workspace), el preflight lo detecta y lo actualiza ahí (ws_pf_dest).
+DEST_NUEVO="$HOME/Workspace"
 REPO="${WORKSPACE_REPO:-github.com/MaxGarcia399/workspace.git}"
 
 # >>> workspace-preflight (bloque idéntico en setup.sh y dist/setup.sh —
 # tests/test_setup_preflight.py lo verifica). Revisa TODO antes de escribir un
 # solo archivo y lo explica sin culpar: junta los problemas y los dice juntos,
-# cada uno con qué pasa y cómo se arregla. Define PY (un Python >= 3.9) y puede
+# cada uno con qué pasa y cómo se arregla. Define DEST (WORKSPACE_DIR, la
+# instalación que ya existe o DEST_NUEVO) y PY (un Python >= 3.9), y puede
 # mover DEST fuera de una carpeta sincronizada con la nube si DEST es el default.
 # Escape (entornos raros): WORKSPACE_SKIP_PREFLIGHT=1.
 ws_pf_bad() {
@@ -33,14 +36,34 @@ ws_pf_cloud() {
     */onedrive*) echo "OneDrive"; return ;;
     */dropbox|*/dropbox/*) echo "Dropbox"; return ;;
   esac
-  # macOS con «Escritorio y Documentos» en iCloud: ~/Desktop y ~/Documents se sincronizan.
-  _icd="$HOME/Library/Mobile Documents/com~apple~CloudDocs"
+  # macOS con «Escritorio y Documentos» en iCloud: ~/Desktop y ~/Documents se
+  # sincronizan. Solo se mira iCloud Drive si la ruta CAE en una de esas dos: el
+  # default nuevo (~/Workspace) no entra a iCloud ni pide su permiso.
   for _kf in Desktop Documents; do
-    if [ -d "$_icd/$_kf" ]; then
-      case "$1" in "$HOME/$_kf"|"$HOME/$_kf/"*) echo "iCloud (tu carpeta $_kf se sincroniza)"; return ;; esac
-    fi
+    case "$1" in
+      "$HOME/$_kf"|"$HOME/$_kf/"*)
+        if [ -d "$HOME/Library/Mobile Documents/com~apple~CloudDocs/$_kf" ]; then
+          echo "iCloud (tu carpeta $_kf se sincroniza)"; return
+        fi ;;
+    esac
   done
 }
+ws_pf_dest() {
+  # Destino por defecto (sin WORKSPACE_DIR): la instalación que YA tienes, si el
+  # comando `workspace` de ~/.local/bin apunta a un checkout de este mismo repo
+  # (se lee ese archivo y su .git/config: no se busca en el Escritorio ni se
+  # supone dónde está); si no hay ninguna, $1 (la carpeta nueva, fuera de
+  # Escritorio, Documentos y Descargas: macOS no pide permiso de carpetas).
+  _lch="$HOME/.local/bin/workspace"
+  if [ -f "$_lch" ]; then
+    _r="$(sed -n 's|^exec "\$PY" "\(.*\)/front\.py".*|\1|p' "$_lch" 2>/dev/null | head -n 1)"
+    if [ -n "$_r" ] && [ -f "$_r/.git/config" ] && grep -qF "$REPO" "$_r/.git/config" 2>/dev/null; then
+      echo "$_r"; return
+    fi
+  fi
+  echo "$1"
+}
+if [ -n "${WORKSPACE_DIR:-}" ]; then DEST="$WORKSPACE_DIR"; else DEST="$(ws_pf_dest "$DEST_NUEVO")"; fi
 ws_preflight() {
   WS_PF_FAIL=0
   PY=""
@@ -97,6 +120,20 @@ ws_preflight() {
     ws_pf_bad "La carpeta elegida ($DEST) está en $_nube: la sincronización bloquea y duplica los archivos de Workspace." \
       "Arreglo: elige una carpeta local, p. ej.:  WORKSPACE_DIR=\"\$HOME/Workspace\"  y reintenta."
   fi
+  # Destino ocupado por una carpeta TUYA (no es Workspace ni una copia vieja suya,
+  # ni solo tus Cerebros/Respaldos): no se mueve ni se mezcla. ~/Workspace es un
+  # nombre común: sin esto, un ~/Workspace con tus proyectos se iba a un respaldo.
+  if [ -d "$DEST" ] && [ ! -d "$DEST/.git" ] && [ ! -f "$DEST/front.py" ]; then
+    _ajena=0
+    for _e in "$DEST"/* "$DEST"/.[!.]*; do
+      [ -e "$_e" ] || continue
+      case "$(basename "$_e")" in Cerebros|Respaldos|.DS_Store) ;; *) _ajena=1; break ;; esac
+    done
+    if [ "$_ajena" = 1 ]; then
+      ws_pf_bad "Ya tienes una carpeta $DEST con tus archivos y no es Workspace: no la toco." \
+        "Arreglo: instala en otra carpeta, p. ej.:  WORKSPACE_DIR=\"\$HOME/Workspace-app\"  y vuelve a correr el comando."
+    fi
+  fi
   # Espacio: el código pesa poco, pero motores, logs y cerebros crecen. 200 MB mínimo.
   if [ ! -d "$DEST/.git" ]; then
     _anc="$DEST"
@@ -135,7 +172,21 @@ elif [ -d "$DEST" ]; then
   BK="${DEST}_backup_$(date +%Y%m%d%H%M%S)"
   echo "· Respaldando copia previa → $BK"
   mv "$DEST" "$BK"
-  git clone "$URL" "$DEST"
+  if ! git clone "$URL" "$DEST"; then
+    rm -rf "$DEST" 2>/dev/null || true
+    mv "$BK" "$DEST"
+    echo "✖ No pude descargar Workspace. Tu carpeta quedó como estaba: $DEST"
+    exit 1
+  fi
+  # Tus carpetas (Cerebros/, Respaldos/) vuelven a su lugar: sus rutas no cambian
+  # y el respaldo queda solo con lo viejo del harness.
+  for _u in Cerebros Respaldos; do
+    if [ -d "$BK/$_u" ] && [ ! -e "$DEST/$_u" ]; then
+      mv "$BK/$_u" "$DEST/$_u" && echo "· $_u/ sigue en $DEST/$_u"
+    fi
+  done
+  rm -f "$BK/.DS_Store" 2>/dev/null || true
+  rmdir "$BK" 2>/dev/null || true
 else
   git clone "$URL" "$DEST"
 fi

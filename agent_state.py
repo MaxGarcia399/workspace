@@ -366,8 +366,10 @@ def _build_one(entry, hidden, path_env):
 def _missing(a):
     """BRAIN_MISSING + sugerencia de reparación del discovery (Z03): si el
     cerebro aparece en otra ruta, `suggested_brain` la trae y `repair` la cita.
-    Usa el índice local (o un escaneo ACOTADO si no hay índice fresco) — solo
-    cuando hay un agente roto y la firma cambió, nunca por frame."""
+    Solo con el índice local y las bóvedas de Obsidian (modo «safe»): al abrir
+    el hub no se recorre HOME ni, en Mac, una carpeta protegida — cero
+    diálogos que el socio no pidió (aviso C1). Solo cuando hay un agente roto
+    y la firma cambió, nunca por frame."""
     sug = _suggestions().get(a["name"])
     if sug and sug.get("found"):
         a["suggested_brain"] = sug["found"]
@@ -384,10 +386,12 @@ def _suggestions():
     if _sug_cache["val"] is None:
         try:
             import agentsreg
-            # escaneo acotado con presupuesto corto: corre en la reconstrucción
-            # del snapshot (no por frame) y solo si no hay índice fresco
+            # índice + bóvedas de Obsidian (sin barrer HOME ni carpetas
+            # protegidas de Mac), presupuesto corto: corre en la reconstrucción
+            # del snapshot, no por frame
             _sug_cache["val"] = {s["name"]: s for s in
-                                 agentsreg.repair_suggestions(time_budget=1.5)}
+                                 agentsreg.repair_suggestions(scan_mode="safe",
+                                                              time_budget=1.5)}
         except Exception:
             _sug_cache["val"] = {}
     return _sug_cache["val"]

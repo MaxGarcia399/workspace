@@ -14,5 +14,6 @@ Capítulos cortos, en orden de uso. *[English version](../en/README.md)*
 10. [Desinstalar](desinstalar.md)
 11. [Privacidad y transparencia](privacidad.md)
 12. [Referencia de comandos](comandos.md)
+13. [Avisos de tu sistema](avisos.md)
 
 Lo que Workspace defiende, en diez líneas: [Manifiesto](../MANIFIESTO.md).

@@ -1340,6 +1340,28 @@ def permisos_claude():
     return list(PERMISOS_CLAUDE)
 
 
+def permisos_bus_claude(root=None, windows=None):
+    """Las reglas del bus de salas (`messages.py conversar …`) para el mismo
+    `--settings`, con la RUTA RESUELTA: una regla con `$WORKSPACE_ROOT` no
+    sirve, Claude Code no aprueba antes un comando con una variable («A
+    variable in this command can't be checked before it runs»; verificado en
+    vivo, 2026-11-08). Cubre los comandos que imprime el propio bus (salas.cmd
+    con la ruta resuelta); el primero, copiado de la skill con la variable,
+    sigue pidiendo permiso. En Windows no se agrega: ahí el parser de
+    PowerShell de Claude Code no aplica las reglas («La línea de comandos es
+    demasiado larga», prueba en la PC)."""
+    windows = (os.name == "nt") if windows is None else windows
+    if windows:
+        return []
+    raiz = root or os.environ.get("WORKSPACE_ROOT") or os.path.dirname(os.path.abspath(__file__))
+    # la regla es para la shell POSIX (Mac/Linux): ruta con «/», la arme quien
+    # la arme (en Windows os.path.join ponía «\» y la regla no casaba)
+    ruta = raiz.rstrip("/") + "/messages.py"
+    if any(c in ruta for c in '"\n*()'):
+        return []
+    return ['Bash(python3 "%s" conversar:*)' % ruta, "Bash(python3 %s conversar:*)" % ruta]
+
+
 def claude_deny_protegidas(brain, windows=None):
     """Las reglas `deny` de Claude Code para la config de los motores, git y
     Obsidian del cerebro (rutas_protegidas): install.deny_protegidas, la
@@ -1355,13 +1377,27 @@ def claude_deny_protegidas(brain, windows=None):
                 + ["Edit(%s)" % f for f in R.ARCHIVOS + R.EXACTAS])
 
 
+def claude_deny_lectura(windows=None):
+    """Las reglas `deny` de Claude Code para la bóveda de llaves (no leerla ni
+    pedirle un valor al llavero): install.deny_lectura. Van en el `--settings`
+    de TODA pestaña, con cualquier autonomía. Falla-suave → []."""
+    try:
+        import install as _install
+        return _install.deny_lectura(windows)
+    except Exception:
+        return []
+
+
 def claude_settings_args(brain, passthrough=(), protegidas=False):
     """`--settings <archivo>` para esta sesión de Claude Code (opción
     documentada; no se escribe su configuración):
-      · permiso para `workspace memoria …` (si no, pide permiso en cada nota);
+      · permiso para `workspace memoria …` (si no, pide permiso en cada nota)
+        y para el bus de salas con la ruta resuelta (permisos_bus_claude);
       · con `protegidas` (el agente escribe en su cerebro sin preguntar:
         claude_code.escribe_sin_preguntar), negar escribir la config de los
         motores, git y Obsidian del cerebro (claude_deny_protegidas);
+      · SIEMPRE, negar leer la bóveda de llaves y pedirle un valor al llavero
+        del sistema (claude_deny_lectura);
       · autoMemoryDirectory = motores/claude-code/memoria/<socio>/ del
         cerebro, salvo que el socio lo apague (cerebro.claude_memoria_en_cerebro)
         o que no se sepa quién es (entonces Claude Code usa la de la máquina);
@@ -1372,9 +1408,10 @@ def claude_settings_args(brain, passthrough=(), protegidas=False):
     try:
         if any(str(a) == "--settings" or str(a).startswith("--settings=") for a in passthrough or ()):
             return []
-        data = {"permissions": {"allow": permisos_claude()}}
-        if protegidas:
-            data["permissions"]["deny"] = claude_deny_protegidas(brain)
+        data = {"permissions": {"allow": permisos_claude() + permisos_bus_claude()}}
+        deny = (claude_deny_protegidas(brain) if protegidas else []) + claude_deny_lectura()
+        if deny:
+            data["permissions"]["deny"] = deny
         try:
             import install as _install
             hooks = _install.build_hooks({}, brain, launch=True)

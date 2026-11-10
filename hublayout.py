@@ -541,6 +541,7 @@ def _wrap(txt, w, maxl):
 # hub», «Modo del latido») es largo para una fila de la caja.
 _PIN_CORTO = {"ui.background": "fondo", "ui.theme": "tema",
               "ui.brightness": "brillo", "ui.redlight": "luz roja",
+              "ui.un_color": "un color", "ui.tema_herdr": "seguir a herdr",
               "ui.autostart": "auto-abrir",
               "latido.mode": "latido",
               "ui.split": "split", "ui.anim": "animación"}
@@ -548,6 +549,8 @@ _PIN_CORTO = {"ui.background": "fondo", "ui.theme": "tema",
 _PIN_I18N = {"ui.background": "hub.pin.background", "ui.theme": "hub.pin.theme",
              "ui.brightness": "hub.pin.brightness",
              "ui.redlight": "hub.pin.redlight",
+             "ui.un_color": "hub.pin.un_color",
+             "ui.tema_herdr": "hub.pin.tema_herdr",
              "ui.autostart": "hub.pin.autostart",
              "latido.mode": "hub.pin.heartbeat",
              "ui.split": "hub.pin.split", "ui.anim": "hub.pin.anim"}
@@ -921,7 +924,7 @@ def _lz_deci(data):
     listos = d.get("listos") or []
     if activo != "off":
         it["dato"] = clip(_sane(str(d.get("modelo") or activo)), 14)
-        if d.get("estado") == "sin_llave":
+        if d.get("estado") in ("sin_llave", "no_listo"):
             it["dato_col"] = "ERR"
     elif listos:
         it["dato"] = _t("hub.deci.off", "apagado")
