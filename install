@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Workspace — instalador corto (macOS y Linux).
+#   curl -fsSL https://workspacecli.ai/install | bash
+# Baja y corre el instalador oficial del repo, así que siempre es la versión más reciente.
+set -euo pipefail
+curl -fsSL https://raw.githubusercontent.com/MaxGarcia399/workspace/main/setup.sh | bash -s -- "$@"
