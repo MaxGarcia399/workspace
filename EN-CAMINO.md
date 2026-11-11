@@ -21,8 +21,10 @@ Estamos probando la v0.9.2 a mano, en Mac y en Windows, antes de publicarla. Ya 
 - [x] **Arreglos** — MCPs honestos, ajustes que no se pierden, proxy y Windows.
   Workspace ya no pisa un MCP que agregaste a mano ni dice «conectado» si el motor no lo lee; no escribe encima de un `settings.local.json` que no pudo leer; con el proxy apagado lo dice tal cual; y en Windows la revisión de skills cierra bien el motor.
 - [~] **Pulido con las pruebas a mano** — Lo que encontremos al usarla, antes de publicarla.
+  Ya empezamos con Conexiones, Workspace en el navegador, la guía para agentes y Conversaciones.
 
 ## Bitácora
+- 2026-11-11 — Empezamos a pulir Conexiones, Workspace en el navegador, la guía para agentes y Conversaciones con lo que vimos al usarlas.
 - 2026-11-11 — Conexiones y Workspace en el navegador ya aparecen en el hub. Empiezan las pruebas a mano en Mac y Windows.
 - 2026-11-11 — La v0.9.2 pasó todas sus pruebas automáticas en Mac y Windows, con dos revisiones de Greptile.
 - 2026-11-10 — Terminamos la v0.9.1; sale junto con la v0.9.2.
