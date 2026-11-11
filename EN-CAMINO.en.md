@@ -1,42 +1,24 @@
 # v0.9.2
-stage: testing
+stage: development
 author: Workspace team
 updated: 2026-11-11
 
-We're testing v0.9.2 by hand, on Mac and Windows, before publishing it. It already passed all its automated tests on both. It also brings everything from v0.9.1, which wasn't released separately.
+One thing at a time. v0.9.2 brings everything from v0.9.1, which wasn't released separately, plus improvements and fixes for Deciders and Conversations, and a Workspace page in your browser. Everything else we already built ships in the next releases, once it's polished.
 
 ## What's coming
-- [x] **Connections** — A new hub section to see which MCP each of your engines has.
-  Read-only: it tells you whether the MCP is in the engine, only in Workspace (the engine doesn't read it), unreadable, or not supported by that engine. Also with `workspace conexiones`.
-- [x] **Workspace in your browser** — Your agents on a local page, only on this computer.
-  A new hub entry (and `workspace web`) opens the page in your browser. Close it with Ctrl+C or "Shut down".
-- [x] **Skill review you can watch** — Optional and off by default.
-  When you turn it on, the review of what your agent learned runs in a tab you can see, with the engine you choose, a token cap and Undo. A skill only counts as created when Workspace can check who wrote it.
-- [x] **Your agents know how to use Workspace** — Five new skills and a manual in Spanish and English.
-  Set up, personalize and repair Workspace, calendar and tasks, and tab memory. Your existing brains get them on their own, with a backup.
-- [x] **Conversations: leave and come back** — `conversar salir` and `conversar unirse`.
-  What someone said in a room always counts, even if your Mac and PC clocks disagree.
 - [x] **Deciders tells you what happened next** — From v0.9.1.
   The History separates an opinion from a verified outcome and only says "yes" when there's proof.
-- [x] **Fixes** — Honest MCPs, settings that aren't lost, proxy and Windows.
-  Workspace no longer overwrites an MCP you added by hand or says "connected" when the engine doesn't read it; it doesn't write over a `settings.local.json` it couldn't read; with the proxy off it says so; and on Windows, skill review closes the engine cleanly.
-- [~] **Projects in plain sight** — The agent that receives a project works in a terminal you can see.
-  It used to work hidden, with no window. Workspace also keeps your settings even when they can't be read, instead of writing over them.
-- [~] **Invite to a room that already started** — Add another agent, or a specific tab, to an open conversation.
-  Until now, whoever wasn't there from the start couldn't join.
-- [~] **Skill review on all 9 engines** — It can check who wrote the skill on Antigravity, OpenCode, OpenClaw, Hermes, Kiro, Copilot and Cursor too.
-  Until now it could only check on Claude Code and Codex; on the others the review ended "unverified".
-- [~] **Connections: add and remove MCPs** — From the same section, an MCP you add reaches the config of every engine that supports it.
-  It only changes what you ask for, every change can be undone, and MCPs you added by hand are left alone. No keys and no hidden connection tests.
-- [~] **Polish from hands-on testing** — Whatever we find while using it, before publishing.
-  We've started with Connections, Workspace in your browser, the agents guide and Conversations.
+- [x] **Pending skill reviews show up** — From v0.9.1.
+  They appear in the hub with "Do it now", and only count as done if the tab that received them did the work.
+- [~] **Deciders improvements and fixes** — What was left pending, and connection messages that say exactly what's going on.
+  For example: with a proxy that's off, the message says so instead of "check your internet".
+- [~] **Conversations fixes** — Leave and come back to a room without anything that was said stopping to count.
+  Even if your Mac and PC clocks disagree.
+- [~] **Workspace in your browser** — Your agents on a local page, only on this computer, with a new design.
+- [ ] **After v0.9.2** — Already built; ships in the next releases, one by one.
+  Connections (see, add and remove MCPs on each engine), the guide so your agents know how to use Workspace, skill review on all 9 engines, inviting someone to a room that already started, and Projects in plain sight.
 
 ## Log
-- 2026-11-11 — Connections: it can now add and remove MCPs in each engine's config, with undo (being tested on the PC).
-- 2026-11-11 — Skill review: it now recognizes who wrote the skill on 7 more engines (being tested on the PC).
-- 2026-11-11 — Conversations: you can now invite an agent or a tab to an open room (being tested on the PC).
-- 2026-11-11 — Projects: the agent that receives a project now works in a visible terminal (being tested on the PC).
-- 2026-11-11 — We started polishing Connections, Workspace in your browser, the agents guide and Conversations based on what we saw while using them.
-- 2026-11-11 — Connections and Workspace in your browser now show up in the hub. Hands-on testing starts on Mac and Windows.
-- 2026-11-11 — v0.9.2 passed all its automated tests on Mac and Windows, with two Greptile reviews.
+- 2026-11-11 — We reordered v0.9.2: it ships on top of v0.9.1 with Deciders, Conversations and the browser page. Everything else, in the next ones.
+- 2026-11-11 — On the PC: Connections (add and remove MCPs), skill review on all 9 engines, inviting to a room and Projects in plain sight move forward.
 - 2026-11-10 — We finished v0.9.1; it ships together with v0.9.2.
