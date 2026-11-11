@@ -8,8 +8,9 @@
 <meta property="og:type" content="website">
 <meta property="og:title" content="Workspace · elige tu motor de IA, conserva tus agentes">
 <meta property="og:description" content="Un menú de terminal para tus agentes de IA: cambia de motor y conserva su identidad, sus skills y su memoria. Código abierto.">
-<meta property="og:url" content="https://maxgarcia399.github.io/workspace/">
-<meta property="og:image" content="https://maxgarcia399.github.io/workspace/og-workspace.png">
+<meta property="og:url" content="https://workspacecli.ai/">
+<link rel="canonical" href="https://workspacecli.ai/">
+<meta property="og:image" content="https://workspacecli.ai/og-workspace.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
@@ -2783,15 +2784,14 @@ div.nx5-head{cursor:default}
           <li><b>Al menos un motor</b> instalado y con tu sesión iniciada. Si todavía no tienes ninguno, el primer arranque te ayuda a instalarlo.</li>
         </ol>
         <h2>macOS y Linux</h2>
-        <div class="code"><span class="lang">BASH</span><pre>curl -fsSL https://raw.githubusercontent.com/MaxGarcia399/workspace/main/setup.sh | bash</pre></div>
+        <div class="code"><span class="lang">BASH</span><pre>curl -fsSL https://workspacecli.ai/install | bash</pre></div>
         <p>Se instala en <code>~/Workspace</code>, fuera de Escritorio, Documentos y Descargas, para que macOS no pida permisos de carpeta. Tus agentes nuevos nacen en <code>~/Workspace/Cerebros</code>. Si ya lo tenías en otro lado, el mismo comando lo detecta y lo actualiza ahí.</p>
         <p>Si ya tienes una carpeta <code>~/Workspace</code> con tus propios archivos, no la toca: te pide elegir otra con <code>WORKSPACE_DIR="$HOME/Workspace-app"</code> delante del comando.</p>
         <p>Para revisar antes de correr, hazlo en dos pasos:</p>
         <div class="code"><span class="lang">BASH</span><pre>git clone https://github.com/MaxGarcia399/workspace.git ~/Workspace
 python3 ~/Workspace/install.py</pre></div>
         <h2>Windows (PowerShell)</h2>
-        <div class="code"><span class="lang">POWERSHELL</span><pre>irm https://raw.githubusercontent.com/MaxGarcia399/workspace/main/setup.ps1 -OutFile $env:TEMP\workspace-setup.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File $env:TEMP\workspace-setup.ps1</pre></div>
+        <div class="code"><span class="lang">POWERSHELL</span><pre>irm https://workspacecli.ai/install.ps1 | iex</pre></div>
         <p>Se instala en <code>%LOCALAPPDATA%\Workspace</code>. En dos pasos:</p>
         <div class="code"><span class="lang">POWERSHELL</span><pre>git clone https://github.com/MaxGarcia399/workspace.git "$env:LOCALAPPDATA\Workspace"
 python "$env:LOCALAPPDATA\Workspace\install.py"</pre></div>
@@ -2810,15 +2810,14 @@ python "$env:LOCALAPPDATA\Workspace\install.py"</pre></div>
   <li><b>At least one engine</b> installed and signed in. If you have none yet, the first run helps you install one.</li>
 </ol>
 <h2>macOS and Linux</h2>
-<div class="code"><span class="lang">BASH</span><pre>curl -fsSL https://raw.githubusercontent.com/MaxGarcia399/workspace/main/setup.sh | bash</pre></div>
+<div class="code"><span class="lang">BASH</span><pre>curl -fsSL https://workspacecli.ai/install | bash</pre></div>
 <p>It installs into <code>~/Workspace</code>, outside Desktop, Documents and Downloads, so macOS does not ask for folder permissions. New agents are created in <code>~/Workspace/Cerebros</code>. If you already had it somewhere else, the same command detects it and updates it there.</p>
 <p>If you already have a <code>~/Workspace</code> folder with your own files, it leaves it alone: it asks you to choose another one with <code>WORKSPACE_DIR="$HOME/Workspace-app"</code> in front of the command.</p>
 <p>To review before running, do it in two steps:</p>
 <div class="code"><span class="lang">BASH</span><pre>git clone https://github.com/MaxGarcia399/workspace.git ~/Workspace
 python3 ~/Workspace/install.py</pre></div>
 <h2>Windows (PowerShell)</h2>
-<div class="code"><span class="lang">POWERSHELL</span><pre>irm https://raw.githubusercontent.com/MaxGarcia399/workspace/main/setup.ps1 -OutFile $env:TEMP\workspace-setup.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File $env:TEMP\workspace-setup.ps1</pre></div>
+<div class="code"><span class="lang">POWERSHELL</span><pre>irm https://workspacecli.ai/install.ps1 | iex</pre></div>
 <p>It installs into <code>%LOCALAPPDATA%\Workspace</code>. In two steps:</p>
 <div class="code"><span class="lang">POWERSHELL</span><pre>git clone https://github.com/MaxGarcia399/workspace.git "$env:LOCALAPPDATA\Workspace"
 python "$env:LOCALAPPDATA\Workspace\install.py"</pre></div>
@@ -3611,9 +3610,8 @@ workspace uninstall --keep-folder  # keeps the Workspace folder</pre></div>
 
   // ── instalación: pestañas por sistema + copiar ──
   var CMD = {
-    unix: ['curl -fsSL https://raw.githubusercontent.com/MaxGarcia399/workspace/main/setup.sh | bash'],
-    win: ['irm https://raw.githubusercontent.com/MaxGarcia399/workspace/main/setup.ps1 -OutFile $env:TEMP\\workspace-setup.ps1',
-      'powershell -NoProfile -ExecutionPolicy Bypass -File $env:TEMP\\workspace-setup.ps1']
+    unix: ['curl -fsSL https://workspacecli.ai/install | bash'],
+    win: ['irm https://workspacecli.ai/install.ps1 | iex']
   };
   var os = /Win/i.test(navigator.platform || navigator.userAgent) ? 'win' : 'unix';
   function paintOS() {
@@ -4851,7 +4849,7 @@ workspace uninstall --keep-folder  # keeps the Workspace folder</pre></div>
     function s1(k) {
       var L = [k ? 'Downloading Workspace' : 'Descargando Workspace', k ? 'Installing the workspace command' : 'Instalando el comando workspace', k ? 'Saving your settings' : 'Guardando tu configuración'];
       return '<div class="b-win" style="left:18px;top:24px;width:318px;height:200px">' + tb3('terminal') + '<div class="b-in">' +
-        '<span class="b-cmd">' + (os === 'win' ? '&gt; irm …/setup.ps1' : '$ curl … | bash') + '</span>' +
+        '<span class="b-cmd">' + (os === 'win' ? '&gt; irm … | iex' : '$ curl … | bash') + '</span>' +
         L.map(function (s, n) { return '<div class="t-ln b-a" style="' + D(.5 + n * .45) + '"><b>✓</b>' + s + '</div>'; }).join('') +
         '</div></div>' +
         '<div class="os3 b-a" style="left:18px;top:250px;' + D(1.9) + '">' + ['macOS', 'Linux', 'Windows'].map(function (o) { return '<span><i></i>' + o + '</span>'; }).join('') + '</div>' +
