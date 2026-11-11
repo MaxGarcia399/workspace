@@ -20,10 +20,13 @@ Estamos probando la v0.9.2 a mano, en Mac y en Windows, antes de publicarla. Ya 
   El Historial separa una opinión de un resultado comprobado y solo dice «sí» cuando hay prueba.
 - [x] **Arreglos** — MCPs honestos, ajustes que no se pierden, proxy y Windows.
   Workspace ya no pisa un MCP que agregaste a mano ni dice «conectado» si el motor no lo lee; no escribe encima de un `settings.local.json` que no pudo leer; con el proxy apagado lo dice tal cual; y en Windows la revisión de skills cierra bien el motor.
+- [~] **Proyectos a la vista** — El agente que recibe un proyecto trabaja en una terminal que ves.
+  Antes trabajaba escondido, sin ventana. Además, Workspace conserva tus ajustes aunque no se puedan leer, en vez de escribir encima.
 - [~] **Pulido con las pruebas a mano** — Lo que encontremos al usarla, antes de publicarla.
   Ya empezamos con Conexiones, Workspace en el navegador, la guía para agentes y Conversaciones.
 
 ## Bitácora
+- 2026-11-11 — Proyectos: el agente que recibe un proyecto ya trabaja en una terminal visible (en pruebas en la PC).
 - 2026-11-11 — Empezamos a pulir Conexiones, Workspace en el navegador, la guía para agentes y Conversaciones con lo que vimos al usarlas.
 - 2026-11-11 — Conexiones y Workspace en el navegador ya aparecen en el hub. Empiezan las pruebas a mano en Mac y Windows.
 - 2026-11-11 — La v0.9.2 pasó todas sus pruebas automáticas en Mac y Windows, con dos revisiones de Greptile.
