@@ -2469,6 +2469,16 @@ div.nx5-head{cursor:default}
   /* la marca vuelve a 20 px (16 no cae en la rejilla de la letra); cabe a 360 con la barra apretada */
   .brand{font-size:20px}
 }
+
+/* v58: portada con aire bajo la barra; en «Así se usa» la ilustración va antes que los pasos */
+@media (max-width:980px){
+#uso .uso{display:flex;flex-direction:column;align-items:stretch;gap:18px}
+#uso .uso>div:last-child{width:100%}
+#uso .uso>div:last-child{order:-1}
+}
+@media (max-width:560px){
+.hero .in{padding-top:52px}
+}
 </style>
 </head>
 <body>
