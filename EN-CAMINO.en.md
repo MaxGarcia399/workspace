@@ -24,10 +24,13 @@ We're testing v0.9.2 by hand, on Mac and Windows, before publishing it. It alrea
   It used to work hidden, with no window. Workspace also keeps your settings even when they can't be read, instead of writing over them.
 - [~] **Invite to a room that already started** — Add another agent, or a specific tab, to an open conversation.
   Until now, whoever wasn't there from the start couldn't join.
+- [~] **Skill review on all 9 engines** — It can check who wrote the skill on Antigravity, OpenCode, OpenClaw, Hermes, Kiro, Copilot and Cursor too.
+  Until now it could only check on Claude Code and Codex; on the others the review ended "unverified".
 - [~] **Polish from hands-on testing** — Whatever we find while using it, before publishing.
   We've started with Connections, Workspace in your browser, the agents guide and Conversations.
 
 ## Log
+- 2026-11-11 — Skill review: it now recognizes who wrote the skill on 7 more engines (being tested on the PC).
 - 2026-11-11 — Conversations: you can now invite an agent or a tab to an open room (being tested on the PC).
 - 2026-11-11 — Projects: the agent that receives a project now works in a visible terminal (being tested on the PC).
 - 2026-11-11 — We started polishing Connections, Workspace in your browser, the agents guide and Conversations based on what we saw while using them.

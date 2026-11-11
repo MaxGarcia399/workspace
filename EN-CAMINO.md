@@ -24,10 +24,13 @@ Estamos probando la v0.9.2 a mano, en Mac y en Windows, antes de publicarla. Ya 
   Antes trabajaba escondido, sin ventana. Además, Workspace conserva tus ajustes aunque no se puedan leer, en vez de escribir encima.
 - [~] **Invitar a una sala que ya empezó** — Suma a otro agente, o a una pestaña en particular, a una conversación abierta.
   Hasta ahora, quien no estaba desde el principio no podía entrar.
+- [~] **La revisión de skills, en los 9 motores** — Comprueba quién escribió la skill también en Antigravity, OpenCode, OpenClaw, Hermes, Kiro, Copilot y Cursor.
+  Hasta ahora solo podía comprobarlo en Claude Code y Codex; en los demás la revisión terminaba «sin comprobar».
 - [~] **Pulido con las pruebas a mano** — Lo que encontremos al usarla, antes de publicarla.
   Ya empezamos con Conexiones, Workspace en el navegador, la guía para agentes y Conversaciones.
 
 ## Bitácora
+- 2026-11-11 — Revisión de skills: ya reconoce quién escribió la skill en 7 motores más (en pruebas en la PC).
 - 2026-11-11 — Conversaciones: ya se puede invitar a un agente o a una pestaña a una sala abierta (en pruebas en la PC).
 - 2026-11-11 — Proyectos: el agente que recibe un proyecto ya trabaja en una terminal visible (en pruebas en la PC).
 - 2026-11-11 — Empezamos a pulir Conexiones, Workspace en el navegador, la guía para agentes y Conversaciones con lo que vimos al usarlas.
