@@ -26,10 +26,13 @@ We're testing v0.9.2 by hand, on Mac and Windows, before publishing it. It alrea
   Until now, whoever wasn't there from the start couldn't join.
 - [~] **Skill review on all 9 engines** — It can check who wrote the skill on Antigravity, OpenCode, OpenClaw, Hermes, Kiro, Copilot and Cursor too.
   Until now it could only check on Claude Code and Codex; on the others the review ended "unverified".
+- [~] **Connections: add and remove MCPs** — From the same section, an MCP you add reaches the config of every engine that supports it.
+  It only changes what you ask for, every change can be undone, and MCPs you added by hand are left alone. No keys and no hidden connection tests.
 - [~] **Polish from hands-on testing** — Whatever we find while using it, before publishing.
   We've started with Connections, Workspace in your browser, the agents guide and Conversations.
 
 ## Log
+- 2026-11-11 — Connections: it can now add and remove MCPs in each engine's config, with undo (being tested on the PC).
 - 2026-11-11 — Skill review: it now recognizes who wrote the skill on 7 more engines (being tested on the PC).
 - 2026-11-11 — Conversations: you can now invite an agent or a tab to an open room (being tested on the PC).
 - 2026-11-11 — Projects: the agent that receives a project now works in a visible terminal (being tested on the PC).
