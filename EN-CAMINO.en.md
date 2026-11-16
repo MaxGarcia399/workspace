@@ -1,18 +1,28 @@
 # v0.9.2
 stage: development
 author: Workspace team
-updated: 2026-11-15
+updated: 2026-11-16
 
-A change of course. What already works stays: your agents, their brains, the 9 engines and skills. Now we're rebuilding Workspace's face so you can use it without thinking: create an agent with one button, work with several at once, and do it from your browser.
+Workspace's new face exists and we use it every day. Now we're making it feel like a product: fast, no surprises, and a clear way out when something fails. Your agents, their brains, the 9 engines and skills stay the same.
 
 ## What's coming
-- [~] **Workspace in your browser, simpler** — A local page, only on this computer, with your agents, their conversations and their engines. As easy as a chat.
-- [~] **Your engine's questions, from the page** — Permissions and questions from the terminal are answered with one click, and Workspace never types over an open permission prompt.
-- [ ] **Create an agent with one button** — Give it a name and tell it what job it does; Workspace builds the rest.
+- [~] **Workspace in your browser, simpler** — A local page with your agents, each with its own character, conversation, tone, to-dos and files. It already works in our development build; now we're polishing it.
+  Skills run inside the chat with their progress in view, and whatever the agent asks you is answered right there.
+- [~] **Switch engines without losing the conversation** — You stay in the same chat with another engine, and the new engine knows what was said with the previous ones, even when you go back to one you already used.
+  While it switches, the page says what's happening and won't let you type halfway.
+- [~] **Failures with a way out** — If an engine runs out of credit, hits its limit or loses its session, the page tells you in plain words and offers to continue with another engine or retry.
+- [~] **Faster with many agents** — The page no longer asks the server for everything every few seconds: the server tells it only when something changes. With 20 idle agents, server work dropped from 72.9 to 3.7 ms per second.
+- [~] **Create an agent with one button** — Give it a name and tell it how it will help you; Workspace builds the rest, with its full brain from minute one.
+- [~] **Model, effort and mode from the page** — Each engine offers only what it really has, applied through its official path.
+- [~] **Engines up to date** — Workspace checks every new version of the 9 engines before it affects you, and keeps your permissions even if an engine changes its behavior when it updates.
 - [ ] **Agent groups** — Several agents in the same conversation, each with its own engine.
-- [ ] **Deciders takes a break** — It leaves this release while we redesign it. Your history stays saved.
+- [ ] **Deciders takes a break** — It leaves this version while we redesign it. Your history stays saved.
 
 ## Log
+- 2026-11-16 — We tested the page end to end with real agents on all 9 engines, including creating a new agent. We found 19 failures and are closing them one by one.
+- 2026-11-16 — The page's server now announces changes instead of re-reading everything; with many agents you notice it.
+- 2026-11-16 — Switching engines no longer starts from scratch: one browser conversation per agent, with the history of all its engines.
+- 2026-11-16 — We reviewed the versions of the 9 engines and started certifying them on their newest versions.
 - 2026-11-15 — New direction: the next release focuses on a new, simple face for what already works. Deciders leaves for now.
 - 2026-11-11 — Skill review you can watch also makes it into v0.9.2.
 - 2026-11-11 — We reordered v0.9.2: it ships on top of v0.9.1 with Deciders, Conversations and the browser page. Everything else, in the next ones.
