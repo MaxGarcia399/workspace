@@ -15,5 +15,6 @@ Short chapters, in the order you'll need them. *[Versión en español](../es/REA
 11. [Privacy and transparency](privacy.md)
 12. [Command reference](commands.md)
 13. [Your system's notices](system-notices.md)
+14. [Guide for agents](agents.md)
 
 What Workspace stands for, in ten lines: [Manifesto](../MANIFESTO.md).

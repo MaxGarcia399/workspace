@@ -1,0 +1,251 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Ficha de motor (arquitectura nueva, F0)",
+  "description": "Un archivo de datos por motor: vía de control, eventos de los 8 momentos, cómo carga el paquete por sesión, permisos por sesión, uso del plan y cómo lo corre el probador. Lo marcado verificado=false sale de la documentación y falta pasarlo por el probador.",
+  "type": "object",
+  "required": ["motor", "nombre", "binario", "versiones_probadas", "fuente", "via_control", "momentos", "paquete", "permisos", "uso_plan", "conversacion", "tono", "nucleo", "sesion", "config_global", "probador"],
+  "additionalProperties": false,
+  "properties": {
+    "motor": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,30}$"},
+    "nombre": {"type": "string", "minLength": 1},
+    "binario": {"type": "string", "minLength": 1},
+    "versiones_probadas": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "fuente": {"type": "string", "description": "de qué investigación salen los datos (A, B, C) o «prueba»"},
+    "via_control": {
+      "type": "object",
+      "required": ["tipo", "detalle", "misma_conversacion", "semaforo"],
+      "additionalProperties": false,
+      "properties": {
+        "tipo": {"enum": ["servidor", "acp", "app-server", "sin-pantalla", "terminal"]},
+        "detalle": {"type": "string", "minLength": 1},
+        "misma_conversacion": {"type": "boolean"},
+        "semaforo": {"enum": ["verde", "gris", "rojo"]},
+        "avisos": {"type": "object", "additionalProperties": false, "required": ["no_se_usa"], "description": "cable-cursor / cable-kiro: por qué en la PÁGINA no se usan los avisos (hooks) de este motor, con su prueba; la auditoría lo dice «no se usa» solo si en esa corrida llegan por su vía pre_tool, post_tool y turn_end (auditoria.avisos_por_la_via)",
+                   "properties": {"no_se_usa": {"type": "string", "minLength": 1}, "eventos": {"type": "string"}}}
+      }
+    },
+    "momentos": {
+      "type": "object",
+      "required": ["session_start", "user_prompt", "pre_tool", "post_tool", "permission_request", "turn_end", "compact", "session_end"],
+      "additionalProperties": false,
+      "properties": {
+        "session_start": {"$ref": "#/$defs/momento"},
+        "user_prompt": {"$ref": "#/$defs/momento"},
+        "pre_tool": {"$ref": "#/$defs/momento"},
+        "post_tool": {"$ref": "#/$defs/momento"},
+        "permission_request": {"$ref": "#/$defs/momento"},
+        "turn_end": {"$ref": "#/$defs/momento"},
+        "compact": {"$ref": "#/$defs/momento"},
+        "session_end": {"$ref": "#/$defs/momento"}
+      }
+    },
+    "paquete": {
+      "type": "object",
+      "required": ["formato", "carga_por_sesion", "instala", "hooks", "mcp", "skills"],
+      "additionalProperties": false,
+      "properties": {
+        "formato": {"enum": ["claude", "agent-plugins", "opencode", "openclaw"]},
+        "carga_por_sesion": {"type": "string", "minLength": 1},
+        "instala": {"type": "string", "minLength": 1},
+        "hooks": {
+          "type": "object",
+          "required": ["dialecto", "ruta", "raiz_var", "confianza"],
+          "additionalProperties": false,
+          "properties": {
+            "dialecto": {"enum": ["claude", "cursor", "kiro", "hermes", "opencode", "openclaw"]},
+            "ruta": {"type": "string", "minLength": 1, "description": "dónde quedan los hooks dentro de la salida de su formato"},
+            "raiz_var": {"type": ["string", "null"], "description": "variable con la carpeta del paquete en el comando del hook; null = se fija al instalar ({{RAIZ}})"},
+            "confianza": {"type": "string", "description": "qué pide el motor para correr hooks de un paquete (D6)"}
+          }
+        },
+        "mcp": {
+          "type": "object",
+          "required": ["declara", "preaprueba"],
+          "additionalProperties": false,
+          "properties": {
+            "declara": {"type": "string", "minLength": 1},
+            "preaprueba": {"type": "string", "minLength": 1}
+          }
+        },
+        "skills": {"type": "string", "minLength": 1}
+      }
+    },
+    "permisos": {
+      "type": "object",
+      "required": ["por_sesion", "preguntar", "sandbox"],
+      "additionalProperties": false,
+      "properties": {
+        "por_sesion": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "preguntar": {"enum": ["si", "no", "a_verificar"]},
+        "sandbox": {"type": "boolean"},
+        "niveles": {
+          "type": "object",
+          "description": "F7: cada nivel de autonomía de Workspace con las opciones de sesión del motor (arquitectura/permisos). argv tras el binario; ajustes = se juntan con el --settings del lanzador; env = un JSON que se junta con el de la corrida; reemplaza = {flag: [valores que pone el lanzador de hoy]} (otro valor es del socio y gana); sandbox_os = dónde existe su sandbox (sin_permisos solo ahí; si no, editar); no = por qué no hay ese nivel. lanzador = lo que ya pone el lanzador de hoy para ese nivel; bandera = esas opciones tal cual (seguidas en el argv), para comprobar que el lanzador las puso (cierre de la auditoría); no_se_usa = el motor no tiene ese nivel en ese camino (con su prueba): queda en editar.",
+          "additionalProperties": false,
+          "properties": {
+            "auto": {"$ref": "#/$defs/nivel"},
+            "preguntar": {"$ref": "#/$defs/nivel"},
+            "editar": {"$ref": "#/$defs/nivel"},
+            "sin_permisos": {"$ref": "#/$defs/nivel"},
+            "verificado": {"type": "boolean"},
+            "nota": {"type": "string"}
+          }
+        }
+      }
+    },
+    "uso_plan": {
+      "type": "object",
+      "required": ["tipo", "fuente"],
+      "additionalProperties": false,
+      "properties": {
+        "tipo": {"enum": ["statusline", "comando", "archivo", "acp", "interactivo"]},
+        "fuente": {"type": "string", "minLength": 1}
+      }
+    },
+    "conversacion": {
+      "type": "object",
+      "required": ["id", "como"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"enum": ["fijado_antes", "api", "hook_inicio"]},
+        "como": {"type": "string", "minLength": 1}
+      }
+    },
+    "tono": {"type": "string", "minLength": 1},
+    "nucleo": {
+      "type": "object",
+      "description": "F6: cómo llega el núcleo a una sesión. mcp: el servidor `workspace` declarado y preaprobado por sesión (argv justo tras el binario, env, archivos en {cerebro}/; o «no» con la razón). al_abrir: por dónde va el paquete de la pestaña (el hook de inicio o las instrucciones del MCP). tono: su pieza de sistema (argv con {tono}, regla del proyecto, instrucciones del MCP, el hook de inicio, o «no»).",
+      "additionalProperties": false,
+      "required": ["mcp", "al_abrir", "tono", "chat", "verificado"],
+      "properties": {
+        "chat": {"type": "object", "additionalProperties": false, "required": ["via", "nota"], "description": "modo chat: por dónde llega la guía de chat (arquitectura/modo_chat) cuando la conversación es de la página o del hub. argv: con el tono, en la pieza de sistema (pide tono.via argv); mensaje: la página la manda una vez por conexión, antes de tu primer mensaje.", "properties": {"via": {"type": "string", "enum": ["argv", "mensaje"]}, "nota": {"type": "string", "minLength": 1}}},
+        "mcp": {"type": "object", "additionalProperties": false, "properties": {"declara": {"type": "string"}, "preaprueba": {"type": "string"}, "no": {"type": "string"}, "argv": {"type": "array", "items": {"type": "string"}}, "env": {"type": "object", "additionalProperties": {"type": "string"}}, "archivos": {"type": "array", "items": {"$ref": "#/$defs/paso"}}, "ajustes": {"type": "object", "description": "arq-default: la preaprobación del servidor dentro del --settings que ya trae la corrida (uno solo)"}, "aprobar": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "cable-cursor: el comando oficial que aprueba SOLO nuestro servidor, corrido en el cerebro con el entorno final de la sesión ({binario}: el del lanzador)"}, "nota": {"type": "string"}}},
+        "al_abrir": {"type": "string", "enum": ["hook", "mcp"]},
+        "tono": {"type": "object", "additionalProperties": false, "required": ["via"], "properties": {"via": {"type": "string", "enum": ["argv", "archivo", "mcp", "hook", "no"]}, "argv": {"type": "array", "items": {"type": "string"}}, "archivos": {"type": "array", "items": {"$ref": "#/$defs/paso"}}, "nota": {"type": "string"}}},
+        "verificado": {"type": "boolean"},
+        "nota": {"type": "string"}
+      }
+    },
+    "sesion": {
+      "type": "object",
+      "description": "cómo carga Workspace el paquete al lanzar (F1): argumentos y archivos en el proyecto ({cerebro}/…, sin rutas de la máquina), y el número oficial de la conversación. O «no» con la razón",
+      "additionalProperties": false,
+      "properties": {
+        "argv": {"type": "array", "items": {"type": "string"}},
+        "archivos": {"type": "array", "items": {"$ref": "#/$defs/paso"}},
+        "id": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "flags": {"type": "array", "items": {"type": "string"}, "description": "dónde viene ya el número en el argv del lanzador"},
+            "fija": {"type": "array", "items": {"type": "string"}, "description": "de esas, las que lo fijan (las demás retoman)"},
+            "crea": {"type": "string", "description": "flag para fijar uno nuevo si el argv no trae ninguno"},
+            "retoma": {"type": "string", "description": "F5: flag para reabrir con el número oficial cuando el motor ya lo usó (sin él, `crea` lo crea con ese número)"}
+          }
+        },
+        "salvo": {"type": "array", "items": {"type": "string"}, "description": "subcomandos con los que no se carga (p. ej. attach)"}, "skills": {"type": "object", "additionalProperties": false, "required": ["via"], "description": "F7: por dónde llegan las skills del cerebro al menú / del motor en esta sesión: dentro del paquete (sus skills/, el paquete de ese cerebro) o una vista plana en una carpeta del proyecto ({cerebro}/…; solo se tocan las carpetas con el sello de Workspace)", "properties": {"via": {"type": "string", "enum": ["paquete", "proyecto", "perfil"]}, "ruta": {"type": "string"}, "nota": {"type": "string"}}},
+        "sin_nucleo": {"type": "string", "minLength": 1, "description": "hooks5: esta vía carga solo los hooks (y lo de arriba); el núcleo (MCP, paquete al abrir, tono) sigue por el camino de hoy, y aquí va por qué"},
+        "maleta_del_transcript": {"type": "string", "minLength": 1, "description": "cierre de la auditoría: sus avisos no dan tu mensaje o su respuesta, así que su maleta sigue saliendo de su transcript (la de hoy, memoria.actualizar_maleta) y no de los eventos; aquí va por qué, con su prueba"},
+        "no_en": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}, "description": "cable-kiro: el «no» de esta vía solo en un sistema (os.name: nt, posix), con la razón (contrato.sin_via)"},
+        "perfil": {"type": "string", "minLength": 1, "description": "la vía es un perfil de Workspace que prepara el lanzador; describe qué carga y quién lo escribe"},
+        "mcp_del_nucleo": {"type": "boolean", "description": "arq-default: con sin_nucleo, el servidor MCP del núcleo SÍ va por sesión (nucleo.mcp de la ficha); el paquete al abrir y el tono siguen por el camino de hoy"},
+        "de_antes": {"type": "object", "additionalProperties": false, "description": "arq-default: lo que el lanzador de hoy ya le conecta solo a este motor sin el paquete (para el doctor): el MCP de memoria, sus skills…, con dónde",
+                     "properties": {"mcp": {"type": "string", "minLength": 1}, "hooks": {"type": "string", "minLength": 1}, "skills": {"type": "string", "minLength": 1}}},
+        "perfil_agente": {"type": "object", "additionalProperties": false, "required": ["nombre", "crea", "quita"], "description": "cable-hermes: el motor guarda hooks, MCP y skills en la config de un PERFIL suyo (sin vía por sesión): Workspace usa uno PROPIO por agente, creado con el mecanismo oficial del motor, aditivo (nunca toca los perfiles del socio) y que se quita al desinstalar", "properties": {"nombre": {"type": "string"}, "crea": {"type": "string"}, "quita": {"type": "string"}, "escribe": {"type": "array", "items": {"type": "string"}}, "nota": {"type": "string"}}},
+        "preparar": {"type": "string", "pattern": "^[a-z_][a-z0-9_.]*:[a-z_][a-z0-9_]*$", "description": "cable-hermes: «módulo:función» que prepara lo que no cabe en argv/archivos (el perfil del agente, sesion.perfil_agente): (cerebro, pestaña, argv, env, valores, ficha) → (argv, env, info)"},
+        "confianza": {"type": "string", "description": "hooks5: si el motor pide una confianza persistida para correr los hooks de esta vía, cómo la da el socio UNA vez (D6-a), sin --dangerously-*"},
+        "nota": {"type": "string"},
+        "no": {"type": "string", "minLength": 1}
+      }
+    },
+    "config_global": {
+      "type": "array",
+      "minItems": 1,
+      "description": "la config GLOBAL del motor ({home}/…): archivos o carpetas; {ruta, claves} mira solo esas claves de un JSON que el motor reescribe solo. Workspace nunca la escribe; --home-real toma su huella antes y después",
+      "items": {"$ref": "#/$defs/config"}
+    },
+    "probador": {
+      "type": "object",
+      "required": ["corrida", "verificado"],
+      "additionalProperties": false,
+      "properties": {
+        "env": {"type": "object", "additionalProperties": {"type": "string"}},
+        "preparar": {"type": "array", "items": {"$ref": "#/$defs/paso"}},
+        "corrida": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "base": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "cómo se invoca el binario (por omisión, [binario]); las preguntas de ayuda le suman sus argumentos"},
+        "timeout_s": {"type": "integer", "minimum": 5, "maximum": 900},
+        "verificado": {"type": "boolean"},
+        "nota": {"type": "string"},
+        "real": {
+          "type": "object",
+          "description": "--home-real: la vía SOLO por sesión (flags, --plugin-dir, archivos en {cerebro}); o «no» con la razón",
+          "additionalProperties": false,
+          "properties": {
+            "env": {"type": "object", "additionalProperties": {"type": "string"}},
+            "preparar": {"type": "array", "items": {"$ref": "#/$defs/paso"}},
+            "corrida": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+            "nota": {"type": "string"},
+            "no": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "nivel": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "argv": {"type": "array", "items": {"type": "string"}},
+        "ajustes": {"type": "object"},
+        "env": {"type": "object", "additionalProperties": {"type": "string"}},
+        "reemplaza": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}},
+        "sandbox_os": {"type": "array", "items": {"enum": ["darwin", "linux", "windows"]}},
+        "lanzador": {"type": "string"},
+        "bandera": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "no": {"type": "string", "minLength": 1},
+        "no_se_usa": {"type": "string", "minLength": 1},
+        "nota": {"type": "string"}
+      }
+    },
+    "momento": {
+      "type": "object",
+      "required": ["eventos", "estado", "puede"],
+      "additionalProperties": false,
+      "properties": {
+        "eventos": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "estado": {"enum": ["si", "parcial", "sin_doc", "no", "herdr", "servidor"]},
+        "puede": {"type": "array", "items": {"enum": ["inyectar", "bloquear", "decidir", "seguir", "observar"]}},
+        "nota": {"type": "string"}
+      }
+    },
+    "paso": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "correr": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "copiar": {"type": "string"},
+        "a": {"type": "string"},
+        "sustituir": {"type": "object", "additionalProperties": {"type": "string"}},
+        "escribir": {"type": "string"},
+        "contenido": {"type": "string"},
+        "fundir": {"type": "string", "description": "arq-default: un JSON del paquete cuyas entradas de `clave` se suman al JSON del proyecto (`a`) sin tocar las demás"},
+        "clave": {"type": "string"},
+        "env": {"type": "object", "additionalProperties": {"type": "string"}, "description": "cable-cursor: con `fundir`, el `env` de cada servidor nuestro (solo nombres de Workspace, en la forma que el motor resuelve al abrirlo)"},
+        "sumar": {"type": "object", "additionalProperties": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}}, "description": "cable-cursor: {objeto: {lista: [reglas]}} al final de esas listas del JSON del proyecto (`a`), sin pisar ni quitar nada"},
+        "nota": {"type": "string"}
+      }
+    },
+    "config": {
+      "type": ["string", "object"],
+      "pattern": "^\\{home\\}/",
+      "additionalProperties": false,
+      "required": ["ruta"],
+      "properties": {
+        "ruta": {"type": "string", "pattern": "^\\{home\\}/"},
+        "claves": {"type": "array", "items": {"type": "string"}, "minItems": 1}, "excluir": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "subcarpetas de primer nivel que el motor sincroniza solo (no son config del usuario)"},
+        "nota": {"type": "string", "description": "por qué solo esas claves (el motor reescribe el resto)"}
+      }
+    }
+  }
+}

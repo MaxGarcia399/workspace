@@ -93,14 +93,28 @@ def _write(path, data):
 
 def run(ctx):
     import install
+    import olock
     for name, brain, settings, defn in _targets(ctx):
-        if defn is not None:
-            _backup(ctx, name, _def_path(brain), "agent.json")
-            _write(_def_path(brain), dict(defn, autonomy="brain"))
-        if settings is not None:
-            _backup(ctx, name, _settings_path(brain), "settings.local.json")
-            d = _read(_def_path(brain)) or {}
-            cfg = dict(d, autonomy="ask" if d.get("autonomy") == "ask" else "brain")
-            install.render_permissions(settings, cfg, brain)
-            _write(_settings_path(brain), settings)
+        # un cerebro no traba la cola: si su candado no se consigue (otra ventana
+        # lo sostiene) o algo falla, ese cerebro queda sin tocar y se anota; los
+        # demás y las migraciones siguientes corren (la siguiente carga del
+        # agente, install.configure_brain, lo completa)
+        try:
+            if defn is not None:
+                _backup(ctx, name, _def_path(brain), "agent.json")
+                _write(_def_path(brain), dict(defn, autonomy="brain"))
+            if settings is not None:
+                # lectura-cambio-guardado bajo el candado del archivo (el de install,
+                # doctor y repair): lo leído en _targets pudo cambiar desde entonces
+                with olock.local_lock(_settings_path(brain), timeout=5):
+                    fresco = _read(_settings_path(brain))
+                    if fresco is not None and _broad(fresco):
+                        _backup(ctx, name, _settings_path(brain), "settings.local.json")
+                        d = _read(_def_path(brain)) or {}
+                        cfg = dict(d, autonomy="ask" if d.get("autonomy") == "ask" else "brain")
+                        install.render_permissions(fresco, cfg, brain)
+                        _write(_settings_path(brain), fresco)
+        except Exception as e:
+            ctx.log("%s: settings.local.json sin tocar (%s: %s)" % (name, type(e).__name__, e))
+            continue
         ctx.log("%s: libre solo dentro de su cerebro" % name)

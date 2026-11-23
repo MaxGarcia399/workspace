@@ -119,12 +119,17 @@ CAPABILITIES = {
 }
 
 BINARY = "cursor-agent"
+#: Tecla(s) de herdr con que la página detiene un turno (sin esto, `esc`). Esc
+#: no detuvo a Cursor trabajando (F12, 16-nov); sin tecla documentada, su
+#: changelog oficial trata Ctrl+C como el fin del turno. UNA pulsación.
+TECLAS_PARAR = ["c-c"]
 
 #: Versiones del CLI oficial con las que se VERIFICARON las lecturas de este
-#: adapter (engine_versions: doctor avisa si la instalada es de otra línea).
+#: adapter (historial).
 #: 2026.10.22-27dcf5f (macOS arm64): ayuda, `status --format json`, rutas de
 #: chats y transcripts, `--trust`, `--` y el error sin cuenta.
-VERIFIED_VERSIONS = ("2026.10.22",)
+#: La lista de versiones PROBADAS es una sola: la del parser de este motor
+#: (engine_versions.verified); lo de arriba es el historial de este adapter.
 
 # 🔴 EL HARNESS NO FIJA MODELO (regla de producto, 2026-10-15). El modelo lo
 # elige el socio dentro de Cursor — este adapter JAMÁS pasa `--model` en el
@@ -140,6 +145,13 @@ _SUBCOMMANDS = frozenset((
     "team", "bedrock", "about", "update", "create-chat", "generate-rule", "rule",
     "agent", "ls", "resume", "help"))
 _TRUST_FLAGS = ("--trust", "-f", "--force", "--yolo")
+#: «Automático» (autonomía brain, la de fábrica; decisión del dueño 18-nov): su
+#: modo automático oficial. Su --help (2026.11.17): «--auto-review  Use Auto-review
+#: (Smart Auto): a server classifier auto-runs safe tool calls and prompts for the
+#: rest». Nunca --force/--yolo («Run Everything»). Si el socio pasa un modo propio
+#: (--mode/--plan) o uno de esos, el suyo gana.
+AUTO_REVIEW = "--auto-review"
+_MODO_FLAGS = (AUTO_REVIEW, "--mode", "--plan", "-f", "--force", "--yolo")
 _UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
                    r"[0-9a-fA-F]{12}")
 
@@ -759,7 +771,8 @@ def _autotrust():
 def _interactive_argv(cfg, passthrough, session_id="", trust=None):
     """argv DESPUÉS de `cursor-agent`: `--trust` (el cerebro es la carpeta del
     agente: sin esto Cursor pregunta en cada cerebro nuevo; opt-out por env) +
-    `--resume <id>` de la pestaña + el passthrough del socio. El harness NO
+    `--auto-review` con «Automático» (AUTO_REVIEW) + `--resume <id>` de la
+    pestaña + el passthrough del socio. El harness NO
     fija modelo — Cursor usa el que el socio eligió (regla de producto); un
     `--model` o `--resume` que el socio pase a mano va tal cual y gana. Un
     subcomando del socio (`ls`, `login`…) va solo, sin nada nuestro."""
@@ -769,9 +782,21 @@ def _interactive_argv(cfg, passthrough, session_id="", trust=None):
     out = []
     if (_autotrust() if trust is None else trust) and not any(a in _TRUST_FLAGS for a in args):
         out.append("--trust")
+    if _automatico(cfg) and not any(a in _MODO_FLAGS or a.startswith("--mode=") for a in args):
+        out.append(AUTO_REVIEW)                 # «Automático»: su Auto-review oficial
     if session_id and not _has_session_flag(args):
         out += ["--resume", session_id]
     return out + args
+
+
+def _automatico(cfg):
+    """¿«Automático» (la autonomía de fábrica)? Cursor no pregunta antes de editar
+    (engines.NO_PREGUNTAN): «Preguntar» y «Editar sin preguntar» quedan como hoy."""
+    try:
+        from engines import _ui
+        return _ui.autonomy(cfg) == "brain"
+    except Exception:
+        return False
 
 
 def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
@@ -947,9 +972,10 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
     # NUEVA arranca solo con el mensaje inicial (argumento posicional del CLI:
     # «Initial prompt for the agent»); al retomar no se inyecta nada. A-VERIFICAR
     # con cuenta que el TUI lo ENVÍA (y no solo lo precarga).
+    import memoria
     boot = first_prompt or ("" if (passthrough or resumed) else
-                            "Lee %s e inicia el cerebro. Al terminar, confirma "
-                            "en una línea breve." % _identity_doc(cfg))
+                            "Lee %s e inicia el cerebro. %s"
+                            % (_identity_doc(cfg), memoria.fin_arranque()))
     if boot and os.name == "nt":
         import memoria
         boot = memoria.argv_seguro(boot)

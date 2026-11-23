@@ -1,7 +1,7 @@
 {
  "motor": "copilot",
  "version": "1.0.106",
- "actualizado": "2026-11-06",
+ "actualizado": "2026-11-16",
  "nota": "Cédula de conformidad de las métricas: `version` es la versión certificada (con golden en tests/fixtures/metricas/copilot/1.0.106/ (y 1.0.105) y en VERIFIED_VERSIONS). El historial registra cada verificación: nivel kit (fixture), mínimo (headless real) o completo (consola real con la X). runbooks/agregar-motor.md §3b.",
  "historial": [
   {
@@ -85,6 +85,22 @@
     "TZ"
    ],
    "parser": "copilot/2"
+  },
+  {
+   "version": null,
+   "so": "mac",
+   "nivel": "minimo",
+   "veredicto": "invalida",
+   "fecha": "2026-11-16",
+   "costo_usd_aprox": 0,
+   "intentos": 3,
+   "modelo": "claude-haiku-5.5",
+   "parser": null,
+   "fuente": "tests/e2e/metricas_viva.py",
+   "fallos": [
+    "error"
+   ],
+   "notas": "GitHub Copilot CLI 1.0.112 instalado. Los 3 intentos salieron con «You have exceeded your monthly quota» antes del primer turno (cuota mensual de la cuenta agotada): no hubo filas, por eso no hay versión. Sin certificar hasta que haya cuota."
   }
  ]
 }

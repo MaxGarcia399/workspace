@@ -1,0 +1,19 @@
+/* ================= la guía: «Recorrido con foco» (H5-a) ================= */
+.rb.gub{font:800 17px/1 var(--sans);color:var(--tx2)}
+.grecorrido{position:fixed;inset:0;z-index:70;animation:ent .18s ease-out}
+.gfoco{position:fixed;border-radius:14px;border:2px solid var(--c);box-shadow:0 0 0 9999px rgba(8,8,10,.66);
+  transition:left .32s var(--ease),top .32s var(--ease),width .32s var(--ease),height .32s var(--ease);pointer-events:none}
+.gficha{position:fixed;background:var(--card);border:1px solid color-mix(in srgb,var(--c) 45%,var(--line));border-radius:14px;
+  padding:14px 16px 12px;box-shadow:0 18px 40px rgba(0,0,0,.45);transition:left .32s var(--ease),top .32s var(--ease)}
+.gcab{display:flex;align-items:baseline;gap:4px;font-size:13.5px;color:var(--tx)}
+.gcab b{color:var(--c);font-weight:750}.gcab span{font-weight:700;flex:1}
+.gesc{font-size:12px;color:var(--tx3);background:none;border:0;cursor:pointer;padding:2px 4px;border-radius:6px}
+.gesc:hover{color:var(--tx);background:#2a2a30}
+.gficha p{margin:8px 0 12px;color:var(--tx2);font-size:14px;line-height:1.45}
+.gpie{display:flex;align-items:center;gap:8px}
+.gpie button{border:0;border-radius:999px;padding:6px 14px;font:650 13px var(--sans);cursor:pointer}
+.gsig{background:var(--c);color:#151518}.gsig:hover{filter:brightness(1.12)}
+.gatr{background:#2c2c33;color:var(--tx2)}.gatr:hover{background:#3b3b43;color:var(--tx)}
+.gpts{margin-left:auto;display:flex;gap:5px}.gpts i{width:7px;height:7px;border-radius:2px;background:#3a3a42}
+.gpts i.on{background:var(--c)}
+@media (prefers-reduced-motion:reduce){.gfoco,.gficha{transition:none}.grecorrido{animation:none}}

@@ -1700,6 +1700,7 @@ def run(agent=None, argv=None, is_tty=None, max_ticks=None,
 
 
 if __name__ == "__main__":
-    # Arranque directo (equivale a `front.py panel`): el pane derecho del split
-    # corre esto. El agente llega por --agent (mux.right_pane_cmd lo pasa).
-    sys.exit(run(argv=sys.argv) or 0)
+    # Arranque directo (equivale a `front.py panel`): el pane derecho del split corre esto. El split es de antes (I17):
+    # solo en una copia de desarrollo (puertas_dev, que no viaja); en un cliente, la línea de dónde está el hub.
+    import puertas
+    sys.exit(__import__("puertas_dev").panel(sys.argv[1:]) if puertas.dev() else puertas.redirigir("hub"))

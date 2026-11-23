@@ -1,0 +1,28 @@
+/* ===== la página para gente que no sabe de terminal: la tarjeta de un motor con problemas (52_amigable.js) ===== */
+.ami{align-self:stretch;display:flex;gap:14px;padding:16px 18px;border-radius:20px;background:var(--card);border:1.5px solid var(--line);animation:entra .35s var(--ease)}
+.ami.ok{border-color:color-mix(in srgb,var(--ok) 45%,transparent)}
+.ami .mono{flex:none;width:52px;height:52px;display:grid;place-items:center}
+.ami .tx{flex:1;min-width:0}
+.ami b.t{display:block;font-size:16px;font-weight:700;color:var(--tx);line-height:1.3}
+.ami p{margin:5px 0 0;color:var(--tx2);font-size:13.5px;line-height:1.5}
+.ami p.ojo{color:var(--warn)}
+.ami .hace{display:flex;align-items:center;gap:9px;margin-top:12px;color:var(--tx);font-size:13.5px}
+.ami .hace i{width:14px;height:14px;flex:none;border-radius:50%;border:2px solid var(--line);border-top-color:var(--tx);animation:ami-gira .9s linear infinite}
+@keyframes ami-gira{to{transform:rotate(360deg)}}
+.ami ol.guia{list-style:none;margin:14px 0 0;padding:0;display:grid;gap:12px}
+.ami ol.guia li{display:flex;align-items:center;gap:12px;font-size:13.5px;line-height:1.45;color:var(--tx)}
+.ami ol.guia .n{width:24px;height:24px;flex:none;border-radius:50%;background:var(--card2);display:grid;place-items:center;font-weight:700;font-size:12.5px;color:var(--tx)}
+.ami ol.guia .dib{flex:none}
+.ami .grande{margin-top:16px;padding:12px 24px;font:700 15px var(--sans);border-radius:14px;background:var(--ac);color:var(--acx);border:0;cursor:pointer;transition:transform .15s var(--ease),filter .15s}
+.ami .grande:hover{filter:brightness(1.08);transform:translateY(-1px)}
+.ami .grande:disabled{opacity:.5;cursor:default;transform:none}
+.ami .botones{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:16px}
+.ami .botones .grande{margin-top:0}
+.ami kbd{font:600 12.5px var(--mono);background:var(--card2);padding:2px 8px;border-radius:7px;border:1px solid var(--line);color:var(--tx)}
+.ami .cmd{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+.ami .cmd code{font:12px var(--mono);background:var(--card2);padding:7px 10px;border-radius:8px;color:var(--tx);word-break:break-all}
+.ami details.vd,.perm details.vd{margin-top:14px;color:var(--tx3);font-size:12px}
+.perm details.vd{margin-top:8px}
+.ami details.vd summary,.perm details.vd summary{cursor:pointer;width:max-content}
+.ami details.vd pre,.perm details.vd pre{margin:6px 0 0;white-space:pre-wrap;word-break:break-word;font:11.5px/1.45 var(--mono);color:var(--tx3)}
+.aviso.ami-av{flex-wrap:wrap;justify-content:center;text-align:center}

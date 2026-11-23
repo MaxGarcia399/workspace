@@ -238,6 +238,9 @@ def _decisores_visible(event, data, brain):
     para avisar si cambia a media sesión + la línea de la última sesión (una
     vez); en CADA MENSAJE, la instrucción nueva si el socio movió los usos de
     agentes (una vez). Apagado: '' y ni un archivo. Falla-suave."""
+    from decisions import decisores_activos
+    if not decisores_activos():
+        return ""
     try:
         import decision_visible as V
         motor = str(data.get("engine") or "claude-code")
@@ -253,6 +256,23 @@ def _decisores_visible(event, data, brain):
     except Exception:
         pass
     return ""
+
+
+def _revision_al_mensaje(data, brain):
+    """La revisión de skills que el socio pidió «Hacer ahora» para ESTA
+    pestaña abierta (hooks/skill_review.mensaje_context). Sin pendientes: un
+    `listdir` y ''. Falla-suave."""
+    try:
+        d = os.path.join(brain, ".claude", "skill-review")
+        if not os.path.isdir(d):
+            return ""
+        hooks = os.path.join(ROOT, "hooks")
+        if hooks not in sys.path:
+            sys.path.append(hooks)          # al final: jamás tapa un módulo de la raíz
+        import skill_review
+        return skill_review.mensaje_context(skill_review.brain_root(brain), data)
+    except Exception:
+        return ""
 
 
 def _merge_post_tool(outputs):
@@ -608,7 +628,7 @@ def salas_notice(brain, agent=None):
         lines.append("  · (+%d más)" % (n - _SALAS_MAX_SHOWN))
     ruta, propia = _skill_hilos(brain)
     # el comando como lo imprime el bus (salas._cmd): ruta real y forma de la
-    # plataforma (en Windows `python "C:\\…"`; `$WORKSPACE_ROOT` no se expande ahí)
+    # plataforma (en Windows `C:/…/python.exe "C:\\…"`: salas._python_win)
     lines.append("Para atenderlas sigue la skill colaborar-por-bus: %s%s. Antes de contestar lee "
                  "la sala con `%s ver <sala>`; lo nuevo te lo entrega `… conversar esperar "
                  "--timeout 0`. Avísale al socio en una línea."
@@ -702,8 +722,8 @@ def _presencia_abierta(brain):
 def _registrar_panel(brain):
     """Al arrancar la pestaña (todos los motores): su panel de herdr, si corre
     en uno, para que aviso_panel sepa dónde avisarle. Local; falla suave."""
-    if not os.environ.get("HERDR_PANE_ID"):
-        return False
+    if not os.environ.get("HERDR_PANE_ID") or os.environ.get("WORKSPACE_VIA") in ("pagina", "escritorio"):
+        return False                    # una corrida de la página o del monito no es una terminal
     try:
         import aviso_panel
         return aviso_panel.registrar_entorno(agent_for_brain(brain), fuente="arranque")
@@ -815,7 +835,9 @@ def run_event(event, payload=None, brain=None, behaviors=None, raw=None):
         # retomar y tras compactar: el contexto se perdió). Los envueltos
         # (payload con `engine`) lo llevan en su bloque de pestaña
         # (sessions_registry.session_doc_block) → no se duplica.
-        if event == "session_start" and "memory_context" in beh and not data.get("engine"):
+        # Con el núcleo (F6) el paquete llega por el hook del paquete o por su MCP: aquí no se repite.
+        if event == "session_start" and "memory_context" in beh and not data.get("engine") \
+                and not os.environ.get("WORKSPACE_NUCLEO_AL_ABRIR"):
             try:
                 tab = os.environ.get("WORKSPACE_WS") or os.environ.get("ZENITH_WS")
                 if tab:
@@ -855,6 +877,14 @@ def run_event(event, payload=None, brain=None, behaviors=None, raw=None):
             if dec:
                 parts.append(dec)
                 ran.append("decisores")
+
+        # revisión de skills: si el socio pulsó «Hacer ahora» con esta pestaña
+        # abierta (ocupada o con el foco), la tarea le llega con este mensaje
+        if event == "user_prompt" and "memory_context" in beh and b:
+            rev = _revision_al_mensaje(data, b)
+            if rev:
+                parts.append(rev)
+                ran.append("skill_review")
 
         # modo colaboración: los hilos que esperan a ESTA pestaña (todos los
         # motores; también al retomar o tras compactar: se perdió el contexto)

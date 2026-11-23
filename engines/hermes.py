@@ -120,14 +120,18 @@ CAPABILITIES = {
 }
 
 BINARY = "hermes"
+#: Tecla(s) de herdr con que la página detiene un turno (sin esto, `esc`):
+#: Ctrl+C con la caja vacía interrumpe (doc user-guide/cli). UNA pulsación: dos
+#: en 2 s cierran Hermes.
+TECLAS_PARAR = ["c-c"]
 
 #: Versiones del CLI oficial con las que se VERIFICARON las lecturas de este
-#: adapter (engine_versions: doctor avisa si la instalada es de otra línea).
-#: Al verificar una versión nueva, agrégala aquí (runbooks/agregar-motor.md).
+#: adapter (historial).
 #: 0.18.2 (`status` completo) · 0.22.2 (`status --full`; export rc=1 «No session»)
 #: · 0.22.5 (ids `local-<hex>` sin hora, source=local + created_source; prueba
 #: real 2026-10-26: captura al cerrar, atado a la pestaña y --resume).
-VERIFIED_VERSIONS = ("0.18.2", "0.22.2", "0.22.5")
+#: La lista de versiones PROBADAS es una sola: la del parser de este motor
+#: (engine_versions.verified); lo de arriba es el historial de este adapter.
 LABEL = "Hermes · modelo de tu config"
 
 #: Orígenes de sesión que NO son del socio en su REPL: los turnos headless de
@@ -468,7 +472,18 @@ def scan_context(text):
     return found
 
 
+#: cable-hermes: el perfil PROPIO del agente de esta corrida (sistema nuevo, ver «perfil por agente»). Lo pone
+#: el lanzador al abrir; gana sobre el de Workspace en todo lo de esta sesión (su REPL, su número, su cierre).
+_PERFIL_AGENTE_ENV = "WORKSPACE_HERMES_PERFIL_AGENTE"
+
+
 def _profile():
+    return (os.environ.get(_PERFIL_AGENTE_ENV, "").strip()
+            or os.environ.get("WORKSPACE_HERMES_PROFILE", "").strip() or PROFILE)
+
+
+def _perfil_base():
+    """El perfil de Workspace (`workspace`): el de siempre y la base de la que se clona el de cada agente."""
     return os.environ.get("WORKSPACE_HERMES_PROFILE", "").strip() or PROFILE
 
 
@@ -1646,6 +1661,1050 @@ def prepare_account():
     return ensure_profile()
 
 
+# ── perfil PROPIO por agente (sistema nuevo · cable-hermes, 19-nov) ────────
+#: Hermes guarda sus avisos (`hooks:`), sus servidores MCP (`mcp_servers:`) y sus carpetas de skills
+#: (`skills:`) en el config.yaml del PERFIL (HERMES_HOME): no hay bandera ni archivo del proyecto para una
+#: sola sesión (su doc de configuración y de perfiles). Y desde la 0.22.5 todas sus sesiones (el REPL, `chat
+#: -q` y su ACP) corren en el gateway multiplexado (`hermes gateway status`: «running via the default-profile
+#: multiplexer»): ahí corren los avisos y el MCP del perfil, con el entorno de quien arrancó ese gateway (caja
+#: negra 19-nov: llevaba WORKSPACE_BRAIN/WS de OTRA pestaña) y expandiendo ${VAR} contra el .env del perfil,
+#: no contra la pestaña (por eso el `${WORKSPACE_BRAIN}/skills` del perfil compartido no llegaba a la página).
+#:
+#: La vía oficial para separar es un perfil: Workspace usa uno PROPIO por agente (`workspace-<agente>`),
+#: creado con `hermes profile create … --clone-from workspace --no-alias` (hereda el proveedor que el socio
+#: conectó en el perfil de Workspace: Hermes copia su .env, Workspace jamás lo lee), con rutas ABSOLUTAS de su
+#: cerebro. Aditivo: los perfiles del socio (default y los suyos) no se tocan, y el de Workspace solo se lee
+#: como base. Se quita al desinstalar (uninstall: copia aparte + `hermes profile delete`). De paso, cada
+#: agente tiene su propia historia: la búsqueda de sesiones ya no ve las de otro agente.
+#:
+#: Lo único que Workspace escribe en él: `hooks:` (los del paquete + el de tono de hoy), `skills:`,
+#: `mcp_servers.workspace` y su carpeta `workspace-paquete/` (el lanzador de los avisos y del MCP, FIJO por
+#: perfil: Hermes guarda la aprobación por comando, así que actualizar Workspace no la vuelve a pedir, y
+#: perfil.json: el cerebro y la raíz de Workspace, que el aviso lee en vez del entorno del gateway).
+#:
+#: Los avisos esperan la aprobación del socio: Hermes solo la pide en `hermes chat` en primer plano (su
+#: ACP, `-q` y el gateway nunca preguntan). Workspace no la salta: sin --accept-hooks, HERMES_ACCEPT_HOOKS
+#: ni hooks_auto_accept en este camino.
+PERFIL_AGENTE = "workspace-"
+CARPETA_PAQUETE = "workspace-paquete"
+_PERFIL_JSON = "perfil.json"
+#: Las variables de pestaña que el gateway arrastra de quien lo arrancó: un aviso o el MCP del perfil
+#: nunca las toman como suyas.
+_DE_PESTANA_GATEWAY = ("WORKSPACE_BRAIN", "WORKSPACE_WS", "WORKSPACE_WID", "ZENITH_WS", "WORKSPACE_ENGINE",
+                       "WORKSPACE_SESSION_ENGINE", "WORKSPACE_AGENT_NAME", "WORKSPACE_VIA", "WORKSPACE_SESSION_ID",
+                       "WORKSPACE_SESSION_PID", "WORKSPACE_HERMES_RUN", "WORKSPACE_HERMES_SESSION",
+                       "WORKSPACE_NUCLEO_AL_ABRIR", "WORKSPACE_TONO_SISTEMA", "WORKSPACE_PAQUETE_HOOKS",
+                       _PERFIL_AGENTE_ENV)
+#: Una corrida del perfil sin sesión todavía la reclama el primer aviso de una sesión nueva de ese perfil
+#: durante este tiempo (la corrida sin pantalla de la auditoría; el REPL ya se reconoce por su miga).
+_RECLAMO_S = 30 * 60
+#: El aviso de antes de una herramienta del MCP dice de qué pestaña es la llamada que sigue.
+_MCP_RECIENTE_S = 120
+
+
+def _slug_agente(nombre):
+    s = re.sub(r"[^a-z0-9]+", "-", str(nombre or "").strip().lower()).strip("-")[:40].strip("-")
+    return s or "agente"
+
+
+def _marca_perfil(perfil):
+    try:
+        datos = json.loads(_read_text(os.path.join(_paquete_de(perfil), _PERFIL_JSON)) or "{}")
+    except ValueError:
+        return {}
+    return datos if isinstance(datos, dict) else {}
+
+
+def _es_dueno_perfil(perfil, agente, marca):
+    return (marca.get("de") == "workspace" and marca.get("motor") == "hermes"
+            and marca.get("perfil") == perfil and marca.get("agente") == agente)
+
+
+def perfil_de_agente(agente):
+    """El perfil de Hermes del agente. Manda el que ya es SUYO por su marca (el de huella, el de su nombre o el
+    anterior, con el nombre convertido); una carpeta sin marca válida nunca gana sobre él (revisor 1: una creación a
+    medias tapaba el perfil anterior). Si ninguno es suyo: su nombre, si es válido y no choca con el anterior de otro
+    agente; si no, uno con la huella de su nombre."""
+    import hashlib
+
+    nombre = str(agente or "")
+    slug = _slug_agente(nombre)
+    anterior = PERFIL_AGENTE + slug
+    huella = hashlib.sha256(nombre.encode("utf-8")).hexdigest()[:16]
+    alterno = PERFIL_AGENTE + "_" + huella + "-" + slug[:22]
+    valido = re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,39}", nombre)
+    directo = PERFIL_AGENTE + nombre if valido else ""
+    for perfil in dict.fromkeys(p for p in (alterno, directo, anterior) if p):
+        if _es_dueno_perfil(perfil, agente, _marca_perfil(perfil)):
+            return perfil
+    marca = _marca_perfil(anterior)
+    otro = marca.get("agente")
+    legado_ajeno = (isinstance(otro, str) and otro != agente and _slug_agente(otro) == slug
+                    and _es_dueno_perfil(anterior, otro, marca))
+    return directo if directo and not (legado_ajeno and nombre == slug) else alterno
+
+
+def nombre_agente(cerebro, env=None):
+    """El agente de `cerebro`: el que dice la pestaña (WORKSPACE_AGENT_NAME de `env`), el del registro de
+    agentes con ese cerebro, o el nombre de su carpeta."""
+    n = str((env or {}).get("WORKSPACE_AGENT_NAME") or "").strip()
+    if n:
+        return n.lower()
+    real = os.path.realpath(str(cerebro or ""))
+    try:
+        import dispatch
+        for a in (dispatch.load_registry() or {}).get("agents") or ():
+            b = a.get("brain") or ""
+            if b and a.get("name") and os.path.realpath(b) == real:
+                return str(a["name"]).lower()
+    except Exception:
+        pass
+    return os.path.basename(real).lower()
+
+
+def carpeta_perfil(perfil):
+    return os.path.join(_hermes_root(), "profiles", perfil)
+
+
+def _paquete_de(perfil):
+    return os.path.join(carpeta_perfil(perfil), CARPETA_PAQUETE)
+
+
+def es_perfil_de_agente(perfil):
+    """¿`perfil` es un perfil de agente de Workspace (lo creó Workspace: trae su carpeta y su perfil.json)?"""
+    return (str(perfil or "").startswith(PERFIL_AGENTE)
+            and os.path.isfile(os.path.join(_paquete_de(perfil), _PERFIL_JSON)))
+
+
+def perfiles_de_agente():
+    """Los perfiles de agente de Workspace en esta máquina (solo los que llevan su marca)."""
+    d = os.path.join(_hermes_root(), "profiles")
+    try:
+        return sorted(n for n in os.listdir(d) if es_perfil_de_agente(n))
+    except OSError:
+        return []
+
+
+@__import__("contextlib").contextmanager
+def _en_perfil(perfil):
+    """Lo de dentro corre con `_profile()` = `perfil` ('' = el de Workspace)."""
+    antes = os.environ.get(_PERFIL_AGENTE_ENV)
+    if perfil:
+        os.environ[_PERFIL_AGENTE_ENV] = perfil
+    else:
+        os.environ.pop(_PERFIL_AGENTE_ENV, None)
+    try:
+        yield
+    finally:
+        if antes is None:
+            os.environ.pop(_PERFIL_AGENTE_ENV, None)
+        else:
+            os.environ[_PERFIL_AGENTE_ENV] = antes
+
+
+def _cmd(*partes):
+    """Un comando como Hermes lo parte (shlex, sin shell), con «/» (en Windows shlex se come las «\\»)."""
+    return " ".join(shlex.quote(str(p).replace("\\", "/")) for p in partes)
+
+
+#: El momento de un aviso de Workspace («… hook.py hermes <momento>»): una palabra.
+_MOMENTO = re.compile(r"^[a-z][a-z_]{0,40}$")
+
+
+def _mismo_python(py):
+    """¿`py` es el Python de Workspace (el de este proceso, el que escribe los avisos)? La misma ruta, o un enlace a
+    él."""
+    a, b = str(py or "").replace("\\", "/"), (sys.executable or "").replace("\\", "/")
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    try:
+        return os.path.realpath(a) == os.path.realpath(b)
+    except (OSError, ValueError):
+        return False
+
+
+def es_aviso_de_workspace(cmd, lanzador):
+    """¿`cmd` es EXACTAMENTE un aviso de Workspace hacia el lanzador fijo `lanzador` de un perfil? Solo
+    «<python de Workspace> <lanzador>/hook.py hermes <momento>», como lo escribe `_avisos_del_paquete` (`_cmd`):
+    cuatro partes (shlex, como lo parte Hermes), el intérprete y el script exactos, nada antes ni después. Lo que
+    solo CONTIENE la ruta del lanzador no cuenta: con esto se decide qué se aprueba sin preguntar."""
+    c = str(cmd or "")
+    try:
+        partes = shlex.split(c)
+    except ValueError:
+        return False
+    if len(partes) != 4:
+        return False
+    py, script, destino, momento = partes
+    hook = str(lanzador or "").replace("\\", "/").rstrip("/") + "/hook.py"
+    return (script == hook and destino == "hermes" and bool(_MOMENTO.match(momento)) and _mismo_python(py)
+            and c == _cmd(py, script, destino, momento))
+
+
+def avisos_de_workspace(perfil):
+    """[(evento, comando)] de los avisos de Workspace en el config.yaml de `perfil` que se pueden aprobar sin
+    preguntar: los exactos hacia su lanzador fijo (es_aviso_de_workspace) y su aviso de tono (`_hook_command`)."""
+    cfg = _read_text(os.path.join(carpeta_perfil(perfil), "config.yaml")) or ""
+    lanz = os.path.join(_paquete_de(perfil), "lanzador")
+    tono = _hook_command()
+    avisos, ev = [], None
+    for ln in cfg.splitlines():
+        m = re.match(r"^  ([A-Za-z_]+):\s*$", ln)
+        if m:
+            ev = m.group(1)
+            continue
+        m = re.match(r'^  - command: (".*")\s*$', ln)
+        if not (m and ev):
+            continue
+        try:
+            cmd = json.loads(m.group(1))
+        except ValueError:
+            continue
+        if es_aviso_de_workspace(cmd, lanz) or (ev == _HOOK_EVENT and cmd == tono):
+            avisos.append((ev, cmd))
+    return avisos
+
+
+def _avisos_del_paquete(paquete_dir, lanzador):
+    """[(evento, comando, tope)] del hooks.yaml que generó el paquete (arquitectura/generar: los eventos de la
+    ficha), con el lanzador FIJO del perfil en lugar de la carpeta de la versión."""
+    texto = _read_text(os.path.join(paquete_dir, "hermes", "hooks.yaml")) or ""
+    out, ev = [], None
+    for ln in texto.splitlines():
+        m = re.match(r'^  "([^"]+)":\s*$', ln)
+        if m:
+            ev = m.group(1)
+            continue
+        m = re.match(r'^    - command: (".*")\s*$', ln)
+        if m and ev:
+            cmd = json.loads(m.group(1))
+            momento = cmd.rsplit(" ", 1)[-1]
+            out.append([ev, _cmd(sys.executable or "python3", os.path.join(lanzador, "hook.py"), "hermes", momento),
+                        10])
+            continue
+        m = re.match(r'^      timeout: (\d+)\s*$', ln)
+        if m and out:
+            out[-1][2] = min(int(m.group(1)), 300)          # Hermes topa en 300 s
+    return [tuple(x) for x in out]
+
+
+def _bloque_avisos(avisos, spill=HOOK_SPILL_CHARS):
+    """El `hooks:` del perfil del agente: el de tono de hoy (hermes_turno, antes que los del paquete en su
+    pre_llm_call) y los del paquete, con el tope de contexto del hook (output_spill)."""
+    por = {}
+    por.setdefault(_HOOK_EVENT, []).append((_hook_command(), _HOOK_TIMEOUT))
+    for ev, cmd, tope in avisos:
+        por.setdefault(ev, []).append((cmd, tope))
+    filas = ["hooks:"]
+    for ev, lst in por.items():
+        filas.append("  %s:" % ev)
+        for cmd, tope in lst:
+            filas += ["  - command: %s" % json.dumps(cmd), "    timeout: %d" % tope]
+    filas += ["  output_spill:", "    max_chars: %d" % spill]
+    return "\n".join(filas) + "\n"
+
+
+def _bloque_skills(paquete_dir, cerebro):
+    return ("skills:\n  external_dirs:\n    - %s\n  create_dir: %s\n  creation_nudge_interval: %d\n"
+            % (json.dumps(os.path.join(paquete_dir, "skills").replace("\\", "/")),
+               json.dumps(os.path.join(os.path.realpath(cerebro), "skills", "aprendidas").replace("\\", "/")),
+               SKILLS_NUDGE))
+
+
+def _hijo_mcp(perfil, lanzador, raiz):
+    """mcp_servers.workspace del perfil: el MCP núcleo por el lanzador fijo del perfil. Sin cerebro ni pestaña
+    en su entorno (el gateway lo abre UNA vez por perfil): cada llamada los saca de la corrida viva del perfil
+    (pestana_para_mcp). trust: full = su servidor propio, preaprobado como en los demás motores."""
+    return ("  workspace:\n    command: %s\n    args:\n      - %s\n    env:\n      WORKSPACE_ROOT: %s\n"
+            "      WORKSPACE_ENGINE: \"hermes\"\n      WORKSPACE_HERMES_PERFIL: %s\n    trust: full\n"
+            % (json.dumps((sys.executable or "python3").replace("\\", "/")),
+               json.dumps(os.path.join(lanzador, "mcp.py").replace("\\", "/")),
+               json.dumps(raiz.replace("\\", "/")), json.dumps(perfil)))
+
+
+def _poner_raiz(texto, clave, bloque):
+    """config.yaml con la clave de primer nivel `clave` = `bloque` (la de antes, fuera; si no estaba, al final)."""
+    lines = texto.splitlines(True)
+    span = _top_span(lines, clave)
+    if span is None:
+        base = texto if not texto or texto.endswith("\n") else texto + "\n"
+        return base + bloque
+    i, j, _en_linea = span
+    return "".join(lines[:i]) + bloque + "".join(lines[j:])
+
+
+def _poner_mcp(texto, hijo):
+    """config.yaml con `mcp_servers.workspace` = `hijo`; los demás servidores del perfil se quedan."""
+    lines = texto.splitlines(True)
+    span = _top_span(lines, "mcp_servers")
+    if span is None or span[2]:
+        return _poner_raiz(texto, "mcp_servers", "mcp_servers:\n" + hijo) if span is None else None
+    i, j, _x = span
+    cuerpo, k = [], i + 1
+    while k < j:
+        if re.match(r"^  workspace:\s*$", lines[k].rstrip("\r\n")):
+            k += 1
+            while k < j and (not lines[k].strip() or lines[k].startswith("    ")):
+                k += 1
+            continue
+        cuerpo.append(lines[k])
+        k += 1
+    while cuerpo and not cuerpo[-1].strip():
+        cuerpo.pop()
+    return "".join(lines[:i]) + "mcp_servers:\n" + "".join(cuerpo) + hijo + "".join(lines[j:])
+
+
+def _copiar_lanzador(paquete_dir, destino):
+    """El lanzador de esta versión del paquete a la carpeta FIJA del perfil (archivo por archivo, atómico y solo
+    si cambió: un aviso que arranca justo entonces nunca encuentra un hueco)."""
+    src = os.path.join(paquete_dir, "lanzador")
+    os.makedirs(destino, exist_ok=True)
+    for f in sorted(os.listdir(src)):
+        if not f.endswith(".py"):
+            continue
+        with open(os.path.join(src, f), "rb") as fh:
+            nuevo = fh.read()
+        fin = os.path.join(destino, f)
+        try:
+            with open(fin, "rb") as fh:
+                if fh.read() == nuevo:
+                    continue
+        except OSError:
+            pass
+        tmp = "%s.%d.tmp" % (fin, os.getpid())
+        with open(tmp, "wb") as fh:
+            fh.write(nuevo)
+        os.replace(tmp, fin)
+
+
+def confianza_perfil(perfil, avisos=None):
+    """'lista' si Hermes ya tiene aprobados TODOS los avisos de Workspace del perfil (su lista de aprobados,
+    <perfil>/shell-hooks-allowlist.json: un archivo de estado del perfil propio, sin llaves), 'falta' si no.
+    `avisos`: [(evento, comando)]; por defecto, los que hoy tiene su config.yaml hacia el lanzador fijo."""
+    d = carpeta_perfil(perfil)
+    if avisos is None:
+        cfg = _read_text(os.path.join(d, "config.yaml")) or ""
+        lanz = os.path.join(_paquete_de(perfil), "lanzador").replace("\\", "/")
+        avisos, ev = [], None
+        for ln in cfg.splitlines():
+            m = re.match(r"^  ([A-Za-z_]+):\s*$", ln)
+            if m:
+                ev = m.group(1)
+                continue
+            m = re.match(r'^  - command: (".*")\s*$', ln)
+            if m and ev and lanz in m.group(1).replace("\\\\", "/"):
+                avisos.append((ev, json.loads(m.group(1))))
+    try:
+        data = json.loads(_read_text(os.path.join(d, "shell-hooks-allowlist.json")) or "{}")
+        ok = {(e.get("event"), e.get("command")) for e in data.get("approvals") or [] if isinstance(e, dict)}
+    except (ValueError, AttributeError):
+        ok = set()
+    falta = [a for a in avisos if tuple(a) not in ok]
+    return ("falta" if falta or not avisos else "lista"), len(falta)
+
+
+#: Claves del bloque `model:` que se pueden copiar del perfil de Workspace al de un agente (sin secretos: una línea
+#: con llave, token, secreto, contraseña o auth jamás se copia).
+_SECRETO = re.compile(r"(?i)(api[_-]?key|token|secret|password|passwd|auth|credential)")
+
+
+def _bloque_modelo(texto):
+    """El bloque `model:` de un config.yaml SIN ninguna línea que pueda llevar un secreto, o '' si no hay."""
+    lines = (texto or "").splitlines(True)
+    span = _top_span(lines, "model")
+    if span is None or span[2]:
+        return ""
+    i, j, _x = span
+    cuerpo = [ln for ln in lines[i + 1:j] if ln.strip() and not _SECRETO.search(ln)]
+    return ("model:\n" + "".join(cuerpo)) if cuerpo else ""
+
+
+def _iso(ts):
+    import datetime as _dt
+    return _dt.datetime.fromtimestamp(float(ts), _dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def _script_de(cmd):
+    """El script de un comando de aviso («<python> <script> …»), para la fecha que Hermes guarda al aprobar."""
+    try:
+        partes = shlex.split(cmd)
+    except ValueError:
+        return ""
+    return partes[1] if len(partes) > 1 else ""
+
+
+def _es_nuestro_aprobado(cmd, lanzador):
+    """¿Una entrada de la lista de aprobados es de Workspace (su lanzador en ESTE perfil o su aviso de tono)?"""
+    c = str(cmd or "").replace("\\", "/")
+    return lanzador.replace("\\", "/") in c or c.rstrip().endswith("hooks/hermes_turno.py")
+
+
+def aprobar_avisos(perfil, avisos):
+    """Workspace aprueba SUS avisos en SU perfil de agente, por la vía oficial más estrecha de Hermes: «Manual
+    allowlisting» (su doc de hooks: entradas {event, command} en el arreglo `approvals` de
+    <perfil>/shell-hooks-allowlist.json, «useful for non-TTY or service-account deployments»; «The command string
+    must match the configured hook command exactly»). Solo en un perfil con la marca de Workspace; solo las entradas
+    de `avisos` [(evento, comando)]; las suyas de antes (otro Python, otra ruta) se reemplazan y lo demás de la lista
+    se queda. Nunca --accept-hooks, HERMES_ACCEPT_HOOKS ni hooks_auto_accept (aceptan todo lo del perfil). Decisión del
+    dueño (19-nov): Workspace puede aprobar solo lo suyo en su propio perfil por agente. → cuántas escribió."""
+    if not es_perfil_de_agente(perfil):
+        return 0
+    d = carpeta_perfil(perfil)
+    lanz = os.path.join(_paquete_de(perfil), "lanzador")
+    ruta = os.path.join(d, "shell-hooks-allowlist.json")
+    texto = _read_text(ruta)
+    try:
+        data = json.loads(texto) if texto and texto.strip() else {}
+    except ValueError:
+        return 0                                  # una lista que no se entiende no se pisa
+    if not isinstance(data, dict) or not isinstance(data.get("approvals", []), list):
+        return 0
+    actuales = [e for e in data.get("approvals", []) if isinstance(e, dict)]
+    quieren = [(str(ev), str(cmd)) for ev, cmd in avisos]
+    if {(e.get("event"), e.get("command")) for e in actuales if _es_nuestro_aprobado(e.get("command"), lanz)} \
+            == set(quieren):
+        return 0                                  # ya están, y solo esas
+    otros = [e for e in actuales if not _es_nuestro_aprobado(e.get("command"), lanz)]
+    ahora = _iso(time.time())
+    nuevos = []
+    for ev, cmd in quieren:
+        e = {"approved_at": ahora, "command": cmd, "event": ev}
+        script = _script_de(cmd)
+        try:
+            e["script_mtime_at_approval"] = _iso(os.path.getmtime(script))
+        except (OSError, ValueError):
+            pass
+        nuevos.append(e)
+    data["approvals"] = otros + nuevos
+    _write_atomic(ruta, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+    try:
+        os.chmod(ruta, 0o600)
+    except OSError:
+        pass
+    return len(nuevos)
+
+
+def _marca(perfil, datos):
+    jp = os.path.join(_paquete_de(perfil), _PERFIL_JSON)
+    os.makedirs(os.path.dirname(jp), exist_ok=True)
+    if _read_text(jp) != json.dumps(datos, ensure_ascii=False, indent=1):
+        _write_atomic(jp, json.dumps(datos, ensure_ascii=False, indent=1))
+
+
+# ── la creación de un perfil de agente, de punta a punta (revisor 1) ─────────
+# `hermes profile create` y la marca (perfil.json) son dos pasos: si la creación se corta entre ellos (tope, ventana
+# cerrada, reinicio), queda una carpeta sin marca que nadie distingue de un perfil ajeno. Antes de crear, Workspace
+# anota en SU estado qué perfil va a crear y para qué agente; con esa nota, la carpeta a medias es suya: se aparta (no
+# se borra) y se vuelve a crear con el mecanismo oficial. Sin la nota, una carpeta sin marca sigue sin tocarse.
+def _creacion_pendiente_ruta(perfil):
+    return os.path.join(os.path.dirname(_runs_path()) or ".", "hermes-creando", perfil + ".json")
+
+
+def _carpeta_incompletos():
+    """Donde quedan apartados los perfiles que Workspace empezó a crear y no terminó."""
+    return os.path.join(os.path.dirname(_runs_path()) or ".", "hermes-perfiles-incompletos")
+
+
+def _anotar_creacion(perfil, agente):
+    ruta = _creacion_pendiente_ruta(perfil)
+    os.makedirs(os.path.dirname(ruta), exist_ok=True)
+    _write_atomic(ruta, json.dumps({"perfil": perfil, "agente": agente, "t": time.time()}, ensure_ascii=False))
+
+
+def _creacion_pendiente(perfil, agente):
+    try:
+        d = json.loads(_read_text(_creacion_pendiente_ruta(perfil)) or "{}")
+    except ValueError:
+        return False
+    return isinstance(d, dict) and d.get("perfil") == perfil and d.get("agente") == agente
+
+
+def _quitar_creacion(perfil):
+    try:
+        os.remove(_creacion_pendiente_ruta(perfil))
+    except FileNotFoundError:
+        pass
+
+
+def _apartar_incompleto(perfil):
+    """Mueve la carpeta a medias de `perfil` al estado de Workspace (sin borrar nada). → dónde quedó."""
+    import shutil
+    os.makedirs(_carpeta_incompletos(), exist_ok=True)
+    destino = os.path.join(_carpeta_incompletos(), "%s-%d-%s" % (perfil, int(time.time()), uuid.uuid4().hex[:6]))
+    shutil.move(carpeta_perfil(perfil), destino)
+    return destino
+
+
+def asegurar_perfil_agente(cerebro, agente, paquete_dir, exe=None, runner=None, esperar=True):
+    """(perfil, info): el perfil PROPIO del agente, al día. `esperar=False`: no espera a que su gateway abra un MCP
+    nuevo; queda en info["mcp_desde"] para quien llama (cmd_acp: solo si el perfil tiene cuenta).
+    Si falta, se crea con el mecanismo oficial SIN clonar
+    (`hermes profile create <p> --no-alias`: no copia llaves; decisión del dueño, 19-nov: Workspace no copia ni guarda
+    llaves) y se le pone una vez lo del cerebro que lleva el perfil de Workspace (SOUL neutral, memoria y búsqueda de
+    sesiones apagadas, tope del archivo de contexto: el mismo ensure_profile) y el bloque `model:` del perfil de
+    Workspace sin una sola línea con secreto (el proveedor que el socio eligió para Workspace; su cuenta, la pone él
+    con la guía: cuenta_de_perfil). En cada apertura: su lanzador fijo, perfil.json, en su config.yaml `hooks:`,
+    `skills:` y `mcp_servers.workspace` (solo si cambian: el gateway relee el archivo) y la aprobación de SUS avisos
+    (aprobar_avisos). El perfil de Workspace se crea antes solo si no existe; el que ya está no se toca. Levanta si
+    no se puede (quien llama abre como hoy) o si ya hay un perfil con ese nombre que no es de Workspace."""
+    exe = exe or _exe()
+    if not exe:
+        raise RuntimeError("hermes no está en PATH")
+    perfil = perfil_de_agente(agente)
+    d = carpeta_perfil(perfil)
+    info = {"perfil": perfil, "agente": agente, "creado": False}
+    raiz = _ROOT
+    datos = {"de": "workspace", "motor": "hermes", "perfil": perfil, "agente": agente,
+             "cerebro": os.path.realpath(str(cerebro)), "raiz": raiz.replace("\\", "/"),
+             "python": (sys.executable or "python3").replace("\\", "/")}
+    import olock
+    with olock.file_lock(_profile_lock() + "-" + perfil, timeout=180):
+        previo = {}
+        if es_perfil_de_agente(perfil):
+            previo = _marca_perfil(perfil)
+            if not _es_dueno_perfil(perfil, agente, previo):
+                raise RuntimeError("el perfil de Hermes «%s» pertenece a otro agente o su marca es inválida" % perfil)
+            _quitar_creacion(perfil)              # la nota de una creación que sí terminó
+        else:
+            if os.path.isdir(d) and os.listdir(d):
+                if not _creacion_pendiente(perfil, agente):
+                    raise RuntimeError("ya hay un perfil de Hermes «%s» que no es de Workspace: no se toca" % perfil)
+                info["apartado"] = _apartar_incompleto(perfil)     # lo dejó a medias Workspace: se rehace
+            _anotar_creacion(perfil, agente)
+            r = _run([exe, "profile", "create", perfil, "--no-alias"], runner=runner, timeout=240)
+            if getattr(r, "returncode", 1) != 0 or not os.path.isdir(d):
+                err = ((getattr(r, "stderr", "") or "") + (getattr(r, "stdout", "") or "")).strip()
+                raise RuntimeError("no pude crear el perfil %s de Hermes: %s" % (perfil, err[-200:] or "rc=%s"
+                                                                                % getattr(r, "returncode", "?")))
+            _marca(perfil, datos)                 # suyo desde ya: si lo de abajo falla, se reintenta
+            _quitar_creacion(perfil)
+            info["creado"] = True
+        if not previo.get("listo"):
+            # lo del cerebro, una vez (después, los ajustes de este perfil son del socio)
+            base = _read_text(os.path.join(carpeta_perfil(_perfil_base()), "config.yaml")) or ""
+            modelo = _bloque_modelo(base)
+            if modelo:
+                cfg_p0 = os.path.join(d, "config.yaml")
+                _write_atomic(cfg_p0, _poner_raiz(_read_text(cfg_p0) or "", "model", modelo))
+            with _en_perfil(perfil):
+                ok, why = _ensure_locked(exe, runner)
+            if not ok:
+                raise RuntimeError(why or "no pude preparar el perfil %s" % perfil)
+        paq = _paquete_de(perfil)
+        lanz = os.path.join(paq, "lanzador")
+        _copiar_lanzador(paquete_dir, lanz)
+        _marca(perfil, dict(datos, listo=True))
+        cfg_p = os.path.join(d, "config.yaml")
+        antes = _read_text(cfg_p) or ""
+        avisos = _avisos_del_paquete(paquete_dir, lanz)
+        cfg = _poner_raiz(antes, "hooks", _bloque_avisos(avisos, max(_spill_chars(antes), HOOK_SPILL_CHARS)))
+        cfg = _poner_raiz(cfg, "skills", _bloque_skills(paquete_dir, cerebro))
+        hijo = _hijo_mcp(perfil, lanz, raiz)
+        cfg = _poner_mcp(cfg, hijo) or cfg
+        if cfg != antes:
+            _write_atomic(cfg_p, cfg)
+        escrito = time.time() - 1 if hijo not in antes else None
+        todos = [(ev, cmd) for ev, cmd, _t in avisos] + [(_HOOK_EVENT, _hook_command())]
+        info["aprobados"] = aprobar_avisos(perfil, todos)
+        info["confianza"], info["faltan"] = confianza_perfil(perfil, todos)
+    if escrito is not None and not esperar:
+        info["mcp_desde"] = escrito
+    elif escrito is not None:                # su MCP es nuevo o cambió: que su gateway lo abra antes de la sesión
+        info["mcp_listo"] = _esperar_mcp(perfil, escrito)
+    return perfil, info
+
+
+#: Lo que se espera a que el gateway abra el MCP de un perfil recién escrito (lo hace solo al ver el config.yaml, en
+#: menos de un minuto según su doc y la caja negra del 19-nov; una sesión que empieza antes no lo trae: auditoría
+#: real, «ningún servidor MCP workspace conectado»; lo abrió ~1 min después). Solo pasa al crear el perfil o al
+#: cambiar su MCP.
+_ESPERA_MCP_S = 75
+
+
+def _esperar_mcp(perfil, desde, tope=None, leer=None):
+    """¿El gateway ya abrió el MCP de `perfil` (su `initialize` en el diagnóstico del núcleo desde `desde`)? Espera
+    hasta `tope` s; falla-suave (False)."""
+    tope = _ESPERA_MCP_S if tope is None else tope
+    try:
+        if leer is None:
+            from arquitectura import salud
+            leer = salud.leer_diagnostico
+        fin = time.time() + tope
+        while True:
+            if any(d.get("evento") == "initialize" and d.get("perfil") == perfil for d in leer(desde) or ()):
+                return True
+            if time.time() >= fin:
+                return False
+            time.sleep(0.5)
+    except Exception:
+        return False
+
+
+def _con_perfil_en_argv(argv, perfil):
+    """El argv con `--profile <perfil>` justo tras el binario: sin otro perfil ni --accept-hooks (en este camino la
+    aprobación de los avisos es del socio, en su terminal)."""
+    out, saltar = [], False
+    for i, a in enumerate(argv):
+        if saltar:
+            saltar = False
+            continue
+        if i and a in ("--profile", "-p") and i + 1 < len(argv):
+            saltar = True
+            continue
+        if i and (a.startswith("--profile=") or a == "--accept-hooks"):
+            continue
+        out.append(a)
+    return out[:1] + ["--profile", perfil] + out[1:]
+
+
+def sesion_perfil(cerebro, pestana, argv, env, valores, ficha=None):
+    """La vía del sistema nuevo (ficha · sesion.preparar): el perfil del agente al día y el argv con él; la
+    corrida de la pestaña anotada con su perfil (la abre el lanzador de hoy; si no, una aquí: la auditoría). →
+    (argv, env, info). Levanta si el perfil no se puede (sesion.para_lanzar abre como hoy)."""
+    env = dict(env)
+    agente = nombre_agente(cerebro, env)
+    exe = argv[0] if argv and os.path.isabs(str(argv[0])) else _exe()
+    perfil, info = asegurar_perfil_agente(cerebro, agente, valores["paquete"], exe=exe)
+    argv = _con_perfil_en_argv(list(argv), perfil)
+    env[_PERFIL_AGENTE_ENV] = perfil
+    for k in ("HERMES_ACCEPT_HOOKS", "HERMES_HOME"):
+        env.pop(k, None)
+    ws = str(env.get("WORKSPACE_WS") or pestana or "")
+    wid = str(env.get("WORKSPACE_WID") or pestana or "")
+    run = str(env.get("WORKSPACE_HERMES_RUN") or "")
+    if run and run_info(run):
+        _run_poner(run, perfil=perfil, wid=wid)
+    elif pestana:
+        retoma = [argv[i + 1] for i, a in enumerate(argv[:-1]) if a in ("--resume", "-r")]
+        _cerrar_corridas_mias(perfil)
+        run = run_open(cerebro, tab=ws, agent=agente, known=retoma, exe=exe or "", perfil=perfil, wid=wid)
+        if run:
+            env["WORKSPACE_HERMES_RUN"] = run
+    info["corrida"] = bool(run)
+    return argv, env, info
+
+
+def _run_poner(token, **campos):
+    def fn(runs):
+        for r in runs:
+            if r.get("id") == token:
+                r.update({k: str(v) for k, v in campos.items() if v})
+    try:
+        _runs_update(fn)
+    except Exception:
+        pass
+
+
+def _cerrar_corridas_mias(perfil):
+    """Las corridas de ESTE proceso en ese perfil que siguen abiertas (una corrida sin pantalla anterior: la
+    auditoría abre varias en el mismo proceso) se cierran: la nueva es la única viva del proceso."""
+    now = time.time()
+
+    def fn(runs):
+        for r in runs:
+            if r.get("perfil") == perfil and r.get("pid") == os.getpid() and r.get("t1") is None:
+                r["t1"] = now
+    try:
+        _runs_update(fn)
+    except Exception:
+        pass
+
+
+def _vivas_del_perfil(perfil, now=None):
+    now = now or time.time()
+    return [r for r in _runs_load() if r.get("perfil") == perfil and _run_viva(r, now)]
+
+
+def _de_corrida(r):
+    return {"brain": r.get("brain") or "", "ws": r.get("tab") or "", "wid": r.get("wid") or r.get("tab") or "",
+            "agente": r.get("agent") or "", "run": r.get("id") or ""}
+
+
+def pestana_de_sesion(sid, perfil, reclamar=False, now=None):
+    """{brain, ws, wid, agente, run} de la pestaña dueña de la sesión `sid` del perfil del agente, o None. Sin
+    mirar el entorno (en el gateway es el de otra pestaña). En orden: la corrida viva del perfil que ya la
+    tiene; la evidencia de la terminal (dueno_de_sesion: su miga, su registro oficial); y, con `reclamar` (el
+    primer aviso de una sesión nueva), la ÚNICA corrida viva del perfil que todavía no tiene sesión y abrió
+    hace menos de _RECLAMO_S (la corrida sin pantalla). Nunca adivina entre dos."""
+    if not _valid_sid(sid) or not perfil:
+        return None
+    now = now or time.time()
+    vivas = _vivas_del_perfil(perfil, now)
+    con = [r for r in vivas if sid in (r.get("sessions") or [])]
+    if len(con) == 1:
+        return _de_corrida(con[0])
+    if not vivas:
+        return None
+    try:
+        with _en_perfil(perfil):
+            run = dueno_de_sesion(sid, gateway=True).get("run") or ""
+    except Exception:
+        run = ""
+    r = next((x for x in vivas if x.get("id") == run), None)
+    if r is not None:
+        return _de_corrida(r)
+    if reclamar:
+        libres = [x for x in vivas if not (x.get("sessions") or [])
+                  and now - float(x.get("t0") or 0) <= _RECLAMO_S]
+        if len(libres) == 1:
+            run_claim(libres[0]["id"], sid)
+            return _de_corrida(libres[0])
+    return None
+
+
+def entorno_de_aviso(payload, perfil_json, momento, env=None):
+    """(entorno, anotar) para el lanzador de un aviso del perfil del agente (arquitectura/paquete/lanzador/hook.py):
+    el entorno SIN la pestaña que arrastra el gateway, con la raíz de Workspace y el cerebro de perfil.json y, si
+    se sabe, la pestaña dueña de la sesión. anotar=False: la página (su ACP: los eventos ya los anota la capa de
+    control) o una sesión sin dueña (mejor nada que lo ajeno)."""
+    base = {k: v for k, v in (os.environ if env is None else env).items() if k not in _DE_PESTANA_GATEWAY}
+    p = payload if isinstance(payload, dict) else {}
+    extra = p.get("extra") if isinstance(p.get("extra"), dict) else {}
+    perfil = str(p.get("profile") or perfil_json.get("perfil") or "")
+    base.update(WORKSPACE_ROOT=str(perfil_json.get("raiz") or ""), WORKSPACE_ENGINE="hermes",
+                WORKSPACE_BRAIN=str(perfil_json.get("cerebro") or ""), WORKSPACE_HERMES_PROFILE=perfil)
+    sid = str(p.get("session_id") or extra.get("task_id") or "")
+    # la página (su ACP): por la plataforma del evento o, en los de herramienta (no la traen; caja negra 19-nov), por
+    # su sesión, que la página anotó al abrirla
+    if str(extra.get("platform") or "").lower() == "acp" or _de_pagina(perfil, sid):
+        base["WORKSPACE_VIA"] = "pagina"
+        _aviso_de_pagina(perfil, sid, momento)
+        return base, False
+    dueno = pestana_de_sesion(sid, perfil, reclamar=momento in ("session_start", "user_prompt"))
+    if not dueno:
+        return base, False
+    herramienta = str(p.get("tool_name") or "")
+    if momento == "pre_tool" and herramienta.startswith("mcp__workspace__") and dueno.get("run"):
+        _marcar_mcp_terminal(dueno["run"], herramienta)
+    base.update(WORKSPACE_BRAIN=dueno["brain"], WORKSPACE_WS=dueno["ws"], WORKSPACE_WID=dueno["wid"])
+    if dueno.get("agente"):
+        base["WORKSPACE_AGENT_NAME"] = dueno["agente"]
+    return base, True
+
+
+#: Lo que el MCP del perfil espera la prueba de una llamada de la página (su ACP la avisa por su lado, casi a la vez).
+_MCP_ESPERA_PAGINA_S = 3.0
+#: Un turno de la página que lleva más que esto «a media respuesta» es de una sesión que se cortó sin avisar: no cuenta.
+_PAGINA_TURNO_MAX_S = 15 * 60
+
+
+def _paginas_path():
+    import paths as _paths
+    return os.path.join(_paths.state_dir(os.path.expanduser("~")), "hermes-paginas.json")
+
+
+def _paginas_update(fn):
+    """El registro de las sesiones de la PÁGINA en perfiles de agente (aparte del de las corridas de la terminal:
+    su atado y su respaldo no las ven)."""
+    from olock import file_lock
+    path = _paginas_path()
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with file_lock(path, timeout=5):
+        regs = _runs_load(path)
+        out = fn(regs)
+        _write_atomic(path, json.dumps({"version": 1, "runs": regs}, ensure_ascii=False))
+        return out
+
+
+def pagina_abrio(perfil, cerebro, ws, wid, agente="", sid=""):
+    """cable-hermes: la página abrió una sesión ACP en el perfil del agente → token (o ''). La usa el MCP del perfil
+    para saber de qué pestaña es una llamada que viene de la página."""
+    token, now = uuid.uuid4().hex, time.time()
+    try:
+        import pending_runs
+        marca = pending_runs._proc_mark()
+    except Exception:
+        marca = None
+
+    def fn(regs):
+        keep = []
+        for r in regs:
+            if r.get("t1") is None and not _run_viva(r, now):
+                r["t1"] = now                  # la página que la abrió ya no está
+            if r.get("t1") is not None and now - float(r["t1"]) > 3600:
+                continue
+            keep.append(r)
+        regs[:] = keep
+        rec = {"id": token, "via": "pagina", "perfil": str(perfil), "brain": os.path.realpath(str(cerebro)),
+               "tab": str(ws or ""), "wid": str(wid or ws or ""), "agent": str(agente or ""), "pid": os.getpid(),
+               "t0": now, "t1": None, "sessions": [str(sid)] if sid else [], "turno": None, "mcp": "", "mcp_t": 0}
+        if isinstance(marca, dict):
+            rec["proc"] = marca
+        regs.append(rec)
+    try:
+        _paginas_update(fn)
+        return token
+    except Exception:
+        return ""
+
+
+def pagina_marcar(token, **campos):
+    """Lo que la página va sabiendo de su sesión: `turno` (epoch o None), `mcp` (la herramienta del MCP que empieza),
+    `sid`, `cerrar=True`. Nunca levanta."""
+    if not token:
+        return
+
+    def fn(regs):
+        for r in regs:
+            if r.get("id") != token:
+                continue
+            if campos.get("cerrar"):
+                r["t1"] = time.time()
+            if "turno" in campos:
+                r["turno"] = campos["turno"]
+            if campos.get("mcp"):
+                r["mcp"], r["mcp_t"] = str(campos["mcp"]), time.time()
+            if campos.get("sid") and campos["sid"] not in (r.get("sessions") or []):
+                r.setdefault("sessions", []).append(str(campos["sid"]))
+    try:
+        _paginas_update(fn)
+    except Exception:
+        pass
+
+
+def _aviso_de_pagina(perfil, sid, momento):
+    """Un aviso del perfil que corrió en una sesión de la PÁGINA (su ACP): no se anota en el registro (la página ya
+    anota ese momento desde ACP), solo se cuenta en su sesión (la prueba de que, por ejemplo, el de antes de cada
+    herramienta corrió ahí y negaría lo prohibido). Nunca levanta."""
+    if not sid or not perfil:
+        return
+
+    def fn(regs):
+        for r in regs:
+            if r.get("perfil") == perfil and sid in (r.get("sessions") or []) and r.get("t1") is None:
+                cuenta = r.setdefault("avisos", {})
+                cuenta[momento] = int(cuenta.get(momento) or 0) + 1
+    try:
+        _paginas_update(fn)
+    except Exception:
+        pass
+
+
+def _de_pagina(perfil, sid):
+    """¿`sid` es de una sesión de la página en ese perfil (la anotó su conector ACP al abrirla)?"""
+    if not sid or not perfil:
+        return False
+    return any(r.get("perfil") == perfil and sid in (r.get("sessions") or []) for r in _runs_load(_paginas_path()))
+
+
+def avisos_de_pagina(token):
+    """{momento: veces} que los avisos del perfil corrieron en esa sesión de la página (o {})."""
+    for r in _runs_load(_paginas_path()) if token else ():
+        if r.get("id") == token:
+            return dict(r.get("avisos") or {})
+    return {}
+
+
+def _marcar_mcp_terminal(token, herramienta):
+    """El aviso de antes de la herramienta (aprobado por el socio) dice que la llamada al MCP que sigue es de ESTA
+    corrida de la terminal."""
+    def fn(runs):
+        for r in runs:
+            if r.get("id") == token:
+                r["mcp"], r["mcp_t"] = str(herramienta), time.time()
+    try:
+        _runs_update(fn)
+    except Exception:
+        pass
+
+
+def _decidir_mcp(perfil, nombre, ahora, puede_esperar):
+    """Una vuelta de pestana_para_mcp, con los DOS registros tomados (corridas de la terminal y sesiones de la página):
+    se lee, se decide y se gastan las marcas sin que otra llegue en medio (revisor 2). → (corrida elegida o None,
+    ¿esperar otra vuelta?)."""
+    from olock import file_lock
+    rp, pp = _runs_path(), _paginas_path()
+    for p in (rp, pp):
+        os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
+    with file_lock(rp, timeout=5), file_lock(pp, timeout=5):
+        runs, pags = _runs_load(rp), _runs_load(pp)
+        terminal = [r for r in runs if r.get("perfil") == perfil and _run_viva(r, ahora)]
+        paginas = [r for r in pags if r.get("perfil") == perfil and r.get("t1") is None and _run_viva(r, ahora)]
+
+        def con_prueba(r):
+            return r.get("mcp") == nombre and ahora - float(r.get("mcp_t") or 0) <= _MCP_RECIENTE_S
+
+        pruebas = [r for r in terminal + paginas if con_prueba(r)]
+        en_turno = [r for r in paginas if r.get("turno") and ahora - float(r["turno"]) <= _PAGINA_TURNO_MAX_S]
+        # la marca de la página llega por su ACP, por su lado: la de otra corrida no decide mientras una página a
+        # media respuesta todavía puede traer la suya
+        decide = len(pruebas) > 1 or (pruebas and not (puede_esperar and any(not con_prueba(r) for r in en_turno)))
+        if decide:
+            # cada prueba se usa una vez; las de una llamada ambigua también (si no, dejaban sin pestaña a las
+            # llamadas siguientes de esas corridas hasta _MCP_RECIENTE_S)
+            gastadas = {id(r) for r in pruebas}
+            for r in pruebas:
+                r["mcp"], r["mcp_t"] = "", 0
+            for path, regs in ((rp, runs), (pp, pags)):
+                if any(id(r) in gastadas for r in regs):
+                    _write_atomic(path, json.dumps({"version": 1, "runs": regs}, ensure_ascii=False))
+            return (pruebas[0] if len(pruebas) == 1 else None), False
+        if en_turno and puede_esperar:
+            return None, True
+        cand = terminal + en_turno
+        return (cand[0] if len(cand) == 1 else None), False
+
+
+def pestana_para_mcp(perfil, herramienta, now=None, espera=None):
+    """{WORKSPACE_BRAIN, WORKSPACE_WS, WORKSPACE_WID, WORKSPACE_ENGINE, WORKSPACE_VIA?…} de la pestaña que llama a
+    `herramienta` del MCP del perfil del agente, o {}. Ese MCP lo abre el gateway UNA vez por perfil y lo comparten su
+    terminal y su página (su ACP), sin pestaña en su entorno. En orden, sin adivinar nunca:
+      1. la prueba de ESTA llamada: el aviso de antes de la herramienta en la terminal (si el socio lo aprobó) o el
+         tool_call de la página (su ACP), con esa herramienta y de hace menos de _MCP_RECIENTE_S. Con una página a
+         media respuesta sin su marca, se espera hasta `espera` a que llegue antes de decidir. Si hay más de una
+         marca la llamada es ambigua (ninguna, y las marcas se gastan);
+      2. si no hay prueba: la ÚNICA corrida viva del perfil (una terminal, o una página a media respuesta).
+    Si no se pueden tomar los registros: ninguna."""
+    nombre = "mcp__workspace__" + str(herramienta or "")
+    espera = _MCP_ESPERA_PAGINA_S if espera is None else espera
+    fin = time.time() + espera
+    while True:
+        try:
+            elegida, seguir = _decidir_mcp(perfil, nombre, now or time.time(), now is None and time.time() < fin)
+        except Exception:
+            return {}
+        if not seguir:
+            break
+        time.sleep(0.15)
+    if elegida is None:
+        return {}
+    d = _de_corrida(elegida)
+    out = {"WORKSPACE_BRAIN": d["brain"], "WORKSPACE_WS": d["ws"], "WORKSPACE_WID": d["wid"],
+           "WORKSPACE_ENGINE": "hermes"}
+    if d["agente"]:
+        out["WORKSPACE_AGENT_NAME"] = d["agente"]
+    if elegida.get("via") == "pagina":
+        out["WORKSPACE_VIA"] = "pagina"
+    return out
+
+
+def comando_cuenta(perfil, exe=None):
+    """El selector OFICIAL de proveedor, llave y modelo de Hermes para ESE perfil (`hermes --profile <p> model`, el
+    mismo de Motores › cuenta y proveedor): Workspace no copia ni guarda llaves, guía a la persona."""
+    return [exe or BINARY, "--profile", perfil, "model"]
+
+
+#: Lo que se recuerda de `hermes -p <perfil> status` (el estado de su cuenta, sin llaves), hasta que cambie su .env o su
+#: auth.json (solo su fecha y tamaño: jamás su contenido).
+_CUENTAS = {}
+_CUENTA_TTL = 600
+
+
+def _huella_cuenta(perfil):
+    d = carpeta_perfil(perfil)
+    out = []
+    for f in (".env", "auth.json", "config.yaml"):
+        try:
+            st = os.stat(os.path.join(d, f))
+            out.append((f, st.st_size, st.st_mtime_ns))
+        except OSError:
+            out.append((f, None, None))
+    return tuple(out)
+
+
+def cuenta_de_perfil(perfil, exe=None, runner=None, now=None):
+    """{perfil, lista: True/False/None, detalle, comando}: ¿el perfil del agente tiene cuenta con su proveedor? Por
+    `hermes -p <perfil> status` (✓/✗ por proveedor, sin llaves), recordado hasta que cambie su cuenta. None = no se
+    pudo saber. `comando` = la guía oficial para conectarla."""
+    now = now or time.time()
+    h = _huella_cuenta(perfil)
+    ya = _CUENTAS.get(perfil)
+    if ya and ya[0] == h and now - ya[1] <= _CUENTA_TTL:
+        return dict(ya[2])
+    with _en_perfil(perfil):
+        st = status(exe_override=exe, runner=runner)
+        lista = None if st.get("session_active") is None else not _missing_provider(st)
+        if lista is None:
+            # su `status` dice «custom» cuando el modelo trae base_url (caja negra 19-nov: el de OpenRouter de
+            # Workspace): se mira el proveedor de SU config contra sus ✓/✗, sin llaves
+            prov = _config_model_provider(_read_text(os.path.join(carpeta_perfil(perfil), "config.yaml")) or "")
+            if prov:
+                rep = status_report(exe=exe or _exe(), runner=runner) or {}
+                filas = [(label.lower(), ok) for rows in (rep.get("sections") or {}).values() for label, ok in rows]
+                suyas = [ok for label, ok in filas if label.replace(" ", "") == prov.replace(" ", "")
+                         or label.split(" /")[0].replace(" ", "") == prov.replace(" ", "")]
+                if suyas:
+                    lista = any(suyas)
+                    if not lista:
+                        st = dict(st, detail=_t("motorbar.hermes.perfil_sin_llave",
+                                                "el perfil «{p}» no tiene la cuenta de {prov} (Workspace no copia "
+                                                "llaves)", "the «{p}» profile has no {prov} account (Workspace "
+                                                "doesn't copy keys)", p=perfil, prov=prov))
+    out = {"perfil": perfil, "lista": lista, "detalle": str(st.get("detail") or ""),
+           "comando": comando_cuenta(perfil, BINARY)}
+    _CUENTAS[perfil] = (h, now, dict(out))
+    return out
+
+
+def perfiles_sin_cuenta(exe=None, runner=None):
+    """Los perfiles de agente de Workspace en Hermes que todavía no tienen cuenta (Motores y Conexiones los listan)."""
+    out = []
+    for p in perfiles_de_agente():
+        try:
+            c = cuenta_de_perfil(p, exe=exe, runner=runner)
+        except Exception:
+            continue
+        if c.get("lista") is False:
+            out.append(c)
+    return out
+
+
+def _aviso_pestana_movida(brain, tab, perfil, sid_viejo):
+    """cable-hermes: la primera vez que una pestaña de antes abre en el perfil propio de su agente, su conversación
+    de antes no está ahí: una línea, una sola vez por pestaña (state: hermes-pestanas-movidas.json)."""
+    clave = "%s|%s" % (os.path.realpath(str(brain or "")), tab[1] if isinstance(tab, (list, tuple)) else tab)
+    ruta = os.path.join(os.path.dirname(_runs_path()) or ".", "hermes-pestanas-movidas.json")
+    try:
+        vistas = json.loads(_read_text(ruta) or "{}")
+        if not isinstance(vistas, dict):
+            vistas = {}
+    except ValueError:
+        vistas = {}
+    if clave in vistas:
+        return False
+    print(_t("motorbar.hermes.pestana_movida",
+             "WORKSPACE: esta pestaña empieza una conversación nueva en el perfil propio de este agente ({p}); la "
+             "de antes sigue en el perfil compartido de Workspace, y la memoria de la pestaña sigue igual.",
+             "WORKSPACE: this tab starts a new conversation in this agent's own profile ({p}); the previous one "
+             "stays in Workspace's shared profile, and the tab's memory is unchanged.", p=perfil))
+    vistas[clave] = {"t": time.time(), "antes": str(sid_viejo or "")}
+    try:
+        os.makedirs(os.path.dirname(ruta) or ".", exist_ok=True)
+        _write_atomic(ruta, json.dumps(vistas, ensure_ascii=False))
+    except OSError:
+        pass
+    return True
+
+
+def cmd_acp(cerebro, agente, paquete_dir):
+    """El comando ACP de la página para este agente: su perfil propio (el de su terminal: mismas skills y
+    avisos). Levanta si el perfil no se puede o si todavía no tiene cuenta (la página usa el de Workspace, como
+    antes, mientras Motores y Conexiones guían a conectarla)."""
+    perfil, info = asegurar_perfil_agente(cerebro, agente or nombre_agente(cerebro), paquete_dir, esperar=False)
+    if cuenta_de_perfil(perfil).get("lista") is False:
+        # sin esperar a su MCP (hasta 75 s): este perfil no se usa (portón del primer mensaje, PC, 23-nov)
+        raise RuntimeError("el perfil %s todavía no tiene cuenta" % perfil)
+    if info.get("mcp_desde") is not None:
+        info["mcp_listo"] = _esperar_mcp(perfil, info["mcp_desde"])
+    return [BINARY, "--profile", perfil, "acp"]
+
+
+def account_menu(active=None, exe=None):
+    """«cuenta y proveedor» en Motores (engines_tui._account y la página): con perfiles de agente, uno por perfil
+    (primero los que no tienen cuenta), cada uno con el selector oficial de ESE perfil (`hermes --profile <p> model`:
+    proveedor, llave y modelo; Workspace no copia ni guarda llaves). Sin perfiles de agente: None (el de siempre)."""
+    perfiles = perfiles_de_agente()
+    if not perfiles:
+        return None
+    sin = {c["perfil"] for c in perfiles_sin_cuenta()}
+    orden = sorted(perfiles, key=lambda p: (p not in sin, p))
+    return {"account": " ".join(comando_cuenta("<perfil>", BINARY)), "model": "/model",
+            "actions": [(p, comando_cuenta(p, exe or BINARY)) for p in orden]
+            + [(_perfil_base(), comando_cuenta(_perfil_base(), exe or BINARY))]}
+
+
 # ── corridas: qué pestaña es dueña de cada sesión nueva ────────────────────
 #: Hermes crea la sesión con el primer mensaje y no acepta un id propio: al
 #: cerrar, la sesión «nueva» de un cerebro puede ser de OTRA pestaña abierta en
@@ -1693,7 +2752,7 @@ def _pid_alive(pid):
         return None
 
 
-def run_open(brain, tab="", mem=None, larga=None, agent="", known=(), exe=""):
+def run_open(brain, tab="", mem=None, larga=None, agent="", known=(), exe="", perfil="", wid=""):
     """Registra una corrida de Hermes en este cerebro → token (o '' si no se
     pudo: falla-suave, la captura vuelve al criterio de ventana). `mem` =
     {'desde': epoch, 'doc': huella o None}: desde cuándo lo que anote el
@@ -1726,6 +2785,9 @@ def run_open(brain, tab="", mem=None, larga=None, agent="", known=(), exe=""):
         rec = {"id": token, "brain": os.path.realpath(brain or ""), "tab": tab,
                "pid": os.getpid(), "t0": now, "t1": None, "sessions": list(ya),
                "agent": str(agent or ""), "terminal": _terminal_id(), "exe": str(exe or "")}
+        if perfil:                         # cable-hermes: el perfil del agente y la pestaña de su registro
+            rec["perfil"] = str(perfil)
+            rec["wid"] = str(wid or tab or "")
         if isinstance(marca, dict):
             rec["proc"] = marca
         if isinstance(mem, dict) and tab:
@@ -2704,6 +3766,21 @@ def status(exe_override=None, runner=None):
         out["model_ready"] = False
         out["detail"] = ("el proveedor elegido (%s) no tiene sesión — Motores › "
                          "cuenta y proveedor" % out["provider"])
+    if exe_override is None and runner is None and _profile() == _perfil_base():
+        # cable-hermes: Motores dice qué perfiles de agente aún no tienen cuenta (Workspace no copia llaves: la
+        # conecta la persona con el selector oficial de ese perfil)
+        try:
+            sin = perfiles_sin_cuenta()
+        except Exception:
+            sin = []
+        if sin:
+            out["perfiles_sin_cuenta"] = [c["perfil"] for c in sin]
+            linea = _t("motorbar.hermes.perfiles_sin_cuenta",
+                       "perfiles de agente sin cuenta: {ps} (conéctala una vez: {cmd})",
+                       "agent profiles without an account: {ps} (connect it once: {cmd})",
+                       ps=", ".join(out["perfiles_sin_cuenta"]),
+                       cmd=" ".join(comando_cuenta("<perfil>", BINARY)))
+            out["detail"] = ("%s · %s" % (out["detail"], linea)) if out.get("detail") else linea
     return out
 
 
@@ -3219,9 +4296,7 @@ def _offer_account(exe):
     if ans.strip().lower() in ("n", "no"):
         return False
     try:
-        import engine_install
-        cmd = list(engine_install.recipe("hermes")["account_cmd"])
-        cmd[0] = exe
+        cmd = comando_cuenta(_profile(), exe)
         import secret_store
         subprocess.call(cmd, env=secret_store.engine_env())
     except Exception:
@@ -3238,28 +4313,87 @@ def _provider_gate(exe, st):
     en vez del agente. Se ofrece elegirlo AHORA con su selector oficial y, si
     sigue faltando, NO se abre salvo que el socio lo pida (escenario hm-nuevo,
     2026-10-16; mismo trato que OpenClaw). True = abrir la pestaña."""
+    if _profile() != _perfil_base():
+        # cable-hermes: el perfil propio del agente (su `status` puede decir «custom» y no ✓/✗): su cuenta
+        try:
+            c = cuenta_de_perfil(_profile(), exe=exe)
+        except Exception:
+            c = {}
+        if c.get("lista") is False:
+            st = dict(st, session_active=False, detail=c.get("detalle") or st.get("detail"))
     if not _missing_provider(st):
         return True
     print("WORKSPACE: %s." % (st.get("detail") or "Hermes no tiene proveedor"))
     if _offer_account(exe):
         st = status()
+        if _profile() != _perfil_base():
+            _CUENTAS.pop(_profile(), None)
+            if cuenta_de_perfil(_profile(), exe=exe).get("lista") is False:
+                st = dict(st, session_active=False)
         if not _missing_provider(st):
             return True
         print("WORKSPACE: aún falta: %s." % st.get("detail"))
-    print(_t("motorbar.hermes.gate_hint",
-             "  El perfil de Workspace en Hermes tiene su propio proveedor (Workspace no "
-             "copia tus llaves). Sin él, Hermes abre su propio asistente en vez de tu "
-             "agente: conéctalo en Motores › Hermes › cuenta y proveedor (el proveedor "
-             "y el modelo).",
-             "  Workspace's Hermes profile has its own provider (Workspace doesn't copy "
-             "your keys). Without one, Hermes opens its own wizard instead of your "
-             "agent: connect it in Engines › Hermes › account and provider (provider "
-             "and model)."))
+    if _profile() != _perfil_base():
+        # cable-hermes: el perfil propio de este agente (Workspace no copia ni guarda llaves): su cuenta, con la guía
+        print(_t("motorbar.hermes.gate_hint_agente",
+                 "  Este agente tiene su propio perfil de Hermes ({p}) y Workspace no copia ni guarda llaves: "
+                 "conéctale su cuenta una vez con el selector oficial de Hermes. En esta terminal:\n"
+                 "    {cmd}\n  (elige el proveedor, pega tu llave cuando Hermes te la pida y el modelo)",
+                 "  This agent has its own Hermes profile ({p}) and Workspace doesn't copy or store keys: "
+                 "connect its account once with Hermes' official selector. In this terminal:\n"
+                 "    {cmd}\n  (pick the provider, paste your key when Hermes asks, and the model)",
+                 p=_profile(), cmd=" ".join(shlex.quote(c) for c in comando_cuenta(_profile(), BINARY))))
+    else:
+        print(_t("motorbar.hermes.gate_hint",
+                 "  El perfil de Workspace en Hermes tiene su propio proveedor (Workspace no "
+                 "copia tus llaves). Sin él, Hermes abre su propio asistente en vez de tu "
+                 "agente: conéctalo en Motores › Hermes › cuenta y proveedor (el proveedor "
+                 "y el modelo).",
+                 "  Workspace's Hermes profile has its own provider (Workspace doesn't copy "
+                 "your keys). Without one, Hermes opens its own wizard instead of your "
+                 "agent: connect it in Engines › Hermes › account and provider (provider "
+                 "and model)."))
     try:
         import engine_versions as _EV
         return _EV.allow_anyway()
     except Exception:
         return True
+
+
+def _perfil_para_lanzar(cfg, brain, exe):
+    """cable-hermes · (perfil, info): con el sistema nuevo encendido (arquitectura.sesion.activo) y un cerebro, el
+    perfil PROPIO del agente al día, ya elegido para todo lo de esta sesión (_profile). ('', {}) si está apagado;
+    si falla, lo dice en una línea y sigue con el de Workspace."""
+    if not brain:
+        return "", {}
+    try:
+        from arquitectura import sesion as _s
+        if not _s.activo():
+            return "", {}
+        pkg = _s.instalar(brain)
+        perfil, info = asegurar_perfil_agente(brain, str(cfg.get("name") or "") or nombre_agente(brain, os.environ),
+                                              pkg["agent-plugins"], exe=exe)
+    except Exception as e:
+        print(_t("motorbar.hermes.perfil_agente_falla",
+                 "WORKSPACE: no pude preparar el perfil de Hermes de este agente ({e}); abre en el de Workspace, "
+                 "como antes.", "WORKSPACE: couldn't prepare this agent's Hermes profile ({e}); opening in "
+                 "Workspace's, as before.", e=str(e)[:200]))
+        return "", {}
+    os.environ[_PERFIL_AGENTE_ENV] = perfil
+    if info.get("apartado"):
+        print(_t("motorbar.hermes.perfil_agente_apartado",
+                 "WORKSPACE: la creación anterior del perfil {p} quedó a medias; la aparté en {d} (no se borró nada) "
+                 "y lo volví a crear.",
+                 "WORKSPACE: the previous creation of profile {p} was left half-done; I moved it to {d} (nothing "
+                 "was deleted) and created it again.", p=perfil, d=info["apartado"]))
+    if info.get("creado"):
+        print(_t("motorbar.hermes.perfil_agente_creado",
+                 "WORKSPACE: este agente ya tiene su propio perfil de Hermes ({p}): sus avisos, su MCP y sus skills "
+                 "van ahí; tus perfiles no cambian. Workspace no copia llaves: si le falta la cuenta, te guío.",
+                 "WORKSPACE: this agent now has its own Hermes profile ({p}): its hooks, MCP and skills live there; "
+                 "your profiles don't change. Workspace doesn't copy keys: if it lacks the account, I'll guide you.",
+                 p=perfil))
+    return perfil, info
 
 
 def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
@@ -3322,7 +4456,12 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
         sys.exit(1)
     if why:
         print("WORKSPACE: %s." % why)
+    # cable-hermes: con el sistema nuevo, el perfil PROPIO de este agente (sus avisos, su MCP y sus skills en
+    # su config.yaml); todo lo de esta sesión va en él. Si no se puede, el de Workspace, como antes.
+    perfil_ag, info_ag = _perfil_para_lanzar(cfg, brain, exe)
     wired, approved = hook_state()
+    if perfil_ag:
+        wired = True                 # su `hooks:` lo acaba de escribir asegurar_perfil_agente
     prof_cfg = _read_text(os.path.join(profile_dir(), "config.yaml"))
     # D-9: el comando del hook lleva la ruta de Python y del checkout; si
     # cambia, Hermes lo trata como hook nuevo y vuelve a preguntar. Si el
@@ -3330,12 +4469,22 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
     # (`--accept-hooks`; en el REPL deja HERMES_ACCEPT_HOOKS=1 a lo que lance
     # esta sesión, por eso únicamente mientras falta la aprobación). Con hooks
     # del socio no se aprueba nada: se avisa y él decide.
-    accept = bool(wired and not approved and _hooks_only_ours(prof_cfg))
+    # En el perfil del agente, nunca: la aprobación de sus avisos es del socio (cero bypass).
+    accept = bool(wired and not approved and _hooks_only_ours(prof_cfg)) and not perfil_ag
     # ¿El hook por turno va a correr sin que el socio decida nada? Entonces
     # él entrega la memoria larga (STATE/MEMORY.md); si no, va en la copia
     # del AGENTS.md.
     hook_ok = bool(wired and (approved or accept))
-    if wired and not approved and not accept:
+    if perfil_ag and info_ag.get("confianza") == "falta":
+        # Workspace aprueba SUS avisos en SU perfil (aprobar_avisos); si no pudo, Hermes los pide aquí
+        print(_t("motorbar.hermes.aprobar_avisos",
+                 "WORKSPACE: no pude aprobar los avisos de Workspace en el perfil de este agente ({p}); Hermes te "
+                 "los pedirá ({n}): anotan el estado de la pestaña, niegan leer llaves y secretos, y añaden tu tono "
+                 "y tu memoria. Responde «y» a cada uno.",
+                 "WORKSPACE: I couldn't approve Workspace's hooks in this agent's profile ({p}); Hermes will ask "
+                 "you ({n}): they record the tab's status, refuse reading keys and secrets, and add your tone and "
+                 "memory. Answer «y» to each.", n=info_ag.get("faltan") or "", p=perfil_ag))
+    elif wired and not approved and not accept:
         print("WORKSPACE: Hermes te pedirá aprobar el hook de Workspace (%s → "
               "hooks/%s): añade tu tono y tu memoria a los mensajes y anota qué "
               "pestaña es dueña de la sesión; no guarda ni envía nada más. Responde "
@@ -3395,6 +4544,8 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
         # jamás un --resume que falla en cada apertura.
         try:
             if session_record(resume_sid, exe=exe) is None:
+                if perfil_ag and tab:
+                    _aviso_pestana_movida(brain, tab, perfil_ag, resume_sid)
                 resume_sid = ""
         except Exception:
             pass
@@ -3418,7 +4569,8 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
     run = run_open(brain, tab[1] if tab else "",
                    mem={"desde": mem_desde, "doc": None} if tab else None,
                    larga={"modo": "hook" if hook_ok else "doc", "tope": _spill_chars(prof_cfg)},
-                   agent=agent, known=[user_sid if user_picked else resume_sid], exe=exe)
+                   agent=agent, known=[user_sid if user_picked else resume_sid], exe=exe,
+                   perfil=perfil_ag, wid=tab[0] if tab else "")
     if not run:
         hook_ok = False
     propio = bool(session_blk) and not hook_ok

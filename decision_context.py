@@ -1450,6 +1450,9 @@ def ask(level, name, question, options, decider_id, tabs=None, timeout_ms=10000,
        que cupo tras recortar, o None), "sent_tokens" (≈ tokens de la PRIMERA
        petición, con el factor final), "ctx_level", "ctx_mode", "ctx_tokens"),
        contexto final)."""
+    from decisions import decisores_activos, _en_pausa
+    if not decisores_activos():
+        return _en_pausa(), {}
     import decisions as D
     f = token_factor(decider_id)
     q_raw = _q_raw(question, options)
@@ -1494,6 +1497,9 @@ def ledger_meta(ctx):
 # ── aviso de la nube (una sola vez por decisor) ──────────────────────────────
 def needs_cloud_notice(level, decider_id):
     """¿Toca avisar que este nivel manda contenido del cerebro a la nube?"""
+    from decisions import decisores_activos
+    if not decisores_activos():
+        return False
     if level not in BRAIN_LEVELS:
         return False
     try:

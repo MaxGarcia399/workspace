@@ -1,0 +1,84 @@
+{
+  "motor": "kiro",
+  "nombre": "Kiro CLI (V3)",
+  "binario": "kiro-cli",
+  "versiones_probadas": ["3.4.0", "3.5.0"],
+  "fuente": "B",
+  "via_control": {
+    "tipo": "acp",
+    "detalle": "ACP nativo (`kiro-cli acp`, V3) con el login de Kiro: chat propio en la página (D5-a, F9).",
+    "misma_conversacion": false,
+    "semaforo": "verde",
+    "avisos": {
+      "no_se_usa": "Por ACP Kiro no corre hooks (caja negra 19-nov, kiro-cli 3.5.0, `kiro-cli acp --agent-engine v3`): ni los del perfil `workspace` elegido con `_meta.kiro.modeId` en session/new (la doc de ACP lo documenta desde 3.5.0 y su log dijo «Using custom agent profile: workspace») ni los de `.kiro/hooks/` del proyecto; su log no carga hooks («hooks.reload.loaded» solo sale con `kiro-cli chat`). La doc de ACP (kiro.dev/docs/cli/acp) no los menciona y `kiro-cli acp --help` no trae `--trust-workspace`. La página recibe esos momentos por ACP: tu mensaje, cada herramienta (tool_call / tool_call_update), cada permiso (session/request_permission) y el fin del turno (la respuesta de session/prompt); arquitectura.auditoria lo comprueba en cada corrida Lo único del aviso de antes de cada herramienta que por ACP no hay es negar leer llaves y secretos: va por el agente `workspace-pagina` de su carpeta (reglas fs_read deny, arquitectura/secretos.kiro_reglas), elegido con `_meta.kiro.modeId`, y por la capa de control, que niega sola un permiso que pide leerlos (VERIFICADO 19-nov con un canario: con el agente de fábrica leyó secrets.local; con este, «Blocked by a permission rule … Source: agent-profile»)",
+      "eventos": "ACP: tool_call (pre_tool), tool_call_update completed/failed (post_tool), session/request_permission (permission_request) y la respuesta de session/prompt con su stopReason (turn_end)"
+    }
+  },
+  "momentos": {
+    "session_start": {"eventos": ["SessionStart"], "estado": "si", "puede": ["inyectar"], "nota": "alias 2.x agentSpawn; el stdout va al contexto (V3; la línea 2.x no lo corre: caja negra 19-nov); trae session_id, hook_event_name y cwd"},
+    "user_prompt": {"eventos": ["UserPromptSubmit"], "estado": "si", "puede": ["inyectar"], "nota": "en la CLI no bloquea; el texto llega en USER_PROMPT y en `prompt` del JSON"},
+    "pre_tool": {"eventos": ["PreToolUse"], "estado": "si", "puede": ["bloquear"], "nota": "salida distinta de 0 bloquea; trae tool_name y tool_input"},
+    "post_tool": {"eventos": ["PostToolUse"], "estado": "si", "puede": ["observar"]},
+    "permission_request": {"eventos": ["PermissionRequest"], "estado": "parcial", "puede": ["decidir"], "nota": "desde 3.4.0 y solo para comandos"},
+    "turn_end": {"eventos": ["Stop"], "estado": "sin_doc", "puede": ["observar"], "nota": "el «sigue» no está documentado"},
+    "compact": {"eventos": ["PreCompact", "PostCompact"], "estado": "si", "puede": ["bloquear", "observar"], "nota": "desde 3.1.0; PostCompact trae summary"},
+    "session_end": {"eventos": ["SessionEnd"], "estado": "si", "puede": ["observar"], "nota": "solo V3; desde 3.5 es el cierre de la sesión cargada (su log: sessionEndSemanticsChanged); sin pantalla no corrió"}
+  },
+  "paquete": {
+    "formato": "agent-plugins",
+    "carga_por_sesion": "el perfil `workspace` del cerebro (memoria_mcp.kiro_agente_config con kiro_paquete), elegido por corrida: --agent workspace --trust-workspace",
+    "instala": "kiro-cli powers install",
+    "hooks": {"dialecto": "kiro", "ruta": "kiro/agents/workspace.json", "raiz_var": null, "confianza": "carpeta de confianza: --trust-workspace"},
+    "mcp": {"declara": "mcpServers del perfil del agente", "preaprueba": "por nombre en el perfil: V3 permissions.rules (mcp workspace/<herramienta>), 2.x allowedTools (@workspace/<herramienta>)"},
+    "skills": "skill:// a skills/ del paquete de ese cerebro, en resources del perfil"
+  },
+  "permisos": {"por_sesion": ["--trust-tools", "--trust-workspace", "--agent"], "preguntar": "si", "sandbox": true,
+    "niveles": {
+      "auto": {"no": "su --help (kiro-cli chat, 3.4.0) no trae un modo automático con revisión: solo aprobar herramientas sin revisarlas (todas, que está prohibido, o una lista): queda en editar, como hoy"}
+    }
+  },
+  "uso_plan": {"tipo": "acp", "fuente": "/usage; por ACP _kiro/account/getUsage"},
+  "conversacion": {"id": "hook_inicio", "como": "session_id en el JSON de cada hook (VERIFICADO 19-nov, 3.5.0: SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, PostToolUse y Stop lo traen)"},
+  "tono": "el prompt del perfil",
+  "nucleo": {
+    "mcp": {"declara": "mcpServers del perfil workspace del cerebro (memoria_mcp.kiro_paquete)", "preaprueba": "por nombre en el mismo perfil (V3 permissions.rules mcp workspace/<herramienta>; 2.x allowedTools @workspace/<herramienta>)", "nota": "cable-kiro (19-nov): ya no con --trust-tools=@workspace: en la terminal tendría que ir después de `chat` y `kiro-cli acp` lo rechaza (pagina_v2.ACP_NO_ACEPTA); la aprobación por nombre del perfil vale en las dos líneas de Kiro sin pasar nada en el argv. La página lo declara en su session/new (pagina_v2.nucleo_para)"},
+    "al_abrir": "hook",
+    "tono": {"via": "hook", "nota": "el prompt del perfil es del paquete (uno por versión): el tono de cada agente va con el paquete al abrir, que el probador confirmó que llega"},
+    "chat": {"via": "mensaje", "nota": "la página la manda una vez por conexión, antes de tu primer mensaje (el contexto de la sesión, como la nota de la maleta): su tono va con el paquete al abrir, que es de su terminal"},
+    "verificado": false,
+    "nota": "VERIFICADO (probador real 17-nov; caja negra 19-nov, 3.5.0): el stdout del SessionStart llega al modelo en V3. hooks5/cable-kiro: por sesión van solo los hooks y el MCP núcleo, en el perfil (sesion.sin_nucleo + mcp_del_nucleo); el paquete de la pestaña y el tono siguen por el AGENTS.md, como hoy: su motor V2 (el de un socio de la 2.x que se quedó ahí) no corre SessionStart (caja negra 19-nov: solo UserPromptSubmit y Stop) y un socio que elige otro agente no carga el perfil"
+  },
+  "sesion": {
+    "perfil": "los hooks del paquete (en línea en el perfil: doc «hooks», kiro.dev/docs/hooks, el arreglo del perfil), el MCP núcleo `workspace` aprobado por nombre y las skills del paquete van en el agente `workspace` del PROYECTO (<cerebro>/.kiro/agents/workspace.json; doc «custom agents»: el del proyecto gana al global y carga con la carpeta de confianza), junto a la memoria. Un solo dueño del archivo: memoria_mcp (kiro_agente_config + kiro_paquete) lo rehace al abrir, antes de esto, y el desinstalador lo quita. Lo elige su lanzador por corrida (engines/kiro: --agent workspace y --trust-workspace, «for this launch only… the decision is not saved»). Nada en ~/.kiro. Va en el perfil y no en .kiro/hooks/ del proyecto: esos correrían también al abrir Kiro a mano en el cerebro (en otra máquina, con rutas que no existen, y un hook de antes que falla bloquea la herramienta). VERIFICADO 19-nov (kiro-cli 3.5.0, chat --no-interactive --v3): los hooks del perfil corren (SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, PostToolUse, Stop) y la línea 2.x sigue cargando el perfil con ellos",
+    "skills": {"via": "paquete", "nota": "skill:// a skills/ del paquete de ese cerebro, en los resources del perfil (generar.perfil_kiro): se van con el perfil al desinstalar"},
+    "no_en": {"nt": "en Windows todavía no: falta verificar con qué shell corre Kiro sus hooks (su terminal usa PowerShell, donde un comando que empieza con una ruta entre comillas no corre, y si el hook de antes de una herramienta falla, Kiro la bloquea). Ahí el perfil lleva solo la memoria, como antes"},
+    "de_antes": {"mcp": "el MCP de memoria de Workspace en el perfil workspace del cerebro (memoria_mcp.preparar_kiro, al abrir)"},
+    "id": {"flags": ["--resume-id"]},
+    "sin_nucleo": "el paquete de la pestaña y el tono siguen por el AGENTS.md, como hoy: su motor V2 no corre SessionStart y un socio que elige otro agente no carga el perfil (ver nucleo.nota)",
+    "mcp_del_nucleo": true,
+    "nota": "sin `retoma`: Kiro retoma con `chat --resume-id`, DESPUÉS del subcomando, y la vía por sesión pone lo suyo justo tras el binario; su lanzador ya retoma el número de la pestaña (sessions_registry). El número oficial lo confirma el hook de inicio (conversacion)"
+  },
+  "config_global": [
+    "{home}/.kiro/settings",
+    "{home}/.kiro/agents",
+    "{home}/.kiro/hooks",
+    "{home}/.kiro/steering",
+    "{home}/.kiro/skills",
+    "{home}/.kiro/workspace-roots"
+  ],
+  "probador": {
+    "env": {"KIRO_HOME": "{home}/.kiro"},
+    "preparar": [
+      {"copiar": "{paquete}/kiro/agents/workspace.json", "a": "{cerebro}/.kiro/agents/workspace.json"}
+    ],
+    "corrida": ["kiro-cli", "chat", "--no-interactive", "--v3", "--agent", "workspace", "--trust-workspace", "--trust-tools=@workspace", "--output-format", "stream-json", "{prompt}"],
+    "timeout_s": 300,
+    "real": {
+      "preparar": [{"copiar": "{paquete}/kiro/agents/workspace.json", "a": "{cerebro}/.kiro/agents/workspace.json"}],
+      "corrida": ["kiro-cli", "chat", "--no-interactive", "--v3", "--agent", "workspace", "--trust-workspace", "--trust-tools=@workspace", "--output-format", "stream-json", "{prompt}"],
+      "nota": "perfil del agente en la carpeta del proyecto; --trust-workspace solo para este lanzamiento. Las banderas van DESPUÉS de `chat` (delante, Kiro 3.4.0 dijo «unexpected argument»). cable-kiro (19-nov): sin --trust-all-tools (aprueba todo: prohibido) y con --v3 (sin pantalla, de fábrica corre V2); --trust-tools=@workspace solo confía el servidor del paquete (su --help: «'@server' … for MCP tools»)"
+    },
+    "verificado": false,
+    "nota": "sin pantalla pide KIRO_API_KEY (planes Pro+) o un login en el KIRO_HOME aislado"
+  }
+}

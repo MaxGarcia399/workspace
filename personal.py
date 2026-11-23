@@ -69,6 +69,8 @@ IMAGE_EXTS = ("png", "jpg", "jpeg", "gif", "webp", "bmp")
 NOTES_MAX = 30000
 PROMPT_MAX = 30000
 TASK_STATUSES = ("draft", "ready", "in_progress", "blocked", "done")
+#: A qué estado puede volver una tarea que se desmarca (personal.update_event).
+_REVIVE = ("draft", "ready", "blocked")
 _LOCK_STATE = threading.local()
 TRASH_DAYS = 15
 
@@ -400,10 +402,14 @@ def _norm_event(e):
             "notes": str(e.get("notes") or "")[:NOTES_MAX],
             "prompt": str(e.get("prompt") or "")[:PROMPT_MAX],
             "task_status": task_status(e),
+            # a qué estado vuelve si se la desmarca (update_event): sin él, BORRADOR
+            "prev_status": (e.get("prev_status") if e.get("prev_status") in _REVIVE
+                            else ""),
             "claimed_by": str(e.get("claimed_by") or ""),
             "claim_token": str(e.get("claim_token") or ""),
             "claimed_at": str(e.get("claimed_at") or ""),
             "result": str(e.get("result") or "")[:NOTES_MAX],
+            "finished_by_agent": e.get("finished_by_agent") is True,
             # migración suave: eventos viejos sin estos campos
             # se leen como pendientes sin prioridad — nada se
             # pierde ni cambia de significado
@@ -660,8 +666,25 @@ def update_event(ev_id, date_s=None, title=None, time_s=None, notes=None,
         if cat is not None and cat in CATEGORIES:
             nuevo["cat"] = cat
         if done is not None:
+            antes = task_status(e)
             nuevo["done"] = bool(done)
-            nuevo["task_status"] = "done" if done else "draft"
+            if done:
+                # al desmarcarla vuelve a lo que era: LISTA, BORRADOR o BLOQUEADA.
+                # Una que tenía tomada un agente perdió su toma: a BORRADOR, no a
+                # LISTA (otro `claim next` la correría de nuevo)
+                if antes != "done":
+                    nuevo["prev_status"] = "draft" if antes == "in_progress" else antes
+                    nuevo["finished_by_agent"] = False
+                nuevo["task_status"] = "done"
+            elif antes == "done":
+                prev = e.get("prev_status")
+                # Solo una finalización explícita del agente impide volver a la cola.
+                nuevo["task_status"] = (prev if prev in _REVIVE and not e.get("finished_by_agent")
+                                        else "draft")
+                nuevo["prev_status"] = ""
+                nuevo["finished_by_agent"] = False
+            else:
+                nuevo["task_status"] = "draft"
             nuevo["claimed_by"], nuevo["claim_token"], nuevo["claimed_at"] = "", "", ""
         if prio is not None:
             nuevo["prio"] = "alta" if prio == "alta" else ""
@@ -796,6 +819,9 @@ def set_task_status(ev_id, status):
         if e["id"] == ev_id and not e.get("archived"):
             if task_status(e) == "in_progress":
                 return False  # finish/release requires this task's claim token
+            if status == "done" and task_status(e) != "done":
+                e["prev_status"] = task_status(e)      # al desmarcarla vuelve aquí
+            e["finished_by_agent"] = False
             e["task_status"], e["done"] = status, status == "done"
             e["updated"] = _now_iso()
             return save(data)
@@ -815,7 +841,7 @@ def claim_task(ev_id="next", agent=""):
     for e in data["eventos"]:
         if e["id"] == hit["id"]:
             e.update(task_status="in_progress", claimed_by=agent.strip()[:120],
-                     claim_token=uuid.uuid4().hex, claimed_at=_now_iso(), result="")
+                     claim_token=uuid.uuid4().hex, claimed_at=_now_iso(), result="", finished_by_agent=False)
             return dict(e) if save(data) else None
     return None
 
@@ -830,7 +856,9 @@ def finish_task(ev_id, token, status="done", result=""):
         if (e["id"] == ev_id and not e.get("archived")
                 and task_status(e) == "in_progress"
                 and e.get("claim_token") == token):
-            e.update(task_status=status, done=status == "done",
+            if status == "done":
+                e["prev_status"] = "draft"             # la terminó un agente: no vuelve a la cola
+            e.update(task_status=status, done=status == "done", finished_by_agent=status == "done",
                      result=str(result)[:NOTES_MAX], claim_token="", updated=_now_iso())
             return save(data)
     return False

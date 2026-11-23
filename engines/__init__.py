@@ -14,6 +14,11 @@ import os
 #: Qué valor de WORKSPACE_ENGINE puso el lanzador de la sesión.
 SESSION_ENGINE = "WORKSPACE_SESSION_ENGINE"
 
+#: Motores sin forma oficial de preguntar antes de actuar: la autonomía no
+#: cambia su comando. Decisión del dueño (M3, 16-nov-2026): Agentes y el doctor
+#: lo dicen («engines.no_pregunta»); no se fuerza nada por otros medios.
+NO_PREGUNTAN = ("cursor", "hermes", "openclaw", "opencode")
+
 
 def mark_session_engine(env, engine):
     """El motor de la sesión en `env` (dict u os.environ), para memoria v1,

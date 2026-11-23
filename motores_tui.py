@@ -56,6 +56,9 @@ def _deciders_status():
     """«Jev listo» (con uno solo) · «Jev · Ollama listos» · «4 modelos ·
     ninguno listo» — falla-suave: si algo de Decisores truena, la puerta abre
     igual (el cuadrito de motores es lo esencial)."""
+    from decisions import decisores_activos
+    if not decisores_activos():
+        return "", "DK"
     try:
         ids = [d for d in MT.models() if d in MT.DC.deciders()]
         if not ids:
@@ -95,6 +98,9 @@ def _what(c):
 
 
 def body(S, K, iw):
+    from decisions import decisores_activos
+    if not decisores_activos():
+        return [DT.center(_label("engines"), iw)]
     L = [DT.center("%s%s%s" % (K["DIM"], _t("modelos.concept", "los motores trabajan · los decisores "
                                              "eligen"), K["R"]), iw), ""]
     row = []
@@ -144,6 +150,9 @@ def _como_p():
 
 
 def info_body(K, iw):
+    from decisions import decisores_activos
+    if not decisores_activos():
+        return [DT.center(_label("engines"), iw)]
     texto, lista = _info_txt()
     L = [DT.titulo(K, _t("decisores.info.what", "qué es"), iw, 0), ""] + DT.flujo(K, _flujo_que(), iw, 0) + [""]
     lw = (iw - 3) // 2
@@ -163,6 +172,9 @@ def info_body(K, iw):
 
 
 def info_blocks():
+    from decisions import decisores_activos
+    if not decisores_activos():
+        return [("p", _label("engines"))]
     texto, lista = _info_txt()
     return [("flow", _flujo_que()), ("gap",), ("p", texto), ("list", lista), ("gap",),
             ("h", _t("decisores.info.how", "cómo lo hicimos")), ("flow", _flujo_como()),
@@ -195,6 +207,14 @@ def render(S, w, h):
 
 def act(S, key):
     """False = salir del bucle: al hub (S["go"] None) o a una pantalla."""
+    from decisions import decisores_activos
+    if not decisores_activos():
+        S["i"] = 0
+        if key in ("\r", "\n", " "):
+            S["go"] = "engines"
+            return False
+        if key in ("left", "right", "up", "down", "tab"):
+            return True
     if SB.info_key(S, key):
         return True
     S["msg"] = ""
@@ -216,6 +236,9 @@ act = _responsive.action(act)
 
 def open_screen(go):
     """Abre la pantalla elegida (sin volver a aplicar el tema: ya está)."""
+    from decisions import decisores_activos
+    if go != "engines" and not decisores_activos():
+        return 0
     if go == "engines":
         import engines_tui
         return engines_tui.run.__wrapped__()
@@ -224,6 +247,10 @@ def open_screen(go):
 
 @_theme_screen
 def run():
+    from decisions import decisores_activos
+    if not decisores_activos():
+        import engines_tui
+        return engines_tui.run.__wrapped__()
     S = initial()
     if not MT._interactive():
         print("\n".join(render(S, 112, 44)))
@@ -244,4 +271,7 @@ def run():
 
 
 if __name__ == "__main__":
-    sys.exit(run())
+    # ARCHIVO MÍNIMO por una versión (se borra en la versión 2): esta pantalla ya no se abre. Quien la corre
+    # directo, o un hub que quedó abierto durante la actualización, llega a lo nuevo (puertas.redirigir).
+    import puertas
+    sys.exit(puertas.redirigir('motores', sys.argv[1:]))

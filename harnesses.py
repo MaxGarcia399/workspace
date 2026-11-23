@@ -111,7 +111,19 @@ def describe(engine_id, probe=False):
         d["ready"] = True          # binarios OK; login/sesión se ve con probe
         return d
     try:                           # probe profundo: el engine sabe su estado
-        if hasattr(mod, "status"):
+        fn = getattr(mod, "session_active", None)
+        if callable(fn):
+            # P1 (puerta N5, 19-nov): lo MISMO que Motores y la página: el comando oficial de su sesión. Solo un «sí»
+            # de verdad es «listo»; «no sé» (None) se dice tal cual, nunca «sesión activa» (status() de Copilot lo
+            # contaba como listo; Claude Code no tenía status() y Antigravity solo miraba el programa)
+            val = fn()
+            d["session"] = val if isinstance(val, bool) else None
+            d["ready"] = val is True
+            if val is False:
+                d["detail"] = "sesión no activa"
+            elif val is not True:
+                d["detail"] = "no pude revisar su sesión"
+        elif hasattr(mod, "status"):
             st = mod.status() or {}
             d["ready"] = bool(st.get("ready", True))
             if not d["ready"]:

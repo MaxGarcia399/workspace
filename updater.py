@@ -511,7 +511,25 @@ def _update_locked(root, mode, home, force, migrate, fetch_timeout, res, notify=
     if migrate:
         res["migrations"] = run_migrations(root)
     _record(_entry(res, UPDATED), home)
+    res["pagina"] = renovar_pagina(root)
     return res
+
+
+def renovar_pagina(root=ROOT):
+    """Tras traer código nuevo: la página local de esta instalación, si corre la de antes y no tiene nada a medio
+    hacer, se renueva (localhost_fondo.tras_actualizar, en un proceso con el código nuevo); así el siguiente hub y
+    la página hablan el mismo código. Sin página prendida no se prende otra. Falla-suave. → su resultado o ""."""
+    if os.environ.get("WORKSPACE_NO_SESSION_PROBE"):
+        return ""
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        if os.path.normcase(os.path.realpath(root)) != os.path.normcase(os.path.realpath(here)):
+            return ""                               # otra copia de Workspace: su página no es de este código
+        import localhost_fondo
+        fn = getattr(localhost_fondo, "tras_actualizar", None)
+        return fn() if fn else ""
+    except Exception:
+        return ""
 
 
 def _entry(res, status):

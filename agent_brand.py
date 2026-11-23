@@ -215,6 +215,7 @@ def brain_sessions(brain, socio):
             "estado": (fm.get("estado") or "").strip(),
             "archivada": (fm.get("archivada") or "").strip(),
             "usada": (fm.get("usada") or "").strip(),
+            "canal": (fm.get("canal") or "").strip(),
             "archivo": path,
         })
     return out
@@ -241,7 +242,15 @@ def socio_comun(brain, socio=""):
         return socio or ""
 
 
-def pestanas(brain, socio, archivadas=False):
+#: `canal:` del frontmatter de la conversación fija de la página (una por agente): la usa
+#: solo el navegador, así que no sale en los menús del hub ni de la terminal.
+CANAL_NAVEGADOR = "navegador"
+#: modo escritorio (D1-a): la conversación fija del monito de escritorio, aparte de la de la página (una por agente).
+#: Tampoco sale en los menús del hub ni de la terminal, ni en la lista de la página: solo la pide el escritorio.
+CANAL_ESCRITORIO = "escritorio"
+
+
+def pestanas(brain, socio, archivadas=False, navegador=False, escritorio=False):
     """EL núcleo de la lista de pestañas (sesiones v2, frente B). Lo usan
     `merged_sessions` (dashboards y panel) y `sessions_registry.tabs` (motores
     y vista simple del hub): los cuatro menús ven lo mismo.
@@ -252,7 +261,10 @@ def pestanas(brain, socio, archivadas=False):
 
     `archivadas`: False → solo las activas (default) · True → todas ·
     "solo" → solo las archivadas (`estado: archivada`). Una por slug, en el
-    orden de los archivos. Falla-suave → []."""
+    orden de los archivos. `navegador`: incluir la conversación de la página
+    (`canal: navegador`; solo la pide la página). `escritorio`: incluir la del
+    monito de escritorio (`canal: escritorio`; solo la pide el escritorio).
+    Falla-suave → []."""
     out, seen = [], set()
     try:
         filas = brain_sessions(brain, socio)
@@ -263,6 +275,10 @@ def pestanas(brain, socio, archivadas=False):
         if not sl or sl in seen:      # dos .md que colapsan al mismo slug
             continue                  # (conflicto de sync) = UNA pestaña
         seen.add(sl)
+        if not navegador and bs.get("canal") == CANAL_NAVEGADOR:
+            continue
+        if not escritorio and bs.get("canal") == CANAL_ESCRITORIO:
+            continue
         arch = es_archivada(bs.get("estado"))
         if archivadas == "solo":
             if not arch:

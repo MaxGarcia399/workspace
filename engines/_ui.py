@@ -20,24 +20,35 @@ from engines import claude_code as _cc
 
 
 #: Autonomía del agente (contrato común con el núcleo: `"autonomy"` en el
-#: `.workspace/agent.json` del cerebro). "brain" (default) = lee/crea/edita
-#: DENTRO de su cerebro sin preguntar; terminal, archivos fuera y red piden
-#: permiso. ("full", comandos sin preguntar, ya no existe: se lee "brain".) "ask" =
-#: pregunta también antes de crear o editar en su cerebro (el usuario apagó el
-#: acceso automático en Agentes). Cada motor lo traduce a SUS flags
-#: (engines/codex.py, engines/antigravity.py); ninguno usa jamás un
-#: --dangerously-*/bypass.
-AUTONOMY_LEVELS = ("ask", "brain")     # "full" ya no existe: se lee "brain"
+#: `.workspace/agent.json` del cerebro). Decisión del dueño (18-nov-2026): el
+#: modo automático de cada motor, de fábrica, con interruptor en Configuración →
+#: Permisos (por agente):
+#:   · "brain" (default; lo que guarda cada agente al crearse) = «Automático»:
+#:     el modo automático OFICIAL del motor, el que revisa cada paso y pregunta
+#:     lo arriesgado (Claude Code `--permission-mode auto`, Antigravity `--mode
+#:     auto`, Cursor `--auto-review`); en un motor sin él, como "edit".
+#:   · "edit" = «Editar sin preguntar»: lee/crea/edita DENTRO de su cerebro sin
+#:     preguntar; terminal, archivos fuera y red piden permiso (el "brain" de
+#:     antes del 18-nov).
+#:   · "ask" = «Preguntar»: pregunta también antes de crear o editar en su cerebro.
+#: ("full", comandos sin preguntar, ya no existe: se lee "brain". "sandbox" es de
+#: arquitectura/permisos: sin el paquete se lee "edit", como antes.) Cada motor lo
+#: traduce a SUS flags (engines/codex.py, engines/antigravity.py…); ninguno usa
+#: jamás un --dangerously-*/bypass.
+AUTONOMY_LEVELS = ("ask", "brain", "edit")     # "full" ya no existe: se lee "brain"
 AUTONOMY_DEFAULT = "brain"
 
 
 def autonomy(cfg):
-    """Autonomía EFECTIVA del agente: "ask" | "brain". Falta / valor raro /
-    un "full" de antes → "brain" (el default: jamás se sube por un typo)."""
+    """Autonomía EFECTIVA del agente: "ask" | "brain" (automático) | "edit".
+    Falta / valor raro / un "full" de antes → "brain" (el default). "sandbox"
+    (arquitectura/permisos) → "edit": sin el paquete, como antes."""
     try:
         v = str((cfg or {}).get("autonomy") or "").strip().lower()
     except Exception:
         v = ""
+    if v == "sandbox":
+        return "edit"
     return v if v in AUTONOMY_LEVELS else AUTONOMY_DEFAULT
 
 
@@ -92,10 +103,17 @@ def soltar_avisos(out=None):
     pend = list(_AVISOS)
     del _AVISOS[:]
     n = 0
+    try:                                   # rama de PRUEBA: con la piel del hub de prueba (hub_carga)
+        import hub_carga
+        piel = hub_carga.activo()
+    except Exception:
+        piel = False
     for aviso in pend:
         try:
             txt = aviso() if callable(aviso) else aviso
-            if txt:
+            if txt and piel and hub_carga.linea(txt, out):
+                n += 1
+            elif txt:
                 print(txt, file=out or sys.stdout)
                 n += 1
         except Exception:
@@ -109,14 +127,38 @@ def soltar_avisos(out=None):
 
 
 def show_brain_banner(cfg, engine_label=""):
-    """Mismo patrón que claude_code.launch: clear → banner del CEREBRO
-    renderizado a buffer con width-check (jamás mostrarlo roto) → fallback
-    al banner genérico derivado de la def del agente. El banner sale
-    CENTRADO (greeter unificado) y `engine_label` ("Codex · gpt-…") se
-    exporta en WORKSPACE_ENGINE_LABEL para que el banner muestre el
-    motor+modelo REAL de la corrida (regla del socio: siempre visible)."""
+    """El letrero antes del motor (todos los motores menos Claude Code, que llama a `letrero` directo): la tarjeta H-1
+    del hub (hub_carga.letrero: «Cargando…» o «Abriendo «sesión»…»). `engine_label` ("Codex · gpt-…") se exporta en
+    WORKSPACE_ENGINE_LABEL para que la tarjeta y el menú muestren el motor+modelo REAL de la corrida."""
     if engine_label:
         os.environ["WORKSPACE_ENGINE_LABEL"] = str(engine_label)
+    letrero(cfg)
+
+
+def letrero(cfg):
+    """I11 · el letrero del agente antes de su motor es la tarjeta H-1 (hub_carga), siempre: el letrero gigante de
+    antes (el banner del cerebro y el título ANSI Shadow) ya no sale. Si la tarjeta no se puede pintar (sin terminal),
+    una línea. Solo una copia de desarrollo con WORKSPACE_HUB_S1=0 enseña el de antes (puertas_dev, que no viaja)."""
+    try:
+        import hub_carga
+        if hub_carga.activo():
+            if hub_carga.letrero():
+                return
+        else:
+            return __import__("puertas_dev").letrero(cfg)
+    except Exception:
+        pass
+    try:
+        name = cfg.get("display") or cfg.get("name") or "agente"
+        sys.stdout.write("\033[2J\033[3J\033[H  ▸ %s\n" % name)
+        sys.stdout.flush()
+    except Exception:
+        pass
+
+
+def _letrero_de_antes(cfg):
+    """El letrero de antes (el banner del cerebro, centrado, o el título del agente). SOLO lo llama puertas_dev.letrero
+    (copia de desarrollo, para comparar); se borra en la versión 2."""
     try:
         sys.stdout.write("\033[2J\033[3J\033[H")
         sys.stdout.flush()

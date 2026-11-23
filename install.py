@@ -26,7 +26,7 @@ _REAL_HOME = HOME   # snapshot AL IMPORTAR: los tests parchan HOME, no esto
 PY = sys.executable or ("python" if platform.system() == "Windows" else "python3")
 IS_WIN = platform.system() == "Windows"
 if IS_WIN:
-    os.system("")  # habilita ANSI en Windows 10+ (no-op en consolas viejas) — igual que doctor.py
+    import _console; _console.ansi()  # ANSI en Windows 10+ (solo con consola: sin ella, os.system abría una ventana)
 import _utf8; _utf8.harden()  # B2 · UTF-8 antes de imprimir el `✓` (cp1252 reventaría)
 
 
@@ -237,12 +237,14 @@ def deny_workspace(brain, windows=None):
 
 
 def claude_permissions(autonomy, brain):
-    """El bloque `permissions` que WORKSPACE quiere para esa autonomía. Con
-    «brain» el allow del cerebro va SIEMPRE con su deny (deny_protegidas):
-    el allow es permanente (settings.local.json) y el deny vive en el mismo
-    archivo, no solo en la sesión del lanzador."""
+    """El bloque `permissions` que WORKSPACE quiere para esa autonomía. El deny
+    de Workspace (deny_workspace: la config protegida del cerebro y la bóveda)
+    va con TODA autonomía y vive en el mismo archivo que el allow, no solo en
+    la sesión del lanzador: «ask» («Preguntarme todo») pide permiso para lo
+    demás, pero no abre lo protegido. Hasta la cacería del 19-nov (B04), «ask»
+    lo borraba entero (54 reglas: .git, hooks, settings, .mcp.json…)."""
     if autonomy == "ask":
-        return {"allow": [], "deny": []}
+        return {"allow": [], "deny": deny_workspace(brain)}
     return {"allow": brain_rules(brain), "deny": deny_workspace(brain)}
 
 
@@ -265,8 +267,8 @@ def _render_deny(new, cur, prev, want_deny):
 
 def render_permissions(settings, cfg, brain):
     """Escribe en `settings` (dict de settings.local.json) los permisos de la
-    autonomía del agente: el allow y, con «brain», el deny de las rutas
-    protegidas (deny_protegidas). Conserva lo que el usuario agregó: reglas
+    autonomía del agente: el allow y, con toda autonomía, el deny de Workspace
+    (deny_workspace). Conserva lo que el usuario agregó: reglas
     propias en allow y deny, ask/additionalDirectories y un defaultMode que no
     sea el nuestro. Lo que WORKSPACE escribió antes (marcador, o la lista
     amplia de 0.2.x si no hay marcador) se reemplaza. Devuelve `settings`."""
@@ -292,15 +294,18 @@ def render_permissions(settings, cfg, brain):
     return settings
 
 
-def completar_deny(settings, brain):
-    """Si `settings` (settings.local.json) trae los permisos de la autonomía
-    «brain» que escribió Workspace (su marcador), deja su deny al día
-    (deny_protegidas) sin tocar nada más: ni el allow, ni el modo, ni lo del
-    usuario. Para los cerebros que recibieron el allow antes de que el deny
-    viviera en el archivo: migración 202611062300_claude_deny_protegidas y
+def completar_deny(settings, brain, autonomias=("brain",)):
+    """Si `settings` (settings.local.json) trae los permisos que escribió
+    Workspace (su marcador) con una de `autonomias`, deja su deny al día
+    (deny_workspace) sin tocar nada más: ni el allow, ni el modo, ni lo del
+    usuario. De fábrica, solo «brain»: lo que hace la migración publicada
+    202611062300_claude_deny_protegidas (los cerebros que recibieron el allow
+    antes de que el deny viviera en el archivo), que no se cambia. Con «ask»
+    también (AUTONOMY_LEVELS), los que lo perdieron al pasar a «ask» (B04,
+    cacería 19-nov): la migración 202611190700_claude_deny_en_preguntar y
     configure_brain (reinstalar, cargar un agente). → True si cambió algo."""
     prev = settings.get(_PERM_MARKER) if isinstance(settings, dict) else None
-    if not isinstance(prev, dict) or prev.get("autonomy") != "brain":
+    if not isinstance(prev, dict) or prev.get("autonomy") not in autonomias:
         return False
     cur = settings.get("permissions")
     if not isinstance(cur, dict):
@@ -320,33 +325,38 @@ def completar_deny(settings, brain):
 def apply_permissions(brain, cfg):
     """Reescribe SOLO el bloque `permissions` del settings.local.json del
     cerebro según `cfg["autonomy"]` (lo usa Agentes → Enter al cambiar los
-    permisos). Lectura-modificación-escritura atómica: hooks, tema y lo que
-    agregó el usuario quedan intactos. Un settings corrupto NO se toca.
-    Devuelve (ok, motivo)."""
+    permisos). Lectura-modificación-escritura atómica y bajo el candado del
+    archivo (candado_settings): hooks, tema y lo que agregó el usuario —o
+    otra ventana un instante antes— quedan intactos. Un settings corrupto NO
+    se toca. Devuelve (ok, motivo)."""
     spath = os.path.join(brain, ".claude", "settings.local.json")
-    if json_corrupt(spath):
-        return False, "settings.local.json corrupto"
-    settings = read_json(spath) if os.path.exists(spath) else {}
-    if not isinstance(settings, dict):
-        return False, "settings.local.json no es un objeto"
-    render_permissions(settings, cfg, brain)
     try:
-        os.makedirs(os.path.dirname(spath), exist_ok=True)
-        tmp = "%s.tmp-%d" % (spath, os.getpid())
-        try:
-            with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump(settings, fh, ensure_ascii=False, indent=2)
+        import olock
+        with candado_settings(spath):
+            if json_corrupt(spath):
+                return False, "settings.local.json corrupto"
+            settings = read_json(spath) if os.path.exists(spath) else {}
+            if not isinstance(settings, dict):
+                return False, "settings.local.json no es un objeto"
+            render_permissions(settings, cfg, brain)
+            os.makedirs(os.path.dirname(spath), exist_ok=True)
+            tmp = "%s.tmp-%d" % (spath, os.getpid())
             try:
-                import atomico          # reintenta si Windows tiene el archivo abierto
-                atomico.reemplazar(tmp, spath)
-            except ImportError:
-                os.replace(tmp, spath)
-        finally:
-            if os.path.exists(tmp):     # nunca queda el temporal en el cerebro
+                with open(tmp, "w", encoding="utf-8") as fh:
+                    json.dump(settings, fh, ensure_ascii=False, indent=2)
                 try:
-                    os.unlink(tmp)
-                except OSError:
-                    pass
+                    import atomico          # reintenta si Windows tiene el archivo abierto
+                    atomico.reemplazar(tmp, spath)
+                except ImportError:
+                    os.replace(tmp, spath)
+            finally:
+                if os.path.exists(tmp):     # nunca queda el temporal en el cerebro
+                    try:
+                        os.unlink(tmp)
+                    except OSError:
+                        pass
+    except olock.LockTimeout:
+        return False, "otra ventana está cambiando settings.local.json; vuelve a intentar"
     except OSError as e:
         return False, str(e)
     return True, ""
@@ -457,6 +467,12 @@ def find_brain(name, cfg, ask=True):
 
 
 def _stdin_tty():
+    """¿Se le puede preguntar algo a la persona? Con la vista corta de la
+    instalación (instalar_vista) no: lo que explica la pregunta va a la
+    bitácora, así que se hace lo de no-interactivo (nada se borra ni se
+    adivina) y `--detalle` deja preguntar con todo el texto a la vista."""
+    if _VISTA is not None:
+        return False
     try:
         return bool(sys.stdin) and sys.stdin.isatty()
     except Exception:
@@ -618,6 +634,86 @@ def write_text(path, content):
 
 def write_json(path, obj):
     write_text(path, json.dumps(obj, indent=2, ensure_ascii=False))
+
+
+class SettingsIlegible(Exception):
+    """El settings.local.json existe pero no es JSON: quien repara no lo pisa."""
+
+
+def candado_settings(spath, timeout=5):
+    """EL candado de un settings.local.json: `olock.local_lock` sobre su
+    `olock.ruta_candado` (`<cerebro>/.claude/locks/`, que Obsidian no sube).
+    Todos los que ESCRIBEN ese archivo —install, doctor, repair, el motor de
+    config, el tema por-motor, las migraciones— toman este mismo candado y
+    hacen la lectura-cambio-guardado COMPLETA dentro: sin él, dos ventanas
+    se pisaban la llave que la otra acababa de poner (permisos, mcpServers,
+    hooks). Levanta olock.LockTimeout si otra ventana lo sostiene. En
+    --dry-run no se toma (no se escribe)."""
+    if DRY:
+        import contextlib
+        return contextlib.nullcontext()
+    import olock
+    return olock.local_lock(spath, timeout=timeout)
+
+
+def _ilegible(spath):
+    """¿El settings existe y NO se puede usar como objeto? Un archivo vacío (0
+    bytes o solo espacios) no perdería nada al escribirlo; un JSON roto o que no
+    es un objeto sí. «Ilegible no es vacío»."""
+    if not os.path.exists(spath):
+        return False
+    try:
+        with open(spath, encoding="utf-8") as fh:
+            texto = fh.read()
+    except Exception:
+        return True
+    if not texto.strip():
+        return False
+    if json_corrupt(spath):
+        return True
+    try:
+        return not isinstance(json.loads(texto), dict)
+    except Exception:
+        return True
+
+
+def apartar_ilegible(spath):
+    """Mueve el settings ilegible a `<archivo>.ilegible-<fecha>` (se CONSERVA, no
+    se borra) y devuelve la ruta del respaldo. Quien lo llama debe avisar."""
+    import time as _time
+    destino = "%s.ilegible-%s" % (spath, _time.strftime("%Y%m%d-%H%M%S"))
+    n = 1
+    while os.path.exists(destino):
+        n += 1
+        destino = "%s.ilegible-%s-%d" % (spath, _time.strftime("%Y%m%d-%H%M%S"), n)
+    os.replace(spath, destino)
+    return destino
+
+
+def mutar_settings_local(spath, mutar, timeout=5, si_corrupto="abortar"):
+    """Lee, cambia y guarda un settings.local.json bajo UN solo candado
+    (candado_settings). `mutar(settings)` cambia el dict en su sitio; se llama
+    con la lectura de DENTRO del candado, nunca con una copia vieja. Devuelve
+    el dict guardado. `si_corrupto` (qué hacer si el archivo existe y no se
+    puede leer como objeto JSON): "abortar" (POR DEFECTO: levanta
+    SettingsIlegible y no escribe nada; permisos, variables y ajustes manuales
+    siguen en el archivo) | "apartar" (lo mueve a `<archivo>.ilegible-<fecha>`,
+    sin borrarlo, y parte de uno vacío; quien lo pide debe avisar al usuario).
+    Levanta olock.LockTimeout si no consigue el candado."""
+    if si_corrupto not in ("abortar", "apartar"):
+        raise ValueError("si_corrupto: 'abortar' o 'apartar'")
+    with candado_settings(spath, timeout):
+        if _ilegible(spath):
+            if si_corrupto == "abortar":
+                raise SettingsIlegible(spath)
+            if not DRY:
+                apartar_ilegible(spath)
+        settings = read_json(spath) if os.path.exists(spath) else {}
+        if not isinstance(settings, dict):
+            settings = {}
+        mutar(settings)
+        write_json(spath, settings)
+    return settings
 
 
 def _gitignore_state(brain, lines):
@@ -819,19 +915,19 @@ def render_hooks_only(cfg, brain, settings=None):
     Devuelve el dict settings resultante."""
     write = settings is None
     spath = os.path.join(brain, ".claude", "settings.local.json")
-    if write:
+    hooks = build_hooks(cfg, brain)                             # gestionado (derivado de N9)
+    if not write:
+        settings["hooks"] = hooks
+        return settings
+    # guard anti-envenenamiento: el runner_cmd hornea la ruta de ESTE
+    # checkout — desde un worktree NO se persiste (el cerebro conserva sus
+    # hooks canónicos); el dict mutado se devuelve igual para inspección.
+    if global_writes_blocked("hooks de cerebros"):
         settings = read_json(spath) if os.path.exists(spath) else {}
-        if not isinstance(settings, dict):
-            settings = {}
-    settings["hooks"] = build_hooks(cfg, brain)                 # gestionado (derivado de N9)
-    if write:
-        # guard anti-envenenamiento: el runner_cmd hornea la ruta de ESTE
-        # checkout — desde un worktree NO se persiste (el cerebro conserva sus
-        # hooks canónicos); el dict mutado se devuelve igual para inspección.
-        if global_writes_blocked("hooks de cerebros"):
-            return settings
-        write_json(spath, settings)
-    return settings
+        settings = settings if isinstance(settings, dict) else {}
+        settings["hooks"] = hooks
+        return settings
+    return mutar_settings_local(spath, lambda st: st.__setitem__("hooks", hooks))
 
 
 # ── materialización de MCPs (FUENTE ÚNICA · dispatch por motor) ──────────────
@@ -851,44 +947,22 @@ _MCP_MARKER = "__workspaceMcps"
 
 
 def _mcp_projection(cfg):
-    """(channel, connection_type, reason) para el motor del agente `cfg`.
-
-    channel != "" ⇒ hay proyector REAL (hoy solo 'claude-code'). channel == ""
-    ⇒ se SALTA y `reason` explica por qué (visible — jamás se finge el enchufe).
-    El dispatch se resuelve por connectors.PORTABILITY / OFFICIAL_CLIS, no por
-    un hardcode de claude-code (el seam para codex/gemini/local queda abierto)."""
+    """Legacy shape for Claude; unavailable connections have localized notes."""
     engine = (cfg.get("engine") or "claude-code").strip()
+    if engine == "claude-code":
+        return "claude-code", "official_cli", ""
+    import config_engine
+    note = config_engine.mcp_registration_note(generic=True)
     try:
         import connectors
-    except Exception:
-        # amputable: sin connectors solo conocemos el builtin claude-code
-        if engine == "claude-code":
-            return "claude-code", "official_cli", ""
-        return "", "", "connectors no disponible — motor %r sin resolver" % engine
-    info = connectors.OFFICIAL_CLIS.get(engine)
-    if info is not None:                             # CLI oficial (tools = MCP)
-        if engine == "claude-code":
-            return "claude-code", "official_cli", ""
-        return "", "official_cli", (
-            "motor official_cli '%s': materialización MCP A-VERIFICAR "
-            "(flags/config nativa del CLI aún sin confirmar contra el binario "
-            "real) — no se materializa" % engine)
-    # motor directo (provider openai_compatible / native_api) o desconocido
-    ct = ""
-    try:
+        if engine in connectors.OFFICIAL_CLIS:
+            return "", "official_cli", note
         import model_resolver
-        prov, _errs = model_resolver.load_provider(engine)
-        if prov:
-            ct = connectors.connection_type(prov)
+        provider, _errors = model_resolver.load_provider(engine)
+        kind = connectors.connection_type(provider) if provider else ""
     except Exception:
-        ct = ""
-    if ct in ("openai_compatible", "native_api"):
-        return "", ct, (
-            "motor '%s' (%s): sin canal de tools/MCP hasta que WORKSPACE sea "
-            "dueño del loop + puente MCP (motor #2) — no se materializa"
-            % (engine, ct))
-    return "", ct, ("motor '%s' sin canal MCP conocido — no se materializa"
-                    % engine)
+        kind = ""
+    return "", kind, note
 
 
 def _mcps_for_agent(agent_name):
@@ -931,6 +1005,17 @@ def _claude_mcp_entry(server):
     return entry
 
 
+def _mcp_manual_conflicts(settings, desired):
+    """Names already present but not marked as owned; never adopt by name."""
+    current = settings.get("mcpServers")
+    if not isinstance(current, dict):
+        return []
+    marker = settings.get(_MCP_MARKER)
+    owned = {name for name in marker if isinstance(name, str)} \
+        if isinstance(marker, list) else set()
+    return sorted(name for name in desired if name in current and name not in owned)
+
+
 def _project_mcps_claude_code(settings, desired):
     """Proyector CLAUDE-CODE (rama real de esta fase): muta
     `settings['mcpServers']` con los MCP gestionados `desired`
@@ -949,58 +1034,35 @@ def _project_mcps_claude_code(settings, desired):
     for sname in prev:
         if sname not in desired and sname in current:
             del current[sname]
-    # 2. upsert de los gestionados (el store gana sobre un homónimo previo)
+    # 2. A manual homonym is a conflict, even when its content is identical.
+    conflicts = set(_mcp_manual_conflicts(settings, desired))
     for sname, server in desired.items():
-        current[sname] = _claude_mcp_entry(server)
+        if sname not in conflicts:
+            current[sname] = _claude_mcp_entry(server)
     # 3. persistir el bloque + el marcador; limpio si vacío (amputable)
     if current:
         settings["mcpServers"] = current
     elif "mcpServers" in settings:
         del settings["mcpServers"]
-    if desired:
-        settings[_MCP_MARKER] = sorted(desired)
+    owned_desired = sorted(name for name in desired if name not in conflicts)
+    if owned_desired:
+        settings[_MCP_MARKER] = owned_desired
     elif _MCP_MARKER in settings:
         del settings[_MCP_MARKER]
     return settings
 
 
 def render_mcps_only(cfg, brain, *, settings=None):
-    """RMW idempotente del bloque `mcpServers` de un cerebro — espejo de
-    render_hooks_only y FUENTE ÚNICA de la materialización de MCPs (la comparten
-    doctor.phase_mcps y el CLI `workspace config mcp materialize`).
+    """Read the legacy settings only; do not create, update or remove MCPs.
 
-    Gestiona SOLO `mcpServers` (+ su marcador `_MCP_MARKER`); el resto del
-    archivo se PRESERVA (permissions, hooks, statusLine, env, model y los MCP
-    MANUALES del socio — RMW, no rebuild).
-
-    DISPATCH POR MOTOR (no claude-only): resuelve el tipo de conexión del agente
-    (`_mcp_projection`) y delega a un proyector por canal. claude-code = real;
-    codex/gemini y local/API = asientos que SALTAN con razón visible (no tocan
-    settings — honestidad por canal). El llamador NO asume `mcpServers` como
-    único canal posible.
-
-    · settings None → lee settings.local.json del cerebro, lo muta y lo ESCRIBE.
-    · settings dict → lo muta y lo devuelve SIN escribir (el caller hace un
-      único write al final).
-    Devuelve el dict settings resultante."""
-    write = settings is None
+    Claude Code does not discover MCPs in this target. The public entry point
+    remains compatible while a new target awaits a product decision. The
+    pure legacy projection helpers stay available for regression coverage.
+    """
+    if settings is not None:
+        return settings
     spath = os.path.join(brain, ".claude", "settings.local.json")
-    if write:
-        settings = read_json(spath) if os.path.exists(spath) else {}
-        if not isinstance(settings, dict):
-            settings = {}
-    channel, _ct, _reason = _mcp_projection(cfg)
-    if channel == "claude-code":
-        desired = _mcps_for_agent(cfg.get("name", ""))
-        _project_mcps_claude_code(settings, desired)
-    # else: canal sin proyector real → settings intacto (no se finge el enchufe)
-    if write:
-        # mismo guard anti-envenenamiento que los hooks: desde un worktree no se
-        # persiste (el cerebro conserva su settings canónico)
-        if global_writes_blocked("mcpServers de cerebros"):
-            return settings
-        write_json(spath, settings)
-    return settings
+    return read_json(spath) if os.path.exists(spath) else {}
 
 
 # ── configurar el cerebro de un agente ──
@@ -1022,52 +1084,62 @@ def configure_brain(name, cfg, brain, socio, apply_autonomy=False):
     # solo `hooks` (+ `statusLine`/`theme`); el resto se PRESERVA. Espejo de la
     # regla del doctor (que ya hace RMW y tiene PROHIBIDO pisar `permissions`).
     spath = os.path.join(brain, ".claude", "settings.local.json")
-    # R3-F1 (read-guard): un settings CORRUPTO no se descarta en silencio —
-    # se preserva como rastro (`.corrupt-<pid>`) y se avisa. El install es
-    # acción explícita del socio y debe dejar un setup funcional, así que
-    # sigue con un settings fresco; el rastro permite recuperar lo perdido.
-    # (El doctor, que es reparación AUTOMÁTICA, directamente aborta — ver
-    # doctor.phase_hooks.) Idempotencia intacta: un settings sano ni entra aquí.
-    if json_corrupt(spath):
-        rastro = spath + ".corrupt-%d" % os.getpid()
-        if DRY:
-            dry(f"respaldaría el settings corrupto en {rastro}")
-        else:
-            try:
-                os.replace(spath, rastro)
-            except OSError:
-                rastro = "(no se pudo respaldar)"
-        say(f"⚠ [{name}] settings.local.json era JSON corrupto — respaldado en "
-            f"{rastro}; se genera uno nuevo (revisa el respaldo por config manual)")
-    existing = read_json(spath) if os.path.exists(spath) else {}
-    if not isinstance(existing, dict):
-        existing = {}
-    settings = dict(existing)
-    render_hooks_only(cfg, brain, settings=settings)           # gestionado · fuente única (P0-3)
-    settings.setdefault("spinnerTipsEnabled", False)
-    settings.setdefault("companyAnnouncements", [])
-    # permisos según la autonomía del agente: en el PRIMER install (si faltan)
-    # o cuando el usuario la acaba de elegir (crear/cargar). En re-install NO
-    # se pisan — el socio pudo ajustarlos (espejo de la regla dura del doctor).
-    if apply_autonomy or not isinstance(settings.get("permissions"), dict):
-        render_permissions(settings, cfg, brain)
-    else:
-        # el allow «brain» de una versión anterior sin su deny: se completa
-        # (solo el deny de Workspace; lo demás queda como lo ajustaste)
-        completar_deny(settings, brain)
-    # Tema in-app POR-AGENTE (DEPLOY-1): cada agente usa SU tema, no uno
-    # horneado para todos. Si no hay tema instalable, no forzamos ninguno →
-    # Claude usa su default (sin fuga de marca de ningún agente).
-    tname = install_theme(brain, cfg.get("theme") or name)
-    if tname:
-        settings["theme"] = f"custom:{tname}"
-    if statusline:
-        # --brain explícito: la statusline vive en WORKSPACE (ver build_hooks).
-        settings["statusLine"] = {"type": "command",
-                                  "command": hook_cmd(PY, statusline, "--brain", brain),
-                                  "padding": 0, "refreshInterval": 60}
+    # un solo candado para toda la lectura-cambio-guardado (candado_settings):
+    # otra ventana (doctor, repair, el tema, otro install) no se pisa con esta
+    import olock
+    try:
+        with candado_settings(spath):
+            # R3-F1 (read-guard): un settings CORRUPTO no se descarta en silencio —
+            # se preserva como rastro (`.corrupt-<pid>`) y se avisa. El install es
+            # acción explícita del socio y debe dejar un setup funcional, así que
+            # sigue con un settings fresco; el rastro permite recuperar lo perdido.
+            # (El doctor, que es reparación AUTOMÁTICA, directamente aborta — ver
+            # doctor.phase_hooks.) Idempotencia intacta: un settings sano ni entra aquí.
+            if _ilegible(spath):               # roto O no-objeto, el mismo criterio que mutar
+                rastro = spath + ".corrupt-%d" % os.getpid()
+                if DRY:
+                    dry(f"respaldaría el settings corrupto en {rastro}")
+                else:
+                    try:
+                        os.replace(spath, rastro)
+                    except OSError:
+                        rastro = "(no se pudo respaldar)"
+                say(f"⚠ [{name}] settings.local.json era JSON corrupto o no era un objeto — respaldado en "
+                    f"{rastro}; se genera uno nuevo (revisa el respaldo por config manual)")
+            existing = read_json(spath) if os.path.exists(spath) else {}
+            if not isinstance(existing, dict):
+                existing = {}
+            settings = dict(existing)
+            render_hooks_only(cfg, brain, settings=settings)           # gestionado · fuente única (P0-3)
+            settings.setdefault("spinnerTipsEnabled", False)
+            settings.setdefault("companyAnnouncements", [])
+            # permisos según la autonomía del agente: en el PRIMER install (si faltan)
+            # o cuando el usuario la acaba de elegir (crear/cargar). En re-install NO
+            # se pisan — el socio pudo ajustarlos (espejo de la regla dura del doctor).
+            if apply_autonomy or not isinstance(settings.get("permissions"), dict):
+                render_permissions(settings, cfg, brain)
+            else:
+                # el allow «brain» de una versión anterior sin su deny, o un «ask» que
+                # lo perdió (B04): se completa (solo el deny de Workspace; lo demás
+                # queda como lo ajustaste)
+                completar_deny(settings, brain, AUTONOMY_LEVELS)
+            # Tema in-app POR-AGENTE (DEPLOY-1): cada agente usa SU tema, no uno
+            # horneado para todos. Si no hay tema instalable, no forzamos ninguno →
+            # Claude usa su default (sin fuga de marca de ningún agente).
+            tname = install_theme(brain, cfg.get("theme") or name)
+            if tname:
+                settings["theme"] = f"custom:{tname}"
+            if statusline:
+                # --brain explícito: la statusline vive en WORKSPACE (ver build_hooks).
+                settings["statusLine"] = {"type": "command",
+                                          "command": hook_cmd(PY, statusline, "--brain", brain),
+                                          "padding": 0, "refreshInterval": 60}
 
-    write_json(spath, settings)
+            write_json(spath, settings)
+    except olock.LockTimeout:
+        say(f"⚠ [{name}] otra ventana está cambiando settings.local.json; no lo "
+            f"toqué — vuelve a correr la instalación")
+        return
     ensure_gitignore(brain, GITIGNORE_LINES)
     # solo con --socio explícito (ver ask_socio). El socio que el cerebro YA
     # declara manda (agentes-N2): --socio fija el de la MÁQUINA y solo llena el
@@ -1202,8 +1274,8 @@ def ensure_cleanup_days():
         return False                     # valor propio del usuario: se respeta
     s["cleanupPeriodDays"] = CLEANUP_DAYS
     write_json(sp, s)
-    ok(f"cleanupPeriodDays={CLEANUP_DAYS} en ~/.claude/settings.json "
-       "(tus sesiones se conservan un año, no 30 días)")
+    ok("Claude Code guarda tus conversaciones un año, no 30 días "
+       "(en ~/.claude/settings.json)")
     return True
 
 
@@ -1866,7 +1938,8 @@ def ensure_path_zshrc():
         return
     with open(rc, "a", encoding="utf-8") as f:
         f.write(f'\n{PATH_MARK}\nexport PATH="$HOME/.local/bin:$PATH"\n')
-    ok("PATH: ~/.local/bin agregado a ~/.zshrc (reinicia la terminal o `source ~/.zshrc`)")
+    ok("agregué una línea a ~/.zshrc para que tus terminales nuevas encuentren "
+       "`workspace` (todo se quita con: workspace uninstall)")
 
 
 def install_launchers(agent_names):
@@ -2044,9 +2117,9 @@ def install_greeter():
         return
     with open(rc, "a", encoding="utf-8") as f:
         f.write(block)
-    ok("greeter agregado: " + ("el menú WORKSPACE sale al abrir terminal "
-       "(q = terminal normal)" if block is GREETER_BLOCK
-       else "solo con el comando workspace (ui.autostart off)"))
+    ok("cada terminal nueva abre Workspace (q = terminal normal; se apaga en "
+       "Workspace › Personalización)" if block is GREETER_BLOCK
+       else "Workspace abre solo con el comando workspace")
 
 
 # Variante HINT del greeter (autostart OFF): NO lanza el menú, solo recuerda el
@@ -2215,6 +2288,50 @@ def check_prereqs():
 
 
 # ── detección de instalación previa / reinstalación (QoL · idempotencia) ─────
+def version_visible():
+    """La versión que ve la persona: la del archivo VERSION (p. ej. «0.9.2»).
+    Sin VERSION, el sha corto de siempre; '' si no hay ninguna. Fail-soft."""
+    try:
+        with open(os.path.join(WORKSPACE, "VERSION"), encoding="utf-8") as fh:
+            v = fh.read().strip()
+        if v:
+            return v
+    except Exception:
+        pass
+    return workspace_version()
+
+
+def greeter_de_fabrica(nueva):
+    """Instalación NUEVA (Mac y Linux): el arranque queda ENCENDIDO de fábrica
+    —cada terminal nueva abre Workspace— sin preguntarlo en el primer arranque
+    (decisión del dueño: greeter ON por defecto; F0 del onboarding nuevo lo sacó
+    de la bienvenida). Solo si nadie eligió antes (sin ui.autostart guardado);
+    se cambia después en Personalización. Devuelve True si lo dejó encendido.
+    Windows sigue con el de siempre hasta su paso de paridad."""
+    if not nueva or IS_WIN or DRY:
+        return False
+    try:
+        import settings
+        if settings.get_stored("ui.autostart") is not None:
+            return False
+        settings.set("ui.autostart", True)
+        return True
+    except Exception:
+        return False
+
+
+def greeter_abre():
+    """¿El ~/.zshrc trae hoy el greeter que abre Workspace? (Mac y Linux)."""
+    if IS_WIN:
+        return False
+    try:
+        with open(os.path.join(HOME, ".zshrc"), encoding="utf-8") as fh:
+            cur = fh.read()
+        return GREETER_MARK in cur and _zsh_greeter_full(cur)
+    except Exception:
+        return False
+
+
 def workspace_version():
     """Versión CORTA del harness para los mensajes ('v1a2b3c') o '' si este checkout
     no es un repo git / git no está. Sin RED (solo lee HEAD local). Fail-soft."""
@@ -2337,10 +2454,7 @@ def offer_retire_legacy(info=None, *, assume_yes=False):
             dry(f"retiraría {lbl}: {p}")
         return False
     if not assume_yes:
-        try:
-            interactive = sys.stdin.isatty()
-        except Exception:
-            interactive = False
+        interactive = _stdin_tty()
         if not interactive:
             say(f"{DIM}  (no-interactivo: NO retiro nada. Corre el instalador en una terminal, "
                 f"o pásale --retire-legacy para retirarlo.){R}")
@@ -2370,7 +2484,7 @@ def offer_retire_legacy(info=None, *, assume_yes=False):
     return bool(done_paths)
 
 
-def main():
+def _main():
     print(f"\n  {B}{C}Instalador de Workspace{R}  {DIM}· {platform.system()} · {WORKSPACE}{R}"
           + (f"  {DIM}(DRY-RUN){R}" if DRY else "") + "\n")
     check_prereqs()
@@ -2392,7 +2506,7 @@ def main():
     # Re-install inteligente (QoL · idempotencia): si ya había una instalación en
     # esta máquina, decirlo — re-correr el instalador NO duplica ni re-clona, solo
     # actualiza lo que cambió (RMW en configure_brain + launchers/greeter idempotentes).
-    _ver = workspace_version()
+    _ver = version_visible()
     _prior = prior_install_markers()
     # «Nueva» = sin estado de Workspace NI de la instalación anterior: quien trae
     # restos viejos necesita que sus ajustes (p. ej. traer agentes) SÍ corran.
@@ -2404,7 +2518,7 @@ def main():
         say(f"{DIM}Re-ejecutar es seguro: actualizo lo que cambió, nada se duplica "
             f"({', '.join(l for l, _ in _prior)}).{R}\n")
     elif _ver:
-        say(f"{DIM}Instalando WORKSPACE {_ver}.{R}\n")
+        say(f"{DIM}Instalando Workspace {_ver}.{R}\n")
 
     reg = registry()
     agents = reg.get("agents", [])
@@ -2421,9 +2535,9 @@ def main():
                       if a.get("_loaded")]
         except Exception:
             loaded = []
-        print("  Workspace sin agentes — instalo la base (comando `workspace`, greeter)."
-              + (" %d agente(s) cargado(s) ya operativo(s)." % len(loaded) if loaded
-                 else " Después: abre `workspace` → Agregar agente."))
+        print("  Workspace todavía no tiene agentes"
+              + (": %d agente(s) que ya conectaste siguen listos." % len(loaded) if loaded
+                 else ": el primero lo creas al abrirlo."))
     socio = ask_socio()          # "" salvo `--socio <slug>` explícito
     if socio:
         ok(f"socio: {socio}")
@@ -2512,6 +2626,7 @@ def main():
             say(f"{DIM}aviso: no pude configurar agentes cargados ({e}){R}")
 
     install_launchers(list(dict.fromkeys(agent_names)))
+    greeter_de_fabrica(_fresh)               # nueva: arranque ON de fábrica (no se pregunta)
     install_greeter()
     # Terminal-only (decisión de producto, 2026-10): instalar/actualizar NO crea
     # ninguna .app (ni en ~/Desktop ni en /Applications). WORKSPACE vive como
@@ -2535,11 +2650,20 @@ def main():
 
     _names = list(dict.fromkeys(agent_names))
     _direct = f" (o {B}{_names[0]}{R} para ir directo)" if _names else ""
-    print(f"\n  {C}Listo.{R} Abre una terminal nueva y escribe {B}workspace{R}{_direct}.")
-    if not _names:
-        print(f"  {DIM}El menú sale vacío → 'Agregar agente' (crear o cargar un cerebro).{R}")
-    print(f"  {DIM}Requiere: Python 3 y el CLI del motor que vayas a usar "
-          f"({engine_names()}) con sesión iniciada.{R}")
+    if os.environ.get("WORKSPACE_INSTALL_ABRE") == "1" and not DRY:
+        # I-a: el instalador (setup.sh) abre Workspace en ESTA terminal enseguida
+        print(f"\n  {C}Listo.{R}")
+        if greeter_abre():
+            print(f"  {DIM}Desde ahora, cada terminal nueva abre Workspace "
+                  f"(o escribe {R}{B}workspace{R}{DIM}).{R}")
+        else:
+            print(f"  {DIM}La próxima vez, escribe {R}{B}workspace{R}{DIM} en una terminal nueva.{R}")
+    else:
+        print(f"\n  {C}Listo.{R} Abre una terminal nueva y escribe {B}workspace{R}{_direct}.")
+        if not _names:
+            print(f"  {DIM}Ahí creas tu primer agente.{R}")
+    print(f"  {DIM}Para hablar con tus agentes necesitas un motor de IA con tu cuenta "
+          f"({engine_names()}); Workspace te dice cuáles tienes.{R}")
     if zenith_brain:
         print(f"\n  {DIM}¿Vienes de Cowork? Corre {R}{B}{zenith_brain[0]} migrar{R}{DIM} y luego di "
               f'"listo, procesa mi migración". Guía: assets/brand/MIGRACION.md en tu cerebro{R}')
@@ -2548,17 +2672,152 @@ def main():
     print()
 
 
+# ── O2-a · la instalación en una línea viva (instalar_vista) ──────────────────
+#: La vista corta que pidió el bootstrap (None = el texto completo de siempre).
+_VISTA = None
+
+
+def _vista_pedida():
+    """«vivo» o «lineal» si el bootstrap pidió la vista corta: setup.sh con una
+    terminal de verdad (vivo: sobre su bloque) o setup.ps1 (lineal), siempre con
+    WORKSPACE_INSTALL_ABRE=1. '' = el texto completo de siempre: sin terminal,
+    con --detalle (o WORKSPACE_INSTALL_DETALLE=1) y con --dry-run."""
+    v = os.environ.get("WORKSPACE_INSTALL_VISTA", "")
+    if (v not in ("vivo", "lineal") or os.environ.get("WORKSPACE_INSTALL_ABRE") != "1"
+            or "--detalle" in sys.argv or os.environ.get("WORKSPACE_INSTALL_DETALLE") == "1" or DRY):
+        return ""
+    return v
+
+
+def _corto_home(p):
+    return ("~" + p[len(HOME):]) if HOME and p.startswith(HOME + os.sep) else p
+
+
+def main():
+    modo = _vista_pedida()
+    if not modo:
+        return _main()
+    return _main_corto(modo)
+
+
+def _main_corto(modo):
+    """La instalación con la vista corta: lo que _main dice (✓ de cada archivo,
+    rutas, ajustes de cada motor) va a <estado>/instalar.log y en la pantalla
+    quedan el paso 3 y el final; lo que no se pudo hacer (✗ ! ⚠) se enseña igual.
+    Si _main no termina, una tarjeta dice qué fue lo último y dónde está todo.
+    POSIX: la salida se redirige en el fd (también la de los programas que
+    corre); Windows: en sys.stdout/sys.stderr (su consola no se toca)."""
+    global _VISTA
+    import tempfile
+    import time
+    import instalar_vista as IV
+    sd = _paths.state_dir(HOME)
+    bit = IV.bitacora_path(sd)
+    # Una instalación NUEVA no tiene <estado> todavía, y _main la reconoce así (el
+    # arranque de fábrica, las migraciones selladas): crearla antes para la
+    # bitácora la volvía «reinstalación». Mientras corre va a un temporal y al
+    # final se pasa a <estado>/instalar.log.
+    nueva = not os.path.isdir(sd)
+    try:
+        if nueva:
+            fd_t, ruta = tempfile.mkstemp(prefix="workspace-instalar-", suffix=".log")
+            os.close(fd_t)
+        else:
+            ruta = bit
+            if os.path.exists(bit) and os.path.getsize(bit) > 512 * 1024:
+                os.replace(bit, bit + ".1")  # la anterior queda una vez; nunca crece sin tope
+        log = open(ruta, "a", encoding="utf-8", errors="replace")
+    except OSError:
+        return _main()                       # sin dónde escribir la bitácora: el texto de siempre
+    inicio = log.tell()
+    log.write("\n── %s · instalar Workspace %s ──\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), version_visible()))
+    log.flush()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    guardados = None
+    if IS_WIN:
+        terminal = sys.stdout
+        guardados = (sys.stdout, sys.stderr)
+        sys.stdout = sys.stderr = log
+    else:
+        fd1, fd2 = os.dup(1), os.dup(2)
+        terminal = os.fdopen(os.dup(fd1), "w", encoding="utf-8", errors="replace")
+        os.dup2(log.fileno(), 1)
+        os.dup2(log.fileno(), 2)
+    vista = IV.Vista(modo, salida=terminal, version=version_visible())
+    _VISTA = vista
+    rc = 0
+    try:
+        vista.empezar()
+        _main()
+    except SystemExit as e:
+        rc = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
+    except KeyboardInterrupt:
+        rc = 130
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        rc = 1
+    finally:
+        vista.parar()
+        try:
+            sys.stdout.flush()
+            sys.stderr.flush()
+        except Exception:
+            pass
+        if guardados:
+            sys.stdout, sys.stderr = guardados
+        else:
+            os.dup2(fd1, 1)
+            os.dup2(fd2, 2)
+            os.close(fd1)
+            os.close(fd2)
+        log.close()
+        _VISTA = None
+    try:
+        with open(ruta, encoding="utf-8", errors="replace") as fh:
+            fh.seek(inicio)
+            texto = fh.read()
+    except OSError:
+        texto = ""
+    if nueva and os.path.isdir(sd):
+        try:
+            with open(bit, "a", encoding="utf-8", errors="replace") as fh:
+                fh.write(texto)
+            os.unlink(ruta)
+            ruta = bit
+        except OSError:
+            pass
+    if rc == 0:
+        avisos = [IV.limpio(ln) for ln in texto.splitlines() if IV.es_aviso(ln)]
+        lanz = os.path.join(HOME, ".local", "bin", "workspace.cmd" if IS_WIN else "workspace")
+        abre = os.path.isfile(lanz) and (IS_WIN or os.access(lanz, os.X_OK))   # lo mismo que mira el bootstrap
+        vista.terminar(greeter_abre(), avisos, abre=abre)
+    else:
+        ultimas = [IV.limpio(ln) for ln in texto.splitlines() if IV.limpio(ln) and not ln.startswith("── ")]
+        vista.fallo(ultimas[-3:], _corto_home(ruta))
+    try:
+        terminal.flush()
+        if not guardados:
+            terminal.close()
+    except Exception:
+        pass
+    if rc:
+        sys.exit(rc)
+
+
 # ── CLI: `--help` jamás instala; un argumento desconocido tampoco ─────────────
 _USO = ("uso: python3 install.py [--socio <nombre>] [--dry-run] [--desktop-app]\n"
-        "                         [--retire-legacy | --no-retire-legacy]\n"
+        "                         [--retire-legacy | --no-retire-legacy] [--detalle]\n"
         "  Instala Workspace en esta máquina: el comando `workspace`, un comando por\n"
         "  agente, hooks, permisos y tema. Re-correrlo es seguro: solo actualiza.\n"
         "  --socio <nombre>   quién usa esta máquina (llena los cerebros sin dueño)\n"
         "  --dry-run          muestra qué haría, sin escribir nada\n"
         "  --desktop-app      además, la app de escritorio (Mac)\n"
         "  --retire-legacy    retira la instalación anterior sin preguntar\n"
-        "  --no-retire-legacy no la toca")
-_FLAGS = ("--dry-run", "--desktop-app", "--retire-legacy", "--no-retire-legacy")
+        "  --no-retire-legacy no la toca\n"
+        "  --detalle          con el instalador de un comando, todo lo que hace en pantalla")
+_FLAGS = ("--dry-run", "--desktop-app", "--retire-legacy", "--no-retire-legacy", "--detalle")
 
 
 def _args_desconocidos(argv):

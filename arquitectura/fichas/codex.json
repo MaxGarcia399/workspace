@@ -1,0 +1,78 @@
+{
+  "motor": "codex",
+  "nombre": "Codex CLI",
+  "binario": "codex",
+  "versiones_probadas": ["0.169.0"],
+  "fuente": "A",
+  "via_control": {
+    "tipo": "app-server",
+    "detalle": "Su pantalla oficial se cuelga de un app-server (`codex --remote`); app local tolerada con el login de ChatGPT.",
+    "misma_conversacion": true,
+    "semaforo": "gris",
+    "avisos": {"no_se_usa": "En la página el hilo de su app-server va con la carpeta «untrusted» (engines/codex.config_del_hilo: así su app-server no guarda la confianza en la config global del socio), y sin confianza Codex no carga los avisos del proyecto; tampoco corrían antes: esperan la confianza de /hooks (caja negra 19-nov, CODEX_HOME temporal: hooks/list los daba «untrusted»). La página no los necesita para sus eventos: su app-server le da item/started e item/completed de cada herramienta, sus aprobaciones y turn/completed, que la página anota en el registro (pagina_v2._Sesion._evento). En su terminal sí van, con la confianza de /hooks (D6-a). Lo único del aviso de antes de cada herramienta que aquí no hay es negar leer llaves y secretos: va por el perfil de permisos del hilo (arquitectura/secretos.codex_config, `deny` de su sandbox; el app-server lo confirma en activePermissionProfile) y por la capa de control, que niega sola un comando escalado que los lee (VERIFICADO 19-nov con un canario: sin el perfil `cat ./secrets.local` lo leyó; con él, «Operation not permitted»)."}
+  },
+  "momentos": {
+    "session_start": {"eventos": ["SessionStart"], "estado": "si", "puede": ["inyectar"]},
+    "user_prompt": {"eventos": ["UserPromptSubmit"], "estado": "si", "puede": ["inyectar", "bloquear"]},
+    "pre_tool": {"eventos": ["PreToolUse"], "estado": "parcial", "puede": ["decidir", "bloquear"], "nota": "allow | deny, más updatedInput; ask todavía no"},
+    "post_tool": {"eventos": ["PostToolUse"], "estado": "si", "puede": ["inyectar"]},
+    "permission_request": {"eventos": ["PermissionRequest"], "estado": "si", "puede": ["decidir"]},
+    "turn_end": {"eventos": ["Stop"], "estado": "si", "puede": ["seguir"], "nota": "con block sigue el turno usando reason"},
+    "compact": {"eventos": ["PreCompact", "PostCompact"], "estado": "si", "puede": ["bloquear", "observar"]},
+    "session_end": {"eventos": ["SessionEnd"], "estado": "si", "puede": ["observar"], "nota": "solo diagnóstico"}
+  },
+  "paquete": {
+    "formato": "agent-plugins",
+    "carga_por_sesion": "sin flag por sesión: plugin instalado, o CODEX_HOME propio (ojo: también mueve auth.json)",
+    "instala": "codex plugin add",
+    "hooks": {"dialecto": "claude", "ruta": "codex/hooks/hooks.json", "raiz_var": null, "confianza": "NO hay vía oficial de confianza POR CORRIDA para sus hooks sin --dangerously (revisado en codex-cli 0.169.0, 18-nov: su ayuda solo trae --dangerously-bypass-hook-trust, «without requiring persisted hook trust… DANGEROUS», y --trust, que es la del proyecto y «Persists»; `codex features list` no tiene un flag de confianza de hooks; no hay subcomando `hooks` y `codex debug` no calcula su huella). La confianza persistida vive en config.toml como [hooks.state.\"<ruta de hooks.json>:<evento>:<i>:<j>\"] trusted_hash = \"sha256:…\"; -c pisa cualquier valor de config.toml solo esa corrida (documentado), pero darla así sería confiar POR el socio: no se hace. Cómo se calcula ese hash no está documentado y no se adivina; hooks/list de su app-server (oficial, en el esquema de `codex app-server generate-json-schema`) da por hook su currentHash y su trustStatus (untrusted | trusted | modified | managed). VERIFICADO en caja negra (18-nov, CODEX_HOME temporal, sin login): con trusted_hash = currentHash sale trusted, y cambiar el comando o el timeout de ese hook lo deja en modified. La vía oficial es confirmarlos UNA vez en /hooks (D6-a); el lanzador fijo mantiene el comando al actualizar Workspace. La página lo guía y se da cuenta sola por hooks/list (amigable.confianza_codex). La confianza del PROYECTO por -c NO sirve (comprobado 18-nov con CODEX_HOME temporal: sigue «Untrusted project-local configuration is disabled»); la pone el lanzador de hoy en config.toml (ensure_trusted). Cómo da el socio la de los hooks: sesion.confianza."},
+    "mcp": {"declara": "mcp.json del paquete", "preaprueba": "approval_mode por herramienta"},
+    "skills": ".agents/skills"
+  },
+  "permisos": {"por_sesion": ["-s", "-a", "-c", "--profile"], "preguntar": "si", "sandbox": true,
+    "niveles": {
+      "auto": {"no": "Codex como está (decisión del dueño, 18-nov): -s workspace-write -a on-request, como editar. Su --help 0.169.0 trae --approve-for-me («Route approval requests through automatic review using the workspace-write sandbox»): no se usa"}
+    }
+  },
+  "uso_plan": {"tipo": "interactivo", "fuente": "/usage dentro de Codex"},
+  "conversacion": {"id": "hook_inicio", "como": "session_id en el hook de inicio"},
+  "tono": "AGENTS.md e instrucciones del servidor MCP",
+  "nucleo": {
+    "mcp": {"declara": "-c mcp_servers.workspace (solo esta corrida)", "argv": ["-c", "mcp_servers.workspace.command='{python}'", "-c", "mcp_servers.workspace.args=['{paquete}/lanzador/mcp.py']", "-c", "mcp_servers.workspace.env_vars=[\"WORKSPACE_ROOT\",\"WORKSPACE_BRAIN\",\"WORKSPACE_WS\",\"WORKSPACE_WID\",\"ZENITH_WS\",\"WORKSPACE_ENGINE\",\"WORKSPACE_SOCIO\",\"WORKSPACE_VIA\",\"WORKSPACE_SESSION_ID\",\"WORKSPACE_PAQUETE\",\"WORKSPACE_NUCLEO_AL_ABRIR\",\"WORKSPACE_TONO_SISTEMA\"]"], "preaprueba": "no hay (cable-codex, 19-nov): Codex 0.169.0 no trae una preaprobación por servidor MCP. Ni su --help, ni el esquema de su app-server (approval_mode y default_tools_approval_mode son solo de las «apps»), ni `codex mcp get --json` (reconoce enabled_tools, disabled_tools y los tiempos; nada de aprobación). En su terminal (-a on-request) pregunta al socio antes de una herramienta que escribe: su decisión. En la página la aprobación llega como mcpServer/elicitation/request y la del núcleo se acepta (control/codex: preaprobado por diseño, como en ACP). Sin pantalla (codex exec) nadie la contesta: la auditoría lo dice «confianza», no ✗", "nota": "env_vars (arq-default, auditoría real 18-nov): Codex abre sus servidores MCP con un entorno recortado (por eso existe esa clave; `codex -c mcp_servers.workspace.env_vars=[…] mcp get workspace --json` la acepta en 0.169.0), así que sin ella el servidor no sabía de qué pestaña era. Van solo los NOMBRES de la pestaña de Workspace, nunca un valor ni una llave"},
+    "al_abrir": "hook",
+    "tono": {"via": "mcp"},
+    "chat": {"via": "mensaje", "nota": "la página la manda una vez por conexión, antes de tu primer mensaje (el contexto de la sesión, como la nota de la maleta). Su app-server tiene developerInstructions en thread/start y thread/resume (su esquema), pero podría reemplazar las developer_instructions del socio (sin verificar): queda «mensaje» hasta verificarlo"},
+    "verificado": false,
+    "nota": "hooks5: su vía por sesión carga solo sus hooks (sesion.sin_nucleo); el núcleo entra por probador.real"
+  },
+  "sesion": {
+    "archivos": [{"copiar": "{paquete}/codex/hooks/hooks.json", "a": "{cerebro}/.codex/hooks.json", "sustituir": {"{paquete}/lanzador/": "{lanzador}/"}}],
+    "mcp_del_nucleo": true,
+    "skills": {"via": "proyecto", "ruta": "{cerebro}/.agents/skills", "nota": "las skills del cerebro en la carpeta de skills del proyecto que lee Codex (paquete.skills: .agents/skills; la de la máquina, ~/.agents/skills, no se toca): vista plana con el sello de Workspace, como OpenCode; una del socio con el mismo nombre gana (arq-default, 18-nov; a verificar en real con arquitectura.auditoria)"},
+    "sin_nucleo": "por ahora solo sus hooks (el estado en vivo de la pestaña y lo prohibido antes de cada herramienta). Hasta que el socio los confíe una vez no corren, así que el paquete de la pestaña no puede depender de ellos: sigue en el AGENTS.md generado, y el MCP núcleo y el tono por el camino de hoy",
+    "confianza": "Codex 0.169.0 no corre ningún hook sin su confianza PERSISTIDA, ni los del proyecto ni los del usuario (caja negra 18-nov con CODEX_HOME temporal, proyecto confiado y la feature hooks en true: ni SessionStart ni UserPromptSubmit corrieron; su --help describe --dangerously-bypass-hook-trust como «Run enabled hooks without requiring persisted hook trust… DANGEROUS», y no se usa). La da el socio UNA vez (D6-a): abre el agente en Codex desde Workspace, escribe /hooks, revisa los de Workspace (los de .codex/hooks.json de su cerebro: llaman a <estado de Workspace>/arquitectura/lanzador/hook.py) y los confía. Queda en su ~/.codex/config.toml ([hooks.state…] trusted_hash), por cerebro y por máquina. El comando no cambia al actualizar Workspace (el lanzador va en una carpeta fija: sesion.lanzador_fijo), así que no la vuelve a pedir, salvo que cambie el Python de Workspace o un timeout de la ficha (Codex lo marca modified). La página lo pide en simple: una tarjeta abre Codex («Ir a la terminal»), guía /hooks con dibujos y se va sola cuando hooks/list de su app-server dice trusted (amigable.confianza_codex). La confianza del PROYECTO la decide el socio cuando Codex se la pregunta: desde el cableado total (19-nov) el lanzador ya no la escribe (engines/codex.AUTOCONFIANZA; antes ensure_trusted anexaba [projects.\"<cerebro>\"] trust_level = \"trusted\" a su config global). En la página, sin decisión del socio, el hilo va «untrusted» solo para él (engines/codex.config_del_hilo, el `config` de thread/start del app-server): con el .codex/hooks.json en el cerebro, su app-server la guardaba solo en la config global al abrir el hilo (caja negra 19-nov con CODEX_HOME temporal; la red de seguridad de la auditoría real lo vio). Así no se escribe nada; las skills del proyecto y el MCP núcleo siguen (skills/list y mcpServerStatus/list, misma caja negra); los avisos del proyecto no cargan en la página (no corrían: esperan /hooks) y la página recibe los eventos por su app-server",
+    "nota": "los hooks del proyecto: .codex/hooks.json del cerebro, con la ruta de esta máquina (se reescribe en cada arranque). Su lanzador solo anota el estado (registro) y niega lo prohibido: no corre los hooks de hoy, así que no hay doble disparo con el inicio y el cierre que ya emite el lanzador"
+  },
+  "config_global": [
+    "{home}/.codex/config.toml",
+    "{home}/.codex/hooks.json",
+    "{home}/.codex/AGENTS.md",
+    "{home}/.codex/agents",
+    "{home}/.agents/skills"
+  ],
+  "probador": {
+    "env": {"CODEX_HOME": "{home}/.codex"},
+    "preparar": [
+      {"copiar": "{paquete}/codex/hooks/hooks.json", "a": "{home}/.codex/hooks.json"}
+    ],
+    "corrida": ["codex", "exec", "--json", "--skip-git-repo-check", "{prompt}"],
+    "timeout_s": 240,
+    "real": {
+      "preparar": [{"copiar": "{paquete}/codex/hooks/hooks.json", "a": "{cerebro}/.codex/hooks.json"}],
+      "corrida": ["codex", "exec", "-c", "mcp_servers.workspace.command='{python}'", "-c", "mcp_servers.workspace.args=['{paquete}/lanzador/mcp.py']", "-c", "mcp_servers.workspace.env_vars=[\"WORKSPACE_ROOT\",\"WORKSPACE_BRAIN\",\"WORKSPACE_WS\",\"WORKSPACE_WID\",\"ZENITH_WS\",\"WORKSPACE_ENGINE\",\"WORKSPACE_SOCIO\",\"WORKSPACE_VIA\",\"WORKSPACE_SESSION_ID\",\"WORKSPACE_PAQUETE\",\"WORKSPACE_NUCLEO_AL_ABRIR\",\"WORKSPACE_TONO_SISTEMA\"]", "--json", "--skip-git-repo-check", "{prompt}"],
+      "nota": "hooks del proyecto y el núcleo por -c mcp_servers.workspace (F6). La confianza del proyecto por -c NO sirve (hooks5, 18-nov: comprobado con la ruta real, en CODEX_HOME temporal: sigue «Untrusted project-local configuration is disabled»; el probador lo dice como razón) y --trust persiste: con el HOME real, el proyecto temporal queda sin confiar y Codex no carga .codex/; además sus hooks piden la confianza persistida (sesion.confianza). Por eso esta corrida no los ve: lo que vale es la prueba a mano codex_hooks_confiados. --skip-git-repo-check porque el proyecto temporal no es un repo («Not inside a trusted directory and --skip-git-repo-check was not specified»). Sin --dangerously-bypass-hook-trust: su ayuda lo describe como «without requiring persisted hook trust… DANGEROUS»; --trust tampoco: «Save trust for this project and future chats… Persists». Si los hooks igual piden su confianza persistida, se confirman una vez en /hooks (D6-a)."
+    },
+    "verificado": false,
+    "nota": "hooks del usuario en un CODEX_HOME temporal; sin atajos de confianza (ningún --dangerously-*): la confianza de los hooks se confirma una vez en /hooks (D6-a)"
+  }
+}

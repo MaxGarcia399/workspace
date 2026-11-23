@@ -127,11 +127,19 @@ def _write(path, data):
 
 
 def run(ctx):
-    for name, brain, settings in _targets(ctx):
+    import install
+    import olock
+    for name, brain, _viejo in _targets(ctx):
         path = _settings_path(brain)
         try:
-            _backup(ctx, name, path)
-            _write(path, settings)
+            # lectura-cambio-guardado bajo el candado del archivo (el de install,
+            # doctor y repair): lo leído en _targets pudo cambiar desde entonces
+            with olock.local_lock(path, timeout=5):
+                settings = _read(path)
+                if settings is None or not install.completar_deny(settings, brain):
+                    continue
+                _backup(ctx, name, path)
+                _write(path, settings)
             ctx.log("%s: Claude Code ya no escribe la config de los motores, git ni "
                     "Obsidian del cerebro" % name)
         except Exception as e:           # un cerebro no traba la cola

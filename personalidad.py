@@ -255,8 +255,10 @@ def _empty():
     return {"schema": SCHEMA, "global": {}, "agentes": {}}
 
 
-def _limpio(d):
-    """Solo diales conocidos con valor 1-5 distinto del neutro."""
+def _limpio(d, neutro=False):
+    """Solo diales conocidos con valor 1-5 distinto del neutro. Con `neutro`
+    (los de un agente) también el 3: un agente que pide «normal» en un dial
+    que el tono global movió tiene que poder ganarle al global."""
     out = {}
     for k, v in (d or {}).items():
         if k not in _DIAL_KEYS:
@@ -265,7 +267,7 @@ def _limpio(d):
             v = int(v)
         except (TypeError, ValueError):
             continue
-        if 1 <= v <= 5 and v != NEUTRO:
+        if 1 <= v <= 5 and (neutro or v != NEUTRO):
             out[k] = v
     return out
 
@@ -282,7 +284,7 @@ def load():
         ags = raw.get("agentes")
         if isinstance(ags, dict):
             for name, vals in ags.items():
-                v = _limpio(vals)
+                v = _limpio(vals, neutro=True)
                 if v:
                     out["agentes"][str(name).lower()] = v
         return out
@@ -357,9 +359,10 @@ def set_nivel(dial, valor, agente=None):
         tabla = dict(data["agentes"].get(ag) or {})
     else:
         tabla = dict(data["global"])
-    if v == NEUTRO:
+    if v == NEUTRO and not (agente and (data.get("global") or {}).get(dial, NEUTRO) != NEUTRO):
         tabla.pop(dial, None)
     else:
+        # el 3 de un agente se guarda solo si el global movió ese dial (si no, sería ruido)
         tabla[dial] = v
     if agente:
         ag = str(agente).lower()
@@ -488,7 +491,13 @@ def linea(agente=None):
     Lleva la instrucción viva de cada dial movido, en una sola línea por dial
     para que cambiar un nivel se sienta al SIGUIENTE mensaje sin reabrir la
     sesión. "" si todo es neutro (coste cero)."""
-    act = activos(agente)
+    return linea_de(niveles(agente))
+
+
+def linea_de(niveles_dict):
+    """`linea()` armada con unos niveles dados (la página la usa para enseñar
+    qué recibiría el agente con un estilo, sin guardarlo)."""
+    act = {k: v for k, v in (niveles_dict or {}).items() if k in _DIAL_KEYS and v != NEUTRO}
     if not act:
         return ""
     trozos = []
@@ -509,7 +518,7 @@ def _barra(v):
 
 def _uso():
     return ("uso:\n"
-            "  workspace tono                      pantalla interactiva\n"
+            "  workspace tono                      el hub en Agentes › Tono\n"
             "  workspace tono ver [agente]         imprime los diales\n"
             "  workspace tono <dial> <1-5>         global\n"
             "  workspace tono <agente> <dial> <1-5>  solo ese agente\n"
@@ -545,12 +554,8 @@ def main(argv=None):
         print(_uso())
         return 0
     if not argv or argv[0] in ("ui", "--ui", "pantalla"):
-        try:
-            import tono_tui
-            return tono_tui.run()
-        except Exception as e:
-            print("tono: no pude abrir la pantalla (%s)" % e, file=sys.stderr)
-            return imprimir()
+        # I15: los diales se cambian en el hub (Agentes › Tono; `workspace tono` lo abre ahí). Aquí, en texto.
+        return imprimir()
     conocidos = set(agentes_registrados())
     if argv[0] in ("ver", "list", "ls"):
         return imprimir(argv[1].lower() if len(argv) > 1 else None)

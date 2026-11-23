@@ -31,14 +31,13 @@ npm and winget. If you add a connection, add it here and in ../es/privacidad.md.
 |---|---|---|
 | `workspace update` and the **Updates** section | GitHub, and the git remote of each brain that has one | when you ask; it also pulls the brains you keep in git |
 | `workspace doctor` (without `--check`) | GitHub (`git fetch`) | checks for a new version of Workspace (and of the brains you declared as git) |
-| Finding *skills* in **Add agent** | `api.github.com` and `raw.githubusercontent.com` (public repositories from Anthropic and OpenAI, plus any you add); `skills.sh` only if you type a community search | when you reach the new agent's plan, only if you turn it on (off by default; you can turn it on on that same screen). GitHub sees which repositories and files are fetched; your agent's profile is matched on your machine |
+| Finding *skills* when adding an agent | `api.github.com` and `raw.githubusercontent.com` (public repositories from Anthropic and OpenAI, plus any you add); `skills.sh` only if you type a community search | when adding an agent, only if you turn it on (off by default). GitHub sees which repositories and files are fetched; your agent's profile is matched on your machine |
 | Installing an engine | the official installer: `claude.ai`, `chatgpt.com`, `antigravity.google`, `opencode.ai`, `openclaw.ai`, `hermes-agent.nousresearch.com`, `cli.kiro.dev`, `cursor.com`, npm (OpenCode on Windows; GitHub Copilot on Mac and Linux) or WinGet (GitHub Copilot on Windows) | only when you ask to install it |
-| Skill review (when the next session opens) | the vendor of the agent's engine, inside that visible session (like any message) | only for agents where you turned it on (it ships off); the agent reads the copy of the previous session that Workspace saved in the brain when it closed |
+| Skill review (when the tab is reopened) | the vendor of the agent's engine, inside that visible session (like any message) | only for agents where you turned it on (it ships off); the agent reads the copy of the previous session that Workspace saved in the brain when it closed |
 | Google Calendar | `calendar.google.com` (iCal link) or Google's APIs (`accounts.google.com`, `oauth2.googleapis.com`, `www.googleapis.com`), read-only | if you connect your calendar; then it refreshes on its own, in the background |
 | Mail (`workspace mail`) | the SMTP server you configure | each time you send |
 | Voice dictation setup (macOS) | Hugging Face (whisper model) and Homebrew | only with `workspace voice --setup`; dictating is 100% local |
 | API providers (advanced) | the endpoint you configure (e.g. OpenAI, OpenRouter, Anthropic, Google, or a local one such as Ollama or LM Studio) | only if you set up a provider with your API key |
-| **Deciders** in the cloud (Jev, OpenRouter, Liquid) | `api.typesafe.ai` (TypeSafe), `openrouter.ai` (OpenRouter) or `api.liquid.ai` (Liquid), with your key for each; honors `HTTPS_PROXY`/`NO_PROXY`. With **Ollama** nothing leaves this computer: it goes to `127.0.0.1:11434` (or the `OLLAMA_HOST` you set; if that is another machine, Workspace warns you as with the cloud), with no key | only if you connect one in Engines → Decision models **and** turn on a use in Deciders (everything ships off), when you **Test** it in Engines or when you **Ask** by hand. Each use you turn on sends its question, its options and minimal context: Memory, the note's text; Evals, the session-close extract (up to 4000 characters); Skills, the start of the session (up to 6000); Security, the path, the risks found and what was written (up to 1500), without the comments and docstrings it recognizes, only when the scan already found something; the agent uses, whatever the agent sends (in Review, also what you asked for). Ask sends the context you choose (the tab, sessions, the memory or the whole brain), and `v` shows beforehand which files go. Keys, passwords and tokens (JWTs too) are removed before anything leaves; private files (`privado: true` or a `privado/` folder), what belongs to other people in a shared brain, chats, messages between agents and logs never leave |
 | Opening a link | your browser | when you choose to open something (such as an engine's official source) |
 
 ## What it records locally
@@ -62,31 +61,12 @@ people, if you decide to share it. `workspace metrics delete --mine` deletes you
 off: `workspace metrics off`; `WORKSPACE_NO_METRICAS=1` is the emergency switch, and what you do
 meanwhile is never measured. Metrics are never passed to the agent.
 
-Deciders logs each question in `~/.claude/workspace/decisions.jsonl`: the use, the question
-(without keys, up to 160 characters), the options, the answer, how sure it was, how long it took
-and what it cost; of the context, only its level, how many tokens it carried and the names of the
-sources — **never the content**. Only your user can open that file (on Windows too: its
-permissions are yours alone and don't inherit the folder's) and, once it grows past about 5 MB, a
-copy is kept and a new one starts. It never leaves your machine. With a use turned on, Deciders also keeps in
-`~/.claude/workspace/decisores/` your last session's line until you see it and, for each session,
-a fingerprint (not the text) of the instructions the agent received; they never leave your
-machine either. Even with Deciders off, the hub notes in
-`~/.claude/workspace/hub-novedades.json` only the date it first showed you the "new" on its row,
-to remove it after 7 days.
-
-**Conversations** connects to no server. Each room lives in the brain of the agent that opened
-it (folder `conversaciones/`), so it travels with that brain if you sync it and whoever shares
-that brain can see it. Each message carries who wrote it, in which tab, with which engine and the
-name of its machine; while an agent waits for an answer, its brain keeps in `msgs/_presencia/`
-that it is listening. What you read in the hub and the order each message reached you stay on
-this machine, in `~/.claude/workspace/salas/`. Rooms stay out of memory search and out of the
-context sent to Deciders.
+Skill review keeps its tasks and session views in the brain’s `.claude/skill-review/` until reviewed or expired after seven days.
 
 ## Credentials
 
 Workspace **does not read or copy** your engines' credentials: each official program handles
-its own login. Keys you give Workspace itself (for mail, for example, or a decision model's key in
-Engines → Decision models) are stored only on this machine, outside your brain (they are not
+its own login. Keys you give Workspace itself (for mail, for example) are stored only on this machine, outside your brain (they are not
 synced or uploaded anywhere), and the engines never get them.
 
 **Where, depending on your system:**

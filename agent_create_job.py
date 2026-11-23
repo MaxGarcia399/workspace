@@ -255,6 +255,11 @@ def _worker(job):
             job["escrito"] = _huella(job["dest"])
         _persist(job)
 
+    # El MISMO candado que cargar y buscar (agent_load_job.STDIO_LOCK): las tres cambian la salida de todo el proceso
+    # y, cruzadas sin él, la última en terminar la dejaba en un texto vacío (S1 de la revisión, 22-nov).
+    import agent_load_job
+    candado = agent_load_job.STDIO_LOCK
+    candado.acquire()
     old = (sys.stdout, sys.stderr, sys.stdin)
     sys.stdout, sys.stderr = io.StringIO(), io.StringIO()
     sys.stdin = io.StringIO("")
@@ -302,6 +307,7 @@ def _worker(job):
             sys.stdout, sys.stderr, sys.stdin = old
         except Exception:
             pass
+        candado.release()
         job["ok"] = bool(ok)
         if not ok:
             job["error"] = str(res)

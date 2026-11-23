@@ -45,6 +45,7 @@ Cero dependencias (stdlib, 3.9+). Mac, Windows y Linux.
 """
 import json
 import os
+import re
 import sys
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -56,10 +57,22 @@ if ROOT not in sys.path:            # corre con `python -I`: sin la carpeta del 
 #: `Mcp(workspace-memoria:guardar_nota)`, Kiro `@workspace-memoria/guardar_nota`).
 SERVIDOR = "workspace-memoria"
 VERSION = "1"
-#: Las herramientas de la memoria, en el orden en que se listan. `decidir`
-#: (Decisores) se suma SOLO si el socio encendió un uso de agentes: con todo
-#: apagado, el motor ve lo mismo que antes (ni la herramienta ni su aprobación).
-HERRAMIENTAS = ("guardar_nota", "guardar_resumen", "ver_memoria")
+#: El avance de una skill que arrancó Workspace (= `python3 pasos.py <id> …`).
+#: En estos motores la terminal pregunta por cada comando y aprobar la ruta de
+#: pasos.py dejaría colar otro (lo de arriba): va por aquí, aprobada por
+#: nombre (H13 de la prueba de punta a punta v2, 17-nov).
+AVANCE = "reportar_avance"
+#: Las herramientas de la memoria y el avance, en el orden en que se listan.
+#: `decidir` (Decisores) se suma SOLO si el socio encendió un uso de agentes:
+#: con todo apagado, el motor ve lo mismo que antes (ni la herramienta ni su
+#: aprobación).
+HERRAMIENTAS = ("guardar_nota", "guardar_resumen", "ver_memoria", AVANCE)
+#: Las de la versión anterior (sin AVANCE): un archivo de Workspace con esas
+#: es nuestro, no «cambiado por alguien» (se completa sin respaldo ni aviso).
+HERRAMIENTAS_ANTES = ("guardar_nota", "guardar_resumen", "ver_memoria")
+#: Lo que acepta reportar_avance: las acciones de pasos.py y su forma de id.
+AVANCE_ACCIONES = ("plan", "ahora", "hecho", "pide", "fin")
+AVANCE_ID = "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"          # = pasos.ID_RE
 DECIDIR = "decidir"
 #: Versiones del protocolo MCP que este servidor habla (solo usa tools/*,
 #: igual en todas). Si el cliente pide otra, se responde la más nueva.
@@ -87,7 +100,8 @@ INSTRUCCIONES = (
     "devuelve su id (P-7); al resolverlo, guardar_nota tipo hecho con cierra [\"P-7\"]. "
     "dato/preferencia valen para todas las pestañas. Al terminar una unidad de trabajo, "
     "guardar_resumen con expected_revision (la que da ver_memoria). Nunca escribas la "
-    "memoria a mano en los archivos del cerebro.")
+    "memoria a mano en los archivos del cerebro. Si Workspace te pide reportar el avance "
+    "de una skill, usa reportar_avance (lo mismo que `workspace pasos`, sin terminal).")
 INSTRUCCION_DECIDIR = (" decidir: pregúntale al decisor de Workspace en los usos que el socio "
                        "encendió en Decisores.")
 
@@ -104,6 +118,9 @@ def _td(key, es, **kw):
 def decidir_activo():
     """¿Esta corrida ofrece `decidir`? Solo con un uso de agentes encendido
     (decisions.agent_uses_on); se vuelve a mirar en cada llamada."""
+    from decisions import decisores_activos
+    if not decisores_activos():
+        return False
     try:
         import decisions
         return decisions.agent_uses_on()
@@ -111,9 +128,41 @@ def decidir_activo():
         return False
 
 
+#: Revisión de skills: el agente reporta qué dejó (0.9.1). Solo se ofrece con
+#: la revisión encendida para el cerebro de esta corrida: apagada, la lista
+#: de herramientas es la de siempre.
+REVISION = "revision_resultado"
+
+
+def _skill_review():
+    hooks = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hooks")
+    if hooks not in sys.path:
+        sys.path.append(hooks)            # al final: no tapa módulos de la raíz
+    import skill_review
+    return skill_review
+
+
+def revision_activa(env=None):
+    """¿Esta corrida ofrece `revision_resultado`? Con la revisión de skills
+    encendida para su cerebro; se vuelve a mirar en cada llamada."""
+    env = os.environ if env is None else env
+    try:
+        brain = _valor(env, "WORKSPACE_BRAIN")
+        if not brain or os.environ.get("WORKSPACE_NO_SKILL_REVIEW"):
+            return False
+        sr = _skill_review()
+        if sr.en_monito(None, {"WORKSPACE_VIA": _valor(env, "WORKSPACE_VIA"),
+                               "WORKSPACE_WS": _valor(env, "WORKSPACE_WS")}):
+            return False                  # monito ronda 2 (E1-a): ahí la revisión no se hace, ni se reporta
+        return bool(sr.review_enabled(sr.brain_root(brain, env)))
+    except Exception:
+        return False
+
+
 def herramientas_activas():
     """Las herramientas que se listan y se aprueban EN ESTA corrida."""
-    return HERRAMIENTAS + ((DECIDIR,) if decidir_activo() else ())
+    return HERRAMIENTAS + ((DECIDIR,) if decidir_activo() else ()) + \
+        ((REVISION,) if revision_activa() else ())
 
 
 def instrucciones():
@@ -191,8 +240,10 @@ def herramientas():
              "display, muéstrale esa línea al socio tal cual. point: "
              "agents.choose (dudas entre opciones), agents.review (¿quedó completo? request = "
              "lo que pidió el socio, context = el entregable), "
-             "agents.prompt (la mejor de varias instrucciones), agents.route (qué agente toma "
-             "una parte; sin options = los agentes registrados)."),
+             "agents.prompt (al encargar algo con 2 o más redacciones posibles: la mejor), "
+             "agents.route (qué agente toma una parte; sin options = tus agentes y sus pestañas "
+             "abiertas). Después, con el mismo point, id y resultado (usada o descartada), "
+             "avisa qué hiciste con la respuesta."),
          "inputSchema": {
              "type": "object",
              "properties": {
@@ -212,15 +263,72 @@ def herramientas():
                                  description=_td("decisores.mcp.f_request", "El pedido: lo que "
                                                  "pidió el socio (en agents.review, sin él no se "
                                                  "sabe qué entraba).")),
+                 "id": dict(cadena, maxLength=24,
+                            description=_td("decisores.mcp.f_id", "Para avisar qué hiciste con "
+                                            "una respuesta: su id (con su point).")),
+                 "resultado": {"type": "string", "enum": ["usada", "descartada"],
+                               "description": _td("decisores.mcp.f_result", "usada o descartada "
+                                                  "(con id).")},
              },
              "required": ["point"],
              "additionalProperties": False},
          # puede consultar un decisor en la nube (si el socio eligió uno) y
          # anota en la bitácora local: ni solo-lectura ni cerrado al mundo
          "annotations": {"readOnlyHint": False, "openWorldHint": True}},
+        {"name": REVISION,
+         "title": "Reportar la revisión de skills",
+         "description": ("Al terminar la revisión de skills que te pidió Workspace, dile qué "
+                         "dejó (lo mismo que `workspace revision resultado`): creada o mejorada "
+                         "con la skill (categoría/nombre) que guardaste, o nada. Workspace lo "
+                         "comprueba al cerrar la sesión."),
+         "inputSchema": {
+             "type": "object",
+             "properties": {
+                 "resultado": {"type": "string", "enum": ["creada", "mejorada", "nada"]},
+                 "skill": dict(cadena, maxLength=120,
+                               description="La skill (categoría/nombre), con creada o mejorada."),
+                 "entrega": dict(cadena, maxLength=40,
+                                 description="El id de la entrega que trae el texto de tu tarea "
+                                             "de revisión."),
+             },
+             "required": ["resultado"],
+             "additionalProperties": False}},
+        {"name": AVANCE,
+         "title": "Reportar el avance de una skill",
+         "description": (
+             "Cuenta tu avance en la skill que te pidió Workspace, y el socio lo ve en vivo "
+             "(lo mismo que `workspace pasos <id> …`, sin terminal). ejecucion: el id que "
+             "trae la instrucción (s-…). accion: plan (con pasos, la lista al empezar), ahora "
+             "(con n: empiezas el paso n; texto opcional), hecho (con n), pide (con texto: lo "
+             "que necesitas del socio; opciones si se contesta con una de ellas —le salen como "
+             "botones—; archivo true si es un archivo; y espera: su respuesta te llega como su "
+             "mensaje) o fin (con texto: el resumen en una línea)."),
+         "inputSchema": {
+             "type": "object",
+             "properties": {
+                 "ejecucion": dict(cadena, pattern=AVANCE_ID, maxLength=64,
+                                   description="El id de la ejecución (s-…)."),
+                 "accion": {"type": "string", "enum": list(AVANCE_ACCIONES)},
+                 "pasos": {"type": "array", "minItems": 1, "maxItems": _pasos().MAX_PASOS,
+                           "items": dict(cadena, minLength=1, maxLength=_pasos().MAX_TEXTO),
+                           "description": "Con plan: los pasos, en orden."},
+                 "n": {"type": "integer", "minimum": 1, "maximum": _pasos().MAX_PASOS,
+                       "description": "Con ahora y hecho: el número del paso (desde 1)."},
+                 "texto": dict(cadena, maxLength=_pasos().MAX_PIDE,
+                               description="Con pide: lo que necesitas; con fin: el resumen; "
+                                           "con ahora: una nota corta."),
+                 "archivo": {"type": "boolean",
+                             "description": "Con pide: true si lo que necesitas es un archivo."},
+                 "opciones": {"type": "array", "minItems": 2, "maxItems": _pasos().MAX_OPCIONES,
+                              "items": dict(cadena, minLength=1, maxLength=_pasos().MAX_OPCION),
+                              "description": "Con pide: las respuestas posibles (botones en la caja del socio)."},
+             },
+             "required": ["ejecucion", "accion"],
+             "additionalProperties": False}},
     ]
     activas = herramientas_activas()
-    return [h for h in lista if h["name"] in activas]
+    # en el orden de herramientas_activas (el de sus reglas): reportar_avance antes de decidir
+    return sorted((h for h in lista if h["name"] in activas), key=lambda h: activas.index(h["name"]))
 
 
 def _agent_points():
@@ -267,10 +375,12 @@ def contexto(env=None, cadena=None):
 def _valor(env, k):
     """Valor de una variable de la pestaña; '' si falta o si es un `${…}` /
     `$NOMBRE` sin expandir (Kiro deja así una variable que no existe en
-    `env` de su config, VERIFICADO 2.37.1: el socio salía «${workspace_socio}»)."""
+    `env` de su config, VERIFICADO 2.37.1: el socio salía «${workspace_socio}»;
+    Cursor deja «${env:NOMBRE}» tal cual si NOMBRE no existe, VERIFICADO
+    2026.11.19-f005e9d con su `.cursor/mcp.json` de proyecto)."""
     import re
     v = str(env.get(k) or "").strip()
-    return "" if re.fullmatch(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?", v) else v
+    return "" if re.fullmatch(r"\$\{?(?:env:)?[A-Za-z_][A-Za-z0-9_]*\}?", v) else v
 
 
 def _fijar(run):
@@ -414,7 +524,14 @@ def ver_memoria(args, run):
 def validar_decidir(args):
     from decision_errors import _t                    # lo que lee el agente sigue ui.lang
     args = _objeto(args)
-    _sobrantes(args, ("point", "question", "options", "context", "request"))
+    _sobrantes(args, ("point", "question", "options", "context", "request", "id", "resultado"))
+    if args.get("resultado") is not None:
+        rid, res = args.get("id"), args.get("resultado")
+        if not isinstance(rid, str) or not rid.strip() or len(rid) > 24 \
+                or res not in ("usada", "descartada"):
+            raise Rechazo(_t("decisores.mcp.result", "para avisar: id (texto) y resultado "
+                             "(usada o descartada)"))
+        return {"reporte": True, "id": rid.strip(), "resultado": res}
     point = args.get("point")
     if not isinstance(point, str) or point not in _agent_points():
         raise Rechazo(_t("decisores.mcp.bad_point", "point inválido: {p} (usa uno de: {ok})",
@@ -447,19 +564,114 @@ def validar_decidir(args):
 
 def decidir(args, run):
     """Decisores (usos de agentes): la misma respuesta que `workspace decidir`."""
+    from decisions import decisores_activos
+    if not decisores_activos():
+        return json.dumps({"mode": "off", "message": "en pausa"})
     v = validar_decidir(args)
     import decisions
+    if v.get("reporte"):
+        return json.dumps(decisions.reportar(v["id"], v["resultado"]), ensure_ascii=False)
     out = decisions.for_agent(v["point"], v["question"], v["options"], v["context"],
                               request=v["request"])
     return json.dumps(out, ensure_ascii=False)
 
 
+def revision_resultado(args, run):
+    """La revisión de skills: el agente reporta qué dejó (skill_review.reportar)."""
+    args = _objeto(args)
+    _sobrantes(args, ("resultado", "skill", "entrega"))
+    res = args.get("resultado")
+    skill = args.get("skill") or ""
+    entrega = args.get("entrega") or ""
+    if res not in ("creada", "mejorada", "nada") or not isinstance(skill, str) or len(skill) > 120:
+        raise Rechazo("resultado: creada, mejorada o nada (y skill, texto)")
+    if not isinstance(entrega, str) or len(entrega) > 40:
+        raise Rechazo("entrega: el id de la entrega, tal cual está en tu tarea")
+    sr = _skill_review()
+    ok, msg = sr.reportar(sr.brain_root(run["brain"]), sr.pestana_actual({}), res, skill,
+                          entrega=entrega)
+    if not ok:
+        raise Rechazo(msg)
+    return msg
+
+
+def _pasos():
+    import pasos
+    return pasos
+
+
+def validar_avance(args):
+    """→ (ejecucion, accion, argv de pasos.aplicar): lo mismo que acepta
+    `pasos.py`, con tipos (ningún argumento pasa por una shell)."""
+    P = _pasos()
+    args = _objeto(args)
+    _sobrantes(args, ("ejecucion", "accion", "pasos", "n", "texto", "archivo", "opciones"))
+    eid = args.get("ejecucion")
+    if not isinstance(eid, str) or not P.ID_RE.match(eid):
+        raise Rechazo("ejecucion inválida: usa el id que trae la instrucción (s-…)")
+    accion = args.get("accion")
+    if accion not in AVANCE_ACCIONES:
+        raise Rechazo("accion inválida: %r (usa %s)" % (accion, ", ".join(AVANCE_ACCIONES)))
+    archivo = args.get("archivo", False)
+    if not isinstance(archivo, bool):
+        raise Rechazo("archivo tiene que ser true o false")
+    texto = args.get("texto")
+    if texto is None:
+        texto = ""
+    if not isinstance(texto, str) or "\x00" in texto or len(texto) > P.MAX_PIDE:
+        raise Rechazo("texto tiene que ser texto de hasta %d caracteres" % P.MAX_PIDE)
+    if accion == "plan":
+        lista = args.get("pasos")
+        if not isinstance(lista, list) or not lista or len(lista) > P.MAX_PASOS \
+                or not all(isinstance(p, str) for p in lista):
+            raise Rechazo("plan necesita pasos: una lista de 1 a %d textos" % P.MAX_PASOS)
+        return eid, accion, list(lista)
+    if accion in ("ahora", "hecho"):
+        n = args.get("n")
+        if isinstance(n, bool) or not isinstance(n, int):
+            raise Rechazo("%s necesita n, el número del paso" % accion)
+        return eid, accion, [str(n)] + ([texto] if accion == "ahora" and texto else [])
+    if accion == "pide":
+        opciones = args.get("opciones") or []
+        if not isinstance(opciones, list) or not all(isinstance(o, str) for o in opciones):
+            raise Rechazo("opciones tiene que ser una lista de textos")
+        return eid, accion, [texto] + (["--archivo"] if archivo else []) + \
+            [x for o in opciones for x in ("--opcion", o)]
+    return eid, accion, [texto]
+
+
+def reportar_avance(args, run):
+    """El avance de la skill (pasos.aplicar) SOLO en una ejecución que ya
+    existe en el cerebro de la ventana: la crea Workspace al arrancar la skill
+    (el CLI la crearía; aquí no se inventa ninguna)."""
+    P = _pasos()
+    eid, accion, argv = validar_avance(args)
+    brain = run["brain"]
+    if not os.path.isfile(P.ruta(eid, brain)):
+        raise Rechazo("la ejecución %s no existe en este cerebro: usa el id que trae la "
+                      "instrucción" % eid)
+    try:
+        # skills-cierre: con el candado de la ejecución (el servidor de la página la pausa o la contesta a la vez, y
+        # Copilot y OpenCode mandan sus llamadas en paralelo)
+        msg = P.aplicar_en(eid, accion, argv, brain)
+    except (ValueError, OSError) as e:
+        raise Rechazo(str(e))
+    return "pasos: " + msg
+
+
 _LLAMAR = {"guardar_nota": guardar_nota, "guardar_resumen": guardar_resumen,
-           "ver_memoria": ver_memoria, "decidir": decidir}
+           "ver_memoria": ver_memoria, "decidir": decidir, REVISION: revision_resultado,
+           AVANCE: reportar_avance}
 
 
 def llamar(nombre, args, env=None, cadena=None):
     """tools/call → (texto, es_error). Nunca lanza."""
+    if nombre == DECIDIR:
+        from decisions import decisores_activos
+        if not decisores_activos():
+            return "en pausa", False
+    if nombre == REVISION and not revision_activa(env):
+        return "revision_resultado no está disponible: la revisión de skills está apagada.", True
     if nombre == DECIDIR and not decidir_activo():     # se mira en CADA llamada
         try:
             from decision_errors import _t
@@ -527,8 +739,9 @@ KIRO_ESCRIBE = "./**"
 #: se escribía sin preguntar con solo `.cursor`; V3 ya lo negaba.
 KIRO_SIN_MAYUSCULAS = True
 #: Autonomías con las que el agente escribe en su cerebro sin preguntar
-#: (contrato común: engines/_ui.autonomy; «full» de antes se lee «brain»).
-KIRO_AUTONOMIAS_LIBRES = ("brain", "full")
+#: (contrato común: engines/_ui.autonomy; «full» de antes se lee «brain»; «edit»,
+#: Editar sin preguntar, también: Kiro no tiene modo automático y queda así).
+KIRO_AUTONOMIAS_LIBRES = ("brain", "edit", "full")
 #: Estados de _rehacer y _fusionar con los que el archivo quedó como debe.
 LISTO = ("ready", "written", "restored")
 
@@ -915,16 +1128,20 @@ def _escribir_json(path, data, mode=0o600):
     _write(Path(path), data, mode)
 
 
-def _reglas(formato, todas=False, decidir=None):
+def _reglas(formato, todas=False, decidir=None, antes=False):
     """Las reglas de aprobación por nombre. `todas`: también `decidir` aunque
     hoy esté apagado (para QUITAR lo nuestro: una que quedó de cuando estaba
     encendido también es nuestra). `decidir` True/False: con o sin ella, sin
-    mirar el estado de hoy (las formas nuestras de un archivo de Workspace)."""
+    mirar el estado de hoy (las formas nuestras de un archivo de Workspace).
+    `antes`: las de la versión anterior (HERRAMIENTAS_ANTES, sin AVANCE), para
+    reconocer como nuestro un archivo que se escribió con ellas."""
+    base = HERRAMIENTAS_ANTES if antes else HERRAMIENTAS
     if todas or decidir is True:
-        return [formato % t for t in HERRAMIENTAS + (DECIDIR,)]
+        return [formato % t for t in base + (DECIDIR,)]
     if decidir is False:
-        return [formato % t for t in HERRAMIENTAS]
-    return [formato % t for t in herramientas_activas()]
+        return [formato % t for t in base]
+    activas = herramientas_activas()
+    return [formato % t for t in activas if not antes or t not in HERRAMIENTAS or t in base]
 
 
 # · GitHub Copilot: config y permiso POR CORRIDA (nada escrito en su config) ·
@@ -1103,9 +1320,12 @@ def _cursor_fusion_cli():
     con = _reglas(CURSOR_REGLA, decidir=True)
     sin = _reglas(CURSOR_REGLA, decidir=False)
     opcional = [r for r in con if r not in sin]
+    # las nuevas de esta versión (reportar_avance): un cli.json de antes no las
+    # trae y no es que alguien las quitó; se agregan sin respaldo ni aviso
+    nuevas = [r for r in sin if r not in _reglas(CURSOR_REGLA, decidir=False, antes=True)]
     return (CURSOR_CLI_REL, _con_reglas(cursor_cli_plantilla()["permissions"],
                                         quitar=[r for r in opcional if r not in cursor_reglas()],
-                                        opcionales=opcional))
+                                        opcionales=opcional + nuevas))
 
 
 def ensure_cursor_mcp(brain, root=None, python=None, avisos=None):
@@ -1230,12 +1450,30 @@ def clean_cursor(brain):
                                       (CURSOR_CLI_REL, sin_reglas_cursor)))
 
 
+#: cable-cursor: lo que el núcleo de la arquitectura nueva (arquitectura/fichas/cursor.json) suma al `.cursor/` del
+#: cerebro: su servidor `workspace` (por fusión en mcp.json) y la regla que permite SOLO sus herramientas (cli.json).
+#: Al quitar el agente o desinstalar sale con lo de la memoria.
+NUCLEO_SERVIDOR = "workspace"
+NUCLEO_REGLA_CURSOR = "Mcp(workspace:*)"
+
+
+def _es_del_nucleo(entrada):
+    """¿La entrada es el servidor del núcleo que pone Workspace (el lanzador `mcp.py` de su paquete o del fijo)?"""
+    if not isinstance(entrada, dict) or not isinstance(entrada.get("args"), list) or not entrada["args"]:
+        return False
+    ruta = str(entrada["args"][-1]).replace("\\", "/")
+    return ruta.endswith("/lanzador/mcp.py") and "/arquitectura/" in ruta
+
+
 def sin_servidor(data):
     srv = data.get("mcpServers")
-    if not isinstance(srv, dict) or not _es_nuestro(srv.get(SERVIDOR)):
+    if not isinstance(srv, dict):
+        return data, False
+    quitar = [k for k, ok in ((SERVIDOR, _es_nuestro), (NUCLEO_SERVIDOR, _es_del_nucleo)) if ok(srv.get(k))]
+    if not quitar:
         return data, False
     new = dict(data)
-    new["mcpServers"] = {k: v for k, v in srv.items() if k != SERVIDOR}
+    new["mcpServers"] = {k: v for k, v in srv.items() if k not in quitar}
     return new, True
 
 
@@ -1249,8 +1487,13 @@ def sin_reglas_cursor(data):
     nuestras = cursor_cli_plantilla()["permissions"]     # las mismas que mete la fusión
     # + las de la otra plataforma: el cerebro viaja, y una PC con Windows deja
     # las de `\` en un cli.json que luego se limpia en una Mac (y al revés)
-    reglas = set(nuestras["allow"]) | set(_reglas(CURSOR_REGLA, todas=True))
+    reglas = set(nuestras["allow"]) | set(_reglas(CURSOR_REGLA, todas=True)) | {NUCLEO_REGLA_CURSOR}
     negadas = set(nuestras["deny"]) | set(_cursor_deny(True)) | set(_cursor_deny(False))
+    try:            # las de lo prohibido de leer que suma el núcleo (arquitectura/fichas/cursor.json · sesion.archivos)
+        from arquitectura import secretos as _secretos
+        negadas |= _secretos.cursor_todas()
+    except Exception:
+        pass
     if not any(r in reglas for r in allow) and not any(r in negadas for r in deny):
         return data, False
     new = dict(data)
@@ -1341,8 +1584,138 @@ def _kiro_lectura():
     return v2, v3
 
 
+#: El servidor MCP núcleo del paquete en el perfil (arquitectura/nucleo_mcp); el de la memoria es SERVIDOR.
+KIRO_NUCLEO = "workspace"
+#: Los hooks del paquete en el perfil se llaman «workspace-<momento>» (arquitectura/generar.perfil_kiro).
+_KIRO_HOOK = "workspace-"
+#: Las skills del paquete viven en el estado de Workspace (arquitectura/sesion.carpeta_paquetes).
+_KIRO_SKILLS_DEL_PAQUETE = "/arquitectura/paquete/"
+
+
+def kiro_paquete(brain):
+    """cable-kiro (19-nov) · Lo del paquete de Workspace que va DENTRO del perfil `workspace` del cerebro:
+    {"hooks", "mcp", "skills", "herramientas"}, sacado del perfil que arma arquitectura/generar (perfil_kiro) para
+    el paquete de ESE cerebro, con el lanzador FIJO (arquitectura/sesion.lanzador_fijo: la ruta no cambia al
+    actualizar Workspace). Va en el perfil y no en `.kiro/hooks/` del proyecto: los hooks del perfil corren solo
+    con este agente (el que Workspace elige por corrida) y se van con él al desinstalar; uno del proyecto correría
+    también al abrir Kiro a mano en el cerebro (en otra máquina, con rutas que no existen: Kiro bloquea la
+    herramienta si el hook de antes falla). None si el paquete por sesión está apagado o la ficha de Kiro no lo
+    manda por el perfil (`sesion.perfil`). Falla-suave: None → el perfil de siempre (solo la memoria)."""
+    try:
+        from arquitectura import contrato, nucleo, sesion
+        if not sesion.activo():
+            return None
+        f = contrato.ficha("kiro")
+        s = f.get("sesion") or {}
+        if contrato.sin_via(s) or not s.get("perfil"):
+            return None
+        pkg = sesion.instalar(brain)[f["paquete"]["formato"]]
+        with open(os.path.join(pkg, *f["paquete"]["hooks"]["ruta"].split("/")), encoding="utf-8") as fh:
+            texto = fh.read()
+        texto = texto.replace(pkg.replace("\\", "/") + "/lanzador/", sesion.lanzador_fijo(pkg) + "/")
+        perfil = json.loads(texto)
+        mcp = (perfil.get("mcpServers") or {}).get(KIRO_NUCLEO)
+        mcp = mcp if isinstance(mcp, dict) else None
+        return {"hooks": [h for h in perfil.get("hooks") or () if isinstance(h, dict)],
+                "mcp": mcp,
+                "skills": [r for r in perfil.get("resources") or () if str(r).startswith("skill://")],
+                "nombres": _kiro_skills_del_paquete(os.path.join(pkg, "skills")),
+                "herramientas": list(nucleo.herramientas_mcp()) if mcp else []}
+    except Exception:
+        return None
+
+
+def _kiro_skills_del_paquete(carpeta):
+    """Los nombres de las skills del paquete (su carpeta y el `name:` de su SKILL.md): las del catálogo del cerebro y
+    las de Workspace. Solo esas se cargan sin preguntar (la regla `skill` del perfil); las demás del socio, como
+    siempre."""
+    out = []
+    try:
+        hijos = sorted(os.listdir(carpeta))
+    except OSError:
+        return out
+    for n in hijos:
+        archivo = os.path.join(carpeta, n, "SKILL.md")
+        if not os.path.isfile(archivo):
+            continue
+        nombres = [n]
+        try:
+            with open(archivo, encoding="utf-8") as fh:
+                cabeza = fh.read(2000)
+            m = re.search(r"^name:\s*[\"']?([^\"'\n]+?)[\"']?\s*$", cabeza, re.M) if cabeza.startswith("---") else None
+            if m:
+                nombres.append(m.group(1).strip())
+        except (OSError, UnicodeDecodeError):
+            pass
+        for x in nombres:
+            if x and x not in out:
+                out.append(x)
+    return out
+
+
+def _kiro_con_paquete(cfg, paquete):
+    """El perfil con lo del paquete (kiro_paquete): sus hooks en línea (doc «hooks»: el arreglo del perfil, con
+    name/trigger/matcher/action), el servidor MCP núcleo con sus herramientas aprobadas por nombre (V3: una regla
+    `mcp` aparte; 2.x: `allowedTools`), y sus skills en `resources`. Exactamente lo que quita _kiro_sin_paquete."""
+    cfg = dict(cfg)
+    if paquete.get("hooks"):
+        cfg["hooks"] = [dict(h) for h in paquete["hooks"]]
+    if paquete.get("mcp"):
+        cfg["mcpServers"] = dict(cfg["mcpServers"], **{KIRO_NUCLEO: dict(paquete["mcp"])})
+        herr = list(paquete.get("herramientas") or ())
+        if herr:
+            cfg["allowedTools"] = list(cfg["allowedTools"]) + ["@%s/%s" % (KIRO_NUCLEO, h) for h in herr]
+            cfg["permissions"] = dict(cfg["permissions"], rules=list(cfg["permissions"]["rules"]) + [
+                {"capability": "mcp", "match": ["%s/%s" % (KIRO_NUCLEO, h) for h in herr], "effect": "allow"}])
+    skills = [r for r in paquete.get("skills") or () if r not in cfg["resources"]]
+    if skills:
+        cfg["resources"] = list(cfg["resources"]) + skills
+    if skills and paquete.get("nombres"):
+        # cargar una skill es la herramienta «Load skill» (disclose_context), que pregunta: sin pantalla se niega y en
+        # la terminal pedía permiso por cada una. La capacidad `skill` de su doc «permissions», por NOMBRE: solo las del
+        # paquete (VERIFICADO 19-nov, 3.5.0 sin pantalla: con la regla se carga; sin ella, «[denied]»)
+        cfg["permissions"] = dict(cfg["permissions"], rules=list(cfg["permissions"]["rules"]) + [
+            {"capability": "skill", "match": list(paquete["nombres"]), "effect": "allow"}])
+    return cfg
+
+
+def _regla_del_nucleo(r):
+    m = r.get("match") if isinstance(r, dict) else None
+    return (isinstance(m, list) and bool(m) and r.get("capability") == "mcp" and r.get("effect") == "allow"
+            and all(str(x).startswith(KIRO_NUCLEO + "/") for x in m))
+
+
+def _kiro_sin_paquete(data):
+    """El perfil sin lo que le pone el paquete (para reconocer como NUESTRO uno con los hooks, el MCP núcleo o las
+    skills de otra versión del paquete, de otro Python o con el paquete apagado). Solo quita lo que tiene la forma
+    del paquete: un hook que no es «workspace-…» llamando a su lanzador deja el perfil como está (no es nuestro)."""
+    if not isinstance(data, dict):
+        return data
+    d = dict(data)
+    hooks = d.get("hooks")
+    if isinstance(hooks, list) and all(
+            isinstance(h, dict) and str(h.get("name") or "").startswith(_KIRO_HOOK)
+            and "/hook.py" in str((h.get("action") or {}).get("command") or "").replace("\\", "/") for h in hooks):
+        d.pop("hooks")
+    servers = d.get("mcpServers")
+    if isinstance(servers, dict) and isinstance(servers.get(KIRO_NUCLEO), dict) \
+            and "/mcp.py" in json.dumps(servers[KIRO_NUCLEO]).replace("\\\\", "/"):
+        d["mcpServers"] = {k: v for k, v in servers.items() if k != KIRO_NUCLEO}
+    if isinstance(d.get("allowedTools"), list):
+        d["allowedTools"] = [x for x in d["allowedTools"] if not str(x).startswith("@%s/" % KIRO_NUCLEO)]
+    perms = d.get("permissions")
+    if isinstance(perms, dict) and isinstance(perms.get("rules"), list):
+        d["permissions"] = dict(perms, rules=[r for r in perms["rules"] if not (
+            _regla_del_nucleo(r) or (isinstance(r, dict) and r.get("capability") == "skill"
+                                     and r.get("effect") == "allow"))])
+    if isinstance(d.get("resources"), list):
+        d["resources"] = [r for r in d["resources"] if not (
+            str(r).startswith("skill://") and _KIRO_SKILLS_DEL_PAQUETE in str(r).replace("\\", "/"))]
+    return d
+
+
 def kiro_agente_config(brain, root=None, python=None, kiro_dir=None, autonomia=None,
-                       _negar=None, decidir=None, _lectura=None):
+                       _negar=None, decidir=None, _lectura=None, _antes=False, paquete=None):
     """El agente `workspace`, válido en las DOS líneas de Kiro (doc «agent
     configuration reference», https://kiro.dev/docs/custom-agents/configuration-reference/:
     V3 no usa `allowedTools` ni `toolsSettings`, pero carga el archivo si trae
@@ -1358,7 +1731,9 @@ def kiro_agente_config(brain, root=None, python=None, kiro_dir=None, autonomia=N
     podría darse permisos. VERIFICADO 3.1.0 en vivo (V2 y V3 sin ventana y el
     arranque en un pty: tests/e2e/kiro_permisos.py).
     Los demás campos son los de `kiro-cli agent create --from kiro_default`
-    (2.35.2) sin su persona, que competiría con la identidad del cerebro."""
+    (2.35.2) sin su persona, que competiría con la identidad del cerebro.
+    cable-kiro: con `paquete` (kiro_paquete), también los hooks, el MCP núcleo y
+    las skills del paquete de Workspace (_kiro_con_paquete)."""
     if kiro_dir is None:
         try:
             from engines import kiro
@@ -1374,7 +1749,8 @@ def kiro_agente_config(brain, root=None, python=None, kiro_dir=None, autonomia=N
     reglas = [{"capability": "fs_read", "match": ["./**"], "effect": "allow"}]
     if libre:
         reglas.append({"capability": "fs_write", "match": [KIRO_ESCRIBE], "effect": "allow"})
-    reglas += [{"capability": "mcp", "match": _reglas(SERVIDOR + "/%s", decidir=decidir),
+    reglas += [{"capability": "mcp", "match": _reglas(SERVIDOR + "/%s", decidir=decidir,
+                                                      antes=_antes),
                 "effect": "allow"},
                {"capability": "fs_write", "match": list(deny_v3), "effect": "deny"}]
     if lee_v3:          # la bóveda de llaves: una regla APARTE (ver _kiro_lectura)
@@ -1382,14 +1758,14 @@ def kiro_agente_config(brain, root=None, python=None, kiro_dir=None, autonomia=N
     ajustes = {"fs_write": fs_write}
     if lee_v2:
         ajustes["fs_read"] = {"deniedPaths": list(lee_v2)}
-    return {
+    cfg = {
         "name": KIRO_AGENTE,
         "description": KIRO_MARCA + " el agente por defecto de Kiro para los cerebros de "
                        "Workspace, con su herramienta de memoria (MCP) aprobada por nombre. Lo "
                        "reescribe Workspace al abrir un agente: no lo edites.",
         "mcpServers": {SERVIDOR: servidor(root, python)},
         "tools": ["*"],
-        "allowedTools": _reglas("@" + SERVIDOR + "/%s", decidir=decidir),
+        "allowedTools": _reglas("@" + SERVIDOR + "/%s", decidir=decidir, antes=_antes),
         "resources": ["file://" + os.path.join(b, "AGENTS.md"),
                       "file://" + os.path.join(b, "README.md"),
                       "skill://" + os.path.join(b, ".kiro", "skills", "*", "SKILL.md"),
@@ -1404,57 +1780,128 @@ def kiro_agente_config(brain, root=None, python=None, kiro_dir=None, autonomia=N
         "model": None,
         "permissions": {"rules": reglas},
     }
+    return _kiro_con_paquete(cfg, paquete) if paquete else cfg
 
 
 def _kiro_es_nuestro(data):
     return isinstance(data, dict) and str(data.get("description") or "").startswith(KIRO_MARCA)
 
 
-def ensure_kiro_agente(brain, root=None, python=None, avisos=None, autonomia=None):
+def ensure_kiro_agente(brain, root=None, python=None, avisos=None, autonomia=None, paquete=None):
     """Rehace el agente del cerebro desde la plantilla (lo que no sea eso se
     respalda primero). El de la otra autonomía es nuestro (el socio la cambió
     en Agentes; la de «ask» es también la de la versión anterior): se rehace
-    sin respaldo ni aviso. → 'ready' | 'written' | 'restored' | 'blocked'."""
-    want = kiro_agente_config(brain, root, python, autonomia=autonomia)
+    sin respaldo ni aviso. cable-kiro: con `paquete` (kiro_paquete) lleva
+    también los hooks, el MCP núcleo y las skills del paquete; uno nuestro con
+    lo de otro paquete (otra versión, el paquete apagado) se rehace igual, sin
+    respaldo ni aviso. → 'ready' | 'written' | 'restored' | 'blocked'."""
+    want = kiro_agente_config(brain, root, python, autonomia=autonomia, paquete=paquete)
     otra = "ask" if kiro_escribe_sin_preguntar(autonomia) else "brain"
     # la de antes (solo negaba `.kiro`), con las dos autonomías, y cada una con
     # y sin `decidir` (prender o apagar un uso de agentes la agrega o la quita:
     # el archivo sigue siendo el de Workspace, sin respaldo ni aviso)
     antes = (list(KIRO_DENY_V2_ANTES), list(KIRO_DENY_V3_ANTES))
     nuestros = []
-    # y con o sin la regla de lectura de la bóveda (la de antes de 2026-11-08 no la traía)
+    # y con o sin la regla de lectura de la bóveda (la de antes de 2026-11-08 no la traía),
+    # y con o sin reportar_avance (la de antes del 17-nov no la aprobaba)
     for dec in (None, True, False):
         for a in (autonomia, otra):
             for negar in (None, antes):
                 for lectura in (None, ((), ())):
-                    n = kiro_agente_config(brain, root, python, autonomia=a, _negar=negar,
-                                           decidir=dec, _lectura=lectura)
-                    if n != want and n not in nuestros:
-                        nuestros.append(n)
+                    for sin_avance in (False, True):
+                        n = kiro_agente_config(brain, root, python, autonomia=a, _negar=negar,
+                                               decidir=dec, _lectura=lectura, _antes=sin_avance)
+                        if n != want and n not in nuestros:
+                            nuestros.append(n)
+    try:
+        cur, _txt = _leer_json(kiro_agente_path(brain))
+    except Exception:
+        cur = None
+    if isinstance(cur, dict) and cur != want and cur not in nuestros \
+            and _kiro_sin_paquete(cur) in nuestros + [_kiro_sin_paquete(want)]:
+        nuestros.append(cur)
     return _rehacer(brain, os.path.join(".kiro", "agents", KIRO_AGENTE + ".json"),
                     want, avisos, nuestros=tuple(nuestros))
 
 
-def clean_kiro(brain):
-    """Borra el agente del cerebro si es nuestro (y las carpetas `.kiro/agents`
-    y `.kiro` si quedaron vacías). → [rutas] borradas."""
-    path = kiro_agente_path(brain)
+# · Kiro: el agente de la PÁGINA (cierre de la auditoría, 19-nov) ·
+#: Por ACP Kiro no corre los avisos de Workspace (ficha · via_control.avisos), y el de antes de cada herramienta es el
+#: que niega leer llaves y secretos. La página abre su sesión con ESTE agente del proyecto (`_meta.kiro.modeId` en
+#: session/new, doc de ACP de Kiro 3.5.0), con reglas `fs_read` deny de lo prohibido (arquitectura/secretos.
+#: kiro_reglas). Sin servidores MCP (el núcleo va en la sesión, como antes) ni avisos (por ACP no corren).
+KIRO_AGENTE_PAGINA = "workspace-pagina"
+#: Modo escritorio (decisión del dueño, 21-nov): el agente de la conversación del monito, el de la página con «ask»
+#: (lee en su carpeta sin preguntar; escribir y lo demás pregunta), con cualquier nivel del agente.
+KIRO_AGENTE_ESCRITORIO = "workspace-escritorio"
+
+
+def kiro_pagina_path(brain, nombre=KIRO_AGENTE_PAGINA):
+    return os.path.join(str(brain), ".kiro", "agents", nombre + ".json")
+
+
+def kiro_pagina_config(brain, autonomia=None, kiro_dir=None, nombre=KIRO_AGENTE_PAGINA):
+    """El agente `workspace-pagina`: lo mismo que el de la terminal (kiro_agente_config: leer en su carpeta sin
+    preguntar, escribir según la autonomía, nunca su config ni la de otros motores, git u Obsidian, ni la bóveda) sin
+    sus servidores MCP, más las reglas que niegan leer lo prohibido. Caja negra 19-nov (kiro-cli 3.5.0, ACP V3, con un
+    canario): con el agente de fábrica leyó `secrets.local`; con este, «Blocked by a permission rule (deny fs_read…)
+    Source: agent-profile», y `.env.example` y lo demás de su carpeta se leen sin preguntar."""
+    from arquitectura import secretos
+    base = kiro_agente_config(brain, autonomia=autonomia, kiro_dir=kiro_dir)
+    reglas = [r for r in base["permissions"]["rules"] if r.get("capability") != "mcp"] + secretos.kiro_reglas()
+    return {
+        "name": nombre,
+        "description": KIRO_MARCA + (" el agente de Kiro para la página de Workspace (por ACP): lee y escribe como "
+                                     "el de la terminal y no lee llaves ni secretos." if nombre == KIRO_AGENTE_PAGINA
+                                     else " el agente de Kiro para el monito de escritorio de Workspace (por ACP): lee "
+                                          "en su carpeta y pregunta antes de todo lo demás.")
+                       + " Lo reescribe Workspace al abrir la página: no lo edites.",
+        "tools": ["*"],
+        "resources": list(base["resources"]),
+        "includeMcpJson": True,
+        "permissions": {"rules": reglas},
+    }
+
+
+def preparar_kiro_pagina(brain, autonomia=None, avisos=None, nombre=KIRO_AGENTE_PAGINA):
+    """Deja el agente de la página (o, con `nombre`, el del monito) en `<cerebro>/.kiro/agents/` (como _rehacer: un
+    archivo TODO de Workspace; una versión de antes, marcada como nuestra, se rehace sin respaldo).
+    → 'ready' | 'written' | 'restored' | 'blocked'."""
+    want = kiro_pagina_config(brain, autonomia=autonomia, nombre=nombre)
+    nuestros = ()
     try:
-        if _enlace_en_ruta(brain, ".kiro/agents/" + KIRO_AGENTE + ".json") \
-                or not os.path.isfile(path):
-            return []
-        cur, _txt = _leer_json(path)
-        if not _kiro_es_nuestro(cur):
-            return []
-        os.remove(path)
-    except (OSError, ValueError):
-        return []
-    for d in (os.path.dirname(path), os.path.dirname(os.path.dirname(path))):
+        cur, _txt = _leer_json(kiro_pagina_path(brain, nombre))
+        if _kiro_es_nuestro(cur) and isinstance(cur, dict) and cur.get("name") == nombre:
+            nuestros = (cur,)
+    except Exception:
+        pass
+    return _rehacer(brain, os.path.join(".kiro", "agents", nombre + ".json"), want, avisos, nuestros=nuestros)
+
+
+def clean_kiro(brain):
+    """Borra los agentes del cerebro si son nuestros (el de la terminal y el de la página; y las carpetas
+    `.kiro/agents` y `.kiro` si quedaron vacías). → [rutas] borradas."""
+    hechos = []
+    for nombre, path in ((KIRO_AGENTE, kiro_agente_path(brain)), (KIRO_AGENTE_PAGINA, kiro_pagina_path(brain)),
+                         (KIRO_AGENTE_ESCRITORIO, kiro_pagina_path(brain, KIRO_AGENTE_ESCRITORIO))):
         try:
-            os.rmdir(d)                    # solo si quedó vacía
-        except OSError:
-            break
-    return [path]
+            if _enlace_en_ruta(brain, ".kiro/agents/" + nombre + ".json") \
+                    or not os.path.isfile(path):
+                continue
+            cur, _txt = _leer_json(path)
+            if not _kiro_es_nuestro(cur):
+                continue
+            os.remove(path)
+            hechos.append(path)
+        except (OSError, ValueError):
+            continue
+    if hechos:
+        path = hechos[0]
+        for d in (os.path.dirname(path), os.path.dirname(os.path.dirname(path))):
+            try:
+                os.rmdir(d)                    # solo si quedó vacía
+            except OSError:
+                break
+    return hechos
 
 
 #: Opciones con las que el socio elige agente o motor de Kiro: ahí no se pasa
@@ -1510,19 +1957,20 @@ def kiro_usa_agente(passthrough=(), version=None, settings=None, brain=None):
 
 
 def preparar_kiro(brain, passthrough=(), version=None, root=None, python=None, avisos=None,
-                  autonomia=None):
+                  autonomia=None, paquete=None):
     """→ argumentos extra (`--agent workspace`) o [] (el socio eligió, o no se
     pudo escribir: la memoria pedirá permiso, como antes). El agente del
     cerebro se rehace también cuando no se elige, si ya existe: el socio lo
     puede elegir a mano y no debe correr con algo que alguien le cambió.
     `autonomia` = la del agente (engines/_ui.autonomy): con «brain», escribir
-    en el cerebro no pregunta."""
+    en el cerebro no pregunta. `paquete` (kiro_paquete): los hooks, el MCP
+    núcleo y las skills del paquete de Workspace en el mismo perfil."""
     if not brain or not os.path.isdir(str(brain)):
         return []
     usa = kiro_usa_agente(passthrough, version, brain=brain)
     if not usa and not os.path.lexists(kiro_agente_path(brain)):
         return []
-    if ensure_kiro_agente(brain, root, python, avisos, autonomia=autonomia) not in LISTO \
+    if ensure_kiro_agente(brain, root, python, avisos, autonomia=autonomia, paquete=paquete) not in LISTO \
             or not usa:
         return []
     return ["--agent", KIRO_AGENTE]
@@ -1665,7 +2113,7 @@ def agy_settings(brain, settings_path=None, mcp=True):
 
 
 def _preparar_antigravity(brain, passthrough=(), root=None, python=None, avisos=None,
-                          settings_path=None):
+                          settings_path=None, autonomia=None):
     """→ (args, herramienta lista). `args` = `["--settings", <archivo>]` con
     el deny de las rutas protegidas (agy_deny) aunque la herramienta NO haya
     quedado (`.agents` es un enlace, su JSON no se entiende…): entonces va sin
@@ -1676,7 +2124,9 @@ def _preparar_antigravity(brain, passthrough=(), root=None, python=None, avisos=
     el lanzador NO pasa `--mode accept-edits` (engines.antigravity: sin deny,
     que pregunte). Con el `--settings` del socio no se toca
     `.agents/mcp_config.json` (es su corrida); tampoco si su settings.json
-    global no se puede leer (no habría corrida que lo use)."""
+    global no se puede leer (no habría corrida que lo use). Con `autonomia`
+    «ask» el archivo lleva además el modo que pregunta (`"agentMode": ""`):
+    esa corrida no lleva --mode y agy 1.5.7+ abre en Auto sin él."""
     if not brain or not os.path.isdir(str(brain)):
         return [], False
     propio = any(str(a) == _AGY_FLAG_SETTINGS or str(a).startswith(_AGY_FLAG_SETTINGS + "=")
@@ -1689,6 +2139,9 @@ def _preparar_antigravity(brain, passthrough=(), root=None, python=None, avisos=
     data = agy_settings(brain, settings_path, mcp=listo)
     if data is None:
         return [], False
+    if autonomia == "ask":
+        from engines import antigravity
+        data.update(json.loads(antigravity.AGY_PREGUNTA))
     path = agy_settings_path(brain)
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -1745,10 +2198,12 @@ def preparar(motor, brain="", exe="", passthrough=(), version=None, autonomia=No
             listo = preparar_cursor(brain, exe, avisos=avisos)
         elif motor == "kiro":
             extra = preparar_kiro(brain, passthrough, version, avisos=avisos,
-                                  autonomia=autonomia)
+                                  autonomia=autonomia,
+                                  paquete=kiro_paquete(brain) if brain else None)
             listo = bool(extra)
         elif motor == "antigravity":
-            extra, listo = _preparar_antigravity(brain, passthrough, avisos=avisos)
+            extra, listo = _preparar_antigravity(brain, passthrough, avisos=avisos,
+                                                 autonomia=autonomia)
     except Exception:
         extra, listo = [], False
     _AVISOS.extend(avisos)

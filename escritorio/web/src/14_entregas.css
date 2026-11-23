@@ -1,0 +1,279 @@
+/* ===== E1 · entregas en la burbuja (27_entregas.js) =====
+   Con las variables y los botones (.chip) de la página; el color lo pone el personaje (--c), la interfaz va en grises y
+   cada tipo de archivo trae su color en su etiqueta (--e). Entrar y salir es de la clase de cada pieza (.entra, .sale);
+   cambiar de alto lo desliza `acomodar`. Con «reducir movimiento», nada se mueve. */
+
+/* ---------- la tarjeta de una entrega ---------- */
+.wsm-ent{display:flex;flex-direction:column;gap:9px;padding:9px;border-radius:16px;background:#1d1d21;border:1px solid #2c2c33}
+.wsm-ent-arr{display:grid;grid-template-columns:1fr;gap:8px;cursor:grab;-webkit-user-drag:none;user-select:none;-webkit-user-select:none}
+.wsm.sacando .wsm-ent-arr{cursor:grabbing}
+.wsm-ent-mini{--e:#6b6b78;position:relative;height:96px;border-radius:11px;overflow:hidden;display:grid;place-items:center;
+  background:linear-gradient(160deg,color-mix(in srgb,var(--e) 22%,#232328),#1a1a1e);border:1px solid #2e2e35}
+.wsm-ent-mini.foto{background:#f4f4f6;border-color:#3a3a42}
+.wsm-ent-mini img{max-width:100%;max-height:100%;object-fit:contain;display:block;-webkit-user-drag:none;pointer-events:none}
+/* una página (Word, PDF): su parte de arriba, a lo ancho (el título y lo primero se leen); una lámina, entera */
+.wsm-ent-mini.foto img{width:100%;height:100%;max-width:none;max-height:none;object-fit:cover;object-position:50% 0}
+.wsm-ent-mini.foto.ancha img{object-fit:contain;object-position:50% 50%}
+.wsm-ent-mini:not(.foto) img{width:56px;height:56px}
+.wsm-ent-mini .ext{position:absolute;left:8px;bottom:8px;padding:2px 6px;border-radius:5px;background:var(--e);color:#fff;
+  font:800 10.5px/1.2 var(--sans);letter-spacing:.04em}
+.wsm-ent-mini:not(.foto) .ext:only-child{position:static;font-size:13px;padding:5px 9px}
+.wsm-ent .tx{min-width:0;padding:0 3px}
+.wsm-ent .tx b{display:block;font-size:13.5px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wsm-ent .tx small{display:block;margin-top:1px;color:var(--tx3);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wsm-ent>.chips{display:flex;flex-wrap:wrap;gap:6px}
+.wsm-ent .chip{padding:5px 11px;font-size:12.5px}
+.wsm-ent .wsm-mas{min-width:34px;padding:5px 9px;letter-spacing:.08em}
+.wsm-ent-pista{position:absolute;top:7px;right:7px;padding:2px 8px;border-radius:999px;background:rgba(20,20,24,.78);color:#d6d6de;
+  font-size:11px;font-weight:600;pointer-events:none;opacity:0;transition:opacity .15s}
+.wsm-ent-arr:hover .wsm-ent-pista{opacity:1}
+.wsm-ent-pista[hidden]{display:none}
+
+/* los menús de la tarjeta y de la barra: dentro de la burbuja (se deslizan), no capas encima */
+.wsm-ent-menu,.wsm-menub{display:flex;flex-direction:column;gap:2px;padding:5px;border-radius:12px;background:#18181b;border:1px solid #2c2c33}
+.wsm-menub{margin:0 2px 8px}
+.wsm .wsm-item{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;padding:7px 10px;border-radius:8px;text-align:left;
+  transition:background-color .12s}
+.wsm .wsm-item:hover{background:#26262c}
+.wsm .wsm-item.on{background:color-mix(in srgb,var(--c) 14%,#202024)}
+.wsm-item span{font-size:13px;font-weight:600;color:var(--tx)}
+.wsm-item small{font-size:11.5px;color:var(--tx3)}
+.wsm-sep{padding:6px 10px 3px;font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--tx3)}
+.wsm-in{width:100%;height:32px;margin:4px 0 2px;padding:0 10px;border-radius:9px;background:#202024;border:1px solid #2e2e35;color:var(--tx);
+  font:13px var(--sans);outline:0;-webkit-user-select:text;user-select:text}
+.wsm-in:focus{border-color:#3d3d46}
+.wsm-ent-menu .chips,.wsm-menub .chips{display:flex;gap:6px;margin-top:6px}
+.wsm-ags-p{display:flex;flex-wrap:wrap;gap:4px;padding:2px 4px}
+.wsm .wsm-ag-p{display:flex;align-items:center;gap:6px;height:34px;padding:0 10px 0 5px;border-radius:999px;color:var(--tx2);font-size:12.5px;font-weight:650;
+  transition:background-color .12s}
+.wsm .wsm-ag-p:hover{background:#222226}
+.wsm .wsm-ag-p.on{background:var(--card2);color:var(--tx);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--c) 45%,transparent)}
+.wsm-vacio{display:block;padding:6px 10px;font-size:12.5px;color:var(--tx3)}
+.wsm-ok{display:block;padding:4px 2px;font-size:12.5px;color:var(--ok)}
+.wsm-mal{display:block;padding:4px 2px;font-size:12.5px;color:#f2a39a}
+
+/* «Pedir cambios» y la versión que se está haciendo */
+.wsm-ent-cambios{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:2px 2px 0}
+.wsm-ent-cambios>small{margin-right:2px;font-size:11.5px;color:var(--tx3)}
+.wsm-ent-cambios .chip{padding:4px 10px;font-size:12px}
+.wsm-ent-cambios .wsm-in{flex:1;min-width:140px;margin:0}
+.wsm-ent-hace{padding:0 3px}
+.wsm-ent-hace small,.wsm-enc .wsm-pasos small{display:block;margin-top:6px;font-size:12px;color:var(--tx2)}
+.wsm-encs .barras,.wsm-ent-hace .barras{display:flex;gap:4px}
+.wsm-encs .barras b,.wsm-ent-hace .barras b{flex:1;height:5px;border-radius:999px;background:color-mix(in srgb,var(--c) 20%,#2a2a30)}
+.wsm-encs .barras b.h,.wsm-ent-hace .barras b.h{background:var(--c)}
+.wsm-encs .barras b.a,.wsm-ent-hace .barras b.a{background:var(--c);animation:lat 1s ease-in-out infinite}
+.barras.quieto b{opacity:.6}
+
+/* ---------- las tarjetas de encargo (la propuesta de la app y su avance) ---------- */
+.wsm-encs{display:flex;flex-direction:column;gap:9px;margin-top:9px}
+.wsm-enc{position:relative;display:flex;flex-direction:column;gap:7px;padding:11px 12px 12px;border-radius:16px;background:#1b1b1f;border:1px solid #2c2c33}
+.wsm-enc.necesita{border-color:color-mix(in srgb,var(--warn) 40%,#2c2c33)}
+.wsm-enc .cab{display:flex;align-items:center;gap:8px;min-height:22px;padding-right:24px;font-size:12px;color:var(--tx3)}
+.wsm-enc .cab b{color:var(--tx);font-size:13px;font-weight:650}
+.wsm-enc.prop .cab b{color:var(--warn)}
+.wsm-enc .cab .ico{flex:none;fill:var(--warn);shape-rendering:crispEdges}
+.wsm-enc .cab .pt,.wsm-toque .pt,.wsm-grande .fila .pt{width:8px;height:8px;border-radius:50%;background:var(--c);flex:none}
+.wsm-enc .cab .est{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wsm-enc .cab .wsm-cx{position:absolute;top:8px;right:8px}
+.wsm-enc .quien,.wsm-enc .titulo,.wsm-enc .pide,.wsm-enc .res{font-size:14px;line-height:1.45}
+.wsm-enc .titulo{font-weight:650}
+.wsm-enc .pedido{padding:7px 11px;border-left:3px solid var(--c);border-radius:4px 10px 10px 4px;background:#222227;font-size:13.5px;line-height:1.45;
+  color:var(--tx)}
+.wsm-enc .filas{display:grid;grid-template-columns:auto 1fr;gap:5px 12px;align-items:baseline;font-size:12.5px}
+.wsm-enc .filas .k{color:var(--tx3)}
+.wsm-enc .filas .v b{font-weight:600;color:var(--tx)}
+.wsm-enc .filas .v small{display:block;color:var(--tx3);font-size:11.5px}
+.wsm-enc .chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:2px}
+.wsm-enc .chip{padding:6px 13px;font-size:13px}
+.wsm-enc .nota{font-size:11.5px;line-height:1.4;color:var(--tx3)}
+
+/* ---------- el número del nido y el globito del toque ---------- */
+.wsm-insignia{position:absolute;top:8px;right:8px;z-index:4;min-width:20px;height:20px;padding:0 6px;border-radius:999px;display:grid;place-items:center;
+  background:var(--c);color:var(--acx);font:800 11.5px/1 var(--sans);box-shadow:0 0 0 3px var(--rail)}
+.wsm-insignia.entra{animation:wsm-pop .42s var(--rebote) both}
+.wsm-insignia.sale{animation:wsm-sale .2s var(--sale) forwards}
+.wsm-toque{position:absolute;right:124px;bottom:30px;z-index:6;pointer-events:auto;animation:wsm-pop .42s var(--rebote) both;transform-origin:100% 50%}
+.wsm-toque.sale{animation:wsm-sale .22s var(--sale) forwards;pointer-events:none}
+.wsm-toque .in{display:flex;align-items:center;gap:10px;max-width:300px;padding:8px 8px 8px 13px;border-radius:999px;background:var(--card);
+  border:1px solid color-mix(in srgb,var(--c) 45%,var(--line));box-shadow:0 2px 6px rgba(0,0,0,.26),0 6px 16px -8px rgba(0,0,0,.5),0 0 0 3px color-mix(in srgb,var(--c) 12%,transparent)}
+.wsm-toque .tx{min-width:0;line-height:1.25}
+.wsm-toque .tx b{display:block;font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wsm-toque .tx small{display:block;font-size:11.5px;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wsm-toque .chip{padding:5px 13px;font-size:12.5px}
+.wsm-toque .wsm-cx{margin-left:-4px}
+.wsm-toque .chips{display:flex;gap:6px;flex:none}
+/* el aviso tranquilo de actuar (A0) en el mismo globito: su texto se parte en renglones y sus botones van abajo */
+.wsm-toque .in.largo{flex-wrap:wrap;align-items:flex-start;gap:8px 10px;width:min(330px,calc(100vw - 150px));max-width:none;border-radius:18px;padding:10px 10px 10px 13px}
+.wsm-toque .in.largo .pt{margin-top:5px}
+.wsm-toque .in.largo .tx{flex:1 1 0}
+.wsm-toque .in.largo .tx small{white-space:normal;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;font-size:12.5px;color:var(--tx2)}
+.wsm-toque .in.largo .chips{order:3;width:100%;padding-left:18px}
+.wsm-toque .in.largo .chips:empty{display:none}
+.wsm-toque .in.ensayo{border-color:rgba(185,163,255,.55)}
+.wsm.izq .wsm-toque{right:auto;left:124px;transform-origin:0 50%}
+.wsm.arriba .wsm-toque{bottom:auto;top:30px}
+
+/* ---------- los botones de la barra según lo que tienes enfrente ---------- */
+.wsm-botones{display:flex;flex-wrap:wrap;gap:6px;padding:0 2px 8px}
+.wsm .wsm-bt{height:30px;padding:0 12px;border-radius:999px;background:#202024;border:1px solid #2c2c33;font-size:12.5px;font-weight:600;color:var(--tx2);
+  transition:background-color .12s,color .12s,border-color .12s}
+.wsm .wsm-bt:hover{background:#26262c;color:var(--tx);border-color:#36363e}
+
+/* ---------- el botón ⤢ de la burbuja, [Copiar] y la línea chica de «hecho» ---------- */
+.wsm .wsm-gr{right:38px;font-size:15px;line-height:1}
+.wsm-sigue{gap:4px}
+.wsm-hecho-t{display:block;margin-top:8px;font-size:12px;color:var(--ok)}
+.wsm-hecho-t.entra{animation:wsm-entra .26s var(--ease) both}
+
+/* ---------- el chat grande (⤢): el MISMO chat, en grande (ronda 2, bloque G) ----------
+   tira de agentes · (encabezado, buscar, la plática y la caja de escribir de la burbuja) · «Te esperan» y «Entregas».
+   Junto al nido (G-1: una app de antes, el boceto) es una caja angosta; en su propia ventana (G-2: html.wsm-ventana)
+   la llena y cambia de tamaño con ella. */
+.wsm>.wsm-grande{flex:0 1 auto;min-height:0}
+.wsm-grande{position:relative;width:min(442px,calc(100vw - 28px));height:min(860px,calc(100vh - 170px));display:flex;
+  background:var(--card);border:1px solid var(--line);border-radius:20px;border-bottom-right-radius:8px;box-shadow:0 0 0 .5px rgba(0,0,0,.45),0 2px 6px rgba(0,0,0,.26),0 8px 18px -12px rgba(0,0,0,.55);
+  transform-origin:100% 100%;animation:wsm-pop .42s var(--rebote) both;overflow:hidden}
+.wsm-grande.sale{animation:wsm-sale .22s var(--sale) forwards;pointer-events:none}
+/* la tira: tus agentes, con su monito y su número si algo te espera */
+.wsm-grande .tira{flex:none;width:88px;display:flex;flex-direction:column;gap:5px;padding:12px 8px;background:var(--panel);border-right:1px solid var(--line);
+  overflow-y:auto;scrollbar-width:none}
+.wsm-grande .tira::-webkit-scrollbar{display:none}
+.wsm-grande.una .tira{display:none}
+.wsm .wsm-grande .tira .ag{position:relative;flex:none;display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 2px 8px;border-radius:14px;
+  font-size:12px;font-weight:650;color:var(--tx3);transition:background-color .15s,color .15s}
+.wsm .wsm-grande .tira .ag:hover{background:#222226;color:var(--tx)}
+.wsm .wsm-grande .tira .ag.on{background:var(--card2);color:var(--tx)}
+.wsm-grande .tira .ag span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wsm-grande .n{min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#b9a3ff;color:#16131f;font:700 11px/18px var(--sans);text-align:center;font-style:normal}
+.wsm-grande .tira .ag .n{position:absolute;top:3px;right:9px}
+/* el centro: su encabezado y, debajo, las piezas de la burbuja */
+.wsm-grande .centro{position:relative;flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+.wsm-grande .gcab{flex:none;display:flex;align-items:center;gap:4px;height:50px;padding:0 10px 0 18px}
+.wsm-grande .gcab .nom{font-size:15.5px;font-weight:650;white-space:nowrap}
+.wsm-grande .gcab .est{flex:0 1 auto;min-width:0;margin-left:6px;font-style:normal;font-size:12.5px;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wsm-grande .gcab .asa{flex:1 1 0;align-self:stretch;min-width:0}
+/* angosto (junto al nido): todo cabe en el encabezado, sus botones nunca se cortan */
+.wsm-grande.angosto .gcab{gap:2px;padding:0 6px 0 14px}
+.wsm .wsm-grande.angosto .gcab .gb{min-width:30px;padding:0 5px}
+.wsm .wsm-grande.angosto .gcab .gb.gmin{min-width:36px;padding:0 9px;margin-left:2px}
+.wsm .wsm-grande.angosto .gcol{padding:0 9px}
+.wsm .wsm-grande .gb{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:34px;height:34px;padding:0 8px;border-radius:10px;
+  color:var(--tx3);font-size:12px;font-weight:650;transition:background-color .12s,color .12s}
+.wsm .wsm-grande .gb:hover{background:#2a2a30;color:var(--tx)}
+/* dos controles distintos, con letrero: «⤡ Chico» (cambia de tamaño) y «─ Minimizar» (lo guarda TODO; el que más se usa:
+   relleno, al final, en la esquina) */
+.wsm .wsm-grande .gb.gchico{padding:0 11px;margin-left:4px}
+.wsm .wsm-grande .gb.gmin{min-width:42px;padding:0 13px;margin-left:4px;background:#2c2838;color:#d9ccff}
+.wsm .wsm-grande .gb.gmin:hover{background:#b9a3ff;color:#16131f}
+.wsm .wsm-grande .gb.hecho{color:var(--ok)}
+.wsm .wsm-grande .gcol{flex:none;display:none;align-items:center;gap:6px;height:30px;padding:0 11px;border-radius:999px;background:#26262c;
+  font-size:12px;font-weight:650;color:var(--tx2)}
+.wsm .wsm-grande .gcol:hover{background:#303038;color:var(--tx)}
+.wsm-grande.angosto .gcol{display:inline-flex}
+.wsm-grande.angosto .gb span{display:none}
+.wsm .wsm-grande.angosto .gcab .gb.gmin .let{display:inline}      /* angosto: «Minimizar» conserva su letrero */
+.wsm .wsm-grande.angosto .gcab .gb.gchico{padding:0 5px;margin-left:0}
+.wsm-grande .gbusca{flex:none;display:flex;align-items:center;gap:2px;margin:0 14px 8px;padding:3px 4px 3px 13px;border-radius:12px;background:#18181b;border:1px solid #2b2b31}
+.wsm-grande .gbusca input{flex:1;min-width:0;height:30px;font:inherit;font-size:13.5px;color:var(--tx);background:none;border:0;outline:0;-webkit-user-select:text;user-select:text}
+.wsm-grande .gbusca input::placeholder{color:var(--tx3)}
+.wsm-grande .gbusca .cuenta{padding:0 6px;font-size:11.5px;color:var(--tx3);white-space:nowrap}
+.wsm .wsm-grande .gbusca .gb{min-width:28px;height:28px;padding:0 4px}
+/* las MISMAS piezas de la burbuja, sin su marco: llenan el centro */
+.wsm-grande .wsm-globo{flex:1 1 auto;min-height:0;width:auto;max-width:none;max-height:none;background:none;border:0;border-radius:0;box-shadow:none;
+  animation:none!important;padding:0 18px 2px;transform:none;overflow:visible}
+.wsm-grande .wsm-globo>.wsm-x,.wsm-grande .wsm-globo>.wsm-cab{display:none}
+.wsm-grande .wsm-globo>.wsm-conv-caja{flex:1 1 auto;min-height:0}
+/* en una ventana muy ancha, la plática no se estira de lado a lado: una columna cómoda de leer, al centro */
+.wsm-grande .wsm-conv{flex:1 1 auto;padding:0 max(6px,calc((100% - 800px) / 2))}
+.wsm-grande .wsm-hilo{padding-top:10px}
+.wsm-grande .wsm-h-yo,.wsm-grande .wsm-tu{max-width:76%}
+.wsm-grande .wsm-barra{flex:none;width:auto;background:none;border:0;border-radius:0;box-shadow:none;animation:none!important;transform:none;padding:6px 14px 14px}
+.wsm-grande .wsm-barra .wsm-ags,.wsm-grande .wsm-barra .wsm-pie{display:none}
+.wsm-grande .wsm-caja{border-radius:18px;padding:9px 9px 9px 16px}
+/* la columna: lo que te espera, tus entregas y los encargos */
+.wsm-grande .col{flex:none;width:266px;display:flex;flex-direction:column;gap:16px;padding:16px 12px 10px;border-left:1px solid var(--line);overflow-y:auto;
+  scrollbar-width:none;overscroll-behavior:contain}
+.wsm-grande .col::-webkit-scrollbar{display:none}
+.wsm-grande.angosto .col{display:none}
+.wsm-grande.angosto.ver-col .col{display:flex;position:absolute;z-index:3;top:50px;right:0;bottom:0;left:88px;width:auto;border-left:0;background:var(--card)}
+.wsm-grande.angosto.una.ver-col .col{left:0}
+.wsm-grande .col .sec{display:flex;flex-direction:column;gap:7px}
+.wsm-grande .col .sec[hidden]{display:none}
+.wsm-grande .col .tit{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:650;color:var(--tx3)}
+.wsm-grande .col .tit:not(:first-child){margin-top:8px}
+.wsm-grande .col .fichas{display:flex;flex-direction:column;gap:7px}
+.wsm-grande .col .fichas:empty{display:none}
+.wsm-grande .espera{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 9px;padding:10px 12px 11px;border-radius:14px;background:#1d1d21;border:1px solid #2c2c33}
+.wsm-grande .espera.pide{border-color:color-mix(in srgb,#b9a3ff 45%,#2c2c33)}
+.wsm-grande .espera .pt{width:8px;height:8px;margin-top:6px;border-radius:50%;background:var(--c)}
+.wsm-grande .espera .tx b{display:block;font-size:13px;font-weight:650}
+.wsm-grande .espera .tx small{display:block;font-size:12px;color:var(--tx3);overflow:hidden;text-overflow:ellipsis}
+.wsm-grande .espera .chips{grid-column:2;display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.wsm-grande .espera .chip{padding:5px 14px;font-size:12.5px}
+.wsm-grande .wsm-vacio{font-size:12px;line-height:1.4;color:var(--tx3)}
+.wsm-grande .fila{display:flex;align-items:center;gap:9px;padding:8px;border-radius:12px;background:#1d1d21;border:1px solid #2a2a30}
+.wsm-grande .fila .wsm-ent-arr{flex:1;min-width:0;display:flex;align-items:center;gap:10px}
+.wsm-grande .fila .wsm-ent-mini.chica,.wsm-grande .fila .wsm-ent-mini{flex:none;width:44px;height:36px;border-radius:8px}
+.wsm-grande .fila .wsm-ent-mini .ext{position:static;font-size:9px;padding:2px 4px}
+.wsm-grande .fila .tx{flex:1;min-width:0}
+.wsm-grande .fila .tx b{display:block;font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wsm-grande .fila .tx small{display:block;font-size:11.5px;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wsm-grande .fila .chip{padding:5px 11px;font-size:12px;flex:none}
+/* en la columna (angosta): el nombre en su renglón y sus botones debajo */
+.wsm-grande .col .fila{flex-wrap:wrap}
+.wsm-grande .col .fila .wsm-ent-arr{flex:1 0 100%}
+.wsm-grande .col .fila .chip:first-of-type{margin-left:54px}
+.wsm-grande .col .fila.enc{flex-wrap:nowrap}
+.wsm-grande .col .fila.enc .chip:first-of-type{margin-left:0}
+.wsm-grande .fila.enc .pt{flex:none;width:8px;height:8px;border-radius:50%;background:var(--c)}
+.wsm-grande .pie{margin-top:auto;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding-top:9px;border-top:1px solid #26262c}
+/* soltar un archivo en la ventana: toda la plática lo recibe */
+.wsm.soltar .wsm-grande .centro::after{content:"Suéltalo aquí: va con tu siguiente mensaje";position:absolute;inset:8px;z-index:4;display:grid;place-items:center;
+  border-radius:16px;border:2px dashed #b9a3ff;background:color-mix(in srgb,#b9a3ff 10%,rgba(32,32,36,.9));font-size:14px;font-weight:650;color:var(--tx);pointer-events:none}
+.wsm.izq .wsm-grande{border-bottom-right-radius:20px;border-bottom-left-radius:8px;transform-origin:0 100%}
+.wsm.arriba .wsm-grande{border-bottom-right-radius:20px;border-top-right-radius:8px;transform-origin:100% 0}
+.wsm.arriba.izq .wsm-grande{border-top-right-radius:20px;border-top-left-radius:8px;transform-origin:0 0}
+.wsm.arrastrando>.wsm-grande,.wsm.arrastrando>.wsm-toque{filter:opacity(0);pointer-events:none}
+/* G-2 · en su propia ventana: la llena (el marco, la sombra y cambiar de tamaño son de la ventana de la Mac) */
+html.wsm-ventana,html.wsm-ventana body{background:var(--card)}
+html.wsm-ventana .wsm{position:fixed;left:0;top:0;right:0;bottom:0;max-width:none;max-height:none;display:block}
+html.wsm-ventana .wsm>.wsm-nido,html.wsm-ventana .wsm>.wsm-toque,html.wsm-ventana .wsm>.wsmm{display:none!important}
+html.wsm-ventana .wsm-grande{width:100%;height:100%;border:0;border-radius:0;box-shadow:none;animation:none!important;transform:none}
+html.wsm-ventana .wsm-grande .gcab .asa{cursor:grab}
+
+@media (prefers-reduced-motion:reduce){
+  .wsm-grande,.wsm-grande.sale,.wsm-toque,.wsm-toque.sale,.wsm-insignia.entra,.wsm-insignia.sale,.wsm-hecho-t.entra,.wsm-encs .barras b.a,.wsm-ent-hace .barras b.a{animation:none!important}
+}
+
+/* ---------- que quepa: con una entrega, la burbuja crece un poco y, si aun así no cabe, se recorre entera ----------
+   (antes el texto de la respuesta se encogía a nada y la tarjeta se salía de la burbuja, encima del nido) */
+.wsm>.wsm-globo{max-height:min(78vh,600px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none}
+.wsm>.wsm-globo::-webkit-scrollbar{display:none}
+.wsm-globo>*{flex-shrink:0}
+.wsm-globo>.wsm-x{position:absolute}
+/* la tarjeta de encargo, compacta: que quepa con su encabezado y sus botones a la vista */
+.wsm-enc.prop{gap:6px;padding:10px 12px 11px}
+.wsm-enc.prop .quien{font-size:13px;color:var(--tx2)}
+.wsm-enc.prop .pedido{font-size:13px;padding:6px 10px}
+.wsm-enc.prop .filas{gap:3px 12px;font-size:12.5px}
+.wsm-enc.prop .filas .v{min-width:0}
+.wsm-enc.prop .filas .v b,.wsm-enc.prop .filas .v small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wsm-enc.prop .nota{font-size:11px}
+/* mientras te propone un encargo, «Copiar» y «Seguir en la página» no vienen al caso */
+.wsm-globo.con-prop>.wsm-sigue{display:none}
+/* salir en su lugar (lo quita `salir` de la burbuja): las piezas de E1 también se desvanecen, no desaparecen */
+.wsm-enc.sale,.wsm-hecho-t.sale{animation:wsm-sale .2s var(--sale) forwards;pointer-events:none}
+.wsm-ent .wsm-fantasma,.wsm-encs .wsm-fantasma,.wsm-grande .wsm-fantasma,.wsm-toque .wsm-fantasma{position:absolute!important}
+.wsm-ent-mini .wsm-cruce{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 0;pointer-events:none}
+@media (prefers-reduced-motion:reduce){.wsm-enc.sale,.wsm-hecho-t.sale{animation:none!important}}
+/* Fable v2: el nivel de ESTE encargo (sus casillas) y lo que puede: se lee entero, sin recortar */
+.wsm-enc.prop .filas .v.largo b,.wsm-enc.prop .filas .v.largo small,.wsm-pasa-nivel .filas .v.largo b{white-space:normal;overflow:visible}
+.wsm-nivel{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 2px}
+.wsm-nivel .aviso{display:block;width:100%;color:var(--tx3);font-size:11.5px}
+.wsm-nivel .casilla{border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.05);color:var(--tx);border-radius:9px;padding:4px 9px;font-size:12px;cursor:pointer}
+.wsm-nivel .casilla.on{border-color:var(--c, #b9a4ff);background:rgba(185,164,255,.16)}
+.wsm-pasa-nivel{margin:6px 0}
+.wsm-nivel .casilla::before{content:'\2610\00a0'}
+.wsm-nivel .casilla.on::before{content:'\2611\00a0'}
+.wsm-enc .pedido-ed{width:100%;box-sizing:border-box;resize:vertical;min-height:52px;border-radius:9px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:var(--tx);font:inherit;font-size:12.5px;padding:6px 8px;margin:4px 0}

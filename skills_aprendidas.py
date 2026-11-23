@@ -295,7 +295,9 @@ def _con_linea_lite(texto, nl, codec):
         return None
     cuerpo = texto if not texto or texto.endswith(("\n", "\r")) else texto + nl
     nuevo = cuerpo + nl + _nuevo(LINEA_LITE, codec) + nl
-    if len(nuevo) > LITE_TOKENS * CHARS_POR_TOKEN:
+    # El presupuesto cuenta texto, no finales de línea: un INDEX-LITE en CRLF
+    # (Windows) no gasta más tokens que el mismo en LF.
+    if len(nuevo.replace("\r\n", "\n")) > LITE_TOKENS * CHARS_POR_TOKEN:
         return None
     return nuevo
 

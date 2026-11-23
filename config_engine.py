@@ -311,14 +311,62 @@ def _env_lock_active(key):
     return var if var and os.environ.get(var) else ""
 
 
-def origin_of(key):
-    """Origen del valor EFECTIVO: 'env' | 'delegado' | 'custom' | 'default'.
-    Es la transparencia que pide la visión (saber qué manda)."""
+#: Ajustes que el agent.json de un agente puede cambiar para ESE agente (y
+#: ganan al ajuste general): clave de settings → campo del agent.json.
+AJUSTES_DE_AGENTE = {"hooks.skill_review": "skill_review",
+                     "hooks.skill_review_mode": "skill_review_mode",
+                     "hooks.skill_review_engine": "skill_review_engine"}
+
+
+def ajuste_de_agente(key, brain):
+    """El valor que fija el agent.json de `brain` para `key`, o None si no
+    dice nada (manda el general)."""
+    campo = AJUSTES_DE_AGENTE.get(key)
+    if not campo or not brain:
+        return None
+    try:
+        import agentsreg
+        d = agentsreg.load_definition(brain)
+    except Exception:
+        return None
+    v = d.get(campo) if isinstance(d, dict) else None
+    if key == "hooks.skill_review":
+        return v if isinstance(v, bool) else None
+    try:
+        import settings
+        return settings.validate(key, v) if v is not None else None
+    except ValueError:
+        return None
+
+
+def agentes_con_ajuste(key):
+    """[(agente, valor)] de los agentes cargados cuyo agent.json fija `key`
+    (gana al general para ellos). #2: Ajustes decía «apagado» y la Zenith de
+    la Mac la tenía encendida por su agent.json."""
+    out = []
+    try:
+        import agentsreg
+        regs = agentsreg.agents()
+    except Exception:
+        return out
+    for a in regs:
+        v = ajuste_de_agente(key, a.get("brain"))
+        if v is not None:
+            out.append((a.get("name"), v))
+    return out
+
+
+def origin_of(key, brain=None):
+    """Origen del valor EFECTIVO: 'env' | 'agente' (el agent.json de `brain`
+    lo fija para ese agente) | 'delegado' | 'custom' | 'default'. Es la
+    transparencia que pide la visión (saber qué manda)."""
     spec = settings._BY_KEY.get(key)
     if spec is None:
         return ""
     if _env_lock_active(key):
         return "env"
+    if brain and ajuste_de_agente(key, brain) is not None:
+        return "agente"
     if spec.get("delegated"):
         try:
             if settings._delegated_read(key) is not None:
@@ -344,6 +392,8 @@ def describe_settings():
     origen y candado de env. Read-only, jamás toca disco para escribir."""
     out = []
     for s in settings.SETTINGS_SCHEMA:
+        if s["group"] in ("decisions", "decisores") and not settings.visible(s):
+            continue
         key = s["key"]
         try:
             value = settings.get(key)
@@ -457,15 +507,22 @@ def describe_models():
                               "aquí; editables a mano con secret_scan al cargar"}
 
 
+def mcp_registration_note(generic=False):
+    """Registration is not a verified native-engine connection."""
+    fallback = "Registrado en Workspace; todavía no se conecta solo a Claude Code (llega con el manager de MCPs)."
+    try:
+        import i18n
+        note = i18n.t("mcps.registration_pending" if generic else "mcps.registration_only")
+        return note if note not in ("mcps.registration_only", "mcps.registration_pending") else fallback
+    except Exception:
+        return fallback
+
+
 def describe_mcps():
     data = _load_mcps()
-    return {"servers": data.get("servers", {}),
-            "path": mcps_path(),
-            "materialized": False,
-            "note": "capa GESTIONADA per-máquina; la materialización al canal "
-                    "del motor (claude-code: bloque mcpServers) la corre "
-                    "`workspace config mcp materialize` o `workspace doctor` (fase "
-                    "5c). env = NOMBRES de variables, jamás valores."}
+    return {"servers": data.get("servers", {}), "path": mcps_path(),
+            "materialized": False, "connected": False,
+            "note": mcp_registration_note()}
 
 
 def describe_themes():
@@ -1252,8 +1309,12 @@ def mcp_set(name, cmd, scope="global", env=None, actor=""):
     _log("mcp-set", "mcps.%s" % name, old, entry, "A", actor=actor)
     return {"ok": True, "name": name, "old": old, "new": entry, "tier": "A",
             "materialized": False,
-            "note": "guardado en la capa gestionada; la materialización al "
-                    "motor la hará doctor/install"}
+            "note": mcp_registration_note()}
+
+
+def _mcp_removed_note():
+    import i18n
+    return i18n.t("mcps.removed_registry_only")
 
 
 def mcp_remove(name, actor=""):
@@ -1271,21 +1332,16 @@ def mcp_remove(name, actor=""):
     if not existed:
         return {"ok": False, "error": "MCP desconocido: %r" % name}
     _log("mcp-remove", "mcps.%s" % name, old, None, "A", actor=actor)
-    return {"ok": True, "name": name, "old": old, "tier": "A"}
+    return {"ok": True, "name": name, "old": old, "tier": "A",
+            "note": _mcp_removed_note()}
 
 
 def mcp_materialize(argv, actor=""):
-    """Proyecta los MCP gestionados al canal nativo del motor de cada agente.
+    """Report registered MCPs; automatic native connection is not available.
 
-    Fuente ÚNICA: install.render_mcps_only (DISPATCH POR TIPO DE CONEXIÓN,
-    connectors.PORTABILITY). claude-code → bloque `mcpServers` de
-    settings.local.json (real); codex/gemini y local/API → se SALTAN con razón
-    visible (no fingen el enchufe). El store, el scope y este CLI son
-    motor-agnósticos: aquí solo se dispara la proyección on-demand.
-
-    argv: `--all` (todos los agentes resueltos) o `--agent <nombre>` (uno).
-    NO lee valores de secretos — la Regla de Oro la impone el proyector
-    (env = NOMBRES → ${NOMBRE})."""
+    Keeps the existing CLI compatible without writing the ignored legacy target.
+    argv: --all or --agent <name>. No credential values are read.
+    """
     import install                                    # lazy (amputable)
     only, take_all = None, "--all" in argv
     if "--agent" in argv:
@@ -1315,13 +1371,9 @@ def mcp_materialize(argv, actor=""):
             results.append({"agent": aname, "ok": True, "materialized": False,
                             "channel": channel or "?", "reason": reason})
             continue
-        try:
-            install.render_mcps_only(cfg, brain)     # settings None → escribe
-        except Exception as e:
-            results.append({"agent": aname, "ok": False, "reason": str(e)})
-            continue
         desired = install._mcps_for_agent(aname)
-        results.append({"agent": aname, "ok": True, "materialized": True,
+        results.append({"agent": aname, "ok": True, "materialized": False,
+                        "connected": False, "reason": mcp_registration_note(),
                         "servers": sorted(desired), "count": len(desired)})
     if only and not results:
         return {"ok": False,

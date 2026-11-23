@@ -29,7 +29,7 @@ permiso de carpetas. Si ya tenías Workspace en el Escritorio, sigue ahí y func
 | **Windows:** permiso de administrador mientras se instala otro motor | Su instalador oficial pone algo que le falta (por ejemplo, Node.js) | «Sí» | Ese motor no se instala |
 | **Windows:** «La fuente "msstore" requiere que aceptes estos acuerdos» (Copilot) | Es la tienda de programas de Windows | Escribe `Y` y Enter | Copilot no se instala |
 | **macOS:** «Se agregó un elemento que se puede ejecutar en segundo plano» (Kiro) | Es parte de Kiro | Puedes dejarlo; se apaga en Ajustes → General → Ítems de inicio | Nada: Kiro sigue funcionando |
-| **macOS:** «No se abrió "copilot"» o «Apple no pudo verificar…» | El motor se instaló con Homebrew y quedó en cuarentena | «Listo» (no «Mover a la papelera») y en Motores elige reinstalar | El motor no abre hasta reinstalarlo |
+| **macOS:** «No se abrió "copilot"» o «Apple no pudo verificar…» | El motor se instaló con Homebrew y quedó en cuarentena | «Listo» (no «Mover a la papelera») y en el hub, en Motores, elige «Reparar» | El motor no abre hasta reinstalarlo |
 | **macOS:** «"Terminal" no puede modificar apps de tu Mac» | Al reparar o reinstalar un motor que vive en Aplicaciones | Ajustes → Privacidad y seguridad → Gestión de apps → activa tu terminal | La reparación no termina |
 | **macOS:** el llavero pregunta por «copilot-cli» | Es Copilot leyendo su propia sesión (pasa tras actualizar Node) | Tu contraseña de la Mac y «Permitir siempre» | Copilot te pide iniciar sesión otra vez |
 

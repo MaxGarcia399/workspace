@@ -23,6 +23,11 @@ empieza barato (ya en contexto) y solo baja de capa si hace falta.
 
 ## Procedimiento (de barato a caro)
 
+0. **Si tengo la herramienta `memoria_buscar` (MCP de Workspace), empiezo por ella:** busca en las
+   notas de todas las pestañas, lo curado del cerebro y lo literal de las conversaciones de esta
+   computadora, con filtros (tipo, pestaña, fechas, fuente). Leo el archivo del mejor resultado si
+   necesito el detalle. Sin ella, sigo con las capas de abajo.
+
 1. **Capa 1 — `STATE/INDEX.md` (ya en boot).** Es el contrato: 1 línea por cosa viva → path.
    Si la pregunta cae en algo listado, hago **1 `Read`** del path y listo. Cero búsqueda.
 

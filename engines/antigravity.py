@@ -2,13 +2,21 @@
 
 Login and sessions belong to agy; WORKSPACE never reads credentials.
 Native MCP is supported. agy 1.3 has native hooks (SessionStart, PreToolUse,
-PostToolUse, Pre/PostInvocation, Stop — no SessionEnd); WORKSPACE does NOT
-enable them: its wrapper already fires the neutral session start/end, and
-native ones would double-fire.
+PostToolUse, Pre/PostInvocation, Stop — no SessionEnd); the wrapper fires the
+neutral session start/end. hooks5: with the per-session package they go in the
+brain's .agents/hooks.json (arquitectura/sesion, agy's own shape); their
+launcher only records state and denies what is forbidden (no double-fire).
 
 PERMISOS por la AUTONOMÍA del agente (agent.json "autonomy", contrato común)
 — VERIFICADO con agy 1.3.4 en un cerebro de prueba (HOME temporal):
-  · brain (default): `--mode accept-edits` → lee/crea/edita dentro del cerebro
+  · brain (default, «Automático»; decisión del dueño 18-nov): `--mode auto` en
+    macOS y Linux. Su --help (1.5.11): «--mode … (accept-edits, auto, plan)»; su
+    changelog: «Auto mode, which approves file edits and safe commands without
+    asking and still prompts before irreversible actions; commands that would
+    leave the terminal sandbox are first reviewed by a separate agent… available
+    on Linux and macOS». En Windows (allí solo desde Windows 11 24H2, que aquí no
+    se comprueba) y sin el deny de Workspace, como «edit».
+  · edit («Editar sin preguntar»): `--mode accept-edits` → lee/crea/edita dentro del cerebro
     sin preguntar; escribir fuera y la terminal piden permiso (sin ventana:
     se niegan). Regla global `write_file(<cerebro>)` (antes `read_file`).
   · full: lo mismo + `--project workspace-<agente>`, un proyecto de agy cuyo
@@ -18,9 +26,11 @@ PERMISOS por la AUTONOMÍA del agente (agent.json "autonomy", contrato común)
     demás agentes y al uso propio del socio); `always-proceed` además deja
     escribir fuera del cerebro. Al reanudar, agy usa el proyecto de la
     conversación: una conversación nacida en `brain` sigue preguntando.
-  · ask (el usuario apagó el acceso automático en Agentes): SIN `--mode` →
-    agy pregunta antes de crear o editar, también dentro del cerebro. Se quita
-    la regla `write_file(<cerebro>)` y queda `read_file(<cerebro>)`.
+  · ask (el usuario apagó el acceso automático en Agentes): SIN `--mode` y con
+    el modo Default explícito (`"agentMode": ""` en el `--settings` de la
+    corrida: desde 1.5.7 sin modo abre en Auto) → agy pregunta antes de crear o
+    editar, también dentro del cerebro. Se quita la regla
+    `write_file(<cerebro>)` y queda `read_file(<cerebro>)`.
   · Nunca `--add-dir` (ensancharía la escritura libre) ni
     `--dangerously-skip-permissions`. El `--mode`/`--project` del socio gana.
 
@@ -81,8 +91,10 @@ import legacy  # noqa: E402  (literales de la instalación anterior)
 META = {"name": "antigravity", "needs": ["agy"], "auth": "subscription"}
 CAPABILITIES = {
     "launch": "wrapper", "inject_context": "project-doc", "mcp": True,
-    # Avisos de sesión: solo inicio y cierre, emitidos por el wrapper neutral
-    # (los hooks nativos de agy existen pero no se activan — doble disparo).
+    # Avisos de sesión: solo inicio y cierre, emitidos por el wrapper neutral.
+    # hooks5: con el paquete por sesión, sus hooks nativos van en el
+    # .agents/hooks.json del cerebro (arquitectura/sesion) y su lanzador SOLO
+    # anota el estado y niega lo prohibido (sin doble disparo de listeners).
     "hooks": "wrapper",
     "sessions": "workspace",   # pestañas del registro neutral (sessions_registry)
                              # + resume con `agy --conversation <id>` (binding
@@ -92,8 +104,17 @@ CAPABILITIES = {
     "headless": False,
 }
 
-#: Modo de ejecución de agy para TODA sesión de un agente (brain y full).
+#: Modo de ejecución de agy para «Editar sin preguntar» (edit), y para «Automático»
+#: donde su Auto no está.
 AGY_MODE = "accept-edits"
+#: «Automático» (brain, el de fábrica): su modo Auto oficial (ver el docstring).
+AGY_MODE_AUTO = "auto"
+#: Dónde existe su Auto (changelog: «available on Linux and macOS»).
+AGY_AUTO_OS = ("darwin", "linux")
+#: El modo que pregunta (Default), para «ask» y para una corrida sin deny: desde
+#: 1.5.7 una sesión sin modo guardado abre en Auto y `--mode` ya no ofrece uno que
+#: pregunte; la nota oficial 1.5.7 dice que Default es `"agentMode": ""`.
+AGY_PREGUNTA = '{"agentMode":""}'
 #: Regla de agy que deja correr cualquier comando sin preguntar — solo en el
 #: proyecto del agente, solo con autonomía full.
 FULL_GRANT = "command(*)"
@@ -195,7 +216,11 @@ def session_active(runner=None):
 #     Enterprise, https://antigravity.google/docs/enterprise/) o `AGY_ADC_AUTH=true`
 #     (doc enterprise: credenciales ADC de un proyecto de Google Cloud);
 #   · lo demás es el inicio de sesión con Google: agy no documenta cómo saber si
-#     la cuenta es personal o de una empresa → «experimental».
+#     la cuenta es personal o de una empresa → aviso «cuenta personal». Sus términos
+#     (https://antigravity.google/terms, punto 6) llaman incumplimiento usar el servicio
+#     «in connection with products not provided by us» y avisan suspensión de la cuenta
+#     de Antigravity; recomiendan una API key de AI Studio (22-nov: el dueño pidió el
+#     aviso de vuelta, más claro).
 FAQ_URL = "https://antigravity.google/docs/faq/"
 CUENTA_API_KEY, CUENTA_EMPRESA, CUENTA_GOOGLE = "api_key", "business", "google"
 
@@ -239,10 +264,10 @@ def _integration_plan_text():
         return _t("motorbar.agy.acct_full", "API key o cuenta empresarial: integración completa",
                   "API key or business account: full integration")
     return _t("motorbar.agy.acct_exp",
-              "inicio de sesión con Google: experimental (Google no soporta envolver agy con "
-              "planes personales: {u})",
-              "Google sign-in: experimental (Google doesn't support wrapping agy on consumer "
-              "plans: {u})", u=FAQ_URL)
+              "inicio de sesión con Google: cuenta personal (Google prohíbe usarla en otras apps y "
+              "puede suspender tu acceso a Antigravity; usa una API key de Google AI Studio: {u})",
+              "Google sign-in: personal account (Google forbids using it in other apps and may "
+              "suspend your Antigravity access; use a Google AI Studio API key: {u})", u=FAQ_URL)
 
 
 def _has_flag(args, *names):
@@ -253,16 +278,96 @@ def _has_flag(args, *names):
     return False
 
 
+def _rutas_relativas(v):
+    """¿Algún valor del JSON es una ruta relativa (`./…`, `../…`)?"""
+    if isinstance(v, dict):
+        return any(_rutas_relativas(x) for x in v.values())
+    if isinstance(v, list):
+        return any(_rutas_relativas(x) for x in v)
+    return isinstance(v, str) and v.replace("\\", "/").startswith(("./", "../"))
+
+
+def _settings_del_socio(brain, args):
+    """(args, estado, copia) con el `--settings` que el socio pasó (archivo o JSON en
+    línea) y sin `--mode`: agy 1.5.7+ abriría en Auto. JSON legible sin
+    `agentMode` → la corrida usa una COPIA con el Default (AGY_PREGUNTA), su
+    archivo no se toca ("copia"); con `agentMode`, manda el suyo ("suyo");
+    ilegible o con rutas relativas adentro → "ilegible" (el lanzador lo dice).
+    Sin --settings suyo → "". `copia` = la ruta de la copia (el lanzador la
+    borra al cerrar), o "" ."""
+    args = [str(a) for a in args or ()]
+    if _has_flag(args, "--mode"):
+        return args, "", ""
+    for i, a in enumerate(args):
+        if a == "--settings" and i + 1 < len(args):
+            k, val = i + 1, args[i + 1]
+            break
+        if a.startswith("--settings="):
+            k, val = i, a.split("=", 1)[1]
+            break
+    else:
+        return args, "", ""
+    try:
+        if val.lstrip().startswith("{"):
+            data = json.loads(val)
+        else:
+            # agy abre en el cerebro: una ruta relativa es del cerebro, no del lanzador
+            with open(os.path.join(str(brain), os.path.expanduser(val)),
+                      encoding="utf-8-sig") as fh:
+                data = json.load(fh)
+        if not isinstance(data, dict):
+            raise ValueError("no es un objeto")
+        if "agentMode" in data:
+            return args, "suyo", ""
+        if _rutas_relativas(data):          # no sabemos contra qué carpeta las lee agy
+            return args, "ilegible", ""
+        data.update(json.loads(AGY_PREGUNTA))
+        import hashlib
+        import uuid
+        import paths
+        clave = hashlib.sha256(os.path.realpath(str(brain)).encode("utf-8")).hexdigest()[:16]
+        # una por corrida (dos pestañas del mismo cerebro no se pisan), atómica
+        copia = os.path.join(paths.state_dir(), "agy-settings",
+                             "socio-%s-%s.json" % (clave, uuid.uuid4().hex[:8]))
+        os.makedirs(os.path.dirname(copia), exist_ok=True)
+        import glob
+        import time
+        for vieja in glob.glob(os.path.join(os.path.dirname(copia), "socio-*.json")):
+            try:                          # las que dejó un corte duro (> 24 h)
+                if time.time() - os.path.getmtime(vieja) > 86400:
+                    os.remove(vieja)
+            except OSError:
+                pass
+        fd = os.open(copia + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+        os.replace(copia + ".tmp", copia)
+    except (OSError, ValueError, TypeError):
+        return args, "ilegible", ""
+    args[k] = copia if k > i else "--settings=" + copia
+    return args, "copia", copia
+
+
 def _policy_argv(cfg, args, project_id="", con_deny=True):
     """Flags de permisos según la autonomía (ver docstring del módulo):
     `--mode accept-edits` salvo en "ask" o sin deny (`con_deny` False: la
     corrida no lleva el `--settings` de Workspace que niega la config de los
-    motores, git y Obsidian del cerebro; memoria_mcp._preparar_antigravity);
-    `--project <id>` solo si hay proyecto del agente (full). Lo que el socio
-    pase (--mode / --project) gana."""
+    motores, git y Obsidian del cerebro; memoria_mcp._preparar_antigravity).
+    Sin accept-edits va el modo que pregunta, explícito: en «ask» con deny,
+    dentro de ese `--settings` (memoria_mcp); sin deny, `--settings
+    AGY_PREGUNTA` (agy toma un solo --settings). `--project <id>` solo si hay
+    proyecto del agente (full). «Automático» (brain) va con `--mode auto` donde su
+    Auto existe (AGY_AUTO_OS) y con el deny; sin él, como «edit». Lo que el socio
+    pase (--mode / --settings / --project) gana."""
     out = []
-    if _autonomy(cfg) != "ask" and con_deny and not _has_flag(args, "--mode"):
-        out += ["--mode", AGY_MODE]
+    if not _has_flag(args, "--mode"):
+        auto = _autonomy(cfg)
+        if auto == "brain" and con_deny and _auto_disponible():
+            out += ["--mode", AGY_MODE_AUTO]
+        elif auto != "ask" and con_deny:
+            out += ["--mode", AGY_MODE]
+        elif not con_deny and not _has_flag(args, "--settings"):
+            out += ["--settings", AGY_PREGUNTA]
     if project_id and not _has_flag(args, "--project", "--new-project"):
         out += ["--project", project_id]
     return out
@@ -291,9 +396,10 @@ def _interactive_argv(cfg, passthrough, resume_cid="", first_prompt="",
     resume_cid = str(resume_cid or "").strip()
     if resume_cid:
         return pre + ["--conversation", resume_cid]
+    import memoria
     return pre + ["--prompt-interactive",
-                  first_prompt or ("Lee %s e inicia el cerebro. Al terminar, confirma en "
-                                   "una línea breve." % _identity_name(cfg))]
+                  first_prompt or ("Lee %s e inicia el cerebro. %s"
+                                   % (_identity_name(cfg), memoria.fin_arranque()))]
 
 
 def _identity_name(cfg):
@@ -575,6 +681,7 @@ def _write_gemini(brain, ctx, session_block=""):
         # A-VERIFICAR: pasar a rutas RELATIVAS (el GEMINI.md se sincroniza y hoy
         # lleva la ruta de esta máquina). No se cambia sin verificar que el
         # lector de archivos de agy las acepte.
+        import memoria
         body = (_GEMINI_MARK + "\n# Arranque de WORKSPACE\n"
                 "El cerebro de esta sesión está en " + os.path.realpath(brain) + ". "
                 "Su identidad está en " + os.path.join(os.path.realpath(brain), doc) + ". "
@@ -584,8 +691,8 @@ def _write_gemini(brain, ctx, session_block=""):
                 "Durante el arranque usa las herramientas de lectura de archivos; "
                 "evita comandos de shell para listar carpetas o comprobar rutas. "
                 "El inbox ya está resumido abajo: no vuelvas a consultarlo al iniciar. "
-                "No enumeres la configuración ni el protocolo al socio; al terminar "
-                "confirma en una línea breve.\n\n" + (ctx or ""))
+                "No enumeres la configuración ni el protocolo al socio. "
+                + memoria.fin_arranque() + "\n\n" + (ctx or ""))
         if session_block:
             body += "\n\n%s\n%s\n%s\n" % (_SESSION_START, session_block,
                                           _SESSION_END)
@@ -762,7 +869,8 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
     mcp_extra = []
     try:
         import memoria_mcp
-        mcp_extra = memoria_mcp.preparar("antigravity", brain=brain, passthrough=passthrough)
+        mcp_extra = memoria_mcp.preparar("antigravity", brain=brain, passthrough=passthrough,
+                                         autonomia=auto)
     except Exception:
         mcp_extra = []
     # El deny de la config de los motores, git y Obsidian del cerebro va en
@@ -770,7 +878,10 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
     # propio --settings, el settings.json de agy ilegible o un enlace), NO va
     # `--mode accept-edits`: agy pregunta antes de editar.
     con_deny = "--settings" in [str(a) for a in mcp_extra]
-    aviso_deny = (auto != "ask" and not con_deny and not _has_flag(passthrough, "--mode"))
+    # Su propio --settings sin agentMode: una copia que pregunta (ver la función).
+    passthrough, suyo, copia_socio = _settings_del_socio(brain, passthrough)
+    aviso_deny = (auto != "ask" and not con_deny and not _has_flag(passthrough, "--mode")
+                  and suyo in ("", "copia"))
 
     # Motor+modelo REAL en el banner (dinámico — regla del socio). El modelo
     # sale del --model del socio si lo pasó; si no, lo elige agy.
@@ -809,6 +920,12 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
             "Antigravity will ask before editing your brain: I couldn't deny it the engines', "
             "git's and Obsidian's config (your own --settings, or agy's settings.json is a "
             "link or unreadable)."))
+    if suyo in ("suyo", "ilegible"):
+        print("WORKSPACE: " + _t(
+            "motorbar.agy.settings_socio",
+            "con tu --settings manda su agentMode; sin él, agy abre en Auto (no pregunta).",
+            "with your --settings its agentMode rules; without it, agy opens in Auto "
+            "(it doesn't ask)."))
 
     # Pestañas neutrales: mismo picker, registro compartido entre motores.
     # El resume-id local se VALIDA contra el store de agy (conversación
@@ -930,6 +1047,11 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
     finally:
         if _osc:
             _tty_write(PALETTE_RESET)
+        if copia_socio:                   # la copia que preguntaba era de esta corrida
+            try:
+                os.remove(copia_socio)
+            except OSError:
+                pass
     if _bar is not None:
         _bar.clear_title()
 
@@ -1000,6 +1122,13 @@ def _t(key, es, en=None, **kw):
         return es
 
 
+def _auto_disponible(sistema=None):
+    """¿Existe aquí el modo Auto de agy? (AGY_AUTO_OS)."""
+    if sistema is None:
+        sistema = "windows" if os.name == "nt" else sys.platform
+    return any(str(sistema).startswith(s) for s in AGY_AUTO_OS)
+
+
 def _autonomy_text(auto):
     """Qué significa la autonomía del agente EN ANTIGRAVITY, en una línea."""
     if auto == "ask":
@@ -1008,8 +1137,14 @@ def _autonomy_text(auto):
                   "cerebro; terminal y archivos fuera piden permiso",
                   "ask — asks before creating or editing, also in the brain; "
                   "terminal and outside files ask first")
-    return _t("motorbar.agy.brain",
-              "brain — edita en el cerebro sin preguntar; terminal y archivos "
-              "fuera piden permiso",
-              "brain — edits in the brain without asking; terminal and outside "
-              "files ask first")
+    if auto == "brain" and _auto_disponible():
+        return _t("motorbar.agy.brain",
+                  "automático — su modo Auto: edita y corre lo seguro sin preguntar; "
+                  "lo irreversible pregunta",
+                  "automatic — its Auto mode: edits and runs safe commands without "
+                  "asking; irreversible actions ask first")
+    return _t("motorbar.agy.edit",
+              "editar sin preguntar — edita en el cerebro sin preguntar; terminal y "
+              "archivos fuera piden permiso",
+              "edit without asking — edits in the brain without asking; terminal "
+              "and outside files ask first")

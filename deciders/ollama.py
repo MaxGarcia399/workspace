@@ -149,12 +149,20 @@ def _probe_off():
     return os.environ.get(ENV_NO_PROBE) == "1"
 
 
+#: La fase de la pregunta en curso (decide() la deja aquí para este hilo): los
+#: sondeos previos (/api/tags, /api/ps) anotan en ella dónde van. Sin esto, la
+#: fase se quedaba en «connect» mientras Ollama —abierto— tardaba en contestar
+#: la lista, y el aviso decía «no está abierto».
+_PREGUNTA = threading.local()
+
+
 def _get(path, payload=None, connect_s=PROBE_CONNECT_S, read_s=PROBE_READ_S):
     """GET/POST chico a Ollama → (status, JSON|None). Directo (sin proxy) si es
     esta máquina. Levanta NetFail."""
     url = base_url() + path
     return S.get_json(url, connect_s + read_s, connect_s, method="POST" if payload else "GET",
-                      payload=payload, proxy=remote())
+                      payload=payload, proxy=remote(),
+                      progress=getattr(_PREGUNTA, "progress", None))
 
 
 def _version_tuple(v):
@@ -538,8 +546,18 @@ def _send(req, timeout_s):
 
 
 def decide(req):
+    _PREGUNTA.progress = req.get("progress") if isinstance(req.get("progress"), dict) else None
+    try:
+        return _decide(req)
+    finally:
+        _PREGUNTA.progress = None
+
+
+def _decide(req):
     t0 = time.time()
     try:
+        progress = req.get("progress") if isinstance(req.get("progress"), dict) else {}
+        progress.update(phase="connect", local=not remote())
         m, red = _elegir()
         if not m and red is not None:          # no es que falte el modelo: no hay Ollama
             return _fail(t0, red.code, {"class": red.cls, "phase": red.phase, "var": red.var})
@@ -550,6 +568,7 @@ def decide(req):
             # Ollama ya dijo que no es de decisión: ni se pregunta (falla cerrado)
             return _fail(t0, "not_decision", {"model": m, "reason": "model"})
         cargados = _loaded()
+        progress["phase"] = "read"
         frio = cargados is not None and _norm(m) not in cargados
         _COLD["last"] = frio
         if frio:

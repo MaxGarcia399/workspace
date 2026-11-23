@@ -13,7 +13,7 @@ import sys, os, json, subprocess, types
 import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 sys.dont_write_bytecode = True   # no generar __pycache__ (mantiene limpio el sync)
 if os.name == "nt":
-    os.system("")  # habilita ANSI en Windows 10+ (no-op en consolas viejas) — igual que doctor.py
+    import _console; _console.ansi()  # ANSI en Windows 10+ (solo con consola: sin ella, os.system abría una ventana)
 import _utf8; _utf8.harden()  # B2 · UTF-8 en stdout/err (cp1252 reventaría con box-drawing)
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -243,9 +243,87 @@ def _abrir_modelos():
     return modelos_tui.run()
 
 
+#: El pedido de abrir una pestaña que deja «Hacer ahora» (la revisión de
+#: skills repetida): main() lo valida con _pedido_de_pestana y la abre.
+_PEDIDO_PESTANA = []
+
+
+def _skills_pend(agents):
+    """Las revisiones de skills que volvieron a pendiente (hooks/skill_review.
+    pendientes_hub). Falla-suave: [] (sin fila)."""
+    try:
+        hooks = os.path.join(ROOT, "hooks")
+        if hooks not in sys.path:
+            sys.path.append(hooks)          # al final: jamás tapa un módulo de la raíz
+        import skill_review
+        return skill_review.pendientes_hub(
+            [{"name": a.get("name"), "brain": a.get("brain"), "display": a.get("display")}
+             for a in agents if a.get("brain")])
+    except Exception:
+        return []
+
+
+def _skills_avisos(agents):
+    try:
+        hooks = os.path.join(ROOT, "hooks")
+        if hooks not in sys.path:
+            sys.path.append(hooks)
+        import skill_review
+        return skill_review.avisos_hub(agents)
+    except Exception:
+        return []
+
+
+def _pend_hacer(p):
+    """«Hacer ahora» → (token o None, aviso). Abre la pestaña (token
+    «__pestana__»), le escribe la tarea en su panel o se la deja para su
+    próximo mensaje (hooks/skill_review.hacer_ahora)."""
+    if p.get("batch"):
+        return "__revision__", ""
+    try:
+        hooks = os.path.join(ROOT, "hooks")
+        if hooks not in sys.path:
+            sys.path.append(hooks)          # al final: jamás tapa un módulo de la raíz
+        import skill_review
+        r = skill_review.hacer_ahora(p["brain"], p["clave"], p.get("agente") or "")
+    except Exception as e:
+        return None, _t("hub.skills_pend.fail", "no pude: {e}", e=type(e).__name__)
+    if r.get("accion") == "abrir":
+        _PEDIDO_PESTANA[:] = [{"agente": r.get("agente"), "args": r.get("args")}]
+        return "__pestana__", ""
+    if r.get("accion") == "escrita":
+        return None, "✓ " + _t("hub.skills_pend.written", "le escribí la tarea a {q} en su panel",
+                               q=_quien_pend(p))
+    if r.get("accion") == "al_mensaje":
+        return None, "◆ " + _t("hub.skills_pend.next_msg", "{q} tiene la pestaña abierta: la tarea "
+                              "le llega con tu próximo mensaje ahí", q=_quien_pend(p))
+    return None, r.get("msg") or ""
+
+
+def _quien_pend(p):
+    q = str(p.get("display") or p.get("agente") or "?")
+    return q + (" «%s»" % p["pestana"] if p.get("pestana") else "")
+
+
+def _decisores_hoy():
+    """Las cifras de hoy de Decisores (decision_visible.resumen_hoy: SOLO
+    resultados comprobados). [] apagado o si no carga."""
+    from decisions import decisores_activos
+    if not decisores_activos():
+        return []
+    try:
+        import decision_visible
+        return decision_visible.resumen_hoy()
+    except Exception:
+        return []
+
+
 def _decisores_hub():
     """Los datos de la fila de Decisores de la portada (decision_visible.
     boton_hub). Falla-suave: si Decisores no carga, sin fila (None)."""
+    from decisions import decisores_activos
+    if not decisores_activos():
+        return None
     try:
         import decision_visible
         return decision_visible.boton_hub()
@@ -271,12 +349,215 @@ def _maquina_terminal(tok):
         pass
 
 
+# «Workspace en el navegador» desde el hub (2026-11-13): la página local se
+# abre SIN salir del hub ni bloquearlo. Un hilo lanza `front.py web --fondo`
+# desprendido (localhost_fondo: reusa la página viva de esta máquina o levanta
+# una) y deja el resultado en _AVISO_WEB; el tick del hub lo pinta en la línea
+# de avisos. La fila vive en la raíz del lanzador (debajo de Idioma) y en Menú.
+_WEB_TOKEN = "__web__"
+_AVISO_WEB = []
+_WEB_EN_CURSO = []
+#: Marca en el entorno: esta terminal ya decidió «navegador al iniciar» (la
+#: heredan el agente lanzado y el hub que vuelve con re-exec: no se repite).
+_WEB_MARCA = "WORKSPACE_WEB_AL_INICIAR"
+
+
+def _web_fila():
+    """La fila «Workspace en el navegador» de la raíz del lanzador."""
+    return {"label": _t("menu.web.label", "Workspace en el navegador"), "token": _WEB_TOKEN}
+
+
+def _hub_extras():
+    """Filas al pie de la raíz: «otra máquina» (solo dev) y la página local."""
+    return _maquinas_hub() + [_web_fila()]
+
+
+def _web_aviso(resultado):
+    """La línea de aviso del hub para un resultado de localhost_fondo."""
+    return {
+        "abierta": "✓ " + _t("navegador.hub.abierta", "Workspace se abrió en tu navegador"),
+        "reusada": "✓ " + _t("navegador.hub.reusada",
+                             "Workspace ya estaba abierto: lo abrí en tu navegador"),
+        "sin_navegador": _t("navegador.hub.sin_navegador",
+                            "no pude abrir tu navegador: escribe «workspace web» en una "
+                            "terminal y te doy el link"),
+        "tarde": "◆ " + _t("navegador.hub.tarde",
+                           "Workspace en el navegador sigue arrancando: se abre solo en cuanto esté"),
+        "fallo": _t("navegador.hub.fallo",
+                    "no pude abrir Workspace en el navegador — el hub sigue normal"),
+    }.get(resultado, "")
+
+
+def _web_en_fondo(avisar_exito=True):
+    """Abre (o reusa) la página en un hilo, sin bloquear el hub. → True si
+    arrancó; False si ya había una apertura en curso. El aviso del resultado
+    llega por _AVISO_WEB (con avisar_exito=False, solo si algo falló)."""
+    if _WEB_EN_CURSO:
+        return False
+    _WEB_EN_CURSO.append(True)
+
+    def trabajo():
+        try:
+            import localhost_fondo
+            r = localhost_fondo.abrir_desde_hub()
+        except Exception:
+            r = "fallo"
+        finally:
+            del _WEB_EN_CURSO[:]
+        if avisar_exito or r not in ("abierta", "reusada"):
+            aviso = _web_aviso(r)
+            if aviso:
+                _AVISO_WEB[:] = [aviso]
+    try:
+        import threading
+        threading.Thread(target=trabajo, name="web-fondo", daemon=True).start()
+    except Exception:
+        del _WEB_EN_CURSO[:]
+        return False
+    return True
+
+
+def _web_en_terminal():
+    """«Workspace en el navegador» elegida fuera del hub animado (el picker
+    estático): la misma apertura desprendida, esperando su resultado (unos
+    segundos como mucho) para decirlo en una línea. Jamás levanta."""
+    try:
+        import localhost_fondo
+        r = localhost_fondo.abrir_desde_hub()
+    except Exception:
+        r = "fallo"
+    aviso = _web_aviso(r)
+    if aviso:
+        print(f"  {DIM}{aviso}{R}")
+
+
+def _hub_al_abrir():
+    """Al abrir el hub (interactivo): se anota como hub abierto de esta máquina
+    (hub_presencia) y, con «Abrir Workspace en el navegador al iniciar»
+    encendido (ui.navegador_al_iniciar) y NINGÚN otro hub abierto, abre la
+    página en segundo plano (reusa la que ya corre). Una vez por terminal (ver
+    _WEB_MARCA). Jamás frena ni rompe el arranque: si algo falla, un aviso de
+    una línea. → True si lanzó la apertura."""
+    try:
+        import hub_presencia
+        otros = hub_presencia.al_abrir()
+    except Exception:
+        otros = None                     # no se sabe: se actúa como si estuviera solo
+    try:
+        import settings as _st
+        if not _st.enabled("ui.navegador_al_iniciar", default=False):
+            return False
+    except Exception:
+        return False
+    if os.environ.get(_WEB_MARCA):
+        return False
+    os.environ[_WEB_MARCA] = "1"
+    if otros:                            # otro hub abierto: ahí ya se abrió (o se abrirá)
+        return False
+    return _web_en_fondo(avisar_exito=False)
+
+
+def _presencia_fin():
+    """Este proceso deja de ser un hub abierto (lanza un agente, se reabre o
+    sale a la terminal). Falla-suave."""
+    try:
+        import hub_presencia
+        hub_presencia.soltar()
+    except Exception:
+        pass
+
+
+def _hub_no_arranco(e):
+    """Una línea (AG2-a): el hub no arrancó y qué hacer. Nunca el lanzador de antes."""
+    sys.stderr.write("WORKSPACE: " + _t("cli.hub_no_arranco", "el hub no arrancó ({err}). Escribe `workspace "
+                                        "doctor`: revisa y repara Workspace.", err="%s: %s" % (type(e).__name__, e))
+                     + "\n")
+    sys.stderr.flush()
+
+
+def _hub_paleta(abrir=None):
+    """El hub (hub_directo, la conversación directa por el servidor de la página; si la página no prende, el mismo hub
+    sin la conversación, AG2-a). Mientras un motor oficial está abierto no cuenta como hub abierto (como launch); al
+    volver, sí. `abrir`: dónde abre (Directo.abrir_al_empezar). → 0 al salir; None si no arrancó: ya dijo por qué en
+    una línea (con `workspace doctor`). El lanzador de antes ya no es la red."""
+    try:
+        import hub_paleta
+        import hub_directo
+    except Exception as e:
+        _hub_no_arranco(e)
+        return None
+
+    def lanzar(p):
+        _presencia_fin()
+        try:
+            return hub_paleta._lanzar_de_verdad(p)
+        finally:
+            try:
+                import hub_presencia
+                hub_presencia.al_abrir()
+            except Exception:
+                pass
+    try:
+        rc = hub_directo.correr(lanzar=lanzar, abrir=abrir)
+    except Exception as e:
+        _hub_no_arranco(e)
+        return None
+    if rc is not None:
+        _presencia_fin()
+    return rc
+
+
+def _puerta_dev(nombre):
+    """¿Copia de desarrollo con la variable de antes `nombre` puesta? (puertas.variable; en un cliente, nunca)."""
+    try:
+        import puertas
+        return puertas.variable(nombre)
+    except Exception:
+        return False
+
+
+def _primer_arranque():
+    """¿Este `workspace` es el primero en esta máquina? → "agregar:primera" (el hub abre con la tarjeta y su paso
+    «Tú») o None. Lo decide la rama de la tarjeta (agregar_logica.es_primer_arranque; la tarjeta deja la constancia al
+    terminar); mientras no esté en esta copia, primer_arranque (las mismas guardas de antes). Falla-suave → None."""
+    try:
+        import agregar_logica
+    except ImportError:
+        agregar_logica = None
+    try:
+        if agregar_logica is not None:
+            return "agregar:primera" if agregar_logica.es_primer_arranque() else None
+        import primer_arranque
+        return primer_arranque.empezar() if primer_arranque.toca() else None
+    except Exception:
+        return None
+
+
+def _abrir_hub(abrir=None):
+    """El hub nuevo, como lo abre `workspace` (tema, migraciones a la vista, presencia) — también desde un subcomando
+    que antes abría su pantalla propia (`agentes`, `tono`, `comandos`, `conexiones`, `calendario`, `onboarding`), ya
+    en su sección. Sin terminal: la línea de siempre. → código de salida."""
+    if not _interactive_console():
+        return _headless_exit()
+    _apply_pending_migrations()
+    _sesiones_al_abrir_hub()
+    import theme
+    theme.apply_current()
+    _set_term_title("WORKSPACE")
+    _hub_al_abrir()
+    rc = _hub_paleta(abrir=abrir)
+    _presencia_fin()
+    return 1 if rc is None else 0
+
+
 def menu_entries():
     """Registro CANÓNICO del MENÚ del hub: [(token, etiqueta, tagline)] en el
     orden del recinto, gates incluidos (Dev solo dueño/dev). ÚNICA fuente:
     `_menu_machinery` arma sus opts de aquí, `items()` toma de aquí su
     porción del picker estático — una sección nueva del hub aparece SOLA en
     los dos lugares sin tocar nada más."""
+    from decisions import decisores_activos
+    _activos = decisores_activos()
     out = []
     # «GitHub» (token __ramas__, github_tui) quedó APARCADA fuera de la 0.2.0
     # (rama feat/github) mientras se rehace: sin entrada, sin tecla ni ruteo.
@@ -307,14 +588,15 @@ def menu_entries():
             # «Agentes» (2026-10-09): transparencia por agente — config,
             # cerebro real, skills, rutas y ciclo de vida (agents_tui).
             ("__motores__", _t("menu.engines.label", "Motores"),
-             _t("menu.engines.tag", "motores de agentes y modelos de decisión")),
+             (_t("menu.engines.tag", "motores de agentes y modelos de decisión") if _activos else _t("motores.menu.engines", "Motores de agentes"))),
             ("__agentes__", _t("menu.agents.label", "Agentes"),
              _t("menu.agents.tag", "cerebro, permisos y skills de cada agente")),
-            # «Conversaciones» (2026-11-08): lo que los agentes se dicen por
-            # el bus (messages.py) — hilos, presencia y «Abrir a B».
-            ("__conversaciones__", _t("menu.conversaciones.label", "Conversaciones"),
-             _t("menu.conversaciones.tag",
-                "lo que tus agentes se dicen entre sí: sigue cada charla y corta cuando quieras")),
+            ("__conexiones__", _t("menu.connections.label", "Conexiones"),
+             _t("menu.connections.tag", "MCPs registrados y archivos de motores; solo lectura")),
+            # «Workspace en el navegador» (2026-11-11): la página local
+            # (localhost_web.py), solo en esta computadora.
+            ("__web__", _t("menu.web.label", "Workspace en el navegador"),
+             _t("menu.web.tag", "tus agentes en una página, solo en esta computadora")),
             # «Usuarios» (2026-10-17): quién usa cada agente, con cédula (ID
             # fijo); crear, renombrar, unir y «soy yo» solo desde aquí.
             ("__usuarios__", _t("menu.users.label", "Usuarios"),
@@ -335,7 +617,14 @@ def menu_entries():
             # propia del hub (Idioma › en el lanzador). Ver el grupo "idioma".
             ("__shell__", _t("menu.shell.label", "Terminal normal"),
              _t("menu.shell.tag", "tu shell de siempre · tecla q"))]
-    return out
+    try:
+        import skill_review_visible
+        if skill_review_visible.history():
+            out.insert(-1, ("__revision_history__", skill_review_visible.t("title"),
+                            _t("hub.skills_pend.history", "resultados · Ver · Deshacer")))
+    except Exception:
+        pass
+    return out if _activos else [it for it in out if it[0] != "__decisores__"]
 
 
 def items():
@@ -714,6 +1003,7 @@ def launch(name, args=()):
     """Abre el agente `name` (dispatch). `args` = flags de dispatch para abrir
     una pestaña concreta (`--open <id> --name <nombre>`, como Conversaciones
     › «Abrir a B en este hilo»)."""
+    _presencia_fin()                         # ya no es un hub abierto (Windows espera al agente)
     sys.stdout.write("\033[2J\033[3J\033[H"); sys.stdout.flush()   # limpia + scrollback para el banner del agente
     os.environ["WORKSPACE_FROM_HUB"] = "1"   # Esc en el menú de sesiones regresa aquí
     # La terminal PARTIDA ya no se abre desde el hub (0.5, paso 1 de 2 antes
@@ -1252,6 +1542,8 @@ def _print_harness_update(res):
             line = ""
         if line:
             print(f"  {'':<22}{DIM}{line}{R}")
+        if res.get("pagina") == "renovada":          # la página local corría el código de antes: ya es la de hoy
+            print(f"  {'':<22}{DIM}{_t('update.harness.pagina', 'Workspace se actualizó: reinicié la página')}{R}")
         return
     if st == updater.UPTODATE:
         print(f"{pad}{C}✓{R} {DIM}{_t('update.harness.uptodate', 'ya al día')} "
@@ -1723,6 +2015,7 @@ def _code_stamp():
 
 def _restart_hub():
     """Reabre el hub con el código nuevo (tras una actualización)."""
+    _presencia_fin()                         # el hub nuevo se anota solo
     argv = [sys.executable, os.path.abspath(__file__)] + sys.argv[1:]
     if os.name == "nt":   # Windows: exec no reemplaza el proceso (consola rota) → subprocess (igual que dispatch._exec)
         sys.exit(subprocess.run(argv).returncode)
@@ -2116,13 +2409,65 @@ def _menu_machinery(tout):
                   "motor": _motor_summary(agents),
                   # teclas de SALTO (1-9 · q): el lanzador las usa al buscar
                   "keys": JKEYS}
-        _extras = _maquinas_hub()            # «otra máquina» (solo dev)
-        if _extras:
-            _LDATA["extras"] = _extras
+        # al pie de la raíz: «otra máquina» (solo dev) y «Workspace en el
+        # navegador» (la página local, a la vista desde la portada)
+        _LDATA["extras"] = _hub_extras()
         _deci = _decisores_hub()             # la fila de Decisores (con los agentes)
         if _deci:
             _LDATA["decisores"] = _deci
             _JUMP_SET.add(_hlz.DECI_KEY)     # el 0 la abre, como 1-9 a los agentes
+        _pend = _skills_pend(agents)         # revisiones de skills sin hacer (0.9.1)
+        if _pend:
+            _LDATA["skills_pend"] = _pend
+        _hoy = _decisores_hoy()              # «◆ Decisores hoy» (solo encendido)
+        if _hoy:
+            _LDATA["decisores_hoy"] = _hoy
+
+    def _aviso_rico():
+        """La línea de abajo cuando no hay aviso: con la revisión pendiente
+        apuntada, de quién es y por qué (0.9.1). Sin nada de eso, None (la
+        portada de siempre)."""
+        if _LDATA is None or S.get("lz_level") or S.get("lz_q"):
+            return None
+        try:
+            it = _lz_cur()
+        except Exception:
+            return None
+        try:
+            import skill_review_visible
+            plan = skill_review_visible.review().plan_tanda(agents, modos=("button", "on_close"))
+            if plan["total"] and any(skill_review_visible.review().review_mode(g["brain"], g["motor"])
+                                      in ("button", "on_close") for g in plan["revisiones"]):
+                return [(skill_review_visible.estimate(plan) + " · ", "GREY", None),
+                        (_t("hub.skills_pend.review_now", "Revisar ahora"), "C+BO", ("review_batch", -1))]
+        except Exception:
+            pass
+        avisos = _skills_avisos(agents)
+        if avisos:
+            return [("! ", "B2+BO", None), (avisos[0]["texto"], "GREY", None)]
+        ps = _LDATA.get("skills_pend") or []
+        if it.get("kind") == "pend" and 0 <= it.get("idx", -1) < len(ps):
+            return [("! ", "B2+BO", None), (_hlz.pend_motivo(ps[it["idx"]]), "GREY", None)]
+        # «◆ Decisores hoy: …» — SOLO lo comprobado; cada cifra, un clic al
+        # Historial filtrado (0.9.1). Apagado: nada (la portada de siempre).
+        hoy = _LDATA.get("decisores_hoy") or []
+        if not hoy:
+            return None
+        col = {"si": "OK+BO", "no": "ERR+BO", "espera": "B2", "na": "DIM"}
+        partes = [("◆ ", "C+BO", None), (_t("hub.deci.today", "Decisores hoy: "), "WH+BO", None)]
+        ancho = S.get("term_w", 80) - 4 - sum(len(p[0]) for p in partes)
+        usado = 0
+        for i, x in enumerate(hoy):
+            sep = " · " if i else ""
+            resto = len(hoy) - i - 1
+            if usado + len(sep) + len(x["texto"]) + (len(" +%d" % resto) if resto else 0) > ancho:
+                partes.append((" +%d" % (len(hoy) - i), "DIM", ("resumen", -1)))
+                break
+            if sep:
+                partes.append((sep, "DK", None))
+            partes.append((x["texto"], col.get(x["clase"], "DIM"), ("resumen", i)))
+            usado += len(sep) + len(x["texto"])
+        return partes
 
     def _lay_lines():
         """Líneas del hub según el layout activo (contrato de hublayout:
@@ -2137,11 +2482,24 @@ def _menu_machinery(tout):
                 "lz_level": S.get("lz_level"), "lz_q": S.get("lz_q", ""),
                 "lz_sel": S.get("lz_sel", 0),
                 "msg": S["msg"], "hb_msg": S["hb_msg"],
+                "aviso_rico": _aviso_rico(),
                 # ALTO real: el lanzador reparte cabecera/caja/chips en él
                 "h": S["term_h"]}
         lines = _laybox["lay"]["render"](_LDATA, view, _LAYP, S["term_w"])
         S["hit"] = tuple(view.get("hit") or ())
         return lines
+
+    def _web_abrir_hub():
+        """«Workspace en el navegador»: la abre (o reusa la viva) en segundo
+        plano, SIN salir del hub; el resultado llega solo como aviso de una
+        línea (tick ← _AVISO_WEB). Nada bloquea el teclado."""
+        S["hb_msg"] = ""
+        if _web_en_fondo():
+            S["msg"] = "◆ " + _t("navegador.hub.abriendo", "abriendo Workspace en tu navegador…")
+        else:
+            S["msg"] = "◆ " + _t("navegador.hub.en_curso",
+                                 "Workspace en el navegador ya se está abriendo…")
+        return None
 
     def _deci_abrir():
         """La fila de Decisores: con un modelo activo o listo abre Decisores;
@@ -2168,7 +2526,7 @@ def _menu_machinery(tout):
         nuevo = opciones[(i + step) % len(opciones)]
         try:
             import decisions as _dc
-            _dc.set_global_model(nuevo)
+            _dc.set_global_model(nuevo, via="hub")
             nombre = (_t("decisores.model.off", "Apagado") if nuevo == "off"
                       else _dc.decider_label(nuevo))
         except Exception as e:
@@ -2182,6 +2540,10 @@ def _menu_machinery(tout):
                              name=_t("hub.lanzador.tab.decisores", "Decisores"), value=nombre)
         if nuevo != "off" and not (nuevo_d or {}).get("usos"):
             S["msg"] += " · " + _t("hub.deci.uses_hint", "elige sus usos en Decisores (Enter)")
+        elif nuevo != "off" and (nuevo_d or {}).get("propios"):
+            # #3: el general no manda en los usos con modelo propio — se dice
+            S["msg"] += " · " + _t("hub.deci.own_models", "{n} usos siguen con su propio modelo "
+                                   "(Enter: Decisores)", n=nuevo_d["propios"])
 
     def cycle_pin():
         """Enter/espacio en CONFIGS: CICLA el valor del pin ENFOCADO
@@ -2257,6 +2619,7 @@ def _menu_machinery(tout):
             opts = [(tok, lbl) for tok, lbl, _tag in menu_entries()]
             if _LDATA is not None:
                 _LDATA["opts"] = opts
+                _LDATA["extras"] = _hub_extras()
         except Exception:
             pass
 
@@ -2508,8 +2871,35 @@ def _menu_machinery(tout):
             S["agents_checked_at"] = time.monotonic()
             if _reload_agents():
                 full_draw(first=False)
-        if sync_theme():
-            full_draw(first=False)
+        # El tema, igual: cada TEMA_CADA_S y solo si su firma cambió (antes,
+        # 30 veces por segundo, con cada vez los theme.json y los ajustes
+        # releídos: ~8-13 % de un núcleo con el hub quieto). Las teclas
+        # (redraw) lo siguen mirando al instante.
+        if time.monotonic() - S.get("theme_checked_at", 0) >= TEMA_CADA_S:
+            S["theme_checked_at"] = time.monotonic()
+            firma = _firma_tema()
+            if firma != S.get("theme_sig") or firma is None:
+                S["theme_sig"] = firma
+                if sync_theme():
+                    full_draw(first=False)
+        # las revisiones de skills sin hacer: cada 5 s (un listdir por cerebro)
+        if _LDATA is not None and time.monotonic() - S.get("pend_checked_at", 0) >= 5:
+            S["pend_checked_at"] = time.monotonic()
+            cambio = False
+            for k, nuevo in (("skills_pend", _skills_pend(agents)),
+                             ("decisores_hoy", _decisores_hoy())):
+                if nuevo != (_LDATA.get(k) or []):
+                    if nuevo:
+                        _LDATA[k] = nuevo
+                    else:
+                        _LDATA.pop(k, None)
+                    cambio = True
+            if cambio:
+                full_draw(first=False)
+        if _AVISO_WEB:                           # «Workspace en el navegador» terminó
+            S["msg"], S["hb_msg"] = _AVISO_WEB.pop(), ""
+            del _AVISO_WEB[:]
+            redraw()
         _barrido_salas()
         S["frame"] += 1
 
@@ -2575,11 +2965,21 @@ def _menu_machinery(tout):
             _lz_drill(it["idx"])
             return None
         if k == "extra":
+            if it.get("token") == _WEB_TOKEN:    # la página local: sin salir del hub
+                return _web_abrir_hub()
             tok, aviso = _maquina_elegir(str(it.get("token") or ""))
             S["msg"] = aviso
             return tok
         if k == "deci":                      # la fila de Decisores
             return _deci_abrir()
+        if k == "pend":                      # «Hacer ahora» (revisión de skills)
+            ps = (_LDATA or {}).get("skills_pend") or []
+            if not (0 <= it.get("idx", -1) < len(ps)):
+                return None
+            tok, aviso = _pend_hacer(ps[it["idx"]])
+            S["msg"] = aviso
+            S["pend_checked_at"] = 0         # se refresca en el siguiente paso
+            return tok
         if k not in ("agent", "opt", "pin", "lang"):
             return None
         _lz_point(it)
@@ -2746,7 +3146,10 @@ def _menu_machinery(tout):
         if gk() == "idioma":
             apply_lang()
             return None
-        return opts[S["asel"]][0]
+        tok = opts[S["asel"]][0]
+        if tok == _WEB_TOKEN:                        # la página local: sin salir del hub
+            return _web_abrir_hub()
+        return tok
 
     def space():
         """Barra espaciadora — SOLO actúa en CONFIGS (cicla el pin enfocado,
@@ -2906,6 +3309,17 @@ def _menu_machinery(tout):
                 return activate()
             if kind == "crumb":                  # migas de pan = regresar
                 back()
+            if kind == "review_batch":
+                return "__revision__"
+            if kind == "resumen":                # una cifra de «Decisores hoy»
+                hoy = (_LDATA or {}).get("decisores_hoy") or []
+                filtro = (hoy[idx].get("filtro") if 0 <= idx < len(hoy) else {"hoy": True})
+                try:
+                    import decisores_tui
+                    decisores_tui.ABRIR = {"tab": "historial", "filtro": filtro or {"hoy": True}}
+                except Exception:
+                    pass
+                return "__decisores__"
             return None
         return None
 
@@ -2922,6 +3336,37 @@ def _menu_machinery(tout):
 
 
 _BARRIDO = []
+
+
+#: Cada cuánto el hub en reposo mira si el tema cambió (front tick).
+TEMA_CADA_S = 1.0
+
+
+def _firma_tema():
+    """Huella barata de lo que decide la paleta del hub: un stat de los ajustes
+    (ui.theme, brillo, fondo, luz roja…) y de la carpeta de temas, las
+    variables que la fuerzan y la firma de herdr (herdr_tema.firma, ya
+    acotada). None si no se pudo leer: entonces se mira la paleta entera."""
+    try:
+        import settings as _st
+        partes = []
+        for p in (_st.store_path(), os.path.join(ROOT, "themes")):
+            try:
+                s = os.stat(p)
+                partes.append((s.st_mtime_ns, s.st_size))
+            except OSError:
+                partes.append(None)
+        partes += [os.environ.get(k, "") for k in ("WORKSPACE_THEME", "WORKSPACE_TEMA_HERDR",
+                                                   "WORKSPACE_COLOR", "NO_COLOR", "TERM",
+                                                   "COLORTERM", "WORKSPACE_UN_COLOR")]
+        try:
+            import herdr_tema
+            partes.append(herdr_tema.firma())
+        except Exception:
+            partes.append(None)
+        return tuple(partes)
+    except Exception:
+        return None
 
 
 def _barrido_salas():
@@ -3213,45 +3658,20 @@ def _offer_update(interactive):
 
 
 def _doctor_submenu():
-    """«Actualizaciones» en el hub (ex-«Doctor»): un solo punto de entrada
-    (decisión del socio 2026-06-25: Doctor y Actualizar separados confunden).
-    Desde 2026-10-02 la pantalla `actualizaciones_tui` corre el flujo ENTERO
-    en vivo (pasos ✓/●/⚠/✗, progreso, resumen y pendientes — estilo
-    WORKSPACE) y devuelve None al terminar. Devuelve un token SOLO cuando no
-    puede correrlo ahí (p. ej. el motor del doctor no carga): entonces AQUÍ
-    se rutea al camino clásico de terminal (cmd_doctor/cmd_update).
-    Falla-suave doble: sin TTY (CI/pipe) cae al diagnóstico de solo-lectura;
-    sin la pantalla (módulo roto) cae al submenú de texto de antes."""
+    """ARCHIVO MÍNIMO por una versión (se va en la versión 2): un hub que se quedó abierto durante la actualización
+    todavía lanza «Actualizaciones» por este nombre (`python -c "…front._doctor_submenu()"`). Ya no abre la pantalla
+    de antes (actualizaciones_tui): abre la nueva (hub_actualizar). Sin terminal, el diagnóstico de solo leer."""
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         return cmd_doctor(["--check"])            # no-interactivo → nunca promptea
-    tok = None
     try:
-        import actualizaciones_tui
-        tok = actualizaciones_tui.run(version_text=_hub_version_text()[0])
-    except Exception:
-        # pantalla no disponible → el submenú plano de siempre (jamás crashea)
-        _o1 = _t("actualizaciones.fallback.o1", "Revisar nomás")
-        _o2 = _t("actualizaciones.fallback.o2", "Revisar y reparar")
-        _o3 = _t("actualizaciones.fallback.o3", "Actualizar todo")
-        print(f"\n  {B}{_t('actualizaciones.fallback.header', 'Actualizaciones')}{R} "
-              f"{DIM}{_t('actualizaciones.fallback.q', '— ¿qué quieres hacer?')}{R}\n")
-        print(f"    {C}1{R}  {_o1:<17}{DIM}{_t('actualizaciones.fallback.o1d', '— diagnóstico, no toca nada')}{R}")
-        print(f"    {C}2{R}  {_o2:<17}{DIM}{_t('actualizaciones.fallback.o2d', '— arregla hooks, launchers, tema…')}{R}")
-        print(f"    {C}3{R}  {_o3:<17}{DIM}{_t('actualizaciones.fallback.o3d', '— trae lo nuevo + repara (recomendado)')}{R}")
-        print(f"    {C}q{R}  {_t('actualizaciones.fallback.back', 'Volver')}\n")
-        try:
-            ans = input(f"  {C}{_t('actualizaciones.fallback.prompt', 'Opción [1]:')}{R} ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            print(); return None
-        tok = {"q": None, "volver": None, "salir": None,
-               "3": "update", "2": "repair"}.get(ans, "check")
-    if tok == "update":
-        return cmd_update([])                     # pull harness+cerebros y REPARA (self-heal)
-    if tok == "repair":
-        return cmd_doctor([])                     # fases que REPARAN + ofrece update al final
-    if tok == "check":
-        return cmd_doctor(["--check"])            # solo lectura, lo seguro
-    return None                                   # volver al hub sin tocar nada
+        import hub_actualizar
+        hub_actualizar.correr()
+    except Exception as e:
+        print(_t("cli.unavailable", "{what} no disponible ({err})", what="Actualizaciones",
+                 err=f"{type(e).__name__}: {e}"))
+        print(_t("cli.actualizaciones.texto", "En texto: `workspace update` trae lo nuevo y repara; "
+                 "`workspace doctor` solo revisa y repara."))
+    return None
 
 
 def cmd_doctor(args):
@@ -3323,13 +3743,17 @@ def cmd_repair(args=None):
                    "agentes ({err}) — corre `workspace doctor`",
                    err=f"{type(e).__name__}: {e}") + f"{R}")
         return 0
+    from engines import openclaw as oc
+    if oc.validar_perfil() is False:
+        print("OpenClaw: perfil de Workspace válido." if oc.reparar_plugin()
+              else "OpenClaw: perfil de OpenClaw inválido; la reparación de Workspace no lo corrigió.")
     brains = doctor._resolved_brains(ctx)
     if not brains:
         print(f"  {DIM}" + _t("cli.repair.none", "No hay cerebros resueltos que "
                                "recablear. Corre `workspace doctor` para "
                                "resolverlos.") + f"{R}")
         return 0
-    done, failed = [], []
+    done, failed, unreadable = [], [], []
     for a in ctx["agents"]:
         name, brain = a["name"], a["brain"]
         if not (brain and os.path.isdir(brain)):
@@ -3337,6 +3761,8 @@ def cmd_repair(args=None):
         try:
             install.render_hooks_only(a["cfg"], brain)        # RMW de hooks (fuente única P0-3)
             done.append(name)
+        except install.SettingsIlegible:
+            unreadable.append(name)                           # no se pisa: se dice abajo
         except Exception as e:
             failed.append(f"{name} ({type(e).__name__})")
     print(f"  {C}WORKSPACE repair{R} {DIM}— "
@@ -3348,6 +3774,10 @@ def cmd_repair(args=None):
         line += f"   {B}⚠{R} " + _t("cli.repair.failed", "{n} con error: {names}",
                                     n=len(failed), names=', '.join(failed))
     print(line)
+    for name in unreadable:
+        print(f"  {B}⚠{R} " + _t("cli.repair.unreadable", "el settings.local.json de {name} no se pudo "
+                                 "leer y NO se tocó · revísalo o restáuralo y vuelve a correr "
+                                 "`workspace repair`", name=name))
     return 0
 
 
@@ -3553,6 +3983,19 @@ def cmd_release(args):
     if dirty:
         print(f"  {DIM}Tienes cambios sin commitear (no afectan al release; "
               f"el release sale de `{ref}`).{R}")
+
+    # Conexiones en verde (F6, el canario): un motor de ESTA máquina más nuevo que sus probadas (la ficha), sin una
+    # prueba a fondo verde. No bloquea: avisa (lo normal es que el canario ya lo haya probado al abrir).
+    try:
+        from arquitectura import canario
+        sin_probar = canario.sin_probar_instaladas()
+    except Exception:
+        sin_probar = []
+    for motor, version, visto in sin_probar:
+        print(f"  {B}⚠ {motor} {version}{R} está instalado aquí y no está en sus versiones probadas"
+              + (f" (el canario lo vio: {visto})" if visto else " (sin prueba a fondo del canario todavía)")
+              + (f" — pásala a su ficha: {canario.A_LAS_FICHAS}" if visto == "verde" else
+                 " — si el release toca ese motor, pruébalo antes."))
 
     # GATE de versión (patrón Omarchy/Try Omarchy): cada release lleva número
     # nuevo y su sección en el CHANGELOG — es lo que el cliente ve en
@@ -5449,16 +5892,11 @@ def cmd_bus(args):
 
 
 def cmd_calendario(args):
-    """`workspace calendario` - pantalla completa para EDITAR la agenda: mes
-    navegable, eventos del dia, alta/edicion/baja con una tecla. El hub deja
-    agregar con Enter; esto es para todo lo demas. Logica: calendario_tui."""
-    try:
-        import calendario_tui
-    except Exception as e:
-        print(_t("cli.load_fail", "WORKSPACE: no pude cargar {what}: {err}",
-                 what="calendario_tui.py", err=e))
-        return 1
-    return calendario_tui.run()
+    """`workspace calendario` (I16): el hub en Calendario. Sin terminal, tu agenda en texto (`workspace agenda`, que
+    también agrega, marca y quita). La pantalla de antes (calendario_tui) ya no se abre."""
+    if not _interactive_console():
+        return cmd_personal("agenda", [])
+    return _abrir_hub("calendario")
 
 
 def cmd_tono(args):
@@ -5466,6 +5904,9 @@ def cmd_tono(args):
     agentes (amabilidad · sarcasmo · longitud · formalidad · iniciativa).
     Se guardan como settings `tono.*` (per-máquina) y los inyecta el hook
     SessionStart al abrir sesión. Lógica y textos: personalidad.py."""
+    args = list(args or [])
+    if (not args or args[0] in ("ui", "--ui", "pantalla")) and _interactive_console():
+        return _abrir_hub("agentes:tono")           # I15: Agentes › Tono del hub nuevo (tono_tui ya no se abre)
     try:
         import personalidad
     except Exception as e:
@@ -6258,7 +6699,7 @@ def cmd_agentes(args):
       reubicar <agente> <ruta> [--force]  repara la ruta del cerebro (override
                                           por máquina; no toca el cerebro)
       estado [--json]                     estado compartido (agent_state)
-      (sin subcomando)                    pantalla Agentes (TTY) o estado (sin TTY)"""
+      (sin subcomando)                    el hub en Agentes (TTY) o estado (sin TTY)"""
     args = list(args or [])
     sub = args[0].lower() if args else ""
     import agentsreg
@@ -6274,8 +6715,7 @@ def cmd_agentes(args):
             sys.stdin.isatty() and sys.stdout.isatty()):
         return agent_state.main([a for a in args[1:] if a == "--json"]
                                 if sub else [])
-    import agents_tui
-    return agents_tui.main(args)
+    return _abrir_hub("agentes")                  # I12: Agentes del hub nuevo (agents_tui ya no se abre)
 
 
 def cmd_split(args):
@@ -6373,6 +6813,10 @@ def _own_help():
         memoria._parser().print_help()
 
     def _decidir(args):                           # --stdin primero, con su ejemplo
+        from decisions import decisores_activos
+        if not decisores_activos():
+            print("en pausa")
+            return True
         try:
             import decisions
         except Exception:
@@ -6434,21 +6878,21 @@ def _command_help(word, args=()):
 
 
 def _run_onboarding(_args):
-    # Onboarding de primer uso, re-ejecutable a mano (onboarding_tui.py).
-    try:
-        import onboarding_tui
-        rc = onboarding_tui.run(force=True)
-    except Exception as e:
-        print(_t("cli.unavailable", "{what} no disponible ({err})",
-                 what="onboarding", err=f"{type(e).__name__}: {e}"))
+    """`workspace onboarding` (I01): el primer arranque otra vez, cuando quieras — el hub con la tarjeta «Agregar
+    agente» y su paso «Tú». Ya no hay asistente aparte (onboarding_tui). Sin terminal: dónde está."""
+    if not _interactive_console():
+        print(_t("cli.onboarding.sin_terminal", "workspace onboarding abre el hub con la tarjeta para agregar tu "
+                 "primer agente: necesita una terminal."))
         return 0
-    # «✦ ir al hub» abre el hub DE VERDAD (pedido del dueño 2026-10-14: antes
-    # te dejaba en la terminal y había que abrir otra ventana). En un proceso
-    # nuevo: así arranca con el tema y los agentes recién elegidos. Si lo
-    # lanzó el hub (Comandos), no: ese hub sigue abierto y retoma solo.
-    if onboarding_tui.ULTIMA_SALIDA == "fin" and not os.environ.get("WORKSPACE_DESDE_COMANDOS"):
-        _abre_hub()
-    return rc
+    try:
+        import agregar_logica  # noqa: F401  (la tarjeta deja su constancia al terminar)
+    except ImportError:
+        try:
+            import primer_arranque
+            primer_arranque.empezar()
+        except Exception:
+            pass
+    return _abrir_hub("agregar:primera")
 
 
 def _abre_hub():
@@ -6476,6 +6920,65 @@ def _run_module(modname, fn="main", pass_args=True):
     return _h
 
 
+def cmd_web(args):
+    """`workspace web`: abre Workspace en tu navegador (localhost_web): una página
+    local, solo en esta computadora, con una llave nueva en cada arranque. UNA por
+    máquina (localhost_fondo): si ya hay una viva (de un hub o de otro `workspace
+    web`), solo abre el navegador en ella; si no, la sirve en ESTE proceso (el mismo
+    Python del hub, también en Windows) hasta Ctrl+C o «Apagar» en la página.
+    `--help`/`-h`: lo que hace, sin arrancar nada. `--fondo` (interno): el proceso
+    desprendido que lanza el hub, sin terminal (localhost_fondo.lanzar)."""
+    args = list(args or [])
+    if set(args) & {"--help", "-h", "help"}:
+        print(_t("localhost.cli.help", "workspace web — abre Workspace en tu navegador: una página "
+                 "local, solo en esta computadora. Para cerrarla, Ctrl+C aquí o «Apagar» en la página."))
+        return 0
+    import localhost_fondo
+    if "--fondo" in args:
+        # sin terminal a propósito: se cierra con «Apagar» en la página o sola tras
+        # un día sin uso (localhost_fondo.INACTIVO_S). `--sin-navegador`: la prende el
+        # hub Paleta para su conversación directa (rama de prueba marca-lab)
+        # Windows: llega SIN consola (DETACHED): una consola oculta propia, que heredan
+        # todos sus programas (sin ella, cada sonda de motor asomaba una ventana).
+        import arbol_procesos
+        arbol_procesos.consola_oculta()
+        if "--sin-navegador" in args:
+            return localhost_fondo.servir(fondo=True, abrir=False)
+        return localhost_fondo.servir(fondo=True)
+    if not _interactive_console():
+        # contrato no interactivo (W-F04/Z19): la página se queda abierta hasta Ctrl+C;
+        # sin consola real (pipe, NUL, CI) no hay quien la cierre → no arranca
+        sys.stderr.write(_t("localhost.cli.sin_consola", "workspace web necesita una terminal "
+                            "interactiva: la página se queda abierta hasta que la cierres con Ctrl+C.") + "\n")
+        return 2
+    return localhost_fondo.servir()
+
+
+def cmd_conexiones(args):
+    """`workspace conexiones` (I14): el hub en Ajustes › Conexiones. `--counts` (para agentes y scripts) y sin
+    terminal: el inventario en texto, como siempre. La pantalla de antes (connections_tui) ya no se abre."""
+    args = list(args or [])
+    if "--counts" in args or not _interactive_console():
+        import connections_tui                     # como biblioteca: su inventario, nunca su pantalla
+        print(json.dumps(connections_tui.inventory.counts(connections_tui.inventory.scan(
+            projects=connections_tui.project_choices())), sort_keys=True))
+        return 0
+    return _abrir_hub("ajustes:conexiones")
+
+
+def cmd_revision(args):
+    """`workspace revision resultado creada|mejorada|nada [skill]`: el agente le
+    dice a Workspace qué dejó la revisión de skills (hooks/skill_review.cli)."""
+    hooks = os.path.join(ROOT, "hooks")
+    if hooks not in sys.path:
+        sys.path.append(hooks)            # al final: no tapa módulos de la raíz
+    import skill_review
+    if list(args)[:1] in (["ahora"], ["ver"], ["deshacer"], ["stop"]):
+        import skill_review_visible
+        return skill_review_visible.main(list(args)[1:] if list(args)[:1] == ["ahora"] else list(args))
+    return skill_review.cli(list(args))
+
+
 def cmd_decidir(args):
     """`workspace decidir`: la CLI de Decisores (decisions.cli). Si decisions.py
     falta o no carga, NO un traceback: el JSON de siempre con error_code
@@ -6493,6 +6996,20 @@ def cmd_decidir(args):
     return decisions.cli(args)
 
 
+def _solo_dev(nombre):
+    """Un oculto de antes (I17/I19: `split`, `panel`, `proyectos`) que ya solo existe en una copia de desarrollo: lo
+    corre puertas_dev, que make-dist quita (AG1-a). En una instalación de cliente, una línea y salida 2."""
+    def h(args):
+        try:
+            import puertas_dev
+        except ImportError:
+            sys.stderr.write("WORKSPACE: " + _t("cli.solo_dev", "«{cmd}» era de una pantalla de antes: ya no está en "
+                                                "esta versión de Workspace.", cmd=nombre) + "\n")
+            return 2
+        return getattr(puertas_dev, nombre)(args)
+    return h
+
+
 def _dispatch_table():
     """{id del catálogo (comandos.py): handler(args) → exit code}. ÚNICA tabla
     de ruteo de front.main: los NOMBRES (ES/EN/alias, incluidos los viejos)
@@ -6502,10 +7019,14 @@ def _dispatch_table():
     return {
         "help": lambda a: (print(_usage()) or 0),
         "comandos": lambda a: cmd_comandos(a),
+        "conexiones": lambda a: cmd_conexiones(a),
+        "web": lambda a: cmd_web(a),
         "update": lambda a: cmd_update(a),
         "version": lambda a: cmd_version(a),
         # Ajustes registrados que viajan con cada actualización (migrate.py).
         "migrate": _run_module("migrate"),
+        # El sistema nuevo (paquete por sesión): encender o apagar con un comando que existe (arquitectura).
+        "sistema-nuevo": lambda a: __import__("arquitectura.sistema_nuevo", fromlist=["cli"]).cli(a),
         "doctor": lambda a: cmd_doctor(a),
         # `repair`/`fix`: subset rápido del doctor — re-renderiza SOLO los
         # hooks de cada cerebro (dispatch.maybe_autoupdate spawnea justo esto).
@@ -6527,7 +7048,7 @@ def _dispatch_table():
         "calendario": lambda a: cmd_calendario(a),
         # App «Proyectos» (pantalla completa, puerto propio). Oculta al cliente
         # desde la 0.5 (comandos.py); sigue ruteando hasta que se borre en la 0.6.
-        "proyectos": lambda a: cmd_proyectos(a),
+        "proyectos": _solo_dev("proyectos"),
         # Enviar correo por SMTP (Gmail App Password). Acción HACIA AFUERA: el
         # default seguro es --dry-run; las credenciales viven per-máquina.
         "mail": lambda a: cmd_mail(a),
@@ -6536,7 +7057,7 @@ def _dispatch_table():
         "wf": lambda a: cmd_wf(a),
         # Terminal PARTIDA (opt-in): solo se entra escribiendo `workspace split`.
         # Oculta al cliente desde la 0.5 (comandos.py); sigue ruteando.
-        "split": lambda a: cmd_split(a),
+        "split": _solo_dev("split"),
         "eval": lambda a: cmd_eval(a),
         # ── ocultos (rutean, no se anuncian) ──
         # Backend del Centro de Control (dash/centro/).
@@ -6546,14 +7067,18 @@ def _dispatch_table():
         # Delegación autónoma segura (bus automático v1, opt-in).
         "bus": lambda a: cmd_bus(a),
         "memoria": _run_module("memoria"),     # nota/ver/vigente/maleta + checkpoint/status
+        # El avance de una skill que arrancó la página (= pasos.py; N2: un comando simple, preaprobado).
+        "pasos": _run_module("pasos"),
         # Decisores (usos de agentes): pregunta y responde JSON (decisions.cli).
         "decidir": lambda a: cmd_decidir(a),
+        # Revisión de skills: el agente reporta qué dejó (hooks/skill_review.cli).
+        "revision": lambda a: cmd_revision(a),
         # Bóveda de llaves: de dónde sale cada una y auditoría (sin valores).
         "llaves": _run_module("secret_store", "cli"),
         "sesiones": _run_module("sesiones"),   # lista/archivar/desarchivar (sesiones v2)
         "identidad": _run_module("identidad"), # ver/soy/deshacer (sesiones v2)
         # Pane derecho del split (panel.py; lo corre mux.right_pane_cmd()).
-        "panel": lambda a: cmd_panel(a),
+        "panel": _solo_dev("panel"),
         # ── DEV/EQUIPO (el gate _DEV_CMDS corta antes en la build de cliente) ──
         "parity-check": lambda a: cmd_parity_check(a),
         "dev": _run_dev,
@@ -6579,7 +7104,7 @@ def _comandos_dev_mode():
 
 def cmd_comandos(args):
     """`workspace comandos` — el catálogo único, para gente y para agentes:
-      (sin args)      pantalla Comandos (con consola) · uso en texto (sin ella)
+      (sin args)      el hub en Ayuda › Comandos (con consola) · uso en texto (sin ella)
       --json          catálogo estable para agentes de IA (ambos idiomas)
       --markdown      capítulo del manual, derivado (--lang es|en opcional)
       --check         lint: catálogo ⇔ ruteo, resúmenes ES/EN, colisiones
@@ -6614,15 +7139,7 @@ def cmd_comandos(args):
     if not _interactive_console():
         print(_usage())
         return 0
-    try:
-        import comandos_tui
-        rc = comandos_tui.run(standalone=True)
-        return rc if isinstance(rc, int) else 0
-    except Exception as e:
-        print(_t("cli.unavailable", "{what} no disponible ({err})",
-                 what="comandos", err=f"{type(e).__name__}: {e}"))
-        print(_usage())
-        return 0
+    return _abrir_hub("ayuda:comandos")           # I13: Ayuda › Comandos del hub nuevo (comandos_tui ya no se abre)
 
 
 def _usage(lang=None):
@@ -6782,20 +7299,10 @@ def main():
     #    Va ANTES de onboarding/theme para no escribir nada al stdout redirigido.
     if "--banner" not in sys.argv and not _interactive_console():
         sys.exit(_headless_exit())
-    # ── ONBOARDING de primer uso (repo público): sin flag, sin agentes y con
-    #    TTY → flujo guiado ANTES del hub (onboarding_tui.maybe_run decide con
-    #    sus propias guardas — subcomando/--banner, env, flag, adopción); si
-    #    corrió, re-exec para que el recinto arranque ya con el tema y los
-    #    agentes recién elegidos (la paleta de este proceso se fijó al
-    #    importar). Fail-soft total: cualquier problema → el hub normal.
-    try:
-        import onboarding_tui
-        if onboarding_tui.maybe_run():
-            os.execv(sys.executable,
-                     [sys.executable, os.path.abspath(__file__)]
-                     + sys.argv[1:])
-    except Exception:
-        pass
+    # ── PRIMER ARRANQUE (I01): ya no hay asistente aparte (onboarding_tui): el hub abre con la tarjeta «Agregar
+    #    agente» y su paso «Tú» (_primer_arranque: la detección de la tarjeta, agregar_logica, y mientras no esté la
+    #    de primer_arranque; misma constancia onboarded.json). Fail-soft: cualquier problema → el hub normal.
+    abrir = _primer_arranque() if "--banner" not in sys.argv else None
     _apply_pending_migrations()                   # ajustes de una actualización, a la vista
     _sesiones_al_abrir_hub()                      # sesiones v2: constancia de esta máquina
     # El harness arranca VACÍO de agentes: es un producto que se distribuye a clientes
@@ -6814,18 +7321,41 @@ def main():
             pass
     theme.apply_current()                         # fondo/tinta del tema (tui.osc) o los de la terminal
     _set_term_title("WORKSPACE")                  # la pestaña dice WORKSPACE, no el proceso
-    it = items()
+    if _puerta_dev("WORKSPACE_HUB_VIEJO"):        # copia de desarrollo: el lanzador de antes, para comparar
+        import puertas_dev
+        return puertas_dev.lanzador(sys.modules[__name__])
     if "--banner" in sys.argv:
-        # Vista ESTÁTICA del hub (el lanzador sin tty) — para pruebas y para
-        # ver el hub sin abrirlo. Falla-suave: si la machinery truena, cae a
-        # la lista plana del picker.
+        # Vista ESTÁTICA del hub (I04): Inicio del hub nuevo, sin terminal ni página (hub_directo.foto_inicio).
+        try:
+            import hub_directo
+            print("\n".join(hub_directo.foto_inicio()))
+        except Exception as e:
+            _hub_no_arranco(e)
+            sys.exit(1)
+        print()
+        return
+    _hub_al_abrir()                               # hub abierto (hub_presencia) + navegador al iniciar
+    # El hub nuevo (hub_directo); si la página no prende, el mismo sin la conversación (AG2-a). Si ni él arranca,
+    # una línea con `workspace doctor`: el lanzador de antes ya no es la red (vive en puertas_dev, solo en desarrollo).
+    rc = _hub_paleta(abrir=abrir)
+    _presencia_fin()
+    if rc is None:
+        sys.exit(1)
+
+
+def _lanzador_de_antes():
+    """El lanzador de antes y sus secciones (I02/I03). SOLO lo llama puertas_dev.lanzador (copia de desarrollo con
+    WORKSPACE_HUB_VIEJO=1, para comparar); se borra en la versión 2."""
+    import theme
+    it = items()
+    if "--banner" in sys.argv:                    # la vista estática de antes (el lanzador sin tty)
         try:
             print("\n".join(_menu_machinery(sys.stdout).block_lines()))
         except Exception:
-            print("\n".join(_static_header()
-                            + _picker_lines(it, _first_selectable(it))))
+            print("\n".join(_static_header() + _picker_lines(it, _first_selectable(it))))
         print()
         return
+    _hub_al_abrir()
     while True:
         name = animated_menu(it)                  # el lanzador (devuelve nombre/token)
         if name is None:                          # fallback: sin tty / WORKSPACE_NO_ANIM
@@ -6839,7 +7369,11 @@ def main():
         # Falla-suave: si el módulo no está o truena, un aviso y el menú sigue
         # vivo (jamás crashea el boot). El recinto se reconstruye al re-entrar
         # al loop → relee el registry (un agente recién agregado ya aparece).
-        loopback = {"__devmap__": (_t("menu.comandos.label", "Comandos").lower(),
+        loopback = {"__revision_history__": (_t("hub.skills_pend.history", "resultados · Ver · Deshacer"),
+                                              lambda: __import__("skill_review_visible").history_menu()),
+                    "__revision__": (_t("hub.skills_pend.review_now", "Revisar ahora"),
+                                      lambda: __import__("skill_review_visible").launch()),
+                    "__devmap__": (_t("menu.comandos.label", "Comandos").lower(),
                                    "comandos_tui"),
                     "__add_agent__": (_t("menu.add_agent.label",
                                          "Agregar agente").lower(),
@@ -6856,8 +7390,11 @@ def main():
                                      "usuarios_tui"),
                     "__decisores__": (_t("menu.decisores.label", "Decisores").lower(),
                                       "decisores_tui"),
-                    "__conversaciones__": (_t("menu.conversaciones.label",
-                                              "Conversaciones").lower(), "conversaciones_tui"),
+                    "__conexiones__": (_t("menu.connections.label", "Conexiones").lower(), "connections_tui"),
+                    # la página local: se abre desprendida (localhost_fondo) y el hub sigue;
+                    # en el hub animado ni llega aquí (la abre la machinery sin salir)
+                    "__web__": (_t("menu.web.label", "Workspace en el navegador").lower(),
+                                _web_en_terminal),
                     # la fila de Decisores sin modelo: directo a Motores →
                     # Modelos de decisión (2026-11-07)
                     "__modelos__": (_t("motores.menu.deciders", "Modelos de decisión").lower(),
@@ -6880,6 +7417,13 @@ def main():
             loopback[name] = (_t("hub.lanzador.other_machine",
                                  "Otra máquina").lower(),
                               lambda: _maquina_terminal(name))
+        if name == "__pestana__":                 # «Hacer ahora»: la pestaña de esa revisión
+            abrir = _pedido_de_pestana(_PEDIDO_PESTANA[0] if _PEDIDO_PESTANA else None)
+            del _PEDIDO_PESTANA[:]
+            if abrir:
+                launch(*abrir)
+                return
+            continue                              # no se pudo: de vuelta al hub
         if name not in loopback:
             break
         label, target = loopback[name]
@@ -6909,12 +7453,14 @@ def main():
         # VIEJO en memoria: se reabre el hub en vez de volver a él.
         if stamp is not None and _code_stamp() != stamp:
             _restart_hub()
-        # Conversaciones › «Abrir a B en este hilo»: la sección pide abrir una
-        # pestaña de agente y el hub la abre como abre cualquiera.
+        # Una sección puede devolver una pestaña de agente para abrir en el hub.
+        if isinstance(pedido, dict) and pedido.get("revision"):
+            __import__("skill_review_visible").launch()
         abrir = _pedido_de_pestana(pedido)
         if abrir:
             launch(*abrir)
             return
+    _presencia_fin()                              # el menú se cerró: ya no es un hub abierto
     if name == "__dev__":                         # abrir el panel de DEV (versiones/ramas) y al shell
         theme.reset(); cmd_dev([]); return
     if name == "__proyectos__":                   # abrir la app «Proyectos» y al shell

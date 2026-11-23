@@ -48,6 +48,7 @@ STRINGS = {
     "hub.pin.un_color": "one color",
     "hub.pin.tema_herdr": "follow herdr",
     "hub.pin.autostart": "autostart",
+    "hub.pin.navegador": "browser at start",
     "hub.pin.heartbeat": "heartbeat",
     "hub.pin.split": "split",
     "hub.pin.anim": "anim",
@@ -154,6 +155,41 @@ STRINGS = {
     'hub.deci.badge_new': 'new',
     'hub.deci.setup': 'set up',
     'hub.deci.off': 'off',
+    'hub.deci.offline': 'offline',
     'hub.deci.none_ready': 'connect a model in Engines → Decision models (Enter)',
     'hub.deci.uses_hint': 'pick its uses in Deciders (Enter)',
+    'hub.skills_pend.one': '1 skill review pending',
+    'hub.skills_pend.of': 'skill review · {q}',
+    'hub.skills_pend.waiting': '{q}: the task reaches it with your next message there',
+    'hub.skills_pend.why': '{q}: the review from {o} left no result · Enter does it now',
+    'hub.skills_pend.do': 'Do it now',
+    'hub.skills_pend.fail': "couldn't: {e}",
+    'hub.skills_pend.written': 'I wrote the task to {q} in its pane',
+    'hub.skills_pend.next_msg': '{q} has the tab open: the task reaches it with your next message there',
+    'hub.skills_pend.yesterday': 'yesterday {h}',
+    'hub.deci.own_models': '{n} uses keep their own model (Enter: Deciders)',
+    'hub.deci.today': 'Deciders today: ',
+    'hub.skills_pend.many': '{k} skill reviews pending',
+    'hub.skills_pend.gone': 'it is no longer pending',
+    'hub.skills_pend.unreadable': "couldn't read the previous delivery: it stays pending",
+    'hub.skills_pend.unrecorded': "I wrote the task to {q}, but couldn't record the delivery: the review may repeat",
+    'hub.skills_pend.no_view': 'its view is gone: it stays pending',
+    'hub.skills_pend.no_task': "couldn't write the task: it stays pending",
+    'hub.skills_pend.typed': '{q} has something typed in its pane: open it yourself; the review stays pending',
+    'hub.skills_pend.unsure': "{q} isn't idle or I can't tell whether something is typed: open it yourself; the review stays pending",
+    'hub.skills_pend.herdr': "herdr didn't take the text: open it yourself; the review stays pending",
+    'hub.skills_pend.busy': 'another process is delivering it: try again in a moment',
+    'hub.skills_pend.monito': 'it comes from its Companion chat: it gets it the next time you open it in its terminal or on the page',
+    'hub.skills_pend.active': 'this tab already has a review to finish: the next one waits',
+    'hub.skills_pend.other_engine': '{q} is open in {m}: it gets it when the tab is reopened (close it and press Do it now)',
+    'hub.skills_pend.opening': 'opening {q} with the task',
+    'hub.skills_pend.from_agents': 'open it from Agents: the task reaches it when it starts',
 }
+
+STRINGS.update({'hub.skills_pend.unreadable_queue': 'Skill review: a pending review could not be read; the others continue.', 'hub.skills_pend.lock_failed': 'Skill review: a review could not be saved because the queue was busy.'})
+
+STRINGS.update({'hub.skills_pend.launch_failed': 'Skill review: the tab could not be opened; the review is still pending.', 'hub.skills_pend.review_now': 'Review now'})
+
+STRINGS.update({'hub.skills_pend.batch_why': '{q}: queued review · Enter opens the batch'})
+
+STRINGS.update({'hub.skills_pend.history': 'results · View · Undo'})

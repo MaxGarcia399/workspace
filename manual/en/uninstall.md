@@ -78,4 +78,4 @@ and anything you edited by hand, or that Workspace didn't write as is (for examp
   nothing and tells you why.
 
 Reinstalling is the same command as in [Install](install.md); afterwards, load your agents
-again with **Add agent**.
+again in the hub with **+ Agregar** (add) › «Ya tengo un agente» (I already have an agent).

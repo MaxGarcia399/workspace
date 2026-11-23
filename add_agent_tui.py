@@ -68,6 +68,9 @@ if ROOT not in sys.path:
 
 import agent_admin                                              # noqa: E402
 import agent_create_job                                         # noqa: E402
+import agent_create_params                                      # noqa: E402
+import agent_load_job                                           # noqa: E402
+import agregar_logica                                           # noqa: E402
 import agent_skill_sources
 import agentsreg                                                # noqa: E402
 import hublayout as HL                                          # noqa: E402
@@ -95,6 +98,24 @@ def _t(key, es):
 # ahora significa ESTADO del agente, no identidad — con muchos agentes el
 # arcoíris no escala. agent_admin.create conserva su default neutro («gris»)
 # y el flag --color sigue vivo por CLI para quien lo quiera.
+#
+# El MONITO sí volvió (F0 del onboarding, 19-nov): «cara» y «color» son los del
+# formulario de la página (localhost_front.FORMAS / COLORES, una sola fuente) y
+# se guardan en el MISMO lugar que guarda la página (sus preferencias de esta
+# computadora): así el agente creado aquí no sale gris en la página. No tocan
+# agent.json ni el tema del agente.
+try:
+    from localhost_front import FORMAS as _FORMAS, COLORES as _COLORES
+except Exception:                                   # falla-suave: la paleta de los monitos
+    _FORMAS = ("bolita", "pico", "cuadrito", "gatito", "fantasma", "nube")
+    _COLORES = ("#ff4fa3", "#3fbf7f", "#3b82f6", "#e7a43a", "#8b5cf6", "#ffffff")
+_NOMBRE_FORMA = {"bolita": "Bolita", "pico": "Pico", "cuadrito": "Cuadrito",
+                 "gatito": "Gatito", "fantasma": "Fantasmita", "nube": "Nubecita"}
+_NOMBRE_COLOR = {"#ff4fa3": ("rosa", "rosa"), "#3fbf7f": ("verde", "verde"),
+                 "#3b82f6": ("azul", "azul"), "#e7a43a": ("ambar", "ámbar"),
+                 "#8b5cf6": ("morado", "morado"), "#ffffff": ("blanco", "blanco")}
+#: Campos de ELEGIR (no se escriben): ←→ o espacio cambian, Enter sigue.
+ELEGIR_F = {"cara": _FORMAS, "color": _COLORES}
 
 # ── el formulario de CREAR: (key, label, default, ayuda, ejemplo) ───────────
 # Catálogo FUENTE: protocols/agent-creation/00-INTAKE.md (secciones B·C — el
@@ -104,16 +125,21 @@ def _t(key, es):
 # STATE/users/<dueño>.md (HOT al boot), el carácter en la semilla del SOUL,
 # alcance+límites en BOOT/03-RULES §Scope, y las respuestas crudas COMPLETAS
 # en `.workspace/agent.json` → "intake" (portátiles con el cerebro).
-GRUPOS_F = (("identidad", ("nombre", "visible")),
+GRUPOS_F = (("identidad", ("nombre", "cara", "color", "visible")),
             ("carácter", ("rol", "proposito", "tono", "estilo", "idioma")),
             ("alcance", ("alcance", "limites", "ejemplos", "skills")),
             ("dueño", ("dueño", "dueño_quien", "dueño_como",
                        "dueño_necesita")))
 FIELDS = {
     "nombre": ("nombre", "",
-               "El slug del agente: minúsculas, dígitos, - o _. Es su "
-               "comando (`alfa` en la terminal) y el nombre de su cerebro.",
+               "Cómo se llama: minúsculas, números, - o _. También es su "
+               "comando: lo escribes en la terminal para abrirlo.",
                "ej.  alfa · beta · gamma"),
+    "cara": ("cara", "",
+             "La cara de su monito, la misma en Workspace y en la página. "
+             "←→ la cambia.", ""),
+    "color": ("color", "",
+              "El color de su monito. ←→ lo cambia.", ""),
     "visible": ("visible", "",
                 "Cómo se muestra en el hub y sus banners. Vacío = el nombre "
                 "capitalizado.", "ej.  Alfa"),
@@ -123,8 +149,7 @@ FIELDS = {
             "ej.  copiloto legal de un despacho boutique"),
     "proposito": ("propósito", "",
                   "¿Para qué existe? El trabajo que hace y para quién. "
-                  "Entre más concreto, mejor nace la semilla de su alma "
-                  "(BOOT/00-SOUL.md).",
+                  "Entre más concreto, mejor nace su forma de ser.",
                   "ej.  investigar y redactar contratos de arrendamiento"),
     "tono": ("tono", "copiloto híbrido: riguroso y cálido",
              "Su carácter al hablar. Se puede afinar después con la "
@@ -136,8 +161,7 @@ FIELDS = {
     "idioma": ("idioma", "español",
                "El idioma principal en el que trabaja y responde.", ""),
     "alcance": ("alcance", "",
-                "Qué SÍ hace — su campo de acción. Aterriza en "
-                "BOOT/03-RULES §Scope.",
+                "Qué SÍ hace — su campo de acción. Queda en sus reglas.",
                 "ej.  contratos y normativa MX; nada de litigio"),
     "limites": ("límites", "",
                 "Qué NO hace o rechaza, y qué acciones consulta ANTES de "
@@ -151,8 +175,8 @@ FIELDS = {
                "Categorías de skills con las que nace (separadas por coma).",
                "ej.  generales, legal, redacción"),
     "dueño": ("dueño", "",
-              "Usuario corto del dueño (minúsculas) — crea su perfil y sus "
-              "sesiones dentro del cerebro. Opcional.",
+              "Tu nombre corto (minúsculas): el agente guarda tu perfil "
+              "en su carpeta. Opcional.",
               "ej.  uno · dos · tres"),
     "dueño_quien": ("quién es", "",
                     "Quién es el dueño: nombre, a qué se dedica, su nivel "
@@ -320,50 +344,34 @@ def _divisor(K, txt, w, tono=-1):
 #: se redibuja sola varias veces por segundo: se memoriza unos segundos por
 #: (nombre, PATH, HOME, idioma). El PATH no cambia mientras tecleas y create()
 #: lo vuelve a mirar al crear.
-_CHOQUES = {}
 
 
 def _choque_comando(v):
-    try:
-        idioma = i18n.lang() if i18n is not None else ""
-    except Exception:
-        idioma = ""
-    clave = (v, os.environ.get("PATH", ""), os.path.expanduser("~"), idioma)
-    ahora = time.monotonic()
-    memo = _CHOQUES.get(clave)
-    if memo is None or ahora - memo[0] > 5:
-        if len(_CHOQUES) > 64:
-            _CHOQUES.clear()
-        memo = _CHOQUES[clave] = (ahora, agent_admin.command_conflict(v))
-    return memo[1]
+    return agregar_logica.choque_comando(v)
 
 
 def _valida_nombre(v):
     """(estado, texto) del nombre EN VIVO: '' → neutro · ok → disponible ·
-    bad → por qué no."""
+    bad → por qué no. La revisión es la de agregar_logica (la misma de la
+    tarjeta nueva); los textos, los de esta pantalla."""
     v = (v or "").strip().lower()
-    if not v:
+    r = agregar_logica.revisar_nombre(v, comando=v)
+    c = r.get("clave")
+    if c == "vacio":
         return ("", _t("addagent.ui.name.empty", "escribe el nombre — es el único campo obligatorio"))
-    if not agentsreg.is_valid_name(v):
+    if c == "invalido":
         return ("bad", _t("addagent.ui.name.invalid", "inválido: solo minúsculas, dígitos, - o _"))
-    try:
-        if agentsreg.find(v) or agent_admin.dispatch.find_agent(v):
-            return ("bad", _t("addagent.ui.name.taken", "ya existe un agente «%s» — elige otro") % v)
-    except Exception:
-        pass
+    if c == "repetido":
+        return ("bad", _t("addagent.ui.name.taken", "ya existe un agente «%s» — elige otro") % v)
     # el nombre es su COMANDO: si ya es otro programa (claude, hermes, git,
     # workspace…) su lanzador lo taparía en la terminal → no se ofrece
-    choque = _choque_comando(v)
-    if choque:
-        return ("bad", choque)
-    try:
-        if os.path.exists(agent_admin.default_brain_dest(v)):
-            return ("bad", _t("addagent.ui.name.folder_exists", "la carpeta %s ya existe")
-                    % _ruta_corta(agent_admin.default_brain_dest(v)))
-    except Exception:
-        pass
-    return ("ok", _t("addagent.ui.name.available", "disponible — su cerebro: %s")
-            % _ruta_corta(agent_admin.default_brain_dest(v)))
+    if c == "programa":
+        return ("bad", r.get("texto") or "")
+    if c in ("carpeta", "carpeta_agente"):
+        return ("bad", _t("addagent.ui.name.folder_exists", "la carpeta %s ya existe")
+                % _ruta_corta(r.get("carpeta") or ""))
+    return ("ok", _t("addagent.ui.name.available", "disponible — su carpeta: %s")
+            % _ruta_corta(r.get("carpeta") or agent_admin.default_brain_dest(v)))
 
 
 def _mmss(secs):
@@ -549,12 +557,12 @@ def _barra_saldo(K, libre, ancho, col):
 #: UN capturador de stdio a la vez (scan y load serializados): dos workers
 #: capturando/restaurando sys.stdout en paralelo pueden restaurar en el
 #: orden equivocado y dejar un StringIO muerto como stdout del hub.
-_STDIO_LOCK = threading.Lock()
+#: El mismo candado de agent_load_job: cargar y buscar capturan la salida del proceso.
+_STDIO_LOCK = agent_load_job.STDIO_LOCK
 
 
 def _ljob_steps_single():
-    return [{"key": k, "label": _lstep_t(k, lbl), "st": "pend", "note": ""}
-            for k, lbl in agent_admin.LOAD_STEPS]
+    return agent_load_job.steps_single()
 
 
 def _lstep_t(k, lbl):
@@ -563,11 +571,12 @@ def _lstep_t(k, lbl):
 
 
 def _ljob_start(S, items, origen, prefs=None):
-    """Arranca la carga en un hilo daemon. items = [(name, carpeta)]; 1 solo
-    = pasos LOAD_STEPS reales; varios (descubrir · a) = un paso por cerebro.
-    `origen` = vista a la que vuelve el resultado (menu/cargar/descubrir).
-    `prefs` = {autonomy, skill_review} elegidos en la vista de permisos (se
-    pasan a agent_admin.load; None = respetar lo que declara cada cerebro)."""
+    """Arranca la carga (agent_load_job, el mismo job de la tarjeta nueva y
+    la página). items = [(name, carpeta)]; 1 solo = pasos LOAD_STEPS reales;
+    varios (descubrir · a) = un paso por cerebro. `origen` = vista a la que
+    vuelve el resultado (menu/cargar/descubrir). `prefs` = {autonomy,
+    skill_review} elegidos en la vista de permisos (se pasan a
+    agent_admin.load; None = respetar lo que declara cada cerebro)."""
     if S.get("ljob") and not S["ljob"].get("done"):
         S["msg"] = _t("addagent.ui.msg.load_in_progress", "ya hay una carga en curso — un momento")
         return
@@ -575,95 +584,14 @@ def _ljob_start(S, items, origen, prefs=None):
     if cj and not cj.get("done"):        # ambos capturan stdio — uno a la vez
         S["msg"] = _t("addagent.ui.msg.create_in_progress", "hay una creación en curso — espera a que termine")
         return
-    bulk = len(items) > 1
-    if bulk:
-        steps = [{"key": n, "label": "%s  %s" % (n, _ruta_corta(c)),
-                  "st": "pend", "note": ""} for n, c in items]
-    else:
-        steps = _ljob_steps_single()
-    job = {"items": list(items), "bulk": bulk, "steps": steps, "live": [],
-           "warns": [], "res_map": {}, "done": False, "ok": False,
-           "error": "", "res": "", "origen": origen,
-           "prefs": dict(prefs or {}),
-           "t0": time.monotonic(), "t1": None}
-    S["ljob"] = job
+    S["ljob"] = agent_load_job.start(items, prefs, origen)
     S["view"], S["msg"] = "lrun", ""
-    threading.Thread(target=_ljob_worker, args=(job,), daemon=True).start()
 
 
 def _ljob_worker(job):
-    """Corre agent_admin.load con pasos en vivo. Captura stdio GLOBAL
-    (install.py imprime con say/ok → rompería la pantalla raw; discover ya
-    no corre aquí pero load también escribe) y lo restaura SIEMPRE."""
-    def _out(*a, **_k):
-        txt = " ".join(str(x) for x in a)
-        if "WARN" in txt:
-            job["warns"].append(txt.split("WARN:", 1)[-1].strip())
-
-    def _on_step(key, st, note=""):
-        for s in job["steps"]:
-            if s["key"] == key:
-                s["st"], s["note"] = st, str(note or "")
-                break
-        if st in ("ok", "warn", "fail", "skip"):
-            lbl = next((s["label"] for s in job["steps"]
-                        if s["key"] == key), key)
-            job["live"].append((st, lbl + ((" — " + str(note))
-                                           if note else "")))
-            del job["live"][:-60]
-
-    _STDIO_LOCK.acquire()
-    old = (sys.stdout, sys.stderr, sys.stdin)
-    sys.stdout, sys.stderr = io.StringIO(), io.StringIO()
-    sys.stdin = io.StringIO("")
-    try:
-        if job["bulk"]:
-            oks = 0
-            for s in job["steps"]:
-                name, folder = s["key"], ""
-                for n, c in job["items"]:
-                    if n == name:
-                        folder = c
-                        break
-                s["st"] = "run"
-                try:
-                    ok, res = agent_admin.load(folder, out=_out,
-                                               **(job.get("prefs") or {}))
-                except Exception as e:
-                    ok, res = False, "%s: %s" % (type(e).__name__, e)
-                s["st"] = "ok" if ok else "fail"
-                s["note"] = "" if ok else str(res)
-                job["res_map"][name] = "ok" if ok else ("err:%s" % res)
-                job["live"].append((s["st"], name + ("" if ok
-                                                     else " — %s" % res)))
-                oks += 1 if ok else 0
-            job["ok"] = (oks == len(job["steps"]))
-            job["res"] = "%d/%d" % (oks, len(job["steps"]))
-        else:
-            name, folder = job["items"][0]
-            try:
-                ok, res = agent_admin.load(folder, out=_out,
-                                           progress=_on_step,
-                                           **(job.get("prefs") or {}))
-            except Exception as e:
-                ok, res = False, "%s: %s" % (type(e).__name__, e)
-            job["ok"] = bool(ok)
-            job["res"] = str(res)
-            if not ok:
-                job["error"] = str(res)
-            job["res_map"][res if ok else name] = \
-                "ok" if ok else ("err:%s" % res)
-    finally:
-        try:
-            sys.stdout, sys.stderr, sys.stdin = old
-        except Exception:
-            pass
-        _STDIO_LOCK.release()
-        for s in job["steps"]:                    # nada se queda "corriendo"
-            if s["st"] in ("pend", "run"):
-                s["st"] = "skip"
-        job["t1"] = time.monotonic()
-        job["done"] = True
+    """Corre la carga del job (agent_load_job._worker: pasos en vivo, stdio
+    capturado y restaurado SIEMPRE)."""
+    return agent_load_job._worker(job)
 
 
 # ── radiografía EN VIVO de la carpeta tecleada (cargar) ──────────────────────
@@ -716,57 +644,20 @@ def _scan_donde(S=None):
 
 
 def _lanza_scan(S, protegidas=False):
-    """agentsreg.discover() en un hilo: el listdir de las carpetas puede
-    tardar (discos de red) y además discover escribe AVISOS de colisión a
-    stderr — capturados aquí y mostrados en la UI (antes se imprimían encima
-    del alt-screen raw). `protegidas` (Mac): también Escritorio y Documentos,
-    que el socio pidió con la tecla e después de leer el aviso."""
+    """agregar_logica.buscar() en un hilo: el listdir de las carpetas puede
+    tardar (discos de red) y discover escribe AVISOS de colisión a stderr —
+    vuelven como avisos de la UI (antes se imprimían encima del alt-screen
+    raw). `protegidas` (Mac): también Escritorio y Documentos, que el socio
+    pidió con la tecla e después de leer el aviso."""
     if (S.get("scan") or {}).get("state") == "busy":
         return
     S["scan"] = {"state": "busy", "avisos": [], "reg": {}, "protegidas": protegidas}
     S["found"], S["estados"], S["di"] = [], {}, 0
 
     def _w():
-        avisos, found = [], []
-        _STDIO_LOCK.acquire()
-        old = (sys.stdout, sys.stderr, sys.stdin)
-        sys.stdout, sys.stderr = io.StringIO(), io.StringIO()
-        sys.stdin = io.StringIO("")
-        try:
-            found = agentsreg.discover(protegidas=protegidas) or []
-        except Exception:
-            found = []
-        finally:
-            try:
-                errtxt = sys.stderr.getvalue()
-            except Exception:
-                errtxt = ""
-            try:
-                sys.stdout, sys.stderr, sys.stdin = old
-            except Exception:
-                pass
-            _STDIO_LOCK.release()
-        for ln in errtxt.splitlines():
-            ln = ln.strip()
-            if ln:
-                avisos.append(ln.replace("WORKSPACE · aviso: ", "").replace(
-                    _t("addagent.discover.warn_prefix", "WORKSPACE · aviso: "),
-                    ""))
-        reg, estados = {}, {}
-        try:
-            reg = {a["name"]: a["brain"] for a in agentsreg.agents()}
-        except Exception:
-            pass
-        for a in found:
-            n = a["name"]
-            if n not in reg:
-                estados[n] = "nuevo"
-            elif os.path.realpath(reg[n]) == os.path.realpath(a["brain"]):
-                estados[n] = "cargado"
-            else:
-                estados[n] = "otro"
-        S["found"], S["estados"] = found, estados
-        S["scan"] = {"state": "done", "avisos": avisos, "reg": reg, "protegidas": protegidas}
+        r = agregar_logica.buscar(protegidas=protegidas)
+        S["found"], S["estados"] = r["found"], r["estados"]
+        S["scan"] = {"state": "done", "avisos": r["avisos"], "reg": r["reg"], "protegidas": protegidas}
         S["buscado"] = True
 
     threading.Thread(target=_w, daemon=True).start()
@@ -839,6 +730,61 @@ def _val_lineas(val, w):
     return out or [""]
 
 
+def _avatar_libre():
+    """(cara, color) de omisión: el primer monito que ningún otro agente de esta
+    computadora usa (el mismo criterio que la página). Falla-suave."""
+    usados_f, usados_c = set(), set()
+    try:
+        import localhost_front as _lf
+        for v in (_lf.leer_prefs().get("agentes") or {}).values():
+            av = (v.get("avatar") or {}) if isinstance(v, dict) else {}
+            usados_f.add(av.get("forma"))
+            usados_c.add(av.get("color"))
+    except Exception:
+        pass
+    return (next((f for f in _FORMAS if f not in usados_f), _FORMAS[0]),
+            next((c for c in _COLORES if c not in usados_c), _COLORES[0]))
+
+
+def _eleccion(S, key):
+    """El valor de un campo de ELEGIR: lo elegido o el monito libre."""
+    v = S["vals"].get(key, "")
+    if v in ELEGIR_F[key]:
+        return v
+    d = S.get("_avatar_def")
+    if not d:
+        d = S["_avatar_def"] = _avatar_libre()
+    return d[0] if key == "cara" else d[1]
+
+
+def _nombre_eleccion(key, v):
+    if key == "cara":
+        return _t("addagent.ui.forma.%s" % v, _NOMBRE_FORMA.get(v, v))
+    slug, es = _NOMBRE_COLOR.get(v, (v, v))
+    return _t("addagent.ui.color.%s" % slug, es)
+
+
+def _tinta(hexa):
+    """La secuencia de color de la terminal para el color del monito ('' si la
+    terminal no tiene color)."""
+    try:
+        import tuitheme
+        return tuitheme._seq(hexa, tuitheme.color_mode())
+    except Exception:
+        return ""
+
+
+def _guardar_avatar(nombre, cara, color):
+    """Guarda el monito donde lo guarda la página (sus preferencias de esta
+    computadora). Falla-suave: sin esto, la página le reparte uno."""
+    try:
+        import localhost_front as _lf
+        if cara in _FORMAS and color in _COLORES:
+            _lf._cambiar_prefs(nombre, avatar={"forma": cara, "color": color})
+    except Exception:
+        pass
+
+
 def _fila_campo(S, K, iw, key, idx):
     """Las filas de UN campo: SIEMPRE una línea — cursor · label · valor
     («⏎» marca saltos de línea). Un campo vacío se ve VACÍO: el ejemplo y la
@@ -851,6 +797,14 @@ def _fila_campo(S, K, iw, key, idx):
     default = _t("addagent.ui.field.%s.default" % key, default) if default else default
     val = S["vals"].get(key, "")
     cur = "%s%s%s" % (K["C"] + K["BO"], K["PTR"], K["R"]) if sel else " "
+    if key in ELEGIR_F:                          # cara / color: se elige con ←→
+        lab = "%s%s%s" % ((K["WH"] + K["BO"]) if sel else K["GREY"], HL.pad(label, 10), K["R"])
+        v = _eleccion(S, key)
+        pieza = "%s%s%s %s%s%s" % (_tinta(_eleccion(S, "color")), "●" if key == "cara" else "■", K["R"],
+                                   K["WH"] if sel else K["GREY"], _nombre_eleccion(key, v), K["R"])
+        if sel:
+            pieza = "%s‹%s %s %s›%s" % (K["C"] + K["BO"], K["R"], pieza, K["C"] + K["BO"], K["R"])
+        return [HL.clip(" %s %s %s" % (cur, lab, pieza), iw)]
     lcol = (K["WH"] + K["BO"]) if sel else (K["GREY"] if val else K["DK"])
     lab = "%s%s%s" % (lcol, HL.pad(label, 10), K["R"])
     caret = ("%s█%s" % (K["C"] + K["BO"], K["R"])) if sel else ""
@@ -891,6 +845,22 @@ def _b_crear_ayuda(S, K, iw):
     ancho = max(8, iw - 4)
     out = [_divisor(K, label, iw, tono=2)]
     out += ["  %s%s%s" % (K["GREY"], ln, K["R"]) for ln in _wrap(hint, ancho)[:2]]
+    if key in ELEGIR_F:
+        actual, fila, filas = _eleccion(S, key), "", []
+        for o in ELEGIR_F[key]:
+            if key == "color":
+                txt = "%s■%s %s%s%s" % (_tinta(o), K["R"], (K["WH"] + K["BO"]) if o == actual else K["DK"],
+                                         _nombre_eleccion(key, o), K["R"])
+            else:
+                txt = "%s%s%s" % ((K["WH"] + K["BO"]) if o == actual else K["DK"], _nombre_eleccion(key, o), K["R"])
+            if fila and HL.vis(fila) + 3 + HL.vis(txt) > ancho:
+                filas.append(fila)
+                fila = ""
+            fila = (fila + "   " + txt) if fila else txt
+        filas.append(fila)
+        out += ["  " + f for f in filas[:3]]
+        out = [HL.clip(x, iw) for x in out][:_AYUDA_H - 1]
+        return out + [""] * max(0, _AYUDA_H - 1 - len(out))
     if key == "nombre":                          # el nombre se valida EN VIVO
         est, txt = _valida_nombre(val)
         col = K["OK"] if est == "ok" else (K["BAD"] if est == "bad" else K["DIM"])
@@ -960,7 +930,7 @@ def _b_crear(S, K, iw, grupos=True, max_h=None):
     abajo = len({t for t, _l in filas[fin:]
                  if isinstance(t, int) and t >= 0})
     out = [HL.clip((" %s" + _t("addagent.ui.form.more_above", "… %d campo(s) más arriba") + "%s")
-                   % (K["DK"], arriba, K["R"]), iw) if ini > 0 else ""]
+                   % (K["DK"], arriba, K["R"]), iw) if arriba > 0 else ""]
     out += [ln for _tg, ln in filas[ini:fin]]
     out.append(HL.clip((" %s" + _t("addagent.ui.form.more_below", "… %d campo(s) abajo · ✦ continuar al final") + "%s")
                        % (K["DK"], abajo, K["R"]), iw)
@@ -982,6 +952,8 @@ def _b_crear_det(S, K, iw, full=2):
             label = _t("addagent.ui.field.%s.label" % k, label)
             default = _t("addagent.ui.field.%s.default" % k, default) if default else default
             v = S["vals"].get(k, "") or default or "—"
+            if k in ELEGIR_F:
+                v = _nombre_eleccion(k, _eleccion(S, k))
             lineas = _val_lineas(v, 200)         # preview = primera línea
             v1 = lineas[0] + (" ⋯" if len(lineas) > 1 else "")
             out.append(HL.clip("   %s%s%s %s%s%s" % (
@@ -1169,11 +1141,10 @@ def _b_done(S, K, iw):
                            % (K["OK"] + K["BO"], K["CHECK"], job["name"],
                               K["R"]), iw))
         dur = _mmss((job.get("t1") or time.monotonic()) - job["t0"])
-        out.append(HL.clip((" %s" + _t("addagent.ui.done.steps_dur", "%d pasos · %s · motor %s") + "%s")
-                           % (K["DK"], len(job["steps"]), dur,
-                              job.get("engine", "?"), K["R"]), iw))
+        out.append(HL.clip((" %s" + _t("addagent.ui.done.dur_motor", "listo en %s · motor %s") + "%s")
+                           % (K["DK"], dur, job.get("engine", "?"), K["R"]), iw))
         out.append("")
-        out.append(HL.clip((" %s" + _t("addagent.ui.done.brain", "cerebro:") + "%s %s%s%s")
+        out.append(HL.clip((" %s" + _t("addagent.ui.done.brain", "su carpeta:") + "%s %s%s%s")
                            % (K["DIM"], K["R"], K["GREY"],
                               job.get("dest", ""), K["R"]), iw))
         sourced = job.get("skill_sourcing")
@@ -1195,9 +1166,9 @@ def _b_done(S, K, iw):
                                % (K["DIM"], _t("addagent.ui.done.review_warns", "→ revisa los avisos antes de usar el agente"), K["R"]), iw))
         out.append("")
         out.append(_divisor(K, _t("addagent.ui.done.nextsteps", "próximos pasos"), iw, tono=2))
-        for ln in (_t("addagent.ui.done.next.1", "ábrelo: vuelve al hub y elígelo en la lista"),
+        for ln in (_t("addagent.ui.done.next.1", "ábrelo: en Workspace, elígelo en la lista"),
                    _t("addagent.ui.done.next.2", "o escribe  %s  en una terminal nueva") % job["name"],
-                   _t("addagent.ui.done.next.3", "su voz (BOOT/00-SOUL.md) la completa él con lo que le dijiste y tus correcciones · skills en skills/")):
+                   _t("addagent.ui.done.next.3", "su forma de ser la completa él con lo que le dijiste y con tus correcciones")):
             out.append(HL.clip(" %s·%s %s%s%s" % (K["DK"], K["R"], K["DIM"],
                                                   ln, K["R"]), iw))
     else:
@@ -1673,10 +1644,10 @@ def _b_listo(S, K, iw):
     if d.get("bulk") is None:
         out.append("")
         out.append(_divisor(K, _t("addagent.ui.done.nextsteps", "próximos pasos"), iw, tono=2))
-        for ln in (_t("addagent.ui.done.next.1", "ábrelo: vuelve al hub y elígelo en la lista"),
+        for ln in (_t("addagent.ui.done.next.1", "ábrelo: en Workspace, elígelo en la lista"),
                    _t("addagent.ui.done.next.2", "o escribe  %s  en una terminal nueva")
                    % d.get("name", ""),
-                   _t("addagent.ui.done.next.3", "su voz (BOOT/00-SOUL.md) la completa él con lo que le dijiste y tus correcciones · skills en skills/")):
+                   _t("addagent.ui.done.next.3", "su forma de ser la completa él con lo que le dijiste y con tus correcciones")):
             out.append(HL.clip(" %s·%s %s%s%s" % (K["DK"], K["R"], K["DIM"],
                                                   ln, K["R"]), iw))
     return out
@@ -2333,40 +2304,16 @@ def _ir_plan(S):
 
 
 def _params_de_form(S):
-    """Los kwargs de agent_admin.create desde el formulario. Los campos de
-    texto libre viajan COMPLETOS (con sus saltos de línea) en `intake` —
-    create() los guarda en .workspace/agent.json y siembra users/<dueño>.md.
-    La semilla del SOUL y el scope se aplanan a UNA línea aquí: van a
-    contextos inline del template (BRAIN.md / BOOT) donde un \\n crudo
-    rompería el markdown."""
-    g = lambda k: (S["vals"].get(k, "").strip() or FIELDS[k][1])  # noqa: E731
-
-    def plano(txt):
-        return " · ".join(p.strip() for p in (txt or "").split("\n")
-                          if p.strip())
-
-    nombre = S["vals"].get("nombre", "").strip().lower()
-    owner = re.sub(r"[^a-z0-9_-]+", "-",
-                   g("dueño").strip().lower()).strip("-")
-    partes = (("Propósito", plano(g("proposito") or g("rol"))
-               or (g("visible") or nombre.capitalize())),
-              ("Tono", plano(g("tono"))), ("Estilo", plano(g("estilo"))),
-              ("Idioma", plano(g("idioma"))),
-              ("Tareas típicas", plano(g("ejemplos"))))
-    soul = " ".join("%s: %s." % (t, v) for t, v in partes if v)
-    scope = plano(g("alcance"))
-    if plano(g("limites")):
-        scope = ((scope + " — ") if scope else "") + \
-            "Límites: " + plano(g("limites"))
-    intake = {k: S["vals"].get(k, "").strip() for k in ORDEN_F
-              if S["vals"].get(k, "").strip()}
-    params = {"name": nombre, "display": g("visible") or nombre.capitalize(),
-              "tagline": plano(g("rol")), "owner": owner, "scope": scope,
-              "skills": plano(g("skills")), "soul": soul, "intake": intake,
-              "engine": S.get("engine_id") or "claude-code",
-              # las dos preguntas del plan (permisos y aprendizaje)
-              "autonomy": "brain" if S.get("brain_free", True) else "ask",
-              "skill_review": bool(S.get("skill_review"))}
+    """Los kwargs de agent_admin.create desde el formulario
+    (agent_create_params.desde_form: la misma fuente que la tarjeta nueva y la
+    página). Los textos libres viajan COMPLETOS en `intake`; la semilla del
+    SOUL y el scope, aplanados a UNA línea."""
+    params = agent_create_params.desde_form(
+        {k: S["vals"].get(k, "") for k in ORDEN_F}, {k: FIELDS[k][1] for k in ORDEN_F},
+        engine=S.get("engine_id") or "claude-code",
+        # las dos preguntas del plan (permisos y aprendizaje)
+        autonomy="brain" if S.get("brain_free", True) else "ask",
+        skill_review=bool(S.get("skill_review")), elegir=tuple(ELEGIR_F))
     # toggle del plan: solo viaja si está ON y el backend headless existe
     # (agent_create_job agrega los pasos de la pasada al ver el flag)
     if S.get("personalize") and _perso_disp(S)[0]:
@@ -2388,6 +2335,9 @@ def _crear_ya(S, params=None):
     if lj and not lj.get("done"):        # ambos capturan stdio — uno a la vez
         S["msg"] = _t("addagent.ui.msg.conn_in_progress", "hay una conexión en curso — espera a que termine")
         return
+    if params is None:                   # desde el formulario: su monito, como en la página
+        _guardar_avatar(S["vals"].get("nombre", "").strip().lower(),
+                        _eleccion(S, "cara"), _eleccion(S, "color"))
     S["job"] = agent_create_job.start(params or _params_de_form(S))
     S["view"], S["msg"] = "run", ""
 
@@ -2468,6 +2418,8 @@ def _accion(S, key):
     # ── listo (de cargar/descubrir) ──
     if v == "listo":
         if key in ("q", "Q", "\x1b", "\r", "\n"):
+            if S.get("volver_al_terminar") and (S.get("done") or {}).get("ok", True):
+                return False                 # desde el onboarding: vuelve a él
             S["view"] = S.get("lret") or "menu"
         return True
     # ── lrun: conexión EN VIVO (load es rápido y sin restos posibles) ──
@@ -2502,8 +2454,11 @@ def _accion(S, key):
             S["job"] = None
             if ok:
                 S["vals"] = {k: "" for k in ORDEN_F}     # formulario limpio
+                S.pop("_avatar_def", None)               # el próximo monito libre es otro
                 S["brain_free"], S["skill_review"] = True, False
                 S["view"] = "menu"
+                if S.get("volver_al_terminar"):
+                    return False                         # desde el onboarding: vuelve a él
             else:
                 S["view"], S["fi"] = "crear", 0          # campos intactos
         return True
@@ -2571,11 +2526,21 @@ def _accion(S, key):
             S["view"] = "plan"
         return True
     # ── Esc desde cualquier sub-vista → atrás ──
+    if key == "\x1b" and S.get("volver_al_terminar") and v in ("crear", "cargar", "descubrir"):
+        return False                                     # desde el onboarding: vuelve a él
     if key == "\x1b":
         S["view"] = "crear" if v == "plan" else "menu"
         return True
     # ── crear (formulario) ──
     if v == "crear":
+        k_act = ORDEN_F[S["fi"]] if S["fi"] < ACCION_ROW else None
+        if k_act in ELEGIR_F and key in ("left", "right", " "):
+            ops = ELEGIR_F[k_act]
+            i = ops.index(_eleccion(S, k_act))
+            S["vals"][k_act] = ops[(i + (-1 if key == "left" else 1)) % len(ops)]
+            return True
+        if k_act in ELEGIR_F and key not in ("up", "down", "tab", "\r", "\n"):
+            return True                                  # aquí no se escribe: se elige
         if key == "up":
             S["fi"] = (S["fi"] - 1) % (ACCION_ROW + 1)
         elif key in ("down", "tab"):
@@ -2648,6 +2613,8 @@ def _accion(S, key):
             else:
                 S["msg"] = _t("addagent.ui.msg.no_new_brains", "no hay cerebros nuevos que conectar")
         elif key in ("q", "Q"):
+            if S.get("volver_al_terminar"):
+                return False                             # desde el onboarding: vuelve a él
             S["view"] = "menu"
         return True
     return True
@@ -2904,4 +2871,7 @@ def run():
 
 
 if __name__ == "__main__":
-    sys.exit(run())
+    # ARCHIVO MÍNIMO por una versión (se borra en la versión 2): esta pantalla ya no se abre. Quien la corre
+    # directo, o un hub que quedó abierto durante la actualización, llega a lo nuevo (puertas.redirigir).
+    import puertas
+    sys.exit(puertas.redirigir('agregar', sys.argv[1:]))

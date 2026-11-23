@@ -43,8 +43,10 @@ STRINGS = {
                             'and sensitive steps ask first',
     'motorbar.codex.full': 'full — edits in the brain and runs commands without asking (inside the '
                            'sandbox: outside the brain and network stay blocked)',
-    'motorbar.agy.brain': 'brain — edits in the brain without asking; terminal and outside files '
-                          'ask first',
+    'motorbar.agy.brain': 'automatic — its Auto mode: edits and runs safe commands without asking; '
+                          'irreversible actions ask first',
+    'motorbar.agy.edit': 'edit without asking — edits in the brain without asking; terminal and '
+                         'outside files ask first',
     'motorbar.agy.full': "full — edits in the brain and runs commands without asking (the agent's "
                          'agy project); outside the brain it asks',
     'motorbar.agy.access_failed': "couldn't register the brain's access in Antigravity (it will ask "
@@ -61,8 +63,9 @@ STRINGS = {
     'motorbar.memoria_mcp.restaurada': "WORKSPACE: {rel} in your brain: Workspace's entry (`workspace-memoria`) had been changed; I restored it and yours stays as is (backup in {respaldo}).",
     'motorbar.agy.commands_free': 'commands without asking',
     'motorbar.agy.acct_full': 'API key or business account: full integration',
-    'motorbar.agy.acct_exp': "Google sign-in: experimental (Google doesn't support wrapping "
-                             'agy on consumer plans: {u})',
+    'motorbar.agy.acct_exp': 'Google sign-in: personal account (Google forbids using it in other '
+                             'apps and may suspend your Antigravity access; use a Google AI Studio '
+                             'API key: {u})',
     'motorbar.agy.tokens_in_bar': "in Antigravity's bar",
     'motorbar.hermes.created': "created its «{p}» profile (with your model, without copying your "
                                "keys; your personal Hermes doesn't change)",
@@ -108,6 +111,9 @@ STRINGS = {
                                          "long-term memory",
     'motorbar.openclaw.memory_added': "added STATE/MEMORY.md to your bootstrap-extra-files hook "
                                       "paths (yours are kept)",
+    'motorbar.openclaw.plugin_on': "turned on the Workspace plugin in its profile (hooks, MCP and "
+                                   "skills); turn it off with `openclaw --profile {p} plugins "
+                                   "disable workspace`",
     'motorbar.openclaw.no_agent': "a windowless OpenClaw turn needs to know which agent it "
                                   "belongs to: it never uses OpenClaw's built-in «main» agent, "
                                   "which answers with another identity",

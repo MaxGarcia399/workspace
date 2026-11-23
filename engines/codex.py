@@ -74,8 +74,10 @@ CAPABILITIES = {
     # Workspace (interactive.run_official_cli_interactive → neutral_hooks:
     # journal, skill review, backup de transcript). Codex 0.162 SÍ trae hooks
     # nativos (SessionStart/UserPromptSubmit/Stop/SessionEnd — verificado,
-    # requieren confianza por hash), pero NO se cablean: dispararían doble
-    # junto al session_end del wrapper. Sin eventos por herramienta.
+    # requieren confianza por hash). hooks5: con el paquete por sesión van en
+    # el .codex/hooks.json del cerebro (arquitectura/sesion) y su lanzador SOLO
+    # anota el estado y niega lo prohibido: los listeners siguen en el wrapper
+    # (sin doble disparo). Corren cuando el socio los confía una vez (/hooks).
     "hooks": "wrapper",
     "sessions": "workspace",        # pestañas del registro NEUTRAL (sessions_
                                   # registry) + resume con `codex resume <id>`
@@ -110,7 +112,7 @@ APPROVAL_POLICY = "on-request"
 #: Aprobaciones por autonomía del agente (contrato común; ver docstring).
 #: `never` NO apaga el sandbox: fuera del cerebro y la red siguen bloqueados,
 #: solo deja de preguntar (lo que el sandbox no permite, falla).
-APPROVAL_BY_AUTONOMY = {"ask": APPROVAL_POLICY, "brain": APPROVAL_POLICY}
+APPROVAL_BY_AUTONOMY = {"ask": APPROVAL_POLICY, "brain": APPROVAL_POLICY, "edit": APPROVAL_POLICY}
 #: Sandbox por autonomía cuando el agent.json no fija uno (engine_config.sandbox
 #: gana): "ask" = solo lectura + on-request → Codex pide aprobación antes de
 #: editar o correr algo (su preset «Read Only»).
@@ -671,9 +673,15 @@ def _interactive_argv(cfg, passthrough, resume_sid="", first_prompt=""):
                    or str(a).startswith("--ask-for-approval=") for a in pt)
     if not has_appr:
         argv += ["-a", APPROVAL_BY_AUTONOMY.get(auto, APPROVAL_POLICY)]
-    if auto == "brain" and sb == "workspace-write" \
+    # «Automático» (brain) y «Editar sin preguntar» (edit) son lo mismo en Codex: como
+    # está (decisión del dueño 18-nov)
+    if auto in ("brain", "edit") and sb == "workspace-write" \
             and not _has_override(pt, NETWORK_KEY):
         argv += ["-c", NETWORK_OFF]
+    # F14: sin el menú «Update available! › Update now» al arrancar (una tecla lo
+    # aceptaba). Override por corrida documentado; actualizar es del socio.
+    if not _has_override(pt, "check_for_update_on_startup"):
+        argv += ["-c", "check_for_update_on_startup=false"]
     has_model = any(str(a) in ("-m", "--model") or str(a).startswith("--model=")
                     for a in pt)
     model = _resolve_model(cfg)
@@ -687,7 +695,8 @@ def _interactive_argv(cfg, passthrough, resume_sid="", first_prompt=""):
     # resume/fork commands remain owned by the caller. Al REANUDAR no se
     # inyecta prompt (el hilo ya está en contexto; el socio sigue donde iba).
     if not pt and not resume_sid:
-        pt = [first_prompt or "Inicia el cerebro."]
+        import memoria
+        pt = [first_prompt or ("Inicia el cerebro. " + memoria.fin_arranque(False)).strip()]
     return argv + pt
 
 
@@ -1146,7 +1155,9 @@ def inject_context(cfg, session_context=""):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Auto-trust del cerebro — comodidad, NO bypass (contrato: solo onboarding)
+# Auto-trust del cerebro — APAGADO desde el cableado total (19-nov): ver
+# AUTOCONFIANZA. Lo de abajo cuenta cómo era y lo que sigue valiendo (no
+# duplicar, reparar el duplicado de antes).
 # ═══════════════════════════════════════════════════════════════════════════
 # Codex marca carpetas de confianza en ~/.codex/config.toml:
 #     [projects."<path>"]
@@ -1308,14 +1319,18 @@ def _repair_own_duplicate(cfgp, real):
     return None
 
 
+#: cable-codex (Cableado total, 19-nov): Workspace no escribe la config del socio en su motor y no se
+#: salta una confianza que el motor pide. La confianza de la carpeta es del socio: Codex se la pregunta en su terminal
+#: y guarda lo que diga. Lo único que queda es deshacer el duplicado que dejó una versión anterior (repaired/broken).
+AUTOCONFIANZA = False
+
+
 def ensure_trusted(brain):
-    """Agrega `[projects."<brain>"] trust_level = "trusted"` al config.toml
-    de codex si el path NO tiene entrada aún, en ninguna forma TOML. Devuelve
-    {'ok', 'action': added|exists|skipped|repaired|broken, 'detail'}. Append
-    puro con stdlib (3.9 no trae parser TOML); jamás reescribe lo existente
-    —salvo deshacer el duplicado que anexó la versión anterior, con respaldo
-    (repaired; broken = no se pudo, se avisa)— y, ante la duda, no escribe
-    (codex solo vuelve a preguntar). Falla-suave."""
+    """Desde el cableado total (19-nov), NO confía el cerebro: la carpeta la confía el socio cuando Codex se lo
+    pregunta (AUTOCONFIANZA). Solo deshace el duplicado que anexó una versión anterior, con respaldo (repaired;
+    broken = no se pudo, se avisa): ese config.toml no carga y codex no abre. Devuelve
+    {'ok', 'action': exists|skipped|repaired|broken, 'detail'}. Con AUTOCONFIANZA (antes), anexaba
+    `[projects."<brain>"] trust_level = "trusted"` si el path no tenía entrada (action added). Falla-suave."""
     out = {"ok": False, "action": "skipped", "detail": ""}
     try:
         if os.environ.get(_NO_AUTOTRUST_ENV, "").strip():
@@ -1343,6 +1358,9 @@ def ensure_trusted(brain):
         if _toml_mentions(cur, real):
             out.update(ok=True, action="exists")
             return out
+        if not AUTOCONFIANZA:
+            out["detail"] = "la confianza de la carpeta la decides tú cuando Codex te la pregunta"
+            return out
         # `projects` escrito de una forma en la que anexar puede invalidar
         # el archivo → ante la duda no se escribe (codex solo pregunta).
         if _TOML_PROJECTS_RARO.search(cur):
@@ -1360,6 +1378,43 @@ def ensure_trusted(brain):
     except Exception as e:
         out["detail"] = "%s: %s" % (type(e).__name__, e)
         return out
+
+
+def config_del_hilo(brain):
+    """cable-codex · el `config` del hilo que abre la PÁGINA (thread/start y thread/resume del app-server, oficial en su
+    esquema 0.169.0: «config», solo para ese hilo, no se guarda).
+
+    Por qué: con configuración de proyecto en el cerebro (el .codex/hooks.json del paquete) y SIN una decisión del
+    socio sobre esa carpeta, el app-server de Codex 0.169.0 GUARDA `[projects."<carpeta>"] trust_level = "trusted"` en
+    su config global al abrir el hilo (caja negra 19-nov, HOME y CODEX_HOME temporales: thread/start solo, sin turno;
+    `codex exec` no lo hace, y `-c projects.…` no lo evita). Eso confiaba la carpeta sin que el socio lo decidiera y
+    cambiaba su config (la red de seguridad de la auditoría real lo vio).
+
+    Por hilo, «untrusted»: nada se escribe y no se confía nada que el socio no decidió. Con él, el app-server sigue
+    viendo las skills del proyecto y el servidor MCP del núcleo (que va por -c); los avisos del proyecto no cargan, y no
+    corrían (esperan la confianza de /hooks): la página recibe los eventos por su app-server. Dentro de un repo git, lo
+    que el app-server confiaba es la RAÍZ del repo entera (re-verificación de B05, 19-nov; caja negra: la entrada del
+    cerebro en el `config` del hilo también lo evita). Si el socio YA decidió sobre esa carpeta o sobre una de más arriba
+    (la raíz de su repo, por ejemplo; trusted o untrusted, en cualquier forma TOML), su decisión manda: None. Ante la duda
+    (no se pudo leer su config), «untrusted»: nunca se escribe."""
+    real = os.path.realpath(str(brain or "."))
+    try:
+        cfgp = _codex_config_path()
+        cur = ""
+        if os.path.exists(cfgp):
+            with open(cfgp, encoding="utf-8", errors="replace") as fh:
+                cur = fh.read()
+        carpeta = real
+        while True:
+            if _toml_mentions(cur, carpeta):
+                return None
+            arriba = os.path.dirname(carpeta)
+            if arriba == carpeta:
+                break
+            carpeta = arriba
+    except Exception:
+        pass
+    return {"projects": {real: {"trust_level": "untrusted"}}}
 
 
 def _banner(cfg):
@@ -1418,9 +1473,8 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
         print("  cerebro     : %s" % brain)
         print("  identidad   : AGENTS.md puntero → %s (inject_context; codex "
               "no lee %s solo)" % (_identity_doc(cfg), DEFAULT_IDENTITY_DOC))
-        print("  trust       : auto-confía el cerebro en ~/.codex/config.toml "
-              "(solo salta el prompt de onboarding; opt-out %s)"
-              % _NO_AUTOTRUST_ENV)
+        print("  trust       : Codex te pregunta si confías en el cerebro y "
+              "guarda lo que digas (Workspace no escribe su config.toml)")
         print("  pestañas    : picker compartido + registro neutral — resume: "
               "`codex resume <id>` (validado vs rollouts); memoria de la "
               "pestaña va INVISIBLE en el AGENTS.md generado (se limpia al "
@@ -1571,9 +1625,9 @@ def _launch_selected(cfg, passthrough, brain, agent, tab, resume_sid, session_bl
                   "socio — irá en el primer mensaje (visible).")
         except Exception:
             first_prompt = ""
-    # auto-trust del cerebro (comodidad: salta el prompt "do you trust this
-    # folder" de codex; sandbox y approvals de WORKSPACE siguen intactos).
-    # Si deshizo el duplicado de la versión anterior (o no pudo), se dice.
+    # cable-codex: ya no confía el cerebro (la confianza la decide el socio
+    # cuando Codex se la pregunta); solo deshace el duplicado de una versión
+    # anterior. Si lo deshizo (o no pudo), se dice.
     trust = ensure_trusted(brain)
     if trust.get("action") == "repaired":
         print("WORKSPACE: una versión anterior duplicó el cerebro en %s y "

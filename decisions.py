@@ -592,6 +592,8 @@ def measures(decider_id):
 def warm(decider_id):
     """Precarga un decisor LOCAL en segundo plano (Ollama: cargar el modelo en
     frío no cabe en el tiempo límite). Regresa enseguida; False si no aplica."""
+    if not decisores_activos():
+        return False
     try:
         mod = load(decider_id)
         fn = getattr(mod, "warm", None)
@@ -609,6 +611,29 @@ def _settings():
         return None
 
 
+# Puerta de producto de esta versión, independiente de preferencias persistidas.
+DECISORES_EN_PRODUCTO = False
+
+
+def decisores_activos():
+    """Interruptor de la versión: falla cerrada, sin red ni escrituras.
+
+    Los niveles, modelos, llaves e historial se conservan para reactivar.
+    """
+    if not DECISORES_EN_PRODUCTO:
+        return False
+    try:
+        st = _settings()
+        return bool(st is not None and st.get("decisores.en_pausa", True) is False)
+    except Exception:
+        return False
+
+
+def _en_pausa():
+    return {"ok": False, "mode": "off", "error": "en_pausa",
+            "message": "en pausa", "act": False, "suggest": False}
+
+
 def _point_key(point):
     return "decisions.points." + point
 
@@ -616,6 +641,8 @@ def _point_key(point):
 def global_model():
     """Modelo global: id de un decisor u `off` (de fábrica). Un `rules` que
     quedó de antes pasa a `off` en silencio (ya no se ofrece). Falla-suave."""
+    if not decisores_activos():
+        return OFF
     st = _settings()
     try:
         v = st.get("decisions.model") if st else DEFAULT_MODEL
@@ -648,14 +675,42 @@ def missing_model():
     return v
 
 
-def set_global_model(model):
+def _quien(actor=None):
+    """Quién hace un cambio de Decisores: el agente de esta corrida (si lo
+    pidió un agente) o el socio (las pantallas)."""
+    if actor:
+        return str(actor)[:24]
+    ag = (os.environ.get("WORKSPACE_AGENT_NAME") or "").strip()
+    return ("agente:%s" % ag)[:24] if ag else "socio"
+
+
+def _registrar_cambio(key, old, new, actor=None, via=""):
+    """Cada cambio de `decisions.*` va a settings-log.jsonl como los demás
+    ajustes, con quién lo hizo (#2: en la Mac había 3052 líneas y 0 de
+    Decisores; no se podía saber quién cambió el modelo de la PC)."""
+    if old == new:
+        return
+    try:
+        import config_engine
+        config_engine._log("set", key, old, new, "A", actor=_quien(actor),
+                           extra={"via": via} if via else None)
+    except Exception:
+        pass
+
+
+def set_global_model(model, actor=None, via=""):
     model = str(model or "").strip().lower()
     if not selectable(model):
         raise ValueError("decisor desconocido: %r" % model)
     st = _settings()
     if st is None:
         raise ValueError("settings no disponible")
+    try:
+        antes = st.get("decisions.model")
+    except Exception:
+        antes = None
     r = st.set("decisions.model", model)
+    _registrar_cambio("decisions.model", antes, model, actor, via)
     if model != OFF and any(point_conf(p)["level"] != "off" for p in POINT_IDS):
         warm(model)                   # hay usos encendidos: que un local no arranque en frío
     return r
@@ -679,6 +734,8 @@ def _normalize(raw):
 
 def point_conf(point):
     """{"level", "model", "threshold"} del punto (normalizado; off por defecto)."""
+    if not decisores_activos():
+        return _normalize({})
     if point not in POINT_IDS:
         return _normalize({})
     st = _settings()
@@ -689,9 +746,11 @@ def point_conf(point):
     return _normalize(raw)
 
 
-def set_point(point, **changes):
+def set_point(point, actor=None, via="", **changes):
     """Cambia level/model/threshold de un punto. Valor inválido → ValueError
-    sin escribir. Devuelve la config normalizada guardada."""
+    sin escribir. Devuelve la config normalizada guardada. Queda en
+    settings-log.jsonl con quién lo hizo (`actor`; si no, el socio o el
+    agente de esta corrida) y desde dónde (`via`)."""
     if point not in POINT_IDS:
         raise ValueError("punto desconocido: %r" % point)
     cur = point_conf(point)
@@ -709,9 +768,85 @@ def set_point(point, **changes):
     if st is None:
         raise ValueError("settings no disponible")
     st.set(_point_key(point), cur)
+    _registrar_cambio(_point_key(point), antes, cur, actor, via)
     if cur["level"] != "off" and (antes["level"] == "off" or antes["model"] != cur["model"]):
         warm(effective_model(point))  # se encendió un uso: un decisor local, precargado
     return cur
+
+
+def modelos_que_deciden():
+    """{modelo: [usos]}: quién decide DE VERDAD en cada uso encendido (su
+    modelo propio o el general). #3: arriba decía «OpenRouter» y los 9 usos
+    tenían fijado a Jev — el modelo del hub no decidía nada."""
+    out = {}
+    if global_model() == OFF:
+        return out
+    for p in POINT_IDS:
+        if point_conf(p)["level"] != "off":
+            out.setdefault(effective_model(p), []).append(p)
+    return out
+
+
+def usos_con_modelo_propio():
+    """Los usos encendidos que NO siguen al modelo general (fijados a otro)."""
+    g = global_model()
+    return [p for p in POINT_IDS
+            if point_conf(p)["level"] != "off" and point_conf(p)["model"] not in (GENERAL, g)]
+
+
+def usar_general(actor=None, via=""):
+    """«Que todos usen el general»: los usos encendidos con modelo propio
+    pasan a General (lo que el socio pulsa; nada lo hace solo). → cuántos."""
+    n = 0
+    for p in usos_con_modelo_propio():
+        set_point(p, actor=actor, via=via, model=GENERAL)
+        n += 1
+    return n
+
+
+_SEMANA_CACHE = {}
+
+
+def paso_semana(point, dias=7, ahora=None):
+    """(cacheado por la firma de la bitácora y el minuto: la sección lo pide
+    en cada dibujo — revisor 0.9.1, ~22 ms por render) ver _paso_semana."""
+    if ahora is not None:
+        return _paso_semana(point, dias, ahora)
+    _entries()
+    k = (_CACHE.get("key"), int(time.time() // 60), point, dias)
+    if k not in _SEMANA_CACHE:
+        if len(_SEMANA_CACHE) > 64:
+            _SEMANA_CACHE.clear()
+        _SEMANA_CACHE[k] = _paso_semana(point, dias, None)
+    si, comp, por = _SEMANA_CACHE[k]
+    return si, comp, dict(por)
+
+
+def _paso_semana(point, dias=7, ahora=None):
+    """(pasaron, comprobadas, por_resultado) del uso en los últimos `dias`:
+    las decisiones con un «¿pasó?» de sí o no (las que esperan y las
+    opiniones no cuentan) y cuántas de cada resultado."""
+    ahora = time.time() if ahora is None else float(ahora)
+    try:
+        import decision_visible as V
+    except Exception:
+        return 0, 0, {}
+    si = comp = 0
+    por = {}
+    for e in _entries():
+        if e.get("point") != point or not e.get("ok"):
+            continue
+        t0 = V._t_de(e)
+        if t0 is None or ahora - t0 > dias * 86400:
+            continue
+        clase, _txt = V.paso(e, ahora)
+        if clase in ("si", "no"):
+            comp += 1
+            si += clase == "si"
+        if clase:
+            k = e.get("resultado") or clase
+            por[k] = por.get(k, 0) + 1
+    return si, comp, por
 
 
 def effective_model(point):
@@ -1247,11 +1382,16 @@ def _fail(decider, error, ms=0, detail=None):
 
 
 def _call(mod, req, timeout_ms):
+    if not decisores_activos():
+        return _en_pausa()
     box = {}
+    # la fase de la petición (deciders/_systemone.send la anota): sin internet,
+    # resolver el nombre puede tardar más que todo el tiempo límite
+    prog = {}
 
     def run():
         try:
-            box["r"] = mod.decide(dict(req))
+            box["r"] = mod.decide(dict(req, progress=prog))
         except Exception as e:        # el contrato pide no levantar; por si acaso
             box["e"] = e
 
@@ -1261,6 +1401,33 @@ def _call(mod, req, timeout_ms):
     th.join(max(0.05, timeout_ms / 1000.0))
     ms = int((time.time() - t0) * 1000)
     did = (getattr(mod, "META", {}) or {}).get("id", "?")
+    meta_local = dict(getattr(mod, "META", {}) or {})
+    live_meta = getattr(mod, "live_meta", None)
+    if callable(live_meta):
+        try:
+            meta_local.update(live_meta())
+        except Exception:
+            pass
+    local = prog.get("local", bool(meta_local.get("local")))
+    if th.is_alive() and prog.get("proxy_local") and not prog.get("tcp") \
+            and prog.get("phase") in ("dns", "connect"):
+        # el proxy en esta máquina ni abrió el TCP: no está abierto (Windows tarda
+        # ~2 s en rechazar un puerto cerrado de loopback; eso no es un proxy lento)
+        return _fail(did, "connection", ms, {"class": "ProxyClosed", "phase": prog["phase"],
+                                             "var": prog.get("proxy_var")})
+    if th.is_alive() and prog.get("proxy_local") and prog.get("tcp") and prog.get("phase") in ("dns", "connect"):
+        # el destino no es esta máquina pero el proxy sí, abrió el TCP y tarda en
+        # CONNECT o TLS: tarda el proxy; ni «sin conexión» ni «no está abierto»
+        return _fail(did, "timeout", ms, {"class": "ProxySlow", "phase": prog["phase"],
+                                          "var": prog.get("proxy_var")})
+    if th.is_alive() and local and prog.get("phase") in ("dns", "connect"):
+        return _fail(did, "connection", ms, {"class": "timeout", "phase": prog.get("phase") or "connect"})
+    if th.is_alive() and prog.get("phase") in ("dns", "connect"):
+        # es la red, no el modelo (ni «manda menos contexto»): sin resolver el
+        # nombre, «sin conexión»; a medio conectar (TCP, TLS), la red está lenta
+        fase = prog["phase"]
+        return _fail(did, "connection" if fase == "dns" else "timeout", ms,
+                     {"class": "timeout", "phase": fase})
     if th.is_alive():
         # un decisor local sabe qué significa (sin red): «loading» = el modelo se
         # está cargando en frío, no «tardó» ni «sin conexión»
@@ -1351,11 +1518,13 @@ def _mode(level, act):
 
 def consult(point, kind, question, options, context="", decider=None,
             timeout_ms=DEFAULT_TIMEOUT_MS, level=None, log=True, context_max=None,
-            context_meta=None, breaker=True, al_agente=False):
+            context_meta=None, breaker=True, al_agente=False, solo_sugiere=False):
     """Pregunta YA (sin mirar el nivel del punto) y devuelve SIEMPRE un dict.
     `decider` None = el del punto (o el global). Se anota en la bitácora
     (también los fallos: así se mide), con `mode` = lo que el punto debe
     hacer (observe · suggest · apply; `ask` en la sección). Jamás levanta."""
+    if not decisores_activos():
+        return _en_pausa()
     try:
         did = str(decider or effective_model(point)).strip().lower()
         kind = kind if kind in ("choice", "score") else "choice"
@@ -1417,7 +1586,12 @@ def consult(point, kind, question, options, context="", decider=None,
             solo = (SPECS.get(req["point"]) or {}).get("apply_only")
             if r["act"] and solo and r.get("choice") not in solo:
                 r["act"] = False          # p. ej. Seguridad: sube el riesgo, nunca lo baja
-        r["suggest"] = bool(r["ok"] and r["level"] == "suggest")
+        if solo_sugiere and r["act"]:
+            # quien pregunta solo puede SUGERIR (p. ej. la nota al cerrar una
+            # sala: imprime un comando): se anota como lo que es, no «aplicó»
+            r["act"] = False
+        r["suggest"] = bool(r["ok"] and (r["level"] == "suggest" or (
+            solo_sugiere and r["level"] == "decide")))
         r["mode"] = _mode(r["level"], r["act"]) if r["ok"] else "error"
         if log:
             r["id"] = _log(req, r, context_meta, al_agente=al_agente)
@@ -1445,6 +1619,8 @@ def record(point, kind, question, options, r, context_meta=None):
     """Anota en la bitácora una respuesta pedida con log=False (Preguntar:
     reintenta recortando el contexto y se anota UNA vez, con sus intentos).
     → id de la entrada, o None."""
+    if not decisores_activos():
+        return None
     try:
         opts = []
         for o in (options or []):
@@ -1486,6 +1662,8 @@ def ask(point, kind, question, options, context="", timeout_ms=DEFAULT_TIMEOUT_M
 
 def enabled(point):
     """¿Este uso pregunta? (barato: solo lee los ajustes, no llama a nadie)."""
+    if not decisores_activos():
+        return False
     try:
         return (point in POINT_IDS and global_model() != OFF
                 and point_conf(point)["level"] != "off")
@@ -1494,7 +1672,8 @@ def enabled(point):
 
 
 def gate(point, context="", question=None, options=None, kind=None,
-         timeout_ms=DEFAULT_TIMEOUT_MS, with_error=False, context_max=None, al_agente=False):
+         timeout_ms=DEFAULT_TIMEOUT_MS, with_error=False, context_max=None, al_agente=False,
+         solo_sugiere=False):
     """LO QUE EL PUNTO DEBE HACER — la semántica de los niveles, en un solo
     lugar. None = apagado, falló o tardó: el punto sigue EXACTAMENTE como hoy.
     Si no, un veredicto:
@@ -1516,7 +1695,7 @@ def gate(point, context="", question=None, options=None, kind=None,
         opts = options if options is not None else spec.get("options") or []
         r = consult(point, kind or dict(POINTS_KIND).get(point, "choice"), q, opts, context,
                     timeout_ms=timeout_ms, level=point_conf(point)["level"],
-                    context_max=context_max, al_agente=al_agente)
+                    context_max=context_max, al_agente=al_agente, solo_sugiere=solo_sugiere)
         if not r.get("ok"):
             if with_error:
                 return {"mode": "error", "error": r.get("error") or "error",
@@ -1566,6 +1745,10 @@ def message(v):
         base = _t("decisores.agent.base", "Decisor ({uso} · {m}): «{c}», {p} % seguro",
                   uso=point_label(v.get("point")), m=decider_label(v.get("decider")),
                   c=v.get("choice"), p=pct)
+    if v.get("mode") == "apply" and v.get("point") in AGENT_POINTS:
+        # en los usos de agentes nadie lo aplica por él: le toca usarla (0.9.1)
+        return _t("decisores.agent.use_it", "{base} — úsala (supera el umbral de {u} %) y luego "
+                  "avisa si la usaste.", base=base, u=int(v.get("threshold") or 0))
     if v.get("mode") == "apply":
         return _t("decisores.agent.applied", "{base} — aplicado (supera el umbral de {u} %).",
                   base=base, u=int(v.get("threshold") or 0))
@@ -1725,7 +1908,7 @@ def _log(req, r, context_meta=None, al_agente=False):
     if isinstance(context_meta, dict):          # nivel, fuentes y tokens; jamás contenido
         ctx = {k: context_meta.get(k) for k in ("level", "mode", "tokens", "sources",
                                                 "n_sources")}
-    _append({"type": "decision", "id": eid, "ctx": ctx,
+    _append({"type": "decision", "id": eid, "ctx": ctx, "rv": RESULTADO_VERSION,
              "ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "t": round(time.time(), 3),
              "tab": tab or None, "cerebro": cerebro or None, "agente": bool(al_agente),
              "point": req["point"], "decider": r.get("decider"), "kind": req["kind"],
@@ -1751,6 +1934,56 @@ def mark(entry_id, truth):
         return False
     return _append({"type": "mark", "ref": entry_id, "truth": bool(truth),
                     "ts": time.strftime("%Y-%m-%dT%H:%M:%S")})
+
+
+# ── resultado: qué pasó DESPUÉS de cada decisión (0.9.1) ─────────────────────
+#: Las decisiones anotadas desde la 0.9.1 llevan `rv`: solo en ellas «¿pasó?»
+#: se deduce del tiempo (una de antes no se juzga: «sin dato»).
+RESULTADO_VERSION = 1
+#: Cada resultado y su «¿pasó?»: si = pasó y se comprobó · no = tenía que pasar
+#: y no pasó · espera = todavía no se puede saber · na = no había nada que
+#: comprobar (una opinión, un dato que solo se anota).
+RESULTADOS = {
+    # Skills (hooks/skill_review.py): la revisión y lo que dejó
+    "skill_creada": "si", "skill_mejorada": "si", "nada_que_aprender": "si",
+    "pendiente": "espera", "entregada": "espera",
+    "no_se_hizo": "no", "perdida": "no", "vencida": "no",
+    "sin_comprobar": "na",  # sesión de panel perdida: ningún resultado acreditado
+    # «decide» dijo «no» y se omitió la revisión: ES su efecto (revisor 0.9.1)
+    "saltada": "si",
+    # su «sí» lo frenó el piso de 10 min de «decide»: no pasó lo que decidió
+    "frenada": "no",
+    # observa/sugiere: la frenó la regla de 2 h, no el decisor (no es su «no»)
+    "frenada_regla": "na",
+    # Memoria (memoria.guardar_nota): el tipo con que quedó la nota
+    "tipo_cambiado": "si",
+    # Seguridad (hooks/security_guidance.py): ¿el agente volvió a tocar el archivo?
+    "archivo_retocado": "si",
+    # Conversaciones (salas.py)
+    "pedido_soltado": "si", "sala_pausada": "si", "sala_cerrada": "si",
+    # Usos de agentes: lo que el agente reporta (o lo que Workspace ve)
+    "usada": "si", "descartada": "no", "mandado": "si",
+    # sin efecto que comprobar
+    "se_anota": "na", "opinion": "na",
+}
+#: Lo que un AGENTE puede reportar de una respuesta suya (workspace decidir).
+RESULTADOS_AGENTE = ("usada", "descartada")
+
+
+def record_result(entry_id, resultado, detalle=""):
+    """Anota qué pasó después de la decisión `entry_id` (una línea nueva,
+    append-only como `mark`; el último resultado gana). `detalle`: un dato
+    corto que se ve en el Historial (el tipo de la nota, el agente elegido,
+    la skill); nunca contenido. False si no se anotó. Jamás levanta."""
+    try:
+        if not entry_id or resultado not in RESULTADOS:
+            return False
+        det = " ".join(redact(str(detalle or ""), broad=False).split())[:80]
+        return _append({"type": "resultado", "ref": str(entry_id)[:24], "resultado": resultado,
+                        "detalle": det or None, "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                        "t": round(time.time(), 3)})
+    except Exception:
+        return False
 
 
 _CACHE = {"key": None, "data": []}
@@ -1793,7 +2026,7 @@ def _entries():
     if _CACHE["key"] == key:
         return _CACHE["data"]
     def leer(p):
-        decs, mks = [], {}
+        decs, mks, res = [], {}, {}
         for ln in _cola(p):
             if not ln.strip():
                 continue
@@ -1805,18 +2038,27 @@ def _entries():
                 continue
             if e.get("type") == "mark" and e.get("ref"):
                 mks[e["ref"]] = bool(e.get("truth"))
+            elif e.get("type") == "resultado" and e.get("ref") \
+                    and e.get("resultado") in RESULTADOS:
+                res[e["ref"]] = e
             elif e.get("type") == "decision" and e.get("id"):
                 decs.append(e)
-        return decs, mks
-    out, marks = leer(path) if firma[1][1] is not None else ([], {})
+        return decs, mks, res
+    out, marks, resultados = leer(path) if firma[1][1] is not None else ([], {}, {})
     if len(out) < _HISTORY_MAX and firma[0][1] is not None:
-        viejas, mviejas = leer(viejo)                 # la copia vieja va ANTES
+        viejas, mviejas, rviejos = leer(viejo)        # la copia vieja va ANTES
         out = viejas + out
         mviejas.update(marks)                         # la calificación más nueva gana
         marks = mviejas
+        rviejos.update(resultados)                    # y el resultado más nuevo también
+        resultados = rviejos
     out = out[-_HISTORY_MAX:]
     for e in out:
         e["truth"] = marks.get(e["id"])
+        r = resultados.get(e["id"])
+        if r is not None:
+            e["resultado"], e["resultado_detalle"] = r["resultado"], r.get("detalle")
+            e["resultado_t"] = r.get("t")
     _CACHE.update(key=key, data=out)
     return out
 
@@ -1992,6 +2234,8 @@ def agent_uses_on():
     """¿Hay algún uso de agentes encendido con un modelo activo? (la misma
     condición de agent_instruction). Sin eso, el motor no ve `decidir`: con
     todo apagado su entorno queda IGUAL que antes de Decisores."""
+    if not decisores_activos():
+        return False
     try:
         if global_model() == OFF:
             return False
@@ -2004,10 +2248,14 @@ def _uso(point):
     return {"agents.choose": _t("decisores.agent.uso.choose", "dudas entre opciones fijas"),
             "agents.review": _t("decisores.agent.uso.review", "antes de entregar: ¿quedó completo? "
                                 "— en request lo que pidió el socio, en context el entregable"),
-            "agents.prompt": _t("decisores.agent.uso.prompt",
-                                "eliges entre varias versiones de una instrucción"),
-            "agents.route": _t("decisores.agent.uso.route",
-                               "decides qué agente toma una parte (opciones = agentes)")}[point]
+            # cuándo pedirlo (0.9.1: 0 usos reales en 3 días — nadie sabía cuándo)
+            "agents.prompt": _t("decisores.agent.uso.prompt2",
+                                "al encargarle algo a un subagente o a otro agente con 2 o más "
+                                "redacciones posibles, y al preparar el encargo de una tarea de la "
+                                "agenda — options = las redacciones"),
+            "agents.route": _t("decisores.agent.uso.route2",
+                               "decides qué agente toma una parte — sin options: Workspace pone "
+                               "tus agentes y sus pestañas abiertas")}[point]
 
 
 def _nivel(level):
@@ -2022,6 +2270,8 @@ def agent_instruction(via_mcp=False):
     preguntarle; con un uso que se VE (sugiere o decide, también de
     Workspace), la regla del bloque ◆ al final de la respuesta. Observe no
     agrega nada para el socio. Sigue ui.lang."""
+    if not decisores_activos():
+        return ""
     try:
         if global_model() == OFF:
             return ""
@@ -2063,7 +2313,11 @@ def agent_instruction(via_mcp=False):
         "  · " + _t("decisores.agent.how", "Cómo: {como}.", como=como),
         "  · " + _t("decisores.agent.follow", "Sigue el campo mode: apply = usa esa opción · "
                     "suggest = es una sugerencia, decide tú · observe/off/error = decide tú como "
-                    "siempre (solo se anota).")]
+                    "siempre (solo se anota).") + " "
+        # 0.9.1: «¿pasó?» — el agente dice si usó la respuesta (sin eso no se sabe)
+        + _t("decisores.agent.report", "Después avisa si la usaste: el mismo comando con "
+             "{\"point\": …, \"id\": <el id que te dio>, \"resultado\": \"usada\"} o "
+             "\"descartada\"; el socio lo ve en Decisores.")]
     if se_ve:
         lineas.append(bloque)
     return "\n".join(lineas)
@@ -2074,12 +2328,96 @@ def _agent_options(point, options):
     if options:
         return options
     if point == "agents.route":
-        try:
-            import agentsreg
-            return [a["name"] for a in agentsreg.agents()]
-        except Exception:
-            return []
+        return [m for _e, m in opciones_repartir()]
     return list((SPECS.get(point) or {}).get("options") or [])
+
+
+def opciones_repartir():
+    """Las opciones de «Repartir» sin options: [(lo que viaja al modelo, lo
+    que ve el agente)] — los agentes CARGADOS (el registro) y, de cada uno,
+    sus pestañas ABIERTAS en esta máquina (sin la pestaña que pregunta). Al
+    modelo, que puede estar en la nube, una pestaña va como un id opaco
+    «agente·N», nunca su nombre (revisor 0.9.1, privacidad); el agente recibe
+    «agente:Pestaña». Antes el agente escribía la lista y casi siempre era
+    «turing, zenith» (diagnóstico 9-nov)."""
+    out = []
+    try:
+        import agentsreg
+        regs = agentsreg.agents()
+    except Exception:
+        return out
+    yo = (os.environ.get("WORKSPACE_AGENT_NAME") or "").strip().lower()
+    mia = (os.environ.get("WORKSPACE_WS") or os.environ.get("ZENITH_WS") or "").strip()
+    pestanas = []
+    for a in regs:
+        nombre = str(a.get("name") or "").strip()
+        if not nombre or nombre in out:
+            continue
+        out.append(nombre)
+        n_tab = 0
+        try:
+            import sessions_registry as SR
+            abiertas = SR.abiertas_en_ventanas(a.get("brain") or "")
+            if not abiertas:
+                continue
+            for t in SR._pestanas(a.get("brain") or ""):
+                if t.get("slug") in abiertas and not (nombre.lower() == yo
+                                                      and SR._slug(mia) == t.get("slug")):
+                    n_tab += 1
+                    pestanas.append(("%s·%d" % (nombre, n_tab), "%s:%s" % (nombre, t.get("name"))))
+        except Exception:
+            continue
+    return ([(a, a) for a in out] + pestanas)[:_OPTIONS_MAX]
+
+
+def _es_dueno(entry):
+    """True si esta pestaña puede reportar `entry`.
+
+    Greptile C3: el id basta para anotar «usada» o «descartada», y otra
+    pestaña pisa el resultado. El dueño es la pestaña (o sesión) y el cerebro
+    guardados en la decisión (`tab`, `cerebro`, la misma huella que
+    `lugar_actual`). Si falta el dato —decisiones viejas— se acepta: no se
+    inventa un dueño. El que sí está guardado tiene que coincidir."""
+    tab_g = entry.get("tab") or ""
+    cer_g = entry.get("cerebro") or ""
+    if not tab_g and not cer_g:
+        return True
+    try:
+        import decision_visible
+        tab, cer = decision_visible.lugar_actual()
+    except Exception:
+        tab, cer = "", ""
+    if tab_g and tab_g != (tab or ""):
+        return False
+    if cer_g and cer_g != (cer or ""):
+        return False
+    return True
+
+
+def reportar(entry_id, resultado):
+    """El agente dice qué hizo con una respuesta suya (`workspace decidir` con
+    {id, resultado}): usada o descartada. Solo para las consultas de agentes
+    que existen en la bitácora, y solo si quien reporta es su dueño.
+    → dict JSON-able."""
+    if not decisores_activos():
+        return _en_pausa()
+    eid = str(entry_id or "").strip()
+    if resultado not in RESULTADOS_AGENTE:
+        return _agent_fail(None, "bad_input", _t("decisores.agent.bad_result", "resultado tiene que "
+                                                 "ser usada o descartada"))
+    e = next((x for x in reversed(_entries()) if x.get("id") == eid), None)
+    if e is None or e.get("point") not in AGENT_POINTS:
+        return _agent_fail(None, "bad_input", _t("decisores.agent.bad_id", "ese id no es de una "
+                                                 "consulta de agentes de esta máquina"))
+    if not _es_dueno(e):
+        return _agent_fail(e.get("point"), "bad_input", _t(
+            "decisores.agent.not_owner",
+            "esa consulta es de otra pestaña: no cambié el resultado"))
+    if not record_result(eid, resultado):
+        return _agent_fail(e.get("point"), "error", _t("decisores.agent.no_log", "no pude anotarlo"))
+    return {"ok": True, "id": eid, "point": e.get("point"), "resultado": resultado,
+            "message": _t("decisores.agent.reported", "Anotado: el socio lo ve en Decisores "
+                          "(¿pasó?).")}
 
 
 def _agent_fail(point, code, message, decider=None, detail=None, mode="error", timeout_ms=None,
@@ -2148,6 +2486,8 @@ def for_agent(point, question="", options=None, context="", timeout_ms=DEFAULT_T
     respondió), `display`: una línea para el socio. `request` = el pedido
     (Revisar: lo que pidió el socio; context = el entregable). Todo el texto
     sigue ui.lang."""
+    if not decisores_activos():
+        return _en_pausa()
     return _con_display(_for_agent(point, question, options, context, timeout_ms, request))
 
 
@@ -2179,8 +2519,13 @@ def _for_agent(point, question, options, context, timeout_ms, request):
         return out
     # lo que mandó el agente, tal cual: la elección vuelve con SU texto y su
     # posición (se manda con los espacios juntados, nunca redactado)
-    originales = [str(o) for o in _agent_options(point, options) if str(o).strip()]
-    opts = [" ".join(o.split())[:_OPT_SEND_MAX] for o in originales]
+    if point == "agents.route" and not options:
+        pares = [(e, m) for e, m in opciones_repartir() if str(m).strip()]
+        originales = [m for _e, m in pares]
+        opts = [e for e, _m in pares]                # al modelo: ids opacos, no pestañas
+    else:
+        originales = [str(o) for o in _agent_options(point, options) if str(o).strip()]
+        opts = [" ".join(o.split())[:_OPT_SEND_MAX] for o in originales]
     if len(opts) < 2:
         return _agent_fail(point, "need_options", _t(
             "decisores.agent.need_options", "Faltan opciones: al menos 2 (--options \"a,b\" o "
@@ -2211,6 +2556,9 @@ def _for_agent(point, question, options, context, timeout_ms, request):
     out = {"ok": True, "point": point, "mode": v["mode"], "decider": v["decider"],
            "id": v["id"], "level": v["level"], "threshold": v["threshold"],
            "ms": int(v["ms"]) if isinstance(v.get("ms"), (int, float)) else None}
+    if point == "agents.route" and v["mode"] in ("suggest", "apply") and v["choice"] in opts:
+        import decision_visible
+        decision_visible.guardar_destino_reparto(v["id"], originales[opts.index(v["choice"])])
     if v["mode"] == "observe":
         out.update(choice=None, p=None,
                    message=_t("decisores.agent.observe_only", "Anotado para medir. Decide tú como "
@@ -2304,12 +2652,13 @@ def _from_stdin():
     ops = d.get("options")
     if ops is not None and not (isinstance(ops, list) and all(isinstance(o, str) for o in ops)):
         return None, _t("decisores.agent.stdin_options", "options tiene que ser una lista de textos")
-    for k in ("point", "question", "context", "request"):
+    for k in ("point", "question", "context", "request", "id", "resultado"):
         if d.get(k) is not None and not isinstance(d.get(k), str):
             return None, _t("decisores.agent.stdin_text", "{k} tiene que ser texto", k=k)
     return {"point": d.get("point") or "", "question": d.get("question") or "",
             "options": ops or [], "context": d.get("context") or "",
-            "request": d.get("request") or "", "timeout_ms": d.get("timeout_ms")}, None
+            "request": d.get("request") or "", "timeout_ms": d.get("timeout_ms"),
+            "id": d.get("id") or "", "resultado": d.get("resultado") or ""}, None
 
 
 class _ArgsMalos(Exception):
@@ -2399,6 +2748,9 @@ def cli(argv=None):
     JSON por stdout. Sale 0 aunque el uso esté apagado (es una respuesta
     válida: mode off); 2 si la entrada no sirve (JSON bad_input, también para
     un argumento que argparse no entiende)."""
+    if not decisores_activos():
+        print(json.dumps(_en_pausa(), ensure_ascii=False))
+        return 0
     ap = _parser_cli()
     try:
         a = ap.parse_args(list(sys.argv[1:] if argv is None else argv))
@@ -2414,6 +2766,11 @@ def cli(argv=None):
         d, motivo = _from_stdin()
         if d is None:
             return _cli_bad(motivo)
+        if d.get("resultado") or (d.get("id") and not d["point"]):
+            # el agente dice qué hizo con una respuesta: {id, resultado}
+            out = reportar(d.get("id"), d.get("resultado"))
+            sys.stdout.write(json.dumps(_sin_boveda(out), ensure_ascii=False) + "\n")
+            return 2 if out.get("error_code") == "bad_input" else 0
         point = d["point"] or a.point
         q, opts, ctx, pedido = d["question"], d["options"], d["context"], d["request"]
         tmo = _ms(d.get("timeout_ms"), tmo)

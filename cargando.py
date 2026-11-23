@@ -90,6 +90,16 @@ def cuadro(cols, rows, sub="", colores=("", "", "", ""), texto=None, limpiar=LIM
 
 
 def mostrar(sub="", out=None, texto=None, limpiar=LIMPIAR):
+    try:                                   # rama de PRUEBA: el hub de prueba lo pinta con su piel (hub_carga)
+        import hub_carga
+        if hub_carga.activo() and texto is None and hub_carga.mostrar(sub, out):
+            return True
+    except Exception:
+        pass
+    return _mostrar(sub, out, texto, limpiar)
+
+
+def _mostrar(sub="", out=None, texto=None, limpiar=LIMPIAR):
     """Pinta el cuadro en la terminal. True si pintó; False sin terminal, con
     WORKSPACE_NO_CARGA o ante cualquier error (jamás levanta)."""
     out = out or sys.stdout

@@ -1,0 +1,39 @@
+/* ===== las fichas en la burbuja (ronda 2 · bloque P): el espejo de las fichas de la app (28_fichas.js), con su misma
+   cara: tono por riesgo (lavanda, ámbar, coral, menta), el puntito del color de su agente, una frase con verbo, el
+   botón principal relleno y grande (36 px) y «No» en texto simple. Mismas variables que la página. ===== */
+.wsf-caja{display:flex;flex-direction:column;gap:8px;min-width:0}
+.wsf{--t:#a594ff;--tl:rgba(165,148,255,.36);--tf:#a594ff;position:relative;width:310px;max-width:100%;box-sizing:border-box;
+  background:#1f1f23;border:1px solid var(--tl);border-radius:16px;padding:11px 13px 12px 16px;text-align:left;overflow:hidden;
+  color:var(--tx);font:400 13px/1.4 var(--sans)}
+.wsf:before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--t)}
+.wsf.amb{--t:#e7a43a;--tl:rgba(231,164,58,.38);--tf:#f0bd62}
+.wsf.cor{--t:#f07864;--tl:rgba(240,120,100,.42);--tf:#f08a76}
+.wsf.men{--t:#3fbf7f;--tl:rgba(63,191,127,.40);--tf:#7fd6ad}
+.wsf.mini{width:100%;padding:9px 11px 10px 14px}
+.wsf-hd{display:flex;align-items:flex-start;gap:8px;font-size:14px;line-height:1.35}
+.wsf-hd b{font-weight:650;min-width:0;overflow-wrap:anywhere}
+.wsf-pt{width:9px;height:9px;border-radius:50%;background:var(--a,#8b5cf6);flex:none;margin-top:5px;display:inline-block}
+.wsf-det{margin:4px 0 0 17px;font-size:12.5px;color:var(--tx2);line-height:1.45;overflow-wrap:anywhere;white-space:pre-wrap}
+.wsf-det.dato{font:12px/1.45 var(--mono,ui-monospace,Menlo,monospace);background:#141416;border-radius:8px;padding:6px 9px}
+.wsf-det b{color:var(--tx);background:rgba(240,120,100,.18);border-radius:4px;padding:0 3px}
+.wsf-leyo{display:inline-block;margin:6px 0 0 17px;font-size:11.5px;font-weight:700;color:#f07864;background:rgba(240,120,100,.12);
+  border-radius:999px;padding:2px 9px}
+.wsf-bt{display:flex;align-items:center;gap:12px;margin:10px 0 0 17px;flex-wrap:wrap}
+/* (junto5: con «.wsf » delante: la burbuja trae «.wsm button{background:none}», que les ganaba y los dejaba planos) */
+.wsf .wsf-btn{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:0 16px;border:0;border-radius:12px;
+  background:var(--tf);color:#17151c;font:750 14px/1 var(--sans);white-space:nowrap;cursor:pointer}
+.wsf .wsf-btn.sec{background:#2a2a31;color:var(--tx);font-weight:600}
+.wsf .wsf-btn:hover{filter:brightness(1.08)}
+.wsf.mini .wsf-btn{font-size:13px;padding:0 12px}
+.wsf .wsf-no{min-height:36px;padding:0 6px;border:0;background:none;color:var(--tx2);font:600 13.5px/1 var(--sans);cursor:pointer}
+.wsf .wsf-no:hover{color:var(--tx)}
+.wsf-de{display:block;margin:8px 0 0 17px;font-size:11.5px;color:var(--tx3)}
+.wsf-caja .wsf-mas{align-self:flex-start;min-height:36px;padding:0 14px;border-radius:999px;border:1px solid var(--line);background:none;
+  color:var(--tx);font:600 13px/1 var(--sans);cursor:pointer}
+.wsm-tarjeta.perm.enficha p{color:var(--tx2)}
+/* junto5 · un borrador de correo: Para · Asunto · Texto, cada uno con su etiqueta y entero */
+.wsf-partes{margin:5px 0 0 17px;display:flex;flex-direction:column;gap:5px}
+.wsf-parte{display:flex;flex-direction:column;gap:1px;min-width:0}
+.wsf-parte small{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--tx3,#8a8a93)}
+.wsf-parte span{font-size:12.5px;color:var(--tx2);line-height:1.45;overflow-wrap:anywhere;white-space:pre-wrap}
+.wsf-parte span.vacio{color:var(--tx3,#8a8a93)}

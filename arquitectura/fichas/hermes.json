@@ -1,0 +1,89 @@
+{
+  "motor": "hermes",
+  "nombre": "Hermes Agent",
+  "binario": "hermes",
+  "versiones_probadas": ["0.22.5"],
+  "fuente": "C",
+  "via_control": {
+    "tipo": "servidor",
+    "detalle": "Gateway JSON-RPC para varios clientes: la página se uniría a la misma sesión. F4 NO HECHO (18-nov): el WebSocket de `hermes serve --isolated` del perfil contestó 403, sin decir qué pide, al probador real (0.22.5, 17 y 18-nov; control5), y su ayuda no trae cómo colgar su TUI de ese gateway. No es por la config global: el servidor sería el del perfil de Workspace. Hasta que una corrida real lo abra, la página le escribe por hermes-acp (`hermes --profile <perfil del agente> acp`), un chat aparte del de su terminal.",
+    "misma_conversacion": true,
+    "semaforo": "verde",
+    "avisos": {
+      "no_se_usa": "En la página el registro de la pestaña no sale de los avisos de Hermes. Sus avisos sí corren en su ACP: Hermes los corre en su gateway para toda sesión del perfil del agente, también por ACP (caja negra 19-nov: payload con platform «acp»), y el de antes de cada herramienta niega leer lo prohibido. Pero ahí no anotan: la página ya anota esos momentos desde ACP (pagina_v2._Sesion._evento) y se duplicarían (engines/hermes.entorno_de_aviso). La auditoría lo comprueba en cada corrida con lo que llega por ACP",
+      "eventos": "ACP: tool_call (pre_tool), tool_call_update completed/failed (post_tool), session/request_permission (permission_request) y la respuesta de session/prompt con su stopReason (turn_end)"
+    }
+  },
+  "momentos": {
+    "session_start": {"eventos": ["on_session_start"], "estado": "si", "puede": ["inyectar"], "nota": "primer turno de una sesión nueva (su doc de hooks); una retomada no lo dispara: su número llega en los demás avisos"},
+    "user_prompt": {"eventos": ["pre_llm_call"], "estado": "si", "puede": ["inyectar", "bloquear"], "nota": "no hay UserPromptSubmit: {\"context\": …} inyecta; el mensaje viene en extra.user_message"},
+    "pre_tool": {"eventos": ["pre_tool_call"], "estado": "si", "puede": ["decidir", "bloquear"], "nota": "block | approve | modify; exit 2 bloquea"},
+    "post_tool": {"eventos": ["post_tool_call"], "estado": "si", "puede": ["observar"]},
+    "permission_request": {"eventos": ["pre_approval_request"], "estado": "si", "puede": ["observar"]},
+    "turn_end": {"eventos": ["post_llm_call"], "estado": "si", "puede": ["observar"], "nota": "cable-hermes (19-nov): `agent:end` es un evento del gateway, no de los avisos del config.yaml (Hermes 0.22.5 lo rechaza en su log: «unknown hook event»); post_llm_call trae extra.assistant_response"},
+    "compact": {"eventos": ["post_compaction"], "estado": "si", "puede": ["observar"]},
+    "session_end": {"eventos": ["on_session_finalize"], "estado": "si", "puede": ["observar"], "nota": "cable-hermes (19-nov): on_session_end corre al cerrar CADA turno (su doc); el cierre de la sesión es on_session_finalize"}
+  },
+  "paquete": {
+    "formato": "agent-plugins",
+    "carga_por_sesion": "perfil propio por agente (`hermes profile create workspace-<agente> --no-alias`, sin clonar: sin llaves)",
+    "instala": "en el config.yaml del perfil del agente (hooks:, skills:, mcp_servers.workspace); nada en los perfiles del socio",
+    "hooks": {"dialecto": "hermes", "ruta": "hermes/hooks.yaml", "raiz_var": null, "confianza": "Hermes corre un aviso solo si está en la lista de aprobados de SU perfil. Workspace aprueba SUS avisos en SU perfil de agente por la vía oficial más estrecha (su doc: «Manual allowlisting»): exactamente sus 9 entradas {event, command}; nunca --accept-hooks, HERMES_ACCEPT_HOOKS ni hooks_auto_accept (aceptan todo lo del perfil). decisión del dueño, 19-nov"},
+    "mcp": {"declara": "mcp_servers.workspace del perfil del agente", "preaprueba": "trust: full"},
+    "skills": "skills.external_dirs del perfil del agente (rutas absolutas: el gateway no expande ${VAR} con el entorno de la pestaña)"
+  },
+  "permisos": {"por_sesion": ["perfil por agente"], "preguntar": "a_verificar", "sandbox": false,
+    "niveles": {
+      "auto": {"no": "sin un modo automático con revisión: su opción que aprueba todo está prohibida: queda como hoy"}
+    }
+  },
+  "uso_plan": {"tipo": "comando", "fuente": "hermes usage --json"},
+  "conversacion": {"id": "api", "como": "la crea Hermes con el primer mensaje (no acepta uno propio); su aviso de inicio lo dice y se retoma con --resume"},
+  "tono": "SOUL.md del perfil",
+  "nucleo": {
+    "mcp": {"declara": "mcp_servers.workspace en el config.yaml del perfil del agente (lo abre su gateway, uno por perfil; la pestaña de cada llamada sale de la corrida viva de ese perfil y de su aviso de antes de la herramienta)", "preaprueba": "trust: full (su servidor propio, como el allowedTools de los demás)"},
+    "al_abrir": "hook",
+    "tono": {"via": "no", "nota": "SOUL.md del perfil y el hook por turno de hoy (hermes_turno): sigue lo de hoy"},
+    "chat": {"via": "mensaje", "nota": "la página la manda una vez por conexión, antes de tu primer mensaje (el contexto de la sesión, como la nota de la maleta): sin vía de sistema por sesión (su ACP)"},
+    "verificado": false
+  },
+  "sesion": {
+    "perfil": "los avisos, el MCP núcleo y las skills del paquete van en el config.yaml del perfil PROPIO del agente en Hermes (workspace-<agente>): ver perfil_agente",
+    "perfil_agente": {
+      "nombre": "workspace-{agente}",
+      "crea": "hermes profile create workspace-{agente} --no-alias (sin clonar: no copia llaves; Workspace le pone una vez lo del cerebro y el bloque model: del perfil workspace sin secretos)",
+      "quita": "hermes profile delete workspace-{agente} -y (al desinstalar, tras apartar una copia con sus conversaciones)",
+      "escribe": ["config.yaml: hooks:, skills:, mcp_servers.workspace y, al crearlo, model: (sin secretos), SOUL neutral, memoria y búsqueda de sesiones apagadas", "shell-hooks-allowlist.json: solo las entradas de SUS avisos", "workspace-paquete/: el lanzador de los avisos y del MCP, y perfil.json (cerebro y raíz de Workspace)"],
+      "nota": "Hermes guarda hooks, MCP y skills en el config.yaml del PERFIL (HERMES_HOME); no hay bandera ni archivo del proyecto para una sola sesión (su doc de configuración y de perfiles). Su vía oficial para separar es un perfil: uno PROPIO por agente, creado sin clonar (decisión del dueño, 19-nov: Workspace no copia ni guarda llaves; `--clone-from` copiaría el .env). Su cuenta la conecta la persona una vez con `hermes --profile <perfil> model`: la guía de la terminal, Motores › cuenta y proveedor (una opción por perfil) y Conexiones (los perfiles sin cuenta). Mientras no la tenga, la página le habla por el perfil de Workspace, como antes. Los perfiles del socio (default y los suyos) no se tocan. Rutas absolutas: desde la 0.22.5 sus sesiones (REPL, -q, ACP) corren en el gateway multiplexado, que expande ${VAR} contra el .env del perfil, no contra la pestaña (caja negra 19-nov)."
+    },
+    "preparar": "engines.hermes:sesion_perfil",
+    "skills": {"via": "perfil", "nota": "skills.external_dirs del perfil del agente = las skills del paquete de ESE cerebro (vista plana con el sello, como los demás) y create_dir = skills/aprendidas del cerebro; sirve igual en su terminal y en la página (ACP), verificado 19-nov"},
+    "sin_nucleo": "el paquete de la pestaña al abrir y el tono siguen por el camino de hoy (el AGENTS.md generado y el hook por turno hermes_turno): sus avisos corren en el gateway, sin el entorno de la pestaña, y esperan la aprobación del socio",
+    "mcp_del_nucleo": true,
+    "id": {"flags": ["--resume", "-r"], "retoma": "--resume"},
+    "confianza": "Hermes no corre un aviso del config.yaml que no esté en la lista de aprobados de SU perfil (<perfil>/shell-hooks-allowlist.json, por evento y comando). Workspace aprueba SOLO sus avisos (los 8 del paquete y el de tono de hoy) en SU perfil de agente, por la vía oficial más estrecha que documenta Hermes: «Manual allowlisting» («useful for non-TTY or service-account deployments… The command string must match the configured hook command exactly»), al abrir el agente (engines/hermes.aprobar_avisos). Las suyas de antes se reemplazan; lo demás de la lista se queda. Nunca --accept-hooks, HERMES_ACCEPT_HOOKS ni hooks_auto_accept (aceptan todo lo del perfil), ni en el perfil de Workspace ni en los del socio. decisión del dueño, 19-nov: «está bien aprobarlos automáticamente por Workspace por ser perfil de Workspace» (decisión del dueño)",
+    "de_antes": {"skills": "las skills del cerebro en skills.external_dirs de su config (engines/hermes, al abrir)"}
+  },
+  "config_global": [
+    "{home}/.hermes/config.yaml",
+    "{home}/.hermes/shell-hooks-allowlist.json",
+    "{home}/.hermes/plugins",
+    "{home}/.hermes/SOUL.md",
+    "{home}/.hermes/profiles/workspace/config.yaml",
+    "{home}/.hermes/profiles/workspace/shell-hooks-allowlist.json",
+    "{home}/.hermes/profiles/workspace/SOUL.md"
+  ],
+  "probador": {
+    "env": {"HERMES_HOME": "{home}/.hermes"},
+    "preparar": [
+      {"copiar": "{paquete}/hermes/hooks.yaml", "a": "{home}/.hermes/config.yaml"}
+    ],
+    "corrida": ["hermes", "-z", "{prompt}", "--accept-hooks"],
+    "timeout_s": 240,
+    "real": {
+      "no": "sus hooks viven en el config.yaml de un perfil (HERMES_HOME): no hay vía solo por sesión. La auditoría lo corre por su perfil de agente (arquitectura.auditoria)."
+    },
+    "verificado": false,
+    "nota": "la doc web va por delante del --help 0.22.5 (gateway attach)"
+  }
+}

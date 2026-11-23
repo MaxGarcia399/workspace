@@ -543,6 +543,7 @@ _PIN_CORTO = {"ui.background": "fondo", "ui.theme": "tema",
               "ui.brightness": "brillo", "ui.redlight": "luz roja",
               "ui.un_color": "un color", "ui.tema_herdr": "seguir a herdr",
               "ui.autostart": "auto-abrir",
+              "ui.navegador_al_iniciar": "navegador al iniciar",
               "latido.mode": "latido",
               "ui.split": "split", "ui.anim": "animación"}
 # clave i18n paralela por setting (misma palabra, traducible)
@@ -552,6 +553,7 @@ _PIN_I18N = {"ui.background": "hub.pin.background", "ui.theme": "hub.pin.theme",
              "ui.un_color": "hub.pin.un_color",
              "ui.tema_herdr": "hub.pin.tema_herdr",
              "ui.autostart": "hub.pin.autostart",
+             "ui.navegador_al_iniciar": "hub.pin.navegador",
              "latido.mode": "hub.pin.heartbeat",
              "ui.split": "hub.pin.split", "ui.anim": "hub.pin.anim"}
 
@@ -572,9 +574,10 @@ _PIN_I18N = {"ui.background": "hub.pin.background", "ui.theme": "hub.pin.theme",
 #         ╰──────────────────────────╯
 #            Enter entra · Esc regresa · escribe para buscar
 #
-# Debajo de Idioma pueden ir FILAS EXTRA que aporta front en data["extras"]
-# (hoy solo «otra máquina», del dev: maquinas_dev, que no viaja a clientes).
-# Sin esa clave la raíz es exactamente la de arriba.
+# Debajo de Idioma pueden ir FILAS EXTRA que aporta front en data["extras"]:
+# «otra máquina» (del dev: maquinas_dev, que no viaja a clientes) y «Workspace
+# en el navegador» (la página local; también vive en Menú — la búsqueda la
+# muestra una sola vez). Sin esa clave la raíz es exactamente la de arriba.
 #
 # Enter en un agente lo lanza (lo de siempre); en una fila `›` entra: la MISMA
 # caja muestra ese submenú (las entradas de siempre del menú, los pins de
@@ -606,7 +609,7 @@ import unicodedata as _ud
 LZ_ROWS = 12          # filas de lista FIJAS (además de la línea de búsqueda)
 LZ_PAD = 2            # aire por lado dentro de la barra (+1 del borde = 3)
 _LZ_SUBS = ("tools", "latido", "idioma")      # secciones → grupos de front
-_LZ_SELECTABLE = ("agent", "sub", "opt", "pin", "lang", "extra", "deci")
+_LZ_SELECTABLE = ("agent", "sub", "opt", "pin", "lang", "extra", "deci", "pend")
 # El mapa de la memoria fue una fila de la raíz en la 0.5.0 y salió en la
 # 0.5.1 (pedido del dueño 2026-10-21: en la portada se confundía con los
 # agentes). Vive solo en Documentación: su primer renglón o la tecla m.
@@ -659,11 +662,13 @@ def lanzador_sub_title(g):
 
 def _lz_sub_items(data, g):
     """Filas de un submenú — las MISMAS fuentes que los demás layouts."""
+    from decisions import decisores_activos
     if g == "tools":
         # sin la letra de salto: en el lanzador las letras ESCRIBEN en la
         # búsqueda (regla «escribe primero») — pintarla engañaría
         return [{"kind": "opt", "idx": j, "label": lbl, "dato": "", "tok": tok}
-                for j, (tok, lbl) in enumerate(data.get("opts") or ())]
+                for j, (tok, lbl) in enumerate(data.get("opts") or ())
+                if tok not in ("__decisores__", "__modelos__") or decisores_activos()]
     if g == "latido":
         return [{"kind": "pin", "idx": i, "label": _lz_pin_label(p),
                  "dato": str(p.get("value", ""))}
@@ -716,6 +721,7 @@ def lanzador_items(data, level=None, q=""):
              "dato": "›"} for g in lanzador_subs()]
     subs += _lz_extras(data)                     # al pie, debajo de Idioma
     deci = _lz_deci(data)                        # Decisores: con los agentes, al final
+    pend = _lz_pend(data)                        # revisiones de skills sin hacer (0.9.1)
     qn = _lz_norm(q)
     if level in _LZ_SUBS:
         its = _lz_sub_items(data, level)
@@ -729,17 +735,21 @@ def lanzador_items(data, level=None, q=""):
         if not ags:
             ags = [{"kind": "info", "label": _t(
                 "hub.lanzador.empty", "sin agentes — Menú › Agentes")}]
-        return ags + ([deci] if deci else []) + [{"kind": "sep"}] + subs
+        return ags + ([deci] if deci else []) + pend + [{"kind": "sep"}] + subs
     out = [a for a in ags if qn in _lz_norm(a["label"])]
     if deci and qn in _lz_norm(deci["label"]):  # como un agente
         out.append(deci)
     out += [s for s in subs if qn in _lz_norm(s["label"])]
     ya_deci = any(it.get("kind") == "deci" for it in out)
+    # una opción del Menú que ya salió como fila extra (la página local) no se repite
+    ya_extra = {it.get("token") for it in out if it.get("kind") == "extra"}
     for g in lanzador_subs():                    # búsqueda GLOBAL
         for it in _lz_sub_items(data, g):
             if qn in _lz_norm(it["label"]):
                 if ya_deci and it.get("tok") == "__decisores__":
                     continue                     # ya está su botón: sin repetirlo
+                if it.get("tok") and it.get("tok") in ya_extra:
+                    continue
                 it["crumb"] = lanzador_sub_label(g)
                 out.append(it)
     if not out:
@@ -753,7 +763,7 @@ def lanzador_first(items):
     separador) la fila de Decisores no es la de arranque: sin agentes el
     cursor sigue arrancando en Menú (ahí está «Agregar agente»)."""
     raiz = any(it.get("kind") == "sep" for it in items)
-    for saltar in (("deci",) if raiz else (), ()):
+    for saltar in (("deci", "pend") if raiz else (), ()):
         for i, it in enumerate(items):
             if it.get("kind") in _LZ_SELECTABLE and it.get("kind") not in saltar:
                 return i
@@ -822,15 +832,17 @@ def _lz_row(it, on, ancho, K):
     tinta = (K["C"] + K["BO"]) if on else (K["DK"] if off else K["INACTIVE"])
     crumb = it.get("crumb")
     dato = _sane(str(crumb if crumb else (it.get("dato") or "")))
-    # Decisores: un glifo tenue antes del nombre (no se confunde con un agente)
+    # Decisores: un glifo tenue antes del nombre (no se confunde con un agente);
+    # el de un aviso (la revisión pendiente), en su color
     glifo = _sane(str(it.get("glifo") or ""))
+    gcol = "".join(K.get(x, "") for x in str(it.get("glifo_col") or "DIM").split("+"))
     izq = 2 + (vis(glifo) + 1 if glifo else 0)
     # reserva para el dato: lo justo para un dato corto («›», «●»: 3 col) y
     # 4 para los largos, como siempre (la etiqueta manda). Un 4 fijo
     # recortaba «Personalización» en la caja más angosta (sin agentes).
     reserva = min(4, 2 + vis(dato)) if dato else 0
     lab = clip(lab, max(1, ancho - izq - reserva))
-    ln = "%s%s%s%s%s" % (cur, ("%s%s%s " % (K["DIM"], glifo, K["R"])) if glifo else "",
+    ln = "%s%s%s%s%s" % (cur, ("%s%s%s " % (gcol, glifo, K["R"])) if glifo else "",
                          tinta, lab, K["R"])
     if dato:
         flechas = _lz_arrows(it)
@@ -915,6 +927,9 @@ DECI_SIM = "◆"
 
 def _lz_deci(data):
     """La fila de Decisores para la raíz, o None (sin datos: Decisores no carga)."""
+    from decisions import decisores_activos
+    if not decisores_activos():
+        return None
     d = (data or {}).get("decisores")
     if not isinstance(d, dict):
         return None
@@ -926,6 +941,8 @@ def _lz_deci(data):
         it["dato"] = clip(_sane(str(d.get("modelo") or activo)), 14)
         if d.get("estado") in ("sin_llave", "no_listo"):
             it["dato_col"] = "ERR"
+        elif d.get("estado") == "sin_red":       # la red, no la llave: sin rojo
+            it["dato"] = clip(_t("hub.deci.offline", "sin conexión"), 14)
     elif listos:
         it["dato"] = _t("hub.deci.off", "apagado")
     elif d.get("nuevo"):
@@ -935,6 +952,63 @@ def _lz_deci(data):
         it["dato"] = _t("hub.deci.setup", "configurar")
     it["ciclo"] = bool(listos) or activo != "off"    # hay entre cuáles elegir con ←→
     return it
+
+
+# ── la revisión de skills que quedó sin hacer (0.9.1) ───────────────────────
+# Debajo de Decisores, una fila por revisión que volvió a pendiente (la 1.ª
+# entrega no dejó resultado): «! 1 revisión de skills pendiente   Hacer ahora».
+# ↑↓ la apunta (el cursor nunca ARRANCA en ella) y Enter o un clic la hacen.
+# data["skills_pend"] = hooks/skill_review.pendientes_hub(agentes). Sin
+# pendientes (o con la revisión apagada) no hay fila: la portada de siempre.
+def pend_label(p, n):
+    """La etiqueta de la fila: «1 revisión de skills pendiente» («2 revisiones…»
+    si su pestaña tiene más en la cola); con varias pestañas, de quién."""
+    k = int(p.get("n") or 1)
+    if n == 1:
+        return (_t("hub.skills_pend.one", "1 revisión de skills pendiente") if k == 1 else
+                _t("hub.skills_pend.many", "{k} revisiones de skills pendientes", k=k))
+    quien = str(p.get("display") or p.get("agente") or "?")
+    if p.get("pestana"):
+        quien += " «%s»" % p["pestana"]
+    return _t("hub.skills_pend.of", "revisión de skills · {q}", q=quien)
+
+
+def pend_motivo(p):
+    """La línea de abajo con la fila apuntada: de quién es y por qué está ahí."""
+    quien = str(p.get("display") or p.get("agente") or "?")
+    if p.get("pestana"):
+        quien += " · «%s»" % p["pestana"]
+    if p.get("batch"):
+        return _t("hub.skills_pend.batch_why", "{q}: revisión acumulada · Enter abre la tanda", q=quien)
+    if p.get("al_mensaje"):
+        return _t("hub.skills_pend.waiting", "{q}: la tarea le llega con tu próximo mensaje ahí",
+                  q=quien)
+    return _t("hub.skills_pend.why", "{q}: la revisión de {o} no dejó resultado · Enter la hace ahora",
+              q=quien, o=_cuando_corto(p.get("origen_t")))
+
+
+def _cuando_corto(t):
+    """«16:21» hoy · «ayer 16:21» · «8/11 16:21»."""
+    import datetime as _dt
+    try:
+        d = _dt.datetime.fromtimestamp(float(t))
+    except (TypeError, ValueError, OverflowError, OSError):
+        return "?"
+    hoy = _dt.date.today()
+    h = d.strftime("%H:%M")
+    if d.date() == hoy:
+        return h
+    if d.date() == hoy - _dt.timedelta(days=1):
+        return _t("hub.skills_pend.yesterday", "ayer {h}", h=h)
+    return "%d/%d %s" % (d.day, d.month, h)
+
+
+def _lz_pend(data):
+    pend = [p for p in ((data or {}).get("skills_pend") or ()) if isinstance(p, dict)]
+    return [{"kind": "pend", "idx": i, "glifo": "!", "glifo_col": "B2+BO",
+             "label": pend_label(p, len(pend)),
+             "dato": _t("hub.skills_pend.do", "Hacer ahora"), "dato_col": "C+BO"}
+            for i, p in enumerate(pend)]
 
 
 def render_lanzador(data, view, K, w):
@@ -1081,6 +1155,23 @@ def render_lanzador(data, view, K, w):
     aviso = _sane(aviso)
     fila_aviso = (clip(" " * max(0, (W - vis(aviso)) // 2) + "%s%s%s" % (
         K["DIM"], aviso, K["R"]), W) if aviso else "")
+    # sin aviso: la línea «rica» que arme front (la revisión pendiente apuntada,
+    # el resumen de hoy de Decisores) — partes (texto, color, clic) centradas;
+    # cada parte con clic es una región del hit-map. Sin ella, la de siempre.
+    hits_aviso = []
+    rico = [] if aviso else [x for x in (view.get("aviso_rico") or ()) if x and x[0]]
+    if rico:
+        partes, x = [], 0
+        for txt, colk, clic in rico:
+            t = _sane(str(txt))
+            c = "".join(K.get(k, "") for k in str(colk or "DIM").split("+"))
+            partes.append("%s%s%s" % (c, t, K["R"]))
+            if clic:
+                hits_aviso.append((x, x + vis(t), clic))
+            x += vis(t)
+        izq = max(0, (W - x) // 2)
+        fila_aviso = clip(" " * izq + "".join(partes), W)
+        hits_aviso = [(a + izq, min(b + izq, W), c) for a, b, c in hits_aviso if a + izq < W]
 
     # ── composición vertical: la barra (alto FIJO) en el aire entre el
     #    wordmark y los chips, un poco ARRIBA del centro (1/3 arriba) ──
@@ -1105,6 +1196,10 @@ def render_lanzador(data, view, K, w):
             hit.append((row, x0, x0 + inner, "lz", i))
     if level is not None and base_caja < len(L):
         hit.append((base_caja, lp_n, lp_n + pw, "crumb", 0))
+    fila = base_caja + len(caja)                 # la línea del aviso
+    if hits_aviso and fila < len(L) and L[fila] == fila_aviso:
+        for a, b, (kind, idx) in hits_aviso:
+            hit.append((fila, a, b, kind, idx))
     view["hit"] = hit
     return L
 
@@ -1128,4 +1223,8 @@ def active(explicit=None):
 
 
 def section_word(section):
+    if section == "decisores":
+        from decisions import decisores_activos
+        if not decisores_activos():
+            return ""
     return _t("section.title." + section, section.upper())

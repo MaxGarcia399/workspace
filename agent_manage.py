@@ -302,10 +302,14 @@ def unregister(agent_id, expected_brain=None):
 
 
 # ── permisos y aprendizaje (Agentes → Enter) ─────────────────────────────────────
-#: Los niveles que existen: ask|brain. «Comandos sin preguntar» ("full") ya no
-#: existe; un "full" de antes se lee como "brain" (la migración lo convierte).
-AUTONOMY_ORDER = ("ask", "brain")
-AUTONOMY_SETTABLE = ("ask", "brain")
+#: Los niveles que existen: ask|brain|edit|sandbox (engines/_ui: brain = «Automático»,
+#: el de fábrica desde el 18-nov; edit = «Editar sin preguntar»). «Comandos sin
+#: preguntar» ("full") ya no existe; un "full" de antes se lee como "brain" (la
+#: migración lo convierte). F7 · sandbox: sin permisos, pero solo dentro del sandbox
+#: oficial del motor (con el paquete por sesión: arquitectura/permisos); donde no lo
+#: hay, se porta como edit.
+AUTONOMY_ORDER = ("ask", "brain", "edit", "sandbox")
+AUTONOMY_SETTABLE = ("ask", "brain", "edit", "sandbox")
 
 
 def _definition(brain):
@@ -376,8 +380,8 @@ def _write_pref(a, autonomy=None, skill_review=None):
 
 
 def set_autonomy(agent_id, level, expected_brain=None):
-    """ask · brain. Reescribe su agent.json y los permisos de Claude Code
-    (conserva lo que el usuario agregó a mano)."""
+    """ask · brain (automático) · edit · sandbox. Reescribe su agent.json y los
+    permisos de Claude Code (conserva lo que el usuario agregó a mano)."""
     a, e = _current(agent_id, expected_brain)
     if a is None:
         return _err(e)
@@ -392,8 +396,17 @@ def set_autonomy(agent_id, level, expected_brain=None):
                           "{n} preguntará antes de escribir en su cerebro "
                           "· desde su próxima sesión", n=a["name"]),
                 "brain": _t("agentes.mg.auto_brain",
-                            "{n} lee y escribe en su cerebro sin preguntar "
-                            "· desde su próxima sesión", n=a["name"])}[level])
+                            "{n} trabaja en automático: su motor revisa cada paso y "
+                            "solo te pregunta lo arriesgado · desde su próxima sesión",
+                            n=a["name"]),
+                "edit": _t("agentes.mg.auto_edit",
+                           "{n} lee y escribe en su cerebro sin preguntar "
+                           "· desde su próxima sesión", n=a["name"]),
+                "sandbox": _t("agentes.mg.auto_sandbox",
+                              "{n} trabaja sin preguntar, pero solo dentro del sandbox "
+                              "de su motor (sin red, solo su carpeta); donde no hay "
+                              "sandbox, edita sin preguntar · desde su próxima sesión",
+                              n=a["name"])}[level])
 
 
 def set_skill_review(agent_id, on, expected_brain=None):
@@ -404,7 +417,7 @@ def set_skill_review(agent_id, on, expected_brain=None):
     if bad:
         return _err(bad)
     return _ok(_t("agentes.mg.review_on",
-                  "revisión de skills prendida para {n} · la hace al abrir la "
-                  "siguiente sesión, a la vista", n=a["name"]) if on else
+                  "revisión de skills prendida para {n} · la hace al volver a abrir "
+                  "la pestaña, a la vista; si no, la ves en el hub", n=a["name"]) if on else
                _t("agentes.mg.review_off",
                   "revisión de skills apagada para {n}", n=a["name"]))

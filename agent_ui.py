@@ -223,8 +223,39 @@ def _apply_theme_osc(palette):
         theme.reset()
 
 
+def _contexto(script):
+    """(cerebro, agente) del menú que llama: el env que pone dispatch (WORKSPACE_BRAIN, WORKSPACE_AGENT_NAME) o, si
+    falta, la ruta del dashboard (<cerebro>/brand/<agente>-dashboard.py)."""
+    brain = os.environ.get('WORKSPACE_BRAIN') or ''
+    agent = os.environ.get('WORKSPACE_AGENT_NAME') or ''
+    p = Path(script or '')
+    if not brain and p.parent.name == 'brand':
+        brain = str(p.parent.parent)
+    if not agent:
+        agent = p.stem.replace('-dashboard', '')
+    return brain, agent
+
+
 def live_picker(items, script, keys='', notice='', selected=0, title=None, hints=None):
-    """TTY picker with idle theme/size refresh and an unchanged selected row.
+    """I11 · el menú de sesiones es S-1 con la piel del hub (hub_s1), también en Windows. La FIRMA se conserva para
+    siempre: la llaman los menús que viven en cada cerebro (brand/agent-dashboard.py), que no se reescriben; arreglarlo
+    aquí los arregla a todos. Devuelve el índice elegido, BACK, (tecla, índice) o None (sin terminal, o si S-1 no
+    pudo: el menú sencillo del dashboard). Solo una copia de desarrollo con WORKSPACE_HUB_S1=0 enseña el de antes."""
+    try:
+        import hub_s1
+        if not hub_s1.activo():
+            return __import__('puertas_dev').live_picker_de_antes(items, script, keys=keys, notice=notice,
+                                                                   selected=selected, title=title, hints=hints)
+        brain, agent = _contexto(script)
+        return hub_s1.correr(items, brain, agent, keys=keys, notice=notice, selected=selected, title=title)
+    except Exception:
+        return None
+
+
+def _live_picker_de_antes(items, script, keys='', notice='', selected=0, title=None, hints=None):
+    """El menú de sesiones de antes (la caja «SESIONES» y el letrero ANSI Shadow). SOLO lo llama puertas_dev (copia de
+    desarrollo con WORKSPACE_HUB_S1=0, para comparar); se borra en la versión 2.
+    TTY picker with idle theme/size refresh and an unchanged selected row.
     Devuelve el índice elegido, BACK (Esc/Ctrl+C) o None sin terminal.
     Sesiones v2 (opcional; sin estos argumentos es el de siempre): una tecla
     de `keys` (p. ej. 'au') devuelve (tecla, índice marcado); `notice`,
@@ -385,6 +416,14 @@ def menu_sesiones(brain, agent, menu_items, script, fallback=None, picker=None):
     `picker` = live_picker (las pruebas lo sustituyen). Devuelve el kind
     elegido (("WS", id, nombre) / ("NEW", None, None)) o BACK."""
     import sessions_registry as reg
+    if picker is None:
+        # I11: S-1 «Lista con su monito» siempre (desde el hub o escribiendo el comando del agente); live_picker solo
+        # si hub_s1 no carga (y él mismo es S-1, o None: el menú sencillo del dashboard).
+        try:
+            import hub_s1
+            picker = hub_s1.picker_para(brain, agent)
+        except Exception:
+            picker = None
     picker = picker or live_picker
     sel, vista = 0, 'lista'
     try:                       # «archivé N pestañas…» del archivo automático
@@ -409,6 +448,8 @@ def menu_sesiones(brain, agent, menu_items, script, fallback=None, picker=None):
             r = picker(items, script, keys='u', notice=aviso, selected=sel,
                        title=_t('sesiones.menu.titulo', 'ARCHIVADAS'), hints=_hints_archivadas())
         aviso = ''
+        if isinstance(r, tuple) and len(r) == 2 and r[0] == 'NUEVO':
+            return ('WS', None, r[1])    # S-1 ya pidió su nombre: el dashboard la crea (sin preguntar otra vez)
         if r is None:                    # sin terminal: el picker de siempre
             base = [it for it in items if it[2][0] not in (ARCHIVADAS, VOLVER)] \
                 if vista == 'lista' else list(menu_items())

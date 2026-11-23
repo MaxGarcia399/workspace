@@ -30,7 +30,7 @@ same.
 | **Windows:** administrator permission while another engine installs | Its official installer adds something it needs (for example, Node.js) | "Yes" | That engine isn't installed |
 | **Windows:** "The "msstore" source requires that you view the following agreements" (Copilot) | It's Windows' app store | Type `Y` and Enter | Copilot isn't installed |
 | **macOS:** "Background item added" (Kiro) | It's part of Kiro | You can leave it; it's turned off in Settings → General → Login Items | Nothing: Kiro keeps working |
-| **macOS:** ""copilot" Not Opened" or "Apple could not verify…" | The engine was installed with Homebrew and stayed in quarantine | "Done" (not "Move to Trash") and choose reinstall in Engines | The engine doesn't open until it's reinstalled |
+| **macOS:** ""copilot" Not Opened" or "Apple could not verify…" | The engine was installed with Homebrew and stayed in quarantine | "Done" (not "Move to Trash") and in the hub, in Motores (engines), choose «Reparar» (repair) | The engine doesn't open until it's reinstalled |
 | **macOS:** ""Terminal" was prevented from modifying apps on your Mac" | When repairing or reinstalling an engine that lives in Applications | Settings → Privacy & Security → App Management → turn on your terminal | The repair doesn't finish |
 | **macOS:** the keychain asks about "copilot-cli" | It's Copilot reading its own session (happens after updating Node) | Your Mac password and "Always Allow" | Copilot asks you to sign in again |
 

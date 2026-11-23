@@ -11,7 +11,8 @@ Principios (no negociables — son lo que hace que NO rompa git-sync ni multi-m�
     regenerar. Cada máquina indexa los MISMOS .md sincronizados → consistencia
     eventual gratis.
   · Indexa conocimiento curado/archival: la ficha de cada pestaña y su archivo/
-    (memoria v1), wiki, memoria-archivo, log-archive, inbox consumido. NO indexa
+    (memoria v1), wiki, memoria-archivo, log-archive, inbox consumido,
+    STATE/MEMORY.md y la memoria de cada motor (motores/<motor>/memoria/<socio>/). NO indexa
     transcripts crudos ni la maleta (extracto de la conversación) (LP-5: ruido).
   · Ranking = BM25 × recencia × importancia (frontmatter de triage, si existe).
     Excluye lo invalidado (`reemplazado_por:` no nulo) salvo --historico.
@@ -58,6 +59,11 @@ SOURCES = [
     ("STATE/memoria-archivo", None, "memoria-archivo"),
     ("STATE/log-archive",     None, "log-archive"),
     ("STATE/inbox/consumed",  None, "inbox"),
+    # El piloto de MemPalace (18-nov) encontró que faltaban estas dos (veía 113 de 254 archivos del cerebro; con
+    # ellas, su acierto pasó de 60 a 83 %): la memoria curada del cerebro (un solo archivo) y la memoria propia de
+    # cada motor, por socio (motores/<motor>/memoria/<socio>/…, de todos los motores, no solo Claude Code).
+    ("STATE/MEMORY.md",       None, "memory"),
+    ("motores",               r"[^/]+/memoria/[^/]+/.+", "motor-memoria"),
 ]
 MAX_BODY_CHARS = 40_000   # cota por documento (cola de costo del índice)
 
@@ -135,6 +141,10 @@ def _iter_source_files(brain):
         # os.path.join arme la ruta con os.sep nativo (en Windows, '\'). Si no,
         # join conserva el '/' interno y os.walk propaga separadores MEZCLADOS.
         base = os.path.join(brain, *sub.split("/"))
+        if os.path.isfile(base):                   # una fuente de un solo archivo (STATE/MEMORY.md)
+            if base.endswith(".md"):
+                yield base, cat
+            continue
         if not os.path.isdir(base):
             continue
         for root, _dirs, files in os.walk(base):

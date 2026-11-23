@@ -512,5 +512,8 @@ def _loop_con(S, base):
             os.close(fd)
 
 
-if __name__ == '__main__':
-    run()
+if __name__ == "__main__":
+    # ARCHIVO MÍNIMO por una versión (se borra en la versión 2): esta pantalla ya no se abre. Quien la corre
+    # directo, o un hub que quedó abierto durante la actualización, llega a lo nuevo (puertas.redirigir).
+    import puertas
+    sys.exit(puertas.redirigir('docs', sys.argv[1:]))

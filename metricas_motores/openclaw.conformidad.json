@@ -1,7 +1,7 @@
 {
  "motor": "openclaw",
  "version": "2026.10.7",
- "actualizado": "2026-10-27",
+ "actualizado": "2026-11-16",
  "nota": "Cédula de conformidad de las métricas: `version` es la versión certificada (con golden en tests/fixtures/metricas/openclaw/2026.10.7/ y en VERIFIED_VERSIONS). El historial registra cada verificación: nivel kit (fixture), mínimo (headless real) o completo (consola real con la X). runbooks/agregar-motor.md §3b.",
  "historial": [
   {
@@ -28,6 +28,29 @@
     "TZ"
    ],
    "parser": "openclaw/2"
+  },
+  {
+   "version": "2026.10.7",
+   "so": "mac",
+   "nivel": "completo",
+   "veredicto": "pasa",
+   "fecha": "2026-11-16",
+   "costo_usd_aprox": 0.0384,
+   "intentos": 1,
+   "modelo": "el del motor",
+   "parser": "openclaw/3",
+   "fuente": "tests/e2e/metricas_viva.py",
+   "fallos": []
+  },
+  {
+   "version": "2026.10.7",
+   "so": "mac",
+   "nivel": "kit",
+   "veredicto": "pasa",
+   "fecha": "2026-11-16",
+   "costo_usd_aprox": 0,
+   "fuente": "tests/fixtures/metricas/openclaw/2026.10.7 (la golden existente; kit con el parser actual)",
+   "parser": "openclaw/3"
   }
  ]
 }

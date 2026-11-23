@@ -44,8 +44,10 @@ STRINGS = {
                             'y lo sensible piden permiso',
     'motorbar.codex.full': 'full — edita en el cerebro y corre comandos sin preguntar (dentro del '
                            'sandbox: fuera del cerebro y la red, bloqueados)',
-    'motorbar.agy.brain': 'brain — edita en el cerebro sin preguntar; terminal y archivos fuera '
-                          'piden permiso',
+    'motorbar.agy.brain': 'automático — su modo Auto: edita y corre lo seguro sin preguntar; lo '
+                          'irreversible pregunta',
+    'motorbar.agy.edit': 'editar sin preguntar — edita en el cerebro sin preguntar; terminal y '
+                         'archivos fuera piden permiso',
     'motorbar.agy.full': 'full — edita en el cerebro y corre comandos sin preguntar (proyecto de '
                          'agy del agente); fuera del cerebro pide permiso',
     'motorbar.agy.access_failed': 'no pude registrar el acceso del cerebro en Antigravity (pedirá '
@@ -62,8 +64,9 @@ STRINGS = {
     'motorbar.memoria_mcp.restaurada': 'WORKSPACE: {rel} de tu cerebro: lo de Workspace (`workspace-memoria`) estaba cambiado; lo restauré y lo tuyo queda igual (respaldo en {respaldo}).',
     'motorbar.agy.commands_free': 'comandos sin preguntar',
     'motorbar.agy.acct_full': 'API key o cuenta empresarial: integración completa',
-    'motorbar.agy.acct_exp': 'inicio de sesión con Google: experimental (Google no soporta '
-                             'envolver agy con planes personales: {u})',
+    'motorbar.agy.acct_exp': 'inicio de sesión con Google: cuenta personal (Google prohíbe usarla '
+                             'en otras apps y puede suspender tu acceso a Antigravity; usa una API '
+                             'key de Google AI Studio: {u})',
     'motorbar.agy.tokens_in_bar': 'en la barra de Antigravity',
     'motorbar.hermes.created': 'creé su perfil «{p}» (con tu modelo, sin copiar tus llaves; tu '
                                'Hermes personal no cambia)',
@@ -111,6 +114,9 @@ STRINGS = {
                                          'cerebro',
     'motorbar.openclaw.memory_added': 'agregué STATE/MEMORY.md a tus rutas del hook '
                                       'bootstrap-extra-files (las tuyas se conservan)',
+    'motorbar.openclaw.plugin_on': 'encendí el plugin de Workspace en su perfil (avisos, MCP y '
+                                   'skills); se apaga con `openclaw --profile {p} plugins disable '
+                                   'workspace`',
     'motorbar.openclaw.no_agent': 'OpenClaw sin ventana necesita saber de qué agente es el '
                                   'turno: jamás usa su agente «main» de fábrica, que contesta '
                                   'con otra identidad',

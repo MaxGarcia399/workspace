@@ -1,7 +1,7 @@
 {
  "motor": "claude-code",
- "version": "2.1.310",
- "actualizado": "2026-10-27",
+ "version": "2.1.326",
+ "actualizado": "2026-11-16",
  "nota": "Cédula de conformidad de las métricas: `version` es la versión certificada (con golden en tests/fixtures/metricas/claude-code/2.1.310/ y en VERIFIED_VERSIONS). El historial registra cada verificación: nivel kit (fixture), mínimo (headless real) o completo (consola real con la X). runbooks/agregar-motor.md §3b.",
  "historial": [
   {
@@ -80,6 +80,44 @@
    "parser": "claude-code/2",
    "fuente": "tests/e2e/metricas_viva.py",
    "fallos": []
+  },
+  {
+   "version": "2.1.326",
+   "so": "mac",
+   "nivel": "minimo",
+   "veredicto": "reprueba",
+   "fecha": "2026-11-16",
+   "costo_usd_aprox": 0.0116,
+   "intentos": 1,
+   "modelo": "haiku",
+   "parser": "claude-code/4",
+   "fuente": "tests/e2e/metricas_viva.py",
+   "fallos": [
+    "desconocidas ≤ 5 %"
+   ]
+  },
+  {
+   "version": "2.1.326",
+   "so": "mac",
+   "nivel": "minimo",
+   "veredicto": "pasa",
+   "fecha": "2026-11-16",
+   "costo_usd_aprox": 0.012,
+   "intentos": 1,
+   "modelo": "haiku",
+   "parser": "claude-code/4",
+   "fuente": "tests/e2e/metricas_viva.py",
+   "fallos": []
+  },
+  {
+   "version": "2.1.326",
+   "so": "mac",
+   "nivel": "kit",
+   "veredicto": "pasa",
+   "fecha": "2026-11-16",
+   "costo_usd_aprox": 0,
+   "fuente": "tests/fixtures/metricas/claude-code/2.1.326 (captura real G1 nivel mínimo)",
+   "parser": "claude-code/4"
   }
  ]
 }

@@ -1,0 +1,81 @@
+{
+  "motor": "opencode",
+  "nombre": "OpenCode",
+  "binario": "opencode",
+  "versiones_probadas": ["2.1.4"],
+  "fuente": "C",
+  "via_control": {
+    "tipo": "servidor",
+    "detalle": "Su servicio y su API v2, con eventos en vivo: la página ve y escribe en la misma sesión que la terminal. F4: con el paquete encendido, su terminal ya no usa el servicio de fondo: Workspace le enciende `opencode serve` de ESA pestaña (127.0.0.1, puerto libre, clave local nueva en OPENCODE_SERVER_PASSWORD, anotados en el estado de Workspace, nunca en global) y abre la TUI con `--server <url> --session <id>` (de su --help 2.1.4). La página, si esa terminal está abierta, se conecta a ese servidor y a esa sesión y la sigue en vivo; si no, abre el suyo como antes. VERIFICADO (auditoría real, 19-nov): su cliente `opencode run --server <url> --session <id>` se presenta con OPENCODE_SERVER_PASSWORD y la conversación creada por su API en el cerebro ve el plugin y las skills del proyecto; la TUI es el mismo cliente (a ver en pantalla). Recién abierto su puerto, el servidor contesta 503 «service_starting» un momento: la conversación se pide hasta que la crea.",
+    "misma_conversacion": true,
+    "semaforo": "verde"
+  },
+  "momentos": {
+    "session_start": {"eventos": ["session.created"], "estado": "parcial", "puede": ["observar"], "nota": "evento de su servidor en el plugin (ctx.event.subscribe). En la caja negra (2.1.4, 19-nov) no le llegó al plugin: la conversación de la pestaña la crea su API al arrancar el servidor. El número lo confirma cualquier otro aviso, que trae su sessionID; la inyección va por el hook context"},
+    "user_prompt": {"eventos": ["session.prompt", "session.context"], "estado": "si", "puede": ["inyectar"], "nota": "context agrega partes de sistema antes de cada llamada al modelo"},
+    "pre_tool": {"eventos": ["tool.execute.before"], "estado": "si", "puede": ["bloquear"], "nota": "en el plugin JS"},
+    "post_tool": {"eventos": ["tool.execute.after"], "estado": "si", "puede": ["observar"]},
+    "permission_request": {"eventos": ["permission.evaluate", "permission.asked"], "estado": "si", "puede": ["decidir"]},
+    "turn_end": {"eventos": ["session.execution.succeeded"], "estado": "si", "puede": ["observar"], "nota": "evento de su servidor en el plugin (ctx.event.subscribe, iterable asíncrono de su doc de plugins de servidor); la respuesta es su último session.text.ended. session.idle no llegó en la caja negra (2.1.4, 19-nov). El «sigue» va por su API: POST /api/session/{id}/prompt"},
+    "compact": {"eventos": ["session.compaction"], "estado": "si", "puede": ["observar"]},
+    "session_end": {"eventos": [], "estado": "herdr", "puede": [], "nota": "el servicio sigue vivo: el cierre lo ve herdr"}
+  },
+  "paquete": {
+    "formato": "opencode",
+    "carga_por_sesion": "plugin en .opencode/plugins/ del cerebro (su doc: carga solo los .js/.ts y las carpetas de plugin de cada .opencode/plugins/ que encuentra; https://opencode.ai/docs/plugins/)",
+    "instala": "opencode plugin add",
+    "hooks": {"dialecto": "opencode", "ruta": "index.js", "raiz_var": null, "confianza": "la doc no describe una aprobación para cargar plugins"},
+    "mcp": {"declara": "mcp.servers en la config del cerebro", "preaprueba": "regla workspace_*"},
+    "skills": ".opencode/skills del proyecto (F7: sesion.skills)"
+  },
+  "permisos": {"por_sesion": ["--auto", "reglas permissions en la config del cerebro"], "preguntar": "a_verificar", "sandbox": false,
+    "niveles": {
+      "auto": {"no": "sin un modo automático con revisión verificado (su --help no abre en el sandbox de esta corrida: EPERM al escribir su log; su opción que aprueba sin revisar está prohibida): queda en editar, como hoy"},
+      "preguntar": {"env": {"OPENCODE_CONFIG_CONTENT": "{\"permission\":{\"edit\":\"ask\",\"bash\":\"ask\"}}"}},
+      "editar": {"env": {"OPENCODE_CONFIG_CONTENT": "{\"permission\":{\"edit\":\"allow\",\"bash\":\"ask\"}}"}},
+      "sin_permisos": {"no": "OpenCode no tiene sandbox: queda en editar sin preguntar"},
+      "verificado": false,
+      "nota": "su config de la corrida (OPENCODE_CONFIG_CONTENT), junto con la del núcleo; ni la config del cerebro ni la global. Hoy su lanzador no mapea la autonomía"
+    }},
+  "uso_plan": {"tipo": "comando", "fuente": "opencode stats --json"},
+  "conversacion": {"id": "api", "como": "F4: la crea su servidor por su API (POST /api/session, verificado) y la terminal abre con --session <id> («continue, or create if it does not exist», su --help 2.1.4); que la TUI la retome con el modelo de siempre, a verificar"},
+  "tono": "agente primario e instrucciones del servidor MCP",
+  "nucleo": {
+    "mcp": {"declara": "OPENCODE_CONFIG_CONTENT (solo esta corrida), en su forma v2 (mcp.servers) y con codemode false: sus herramientas van directas (workspace_<herramienta>) y no por su Code Mode, que dejaba su catálogo en la primera respuesta (https://opencode.ai/docs/mcp-servers/; VERIFICADO caja negra 2.1.4, 19-nov)", "env": {"OPENCODE_CONFIG_CONTENT": "{\"mcp\":{\"servers\":{\"workspace\":{\"type\":\"local\",\"command\":[\"{python}\",\"{paquete}/lanzador/mcp.py\"],\"enabled\":true,\"codemode\":false}}},\"permission\":{\"workspace_*\":\"allow\"}}"}},
+    "al_abrir": "mcp",
+    "tono": {"via": "mcp"},
+    "chat": {"via": "mensaje", "nota": "la página la manda una vez por conexión, antes de tu primer mensaje (el contexto de la sesión, como la nota de la maleta): su serve no tiene una pieza de sistema por mensaje verificada"},
+    "verificado": false,
+    "nota": "su session.created solo observa: el paquete y el tono van en las instrucciones del servidor MCP"
+  },
+  "sesion": {
+    "archivos": [{"copiar": "{paquete}", "a": "{cerebro}/.opencode/plugins/workspace"}],
+    "skills": {"via": "proyecto", "ruta": "{cerebro}/.opencode/skills", "nota": "su carpeta de skills del proyecto (https://opencode.ai/docs/skills/; la global es ~/.config/opencode/skills): vista plana con sello; las del socio no se tocan. VERIFICADO (auditoría real, 19-nov): su herramienta skill la carga en la terminal y en la página; su menú / de la TUI, a ver en pantalla"},
+    "id": {"flags": ["-s", "--session"], "retoma": "--session"},
+    "nota": "el plugin no lleva rutas de la máquina (se ubica solo): puede viajar con el cerebro"
+  },
+  "config_global": [
+    "{home}/.config/opencode/opencode.json",
+    "{home}/.config/opencode/opencode.jsonc",
+    "{home}/.config/opencode/plugins",
+    "{home}/.config/opencode/agents",
+    "{home}/.config/opencode/skills",
+    "{home}/.config/opencode/AGENTS.md"
+  ],
+  "probador": {
+    "env": {"XDG_CONFIG_HOME": "{home}/.config", "XDG_DATA_HOME": "{home}/.local/share"},
+    "preparar": [
+      {"copiar": "{paquete}", "a": "{cerebro}/.opencode/plugins/workspace"}
+    ],
+    "corrida": ["opencode", "run", "{prompt}", "--format", "json", "--standalone"],
+    "timeout_s": 240,
+    "real": {
+      "preparar": [{"copiar": "{paquete}", "a": "{cerebro}/.opencode/plugins/workspace"}],
+      "corrida": ["opencode", "run", "{prompt}", "--format", "json", "--standalone"],
+      "env": {"OPENCODE_CONFIG_CONTENT": "{\"mcp\":{\"servers\":{\"workspace\":{\"type\":\"local\",\"command\":[\"{python}\",\"{paquete}/lanzador/mcp.py\"],\"enabled\":true,\"codemode\":false}}},\"permission\":{\"workspace_*\":\"allow\"}}"},
+      "nota": "plugin en la carpeta del proyecto; --standalone: servidor privado"
+    },
+    "verificado": false,
+    "nota": "--standalone: servidor privado, no el servicio compartido del usuario"
+  }
+}

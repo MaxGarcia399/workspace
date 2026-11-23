@@ -1,0 +1,78 @@
+{
+  "motor": "copilot",
+  "nombre": "GitHub Copilot CLI",
+  "binario": "copilot",
+  "versiones_probadas": ["1.0.113"],
+  "fuente": "A",
+  "via_control": {
+    "tipo": "acp",
+    "detalle": "ACP nativo (`copilot --acp`, vista previa): un chat propio en la página mientras esté abierto (D5-a, F9).",
+    "misma_conversacion": false,
+    "semaforo": "verde"
+  },
+  "momentos": {
+    "session_start": {"eventos": ["sessionStart"], "estado": "si", "puede": ["inyectar"]},
+    "user_prompt": {"eventos": ["userPromptSubmitted"], "estado": "parcial", "puede": ["observar"], "nota": "en la CLI no inyecta: solo el SDK cambia el prompt"},
+    "pre_tool": {"eventos": ["preToolUse"], "estado": "si", "puede": ["decidir"], "nota": "allow | deny | ask, más modifiedArgs; si el hook falla, la herramienta se NIEGA"},
+    "post_tool": {"eventos": ["postToolUse", "postToolUseFailure"], "estado": "si", "puede": ["inyectar"], "nota": "aquí van las notas pendientes"},
+    "permission_request": {"eventos": ["permissionRequest"], "estado": "si", "puede": ["decidir"]},
+    "turn_end": {"eventos": ["agentStop"], "estado": "si", "puede": ["seguir"], "nota": "tras 8 bloqueos seguidos la CLI ignora el hook"},
+    "compact": {"eventos": ["preCompact"], "estado": "parcial", "puede": ["observar"], "nota": "solo aviso"},
+    "session_end": {"eventos": ["sessionEnd"], "estado": "si", "puede": ["observar"]}
+  },
+  "paquete": {
+    "formato": "claude",
+    "carga_por_sesion": "--plugin-dir {paquete}",
+    "instala": "copilot plugin install (instala el formato de Claude Code)",
+    "hooks": {"dialecto": "claude", "ruta": "hooks/hooks.json", "raiz_var": "CLAUDE_PLUGIN_ROOT", "confianza": "los del plugin: a verificar si corren en modo interactivo"},
+    "mcp": {"declara": ".mcp.json del plugin", "preaprueba": "--allow-tool 'workspace'"},
+    "skills": ".agents/skills"
+  },
+  "permisos": {"por_sesion": ["--allow-tool", "--deny-tool", "--mode"], "preguntar": "si", "sandbox": true,
+    "niveles": {
+      "auto": {"no_se_usa": "en su terminal no: Copilot 1.0.114 se niega a abrir en interactivo con --assisted-approval («--assisted-approval is only supported in non-interactive prompt mode or direct workflow mode», VERIFICADO 18-nov y en cada auditoría: engines/copilot.juez_en_interactivo), así que su lanzador ya no lo pasa (f3bc299e) y queda como editar", "lanzador": "con -p (las corridas sin pantalla) sí: --assisted-approval (engines/copilot.auto_args), junto a lo de editar. Su --help 1.0.113: «Review tool permission requests with the assisted-approval safety judge… probabilistic and not a security boundary… Ignored, with a warning, when AUTO_APPROVAL is explicitly disabled or managed policy blocks it». No --autopilot (seguir solo, no permisos)"},
+      "preguntar": {"lanzador": "sin --allow-tool de escritura: pregunta (engines/copilot)"},
+      "editar": {"lanzador": "--allow-tool=write(<cerebro>/**) y los --deny-tool de lo protegido (engines/copilot.brain_write_args)"},
+      "sin_permisos": {"no": "su sandbox no tiene todavía una opción de sesión verificada: queda en editar sin preguntar"},
+      "verificado": false
+    }},
+  "uso_plan": {"tipo": "archivo", "fuente": "--usage-output-file y /usage"},
+  "conversacion": {"id": "fijado_antes", "como": "--session-id <uuid>"},
+  "tono": "agente propio (--agent)",
+  "nucleo": {
+    "mcp": {"declara": "el .mcp.json del plugin (--plugin-dir)", "argv": ["--allow-tool=workspace"]},
+    "al_abrir": "mcp",
+    "tono": {"via": "mcp", "nota": "la ficha decía agente propio (--agent): un archivo de agente en el cerebro cambia su forma de trabajar; va como el paquete, en las instrucciones del MCP"},
+    "chat": {"via": "mensaje", "nota": "la página la manda una vez por conexión, antes de tu primer mensaje (el contexto de la sesión, como la nota de la maleta): su tono por las instrucciones del MCP no está verificado"},
+    "verificado": false,
+    "nota": "el probador real dijo que lo que devuelve su hook de inicio NO llega al modelo: el paquete va en las instrucciones del servidor MCP"
+  },
+  "sesion": {
+    "argv": ["--plugin-dir", "{paquete}"],
+    "skills": {"via": "paquete", "nota": "skills/ del plugin (formato de Claude Code) del paquete de ese cerebro (a verificar en su menú /)"},
+    "id": {"flags": ["--session-id", "--resume", "-r"], "fija": ["--session-id"], "crea": "--session-id", "retoma": "--resume"},
+    "maleta_del_transcript": "su aviso de fin de turno (agentStop / Stop) no trae su respuesta: solo transcript_path, stop_reason y stop_hook_active (doc «Hooks configuration» de GitHub; caja negra 19-nov con 1.0.114: una sonda guardó lo que recibió cada aviso). La maleta de los eventos salía sin su respuesta (auditoría real 19-nov), así que sigue la de su transcript, como Codex, Kiro, Antigravity y OpenClaw; la de los eventos nunca lee un transcript (F5)",
+    "nota": "el lanzador ya fija --session-id; si no viniera, se fija uno nuevo"
+  },
+  "config_global": [
+    "{home}/.copilot/config.json",
+    "{home}/.copilot/settings.json",
+    "{home}/.copilot/mcp-config.json",
+    "{home}/.copilot/permissions-config.json",
+    "{home}/.copilot/hooks",
+    "{home}/.copilot/agents",
+    "{home}/.copilot/skills",
+    "{home}/.copilot/copilot-instructions.md"
+  ],
+  "probador": {
+    "env": {"COPILOT_HOME": "{home}/.copilot"},
+    "corrida": ["copilot", "-p", "{prompt}", "--plugin-dir", "{paquete}", "--output-format", "json", "--session-id", "{uuid}", "--allow-all"],
+    "timeout_s": 240,
+    "real": {
+      "corrida": ["copilot", "--allow-tool=workspace", "-p", "{prompt}", "--plugin-dir", "{paquete}", "--output-format", "json", "--session-id", "{uuid}", "--allow-all"],
+      "nota": "--plugin-dir vale solo para esta sesión"
+    },
+    "verificado": false,
+    "nota": "COPILOT_HOME aparte también aparta la lista de cuentas: login una vez con --home-aislado"
+  }
+}

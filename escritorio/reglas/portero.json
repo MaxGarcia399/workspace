@@ -1,0 +1,886 @@
+{
+ "version": 1,
+ "nota": "Las reglas del portero del monito (la seguridad para actuar) como DATOS: una sola copia para la app de Mac (Seguridad.swift las carga al abrir) y la de Windows. Lo rojo fijo también está en el código de cada app y no se quita aunque este archivo falte o diga otra cosa (núcleo ∪ archivo); lo que deja pasar (inocuos, documentos, esquemas, roles) solo existe si este archivo se cargó: sin él, nada es amarillo. Los casos de examen que las dos apps deben pasar igual están en casos_portero.json.",
+ "palabras": {
+  "contrasena": [
+   "contrasena",
+   "contrasenas",
+   "password",
+   "passwords",
+   "passcode",
+   "clave de acceso",
+   "clave secreta",
+   "clave de seguridad",
+   "nip",
+   "pin",
+   "cvv",
+   "cvc",
+   "codigo de seguridad",
+   "security code",
+   "numero de tarjeta",
+   "card number",
+   "clabe",
+   "token",
+   "codigo de verificacion",
+   "verification code",
+   "otp",
+   "2fa",
+   "frase de recuperacion",
+   "seed phrase",
+   "recovery phrase",
+   "llave privada",
+   "private key",
+   "api key",
+   "secret",
+   "secreto"
+  ],
+  "pagar": [
+   "pagar",
+   "pago",
+   "paga",
+   "pay",
+   "pay now",
+   "comprar",
+   "compra",
+   "buy",
+   "buy now",
+   "checkout",
+   "finalizar compra",
+   "realizar pedido",
+   "place order",
+   "confirmar pedido",
+   "confirmar pago",
+   "transferir",
+   "transferencia",
+   "enviar dinero",
+   "send money",
+   "suscribirse",
+   "subscribe",
+   "donar",
+   "donate",
+   "retirar",
+   "withdraw",
+   "agregar tarjeta",
+   "add card",
+   "pagar ahora"
+  ],
+  "sistema": [
+   "instalar",
+   "install",
+   "permitir",
+   "allow",
+   "autorizar",
+   "authorize",
+   "conceder",
+   "grant",
+   "desbloquear",
+   "unlock",
+   "abrir de todos modos",
+   "open anyway",
+   "confiar",
+   "trust",
+   "iniciar sesion",
+   "sign in",
+   "log in",
+   "login",
+   "mostrar contrasena",
+   "show password",
+   "cambiar contrasena",
+   "change password",
+   "olvide mi contrasena",
+   "forgot password",
+   "vaciar papelera",
+   "empty trash",
+   "borrar definitivamente",
+   "delete permanently",
+   "eliminar cuenta",
+   "delete account"
+  ],
+  "avisoDePermiso": [
+   "permiso",
+   "permission",
+   "would like to",
+   "quiere acceder",
+   "wants to",
+   "desea controlar",
+   "wants access",
+   "administrador",
+   "administrator",
+   "contrasena",
+   "password",
+   "accesibilidad",
+   "accessibility",
+   "grabacion de pantalla",
+   "screen recording"
+  ],
+  "mandar": [
+   "enviar",
+   "envia",
+   "envio",
+   "mandar",
+   "manda",
+   "send",
+   "submit",
+   "publicar",
+   "publish",
+   "post",
+   "tweet",
+   "compartir",
+   "share",
+   "subir",
+   "upload",
+   "invitar",
+   "invite",
+   "enviar formulario",
+   "enviar ahora",
+   "send now",
+   "responder y enviar"
+  ],
+  "borrar": [
+   "eliminar",
+   "borrar",
+   "delete",
+   "remove",
+   "mover a la papelera",
+   "move to trash",
+   "papelera",
+   "trash",
+   "descartar",
+   "discard",
+   "desinstalar",
+   "uninstall",
+   "eliminar todo"
+  ],
+  "confirmar": [
+   "aceptar",
+   "accept",
+   "confirmar",
+   "confirm",
+   "acepto",
+   "agree",
+   "i agree",
+   "estoy de acuerdo",
+   "de acuerdo",
+   "aprobar",
+   "approve",
+   "autorizo"
+  ],
+  "aceptar": [
+   "ok",
+   "si",
+   "continuar",
+   "yes",
+   "continue",
+   "listo",
+   "done"
+  ],
+  "consentir": [
+   "acepto los terminos",
+   "acepto los terminos y condiciones",
+   "i agree to the terms",
+   "accept terms",
+   "acepto el aviso de privacidad"
+  ],
+  "guardarWeb": [
+   "guardar",
+   "save",
+   "guardar cambios",
+   "save changes",
+   "aplicar",
+   "apply",
+   "actualizar",
+   "update"
+  ],
+  "inocuos": [
+   "siguiente",
+   "anterior",
+   "next",
+   "previous",
+   "atras",
+   "back",
+   "adelante",
+   "forward",
+   "mostrar",
+   "ocultar",
+   "show",
+   "hide",
+   "mostrar mas",
+   "mostrar menos",
+   "ver mas",
+   "ver menos",
+   "show more",
+   "show less",
+   "ver todo",
+   "ver detalles",
+   "detalles",
+   "details",
+   "expandir",
+   "contraer",
+   "expand",
+   "collapse",
+   "vista previa",
+   "preview",
+   "acercar",
+   "alejar",
+   "zoom in",
+   "zoom out",
+   "buscar",
+   "search",
+   "filtrar",
+   "filter",
+   "ordenar",
+   "sort",
+   "pagina siguiente",
+   "pagina anterior",
+   "next page",
+   "previous page"
+  ]
+ },
+ "extensiones": {
+  "ejecutables": [
+   "action",
+   "app",
+   "appex",
+   "applescript",
+   "bash",
+   "bundle",
+   "command",
+   "dmg",
+   "dylib",
+   "exe",
+   "jar",
+   "kext",
+   "mobileconfig",
+   "mpkg",
+   "msi",
+   "osax",
+   "pkg",
+   "plugin",
+   "prefpane",
+   "qlgenerator",
+   "saver",
+   "scpt",
+   "scptd",
+   "service",
+   "sh",
+   "shortcut",
+   "terminal",
+   "tool",
+   "workflow",
+   "xpc",
+   "zsh"
+  ],
+  "documentos": [
+   "bmp",
+   "csv",
+   "doc",
+   "docx",
+   "gif",
+   "heic",
+   "heif",
+   "jpeg",
+   "jpg",
+   "key",
+   "m4a",
+   "md",
+   "mov",
+   "mp3",
+   "mp4",
+   "numbers",
+   "odp",
+   "ods",
+   "odt",
+   "pages",
+   "pdf",
+   "png",
+   "ppt",
+   "pptx",
+   "rtf",
+   "tif",
+   "tiff",
+   "tsv",
+   "txt",
+   "wav",
+   "webp",
+   "xls",
+   "xlsx"
+  ]
+ },
+ "esquemas": [
+  "file",
+  "http",
+  "https",
+  "mailto"
+ ],
+ "apps": {
+  "navegadores": [
+   "app.zen-browser.zen",
+   "com.apple.Safari",
+   "com.apple.SafariTechnologyPreview",
+   "com.brave.Browser",
+   "com.google.Chrome",
+   "com.google.Chrome.canary",
+   "com.kagi.kagimacOS",
+   "com.microsoft.edgemac",
+   "com.openai.atlas",
+   "com.operasoftware.Opera",
+   "com.vivaldi.Vivaldi",
+   "company.thebrowser.Browser",
+   "company.thebrowser.dia",
+   "org.mozilla.firefox"
+  ],
+  "corren_codigo": [
+   "com.apple.Automator",
+   "com.apple.ScriptEditor2",
+   "com.apple.Terminal",
+   "com.apple.archiveutility",
+   "com.apple.dt.Xcode",
+   "com.apple.installer",
+   "com.apple.shortcuts",
+   "com.googlecode.iterm2",
+   "com.microsoft.VSCode",
+   "com.mitchellh.ghostty",
+   "dev.warp.Warp-Stable",
+   "org.python.PythonLauncher"
+  ],
+  "roles_inocuos": [
+   "AXDisclosureTriangle",
+   "AXTab"
+  ]
+ },
+ "vetados": [
+  {
+   "tipo": "app",
+   "valor": "com.apple.Terminal",
+   "nombre": "Terminal",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.googlecode.iterm2",
+   "nombre": "iTerm",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "app",
+   "valor": "dev.warp.Warp-Stable",
+   "nombre": "Warp",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "app",
+   "valor": "net.kovidgoyal.kitty",
+   "nombre": "kitty",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "app",
+   "valor": "org.alacritty",
+   "nombre": "Alacritty",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "app",
+   "valor": "io.alacritty",
+   "nombre": "Alacritty",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.github.wez.wezterm",
+   "nombre": "WezTerm",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "app",
+   "valor": "co.zeit.hyper",
+   "nombre": "Hyper",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.mitchellh.ghostty",
+   "nombre": "Ghostty",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.apple.systempreferences",
+   "nombre": "Ajustes del Sistema",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.apple.preference.*",
+   "nombre": "Ajustes del Sistema",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.apple.settings.*",
+   "nombre": "Ajustes del Sistema",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.apple.Settings",
+   "nombre": "Ajustes del Sistema",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.apple.installer",
+   "nombre": "Instalador",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.apple.SecurityAgent",
+   "nombre": "Aviso de contraseña del sistema",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.apple.coreservices.uiagent",
+   "nombre": "Avisos de seguridad del sistema",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.apple.UserNotificationCenter",
+   "nombre": "Avisos del sistema",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.apple.LocalAuthentication.UIAgent",
+   "nombre": "Touch ID",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.apple.AppStore",
+   "nombre": "App Store",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.apple.ScriptEditor2",
+   "nombre": "Editor de Scripts",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.apple.Automator",
+   "nombre": "Automator",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.apple.shortcuts",
+   "nombre": "Atajos",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.apple.ActivityMonitor",
+   "nombre": "Monitor de Actividad",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.apple.DiskUtility",
+   "nombre": "Utilidad de Discos",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.apple.keychainaccess",
+   "nombre": "Acceso a Llaveros",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.apple.Passwords",
+   "nombre": "Contraseñas",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.1password.1password",
+   "nombre": "1Password",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.agilebits.onepassword7",
+   "nombre": "1Password",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.agilebits.onepassword-osx",
+   "nombre": "1Password",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.bitwarden.desktop",
+   "nombre": "Bitwarden",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.lastpass.LastPass",
+   "nombre": "LastPass",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.dashlane.dashlanephonefinal",
+   "nombre": "Dashlane",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "app",
+   "valor": "in.sinew.Enpass-Desktop",
+   "nombre": "Enpass",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "app",
+   "valor": "org.keepassxc.keepassxc",
+   "nombre": "KeePassXC",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "app",
+   "valor": "com.nordsec.nordpass",
+   "nombre": "NordPass",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "bbva.mx",
+   "nombre": "BBVA",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "bbva.com",
+   "nombre": "BBVA",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "banorte.com",
+   "nombre": "Banorte",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "santander.com.mx",
+   "nombre": "Santander",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "banamex.com",
+   "nombre": "Banamex",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "citibanamex.com",
+   "nombre": "Citibanamex",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "hsbc.com.mx",
+   "nombre": "HSBC",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "scotiabank.com.mx",
+   "nombre": "Scotiabank",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "inbursa.com",
+   "nombre": "Inbursa",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "bancoazteca.com.mx",
+   "nombre": "Banco Azteca",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "banregio.com",
+   "nombre": "Banregio",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "bancoppel.com",
+   "nombre": "BanCoppel",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "bb.com.mx",
+   "nombre": "BanBajío",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "afirme.com",
+   "nombre": "Afirme",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "nu.com.mx",
+   "nombre": "Nu",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "heybanco.com",
+   "nombre": "Hey Banco",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "mercadopago.com.mx",
+   "nombre": "Mercado Pago",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "mercadopago.com",
+   "nombre": "Mercado Pago",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "paypal.com",
+   "nombre": "PayPal",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "chase.com",
+   "nombre": "Chase",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "bankofamerica.com",
+   "nombre": "Bank of America",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "wellsfargo.com",
+   "nombre": "Wells Fargo",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "citi.com",
+   "nombre": "Citi",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "capitalone.com",
+   "nombre": "Capital One",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "americanexpress.com",
+   "nombre": "American Express",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "wise.com",
+   "nombre": "Wise",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "revolut.com",
+   "nombre": "Revolut",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "coinbase.com",
+   "nombre": "Coinbase",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "binance.com",
+   "nombre": "Binance",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "dashboard.stripe.com",
+   "nombre": "Stripe",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "vault.bitwarden.com",
+   "nombre": "Bitwarden",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "1password.com",
+   "nombre": "1Password",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "lastpass.com",
+   "nombre": "LastPass",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "accounts.google.com",
+   "nombre": "Cuenta de Google",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "myaccount.google.com",
+   "nombre": "Cuenta de Google",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "appleid.apple.com",
+   "nombre": "Cuenta de Apple",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "account.apple.com",
+   "nombre": "Cuenta de Apple",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "login.microsoftonline.com",
+   "nombre": "Cuenta de Microsoft",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "sitio",
+   "valor": "account.microsoft.com",
+   "nombre": "Cuenta de Microsoft",
+   "que": "no_tocar"
+  },
+  {
+   "tipo": "titulo",
+   "valor": "Private Browsing",
+   "nombre": "Ventanas privadas",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "titulo",
+   "valor": "Navegación privada",
+   "nombre": "Ventanas privadas",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "titulo",
+   "valor": "Incognito",
+   "nombre": "Ventanas privadas",
+   "que": "no_mirar"
+  },
+  {
+   "tipo": "titulo",
+   "valor": "InPrivate",
+   "nombre": "Ventanas privadas",
+   "que": "no_mirar"
+  }
+ ],
+ "sitios": {
+  "nota": "Ronda 2. acortadores: direcciones que no dejan ver a dónde llevan (naranja; se suman a las del código). conocidos: sitios de fábrica para «no me preguntes para abrir sitios conocidos» (solo el sitio, https://sitio/, el nombre entero); los que el socio abre con su OK se suman en su compu.",
+  "acortadores": [
+   "bit.ly",
+   "t.co",
+   "tinyurl.com",
+   "goo.gl",
+   "is.gd",
+   "ow.ly",
+   "buff.ly",
+   "rebrand.ly",
+   "cutt.ly",
+   "shorturl.at",
+   "lnkd.in",
+   "rb.gy",
+   "tiny.cc",
+   "t.ly",
+   "v.gd",
+   "s.id"
+  ],
+  "conocidos": [
+   "google.com",
+   "youtube.com",
+   "wikipedia.org",
+   "es.wikipedia.org",
+   "en.wikipedia.org",
+   "github.com",
+   "mail.google.com",
+   "drive.google.com",
+   "docs.google.com",
+   "calendar.google.com",
+   "maps.google.com",
+   "meet.google.com",
+   "translate.google.com",
+   "outlook.com",
+   "office.com",
+   "linkedin.com",
+   "x.com",
+   "facebook.com",
+   "instagram.com",
+   "web.whatsapp.com",
+   "netflix.com",
+   "open.spotify.com",
+   "spotify.com",
+   "amazon.com",
+   "amazon.com.mx",
+   "mercadolibre.com.mx",
+   "sat.gob.mx",
+   "gob.mx",
+   "apple.com",
+   "icloud.com",
+   "zoom.us",
+   "notion.so",
+   "canva.com",
+   "chatgpt.com",
+   "claude.ai",
+   "reddit.com",
+   "stackoverflow.com"
+  ]
+ },
+ "carpetas_normales": [
+  "Documents",
+  "Desktop",
+  "Downloads"
+ ]
+}

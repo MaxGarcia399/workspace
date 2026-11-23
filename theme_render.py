@@ -662,11 +662,17 @@ def sync_engine_theme(engine, name, display=None, brain=None, home=None):
         if brain:
             sp = os.path.join(brain, ".claude", "settings.local.json")
             try:
-                with open(sp, encoding="utf-8") as fh:
-                    st = json.load(fh)
-                if isinstance(st, dict) and not st.get("theme"):
-                    st["theme"] = "custom:%s" % name
-                    stage_write([(sp, json_text(st), False)], home)
+                # lectura-cambio-guardado bajo el candado del archivo (el mismo de
+                # install, doctor y repair): sin él, esto pisaba una llave que otra
+                # ventana acababa de guardar. Candado ocupado → se salta (el
+                # siguiente arranque lo reintenta); jamás se escribe sin él.
+                import olock
+                with olock.local_lock(sp, timeout=2):
+                    with open(sp, encoding="utf-8") as fh:
+                        st = json.load(fh)
+                    if isinstance(st, dict) and not st.get("theme"):
+                        st["theme"] = "custom:%s" % name
+                        stage_write([(sp, json_text(st), False)], home)
             except Exception:
                 pass                                 # sin settings: el install lo crea
         return res

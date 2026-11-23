@@ -6,7 +6,7 @@ Everything you can type in the terminal. Every command accepts its Spanish and i
 
 ### `workspace`
 
-Opens the hub: your agents and the menu; type to search.
+Opens the hub: your agents and its sections; type to search.
 
 **When:** To start working.
 
@@ -18,7 +18,7 @@ Opens that agent directly, skipping the hub.
 
 ### `workspace agents [descubrir | reubicar | estado]`
 
-Your agents and their status; descubrir finds brains, reubicar fixes a path.
+With nothing else, opens the hub in Agents; estado lists them, descubrir finds brains, reubicar fixes a path.
 
 **When:** If an agent is missing or says its brain cannot be found.
 
@@ -31,7 +31,7 @@ _also: `agentes`_
 
 ### `workspace tone`
 
-Adjust how your agents talk to you (dials from 1 to 5).
+How your agents talk to you (dials from 1 to 5). With nothing else, opens the hub in Agents › Tone; with arguments, as text.
 
 **When:** If you want shorter, warmer, more technical answers…
 
@@ -39,9 +39,9 @@ _also: `tono`, `personalidad`_
 
 ### `workspace onboarding`
 
-Runs the guided setup again (resumes where it stopped).
+Opens the hub with the card to add your first agent.
 
-**When:** If something was left pending at install.
+**When:** If you do not have an agent yet.
 
 _also: `bienvenida`_
 
@@ -55,7 +55,7 @@ Your local agenda: events with date and time.
 
 ### `workspace calendar`
 
-Calendar editor: month, add, edit, delete.
+Opens the hub in Calendar, with your agenda.
 
 **When:** To plan the week or the month.
 
@@ -81,6 +81,20 @@ _also: `evaluar`, `evals`_
 
 ## this machine
 
+### `workspace connections [--counts]`
+
+Opens the hub in Settings › Connections: what Workspace connects in each engine; --counts, the counts as JSON.
+
+**When:** To see what Workspace connects in each engine.
+
+_also: `conexiones`_
+
+### `workspace web`
+
+Opens Workspace in your browser: a local page, only on this computer.
+
+**When:** To see and talk to your agents without the terminal; close it with Ctrl+C.
+
 ### `workspace update [--check | --rollback | --force | --auto auto|notify|off]`
 
 Updates Workspace and your brains, and repairs what is needed.
@@ -94,15 +108,13 @@ _also: `actualizar`, `up`_
     workspace update --rollback
     workspace update --auto notify
 
-> Asks for confirmation in the Commands screen.
+> It changes things on this machine.
 
 ### `workspace version`
 
 Shows your version, your last update and what's new.
 
 **When:** To know what you have, or when asking for help.
-
-_also: `versión`_
 
 ### `workspace migrate [--run | --pending | --offer <id> | --decline <id>]`
 
@@ -115,6 +127,19 @@ _also: `migrar`_
 **Examples:**
 
     workspace migrate --run
+
+### `workspace new-system [on | off]`
+
+Turns the new system on or off: Workspace hooks, MCP and skills per session in your engines.
+
+**When:** If you want your engines to open as before, or to go back to the new system.
+
+_also: `sistema-nuevo`_
+
+**Examples:**
+
+    workspace new-system off
+    workspace new-system on
 
 ### `workspace doctor [--check | --remote | --bundle]`
 
@@ -143,7 +168,7 @@ Local log of your agents' performance: status, health, import the history, expor
 
 **When:** To see what is recorded, or to share only totals without your conversation.
 
-_also: `metricas`, `métricas`_
+_also: `metricas`_
 
 **Examples:**
 
@@ -186,11 +211,11 @@ Uninstalls Workspace from this machine (your brains stay).
 
 _also: `desinstalar`, `remove`_
 
-> Asks for confirmation in the Commands screen.
+> It changes things on this machine.
 
 ### `workspace commands [--json | --markdown | --check]`
 
-This list of commands; --json for agents, --markdown for the manual.
+With nothing else, opens the hub in Help › Commands; --json for agents, --markdown for the manual.
 
 **When:** When you want to see or export every command.
 

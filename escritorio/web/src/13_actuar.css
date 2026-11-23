@@ -1,0 +1,14 @@
+/* ===== actuar en la burbuja (A0): el interruptor de la barra y la pastilla de avance (26_actuar.js). El aviso
+   tranquilo con Deshacer va en el globito del toque (14_entregas.css: .wsm-toque .in.largo, el ensayo en lavanda). La
+   tarjeta de OK no vive aquí: la arma la app. Mismas variables y botones (.chip) que la página. ===== */
+.wsma-modo{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:2px 4px 6px;font-size:12px;color:var(--tx3)}
+.wsma-modo-t{margin-right:2px}
+.wsma-op{padding:3px 10px;border-radius:999px;border:1px solid var(--line);background:none;color:var(--tx2);
+  font:500 12px/1.4 var(--sans);cursor:pointer}
+.wsma-op:hover{background:#2a2a30;color:var(--tx)}
+.wsma-op.on{background:var(--tx);color:var(--bg,#151518);border-color:var(--tx)}
+.wsma-pastilla{display:flex;align-items:center;gap:8px;padding:5px 6px 5px 13px;border-radius:999px;background:var(--card);
+  border:1px solid var(--line);font:500 12.5px/1.4 var(--sans);color:var(--tx2);animation:wsmm-pop .36s cubic-bezier(.2,.9,.25,1.15) both}
+.wsma-pastilla .chip{padding:3px 10px;font-size:12px}
+.wsma-pastilla.sale{animation:wsmm-sale .24s steps(5) forwards}
+@media (prefers-reduced-motion:reduce){.wsma-pastilla{animation:none}}

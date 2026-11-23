@@ -164,6 +164,9 @@ def _bucket_label(name):
 def _decisores_hoy(K):
     """Decisores: «◆ Decisores: hoy 7 · 1 aplicada» (decision_visible) — solo
     encendido; apagado, '' y la barra queda como siempre."""
+    from decisions import decisores_activos
+    if not decisores_activos():
+        return ""
     try:
         import decision_visible
         seg=decision_visible.segmento_hoy()

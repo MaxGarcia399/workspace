@@ -78,4 +78,4 @@ tal cual (por ejemplo, un tema `workspace-*` sin su registro), se deja como est�
   borra nada y te dice por qué.
 
 Reinstalar es el mismo comando de [Instalar](instalar.md); después, vuelve a cargar tus
-agentes con **Agregar agente**.
+agentes en el hub con **+ Agregar** › «Ya tengo un agente».

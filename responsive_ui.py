@@ -117,8 +117,9 @@ def renderer(fn, title, min_size=None):
                        'GITHUB': 'github', 'RAMAS': 'github', 'DEV': 'dev',
                        'ONBOARDING': 'onboarding', 'AGREGAR AGENTE': 'crear',
                        'ADD AGENT': 'crear', 'DECISORES': 'decisores',
-                       'CONVERSACIONES': 'conversaciones'}.get(title)
-            word = HL._t('section.title.' + section, title) if section else title
+                       'CONVERSACIONES': 'conversaciones',
+                       'CONEXIONES': 'conexiones'}.get(title)
+            word = HL.section_word(section) if section else title
             return size_notice(word, w, h, min_w, min_h)
         return fn(state, w, h)
 

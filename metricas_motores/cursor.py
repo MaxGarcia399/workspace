@@ -37,7 +37,7 @@ MOTOR = "cursor"
 VERSION = "cursor/2"
 #: Versiones EXACTAS verificadas con su golden (tests/fixtures/metricas/cursor/<versión>/),
 #: tal como las lee engine_versions (la fila lleva esa misma forma).
-VERIFIED_VERSIONS = ("2026.11.5",)
+VERIFIED_VERSIONS = ("2026.11.5", "2026.11.13")
 _SIN = "el transcript del CLI no lo trae (2026.11.05)"
 COBERTURA = {
     "motor_version": ("parcial", "el respaldo no la trae: la caché de engine_versions al "

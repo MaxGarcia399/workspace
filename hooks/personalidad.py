@@ -50,9 +50,26 @@ def _payload():
         return {}
 
 
+def _en_el_sistema(data):
+    """¿El tono ya va en la pieza de sistema de este motor (núcleo, F6, D1-a)? Lo dice el entorno de la
+    sesión que abrió el núcleo o, en el arranque de un motor envuelto (se arma antes de lanzarlo), su ficha."""
+    if os.environ.get("WORKSPACE_TONO_SISTEMA") == "1":
+        return True
+    motor = str(data.get("engine") or "")
+    if not motor:
+        return False
+    try:
+        from arquitectura import nucleo
+        return bool(nucleo.entrega(motor)["tono"])
+    except Exception:
+        return False
+
+
 def main():
     data = _payload()
     try:
+        if _en_el_sistema(data):
+            return 0                     # ni el bloque al abrir ni el recordatorio por mensaje
         import personalidad
         evento = str(data.get("hook_event_name") or "")
         agente = personalidad.agente_de(data.get("cwd")) or None

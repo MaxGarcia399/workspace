@@ -1,0 +1,53 @@
+"""Managed MCP status and read-only inventory UI."""
+
+STRINGS = {'mcps.registration_only': 'Registrado en Workspace; todavía no se conecta solo a Claude Code (llega con el '
+                           'manager de MCPs).',
+ 'mcps.registration_pending': 'Registrado en Workspace; todavía no se conecta solo a este motor (llega con '
+                              'el manager de MCPs).',
+ 'mcps.removed_registry_only': 'Quitado solo del registro de Workspace; lo ya escrito en el archivo del '
+                               'motor se conserva sin cambios y es inofensivo.',
+ 'mcps.ui.absent': 'Sin entrada detectada',
+ 'mcps.ui.absent_note': 'No se encontró una entrada en los archivos consultados. No es una prueba de '
+                        'desconexión.',
+ 'mcps.ui.agents': 'Agentes del registro',
+ 'mcps.ui.all_projects': 'Usuario, perfil y cerebros cargados; p filtra por cerebro',
+ 'mcps.ui.detail': 'Detalle',
+ 'mcps.ui.empty': 'No hay entradas detectadas. Solo lectura.',
+ 'mcps.ui.file_errors': 'Archivos ilegibles',
+ 'mcps.ui.global': 'Registro global',
+ 'mcps.ui.k_back': 'atrás',
+ 'mcps.ui.k_brain': 'cerebro',
+ 'mcps.ui.k_detail': 'detalle',
+ 'mcps.ui.k_engine': 'motor',
+ 'mcps.ui.k_quit': 'salir',
+ 'mcps.ui.k_reread': 'releer',
+ 'mcps.ui.k_scroll': 'desplaza',
+ 'mcps.ui.k_service': 'servicio',
+ 'mcps.ui.legend_absent': 'Sin entrada',
+ 'mcps.ui.legend_manual': 'En el motor',
+ 'mcps.ui.legend_registered': 'Solo en Workspace',
+ 'mcps.ui.legend_registered_note': 'Solo en Workspace: el motor no lo lee.',
+ 'mcps.ui.legend_unreadable': 'Ilegible',
+ 'mcps.ui.legend_unsupported': 'No admite',
+ 'mcps.ui.more_engines': '+{n} motores',
+ 'mcps.ui.manual': 'En archivo del motor (puesto a mano u otro gestor)',
+ 'mcps.ui.no_probe': 'No se prueban conexiones ni se ejecutan herramientas. Las entradas nativas no '
+                     'acreditan quién las creó. No incluye plugins ni opciones de lanzamiento fuera de estos '
+                     'archivos.',
+ 'mcps.ui.origin': 'Origen',
+ 'mcps.ui.profile': 'Perfil de Workspace',
+ 'mcps.ui.project': 'Proyecto',
+ 'mcps.ui.read_error': 'Permiso, enlace, tamaño o formato no reconocido. No se interpreta como desconectado.',
+ 'mcps.ui.readonly': 'SOLO LECTURA',
+ 'mcps.ui.registered': 'De Workspace: registrado, sin asignación ni conexión comprobada',
+ 'mcps.ui.registry': 'Registro de Workspace',
+ 'mcps.ui.scope': 'Alcance',
+ 'mcps.ui.service': 'SERVICIO',
+ 'mcps.ui.title': 'CONEXIONES',
+ 'mcps.ui.unreadable': 'No se pudo leer',
+ 'mcps.ui.unsupported': 'Este motor no admite este transporte',
+ 'mcps.ui.user': 'Usuario',
+ 'mcps.ui.user_profile': 'Usuario y perfil; p cambia al cerebro elegido',
+ 'mcps.ui.variables': 'Variables (solo nombres)',
+ 'menu.connections.label': 'Conexiones',
+ 'menu.connections.tag': 'MCPs registrados y archivos de motores; solo lectura'}

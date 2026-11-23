@@ -524,7 +524,7 @@ def main(argv=None):
         return 0
     if not snap.agents:
         print(_tr("agentstate.cli.empty",
-                  "sin agentes registrados — carga uno con `workspace agentes`"))
+                  "sin agentes registrados — agrega uno en el hub con «+ Agregar» (`workspace agentes`)"))
     for a in snap.agents:
         mark = "✓" if a.launchable else ("·" if a["status"] == HIDDEN else "✗")
         line = "%s %-10s %-8s %s" % (mark, a["name"], a["engine"], label(a["status"]))

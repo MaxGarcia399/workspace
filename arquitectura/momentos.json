@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "_doc": "Contrato de los 8 momentos del hook (arquitectura nueva, F0). Nombres neutrales sobre el vocabulario N9 de engines/EVENTS.md. 'entra' = lo que el traductor de cada motor garantiza al núcleo (JSON); 'devuelve' = lo único que el núcleo puede contestar. Qué evento oficial de cada motor cae en cada momento: arquitectura/fichas/<motor>.json.",
+  "comunes": {
+    "engine": {"tipo": "string", "req": true, "desc": "id del motor (claude-code, codex, …)"},
+    "session_id": {"tipo": "string", "req": true, "desc": "número oficial de la conversación, tal como lo da el motor"},
+    "cwd": {"tipo": "string", "req": true, "desc": "carpeta donde corre el motor (el cerebro)"},
+    "ts": {"tipo": "string", "req": true, "desc": "hora ISO-8601 en que llegó el evento"}
+  },
+  "salidas": {
+    "context": "texto que se SUMA al contexto del agente (inyectar)",
+    "visible": "una línea que ve el socio en la pantalla del motor",
+    "decision": "allow | deny | ask: qué hacer con la herramienta o el permiso",
+    "reason": "por qué (acompaña a decision o block)",
+    "block": "texto: el motor no procesa ese mensaje",
+    "follow_up": "el «sigue»: el siguiente mensaje que el motor se manda solo"
+  },
+  "momentos": [
+    {
+      "nombre": "session_start",
+      "etiqueta": "Inicio",
+      "n9": "session_start",
+      "hace": "Guarda el número de la conversación y entrega el paquete de la pestaña.",
+      "entra": {
+        "source": {"tipo": "string", "req": true, "desc": "startup | resume | compact | clear"},
+        "transcript_path": {"tipo": "string", "req": false, "desc": "solo para pasarlo de largo; el núcleo no lo lee"}
+      },
+      "devuelve": ["context", "visible"]
+    },
+    {
+      "nombre": "user_prompt",
+      "etiqueta": "Mensaje",
+      "n9": "user_prompt",
+      "hace": "Marca «pensando», guarda tu mensaje y entrega las notas pendientes.",
+      "entra": {
+        "prompt": {"tipo": "string", "req": true, "desc": "el texto que mandó el socio"}
+      },
+      "devuelve": ["context", "block", "reason"]
+    },
+    {
+      "nombre": "pre_tool",
+      "etiqueta": "Antes de herramienta",
+      "n9": "pre_tool",
+      "hace": "Marca «usando X» y bloquea lo prohibido.",
+      "entra": {
+        "tool_name": {"tipo": "string", "req": true, "desc": "nombre de la herramienta, como lo da el motor"},
+        "tool_input": {"tipo": "object", "req": false, "desc": "sus argumentos (solo para la lista de prohibidos; nunca se guardan)"}
+      },
+      "devuelve": ["decision", "reason"]
+    },
+    {
+      "nombre": "post_tool",
+      "etiqueta": "Después de herramienta",
+      "n9": "post_tool",
+      "hace": "Anota los archivos tocados. En los motores sin inyección al mandar el mensaje, aquí van las notas pendientes.",
+      "entra": {
+        "tool_name": {"tipo": "string", "req": true, "desc": "nombre de la herramienta"},
+        "ok": {"tipo": "boolean", "req": true, "desc": "false si la herramienta falló"},
+        "files": {"tipo": "array", "req": false, "desc": "rutas que tocó, si el motor las da"}
+      },
+      "devuelve": ["context"]
+    },
+    {
+      "nombre": "permission_request",
+      "etiqueta": "Permiso pedido",
+      "n9": null,
+      "hace": "Marca «esperando tu permiso». No decide por el socio.",
+      "entra": {
+        "tool_name": {"tipo": "string", "req": true, "desc": "qué herramienta pide permiso"},
+        "tool_input": {"tipo": "object", "req": false, "desc": "sus argumentos"}
+      },
+      "devuelve": ["decision", "reason"]
+    },
+    {
+      "nombre": "turn_end",
+      "etiqueta": "Fin de turno",
+      "n9": "turn_end",
+      "hace": "Marca «listo», arma la maleta y da el «sigue» si hay un encargo (tope de 3 seguidos).",
+      "entra": {
+        "last_assistant_message": {"tipo": "string", "req": false, "desc": "la respuesta final, si el motor la trae en el evento"},
+        "stop_hook_active": {"tipo": "boolean", "req": false, "desc": "true si este turno ya viene de un «sigue»"}
+      },
+      "devuelve": ["follow_up"]
+    },
+    {
+      "nombre": "compact",
+      "etiqueta": "Compactado",
+      "n9": "pre_compact",
+      "hace": "Antes: guarda la maleta. Después: vuelve a entregar la identidad.",
+      "entra": {
+        "phase": {"tipo": "string", "req": true, "desc": "before | after"},
+        "trigger": {"tipo": "string", "req": false, "desc": "manual | auto"}
+      },
+      "devuelve": ["context"]
+    },
+    {
+      "nombre": "session_end",
+      "etiqueta": "Cierre",
+      "n9": "session_end",
+      "hace": "Marca «cerrado» y cierra la maleta y las métricas.",
+      "entra": {
+        "reason": {"tipo": "string", "req": false, "desc": "exit | logout | clear | …, si el motor lo da"}
+      },
+      "devuelve": []
+    }
+  ]
+}

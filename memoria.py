@@ -98,6 +98,16 @@ _ARRANQUES = ("Lee BRAIN.md", "Inicia el cerebro", "[Arranque de sesión", "PEST
               "Read BRAIN.md", "Start the brain")
 
 
+def fin_arranque(confirmar=True):
+    """Cómo cierra el mensaje de arranque de los motores envueltos: en la terminal, que
+    confirme en una línea (`confirmar`; si no, nada); en una sesión que abrió la página
+    (WORKSPACE_DESDE_WEB=1), que arranque callado (la página ya enseña «Listo con X»)."""
+    if os.environ.get("WORKSPACE_DESDE_WEB") == "1":
+        return ("Estás en la página del navegador: arranca en silencio, sin anunciarte ni "
+                "confirmar, y espera el mensaje del socio.")
+    return "Al terminar, confirma en una línea breve." if confirmar else ""
+
+
 # ── utilidades ──────────────────────────────────────────────────────────────
 def _ahora():
     return datetime.datetime.now().replace(microsecond=0)
@@ -190,8 +200,8 @@ def _una_linea(texto, tope=MAX_TEXTO):
 
 def _secretos(texto):
     try:
-        from secret_scan import scan_text, ALLOW_MARKER
-        return scan_text(str(texto).replace(ALLOW_MARKER, ""))
+        from secret_scan import scan_text, sin_marcas
+        return scan_text(sin_marcas(str(texto)))
     except Exception:
         return []
 
@@ -649,6 +659,7 @@ def guardar_nota(brain, tab, texto, tipo="nota", motor="", cierra=(), ahora=None
         _rehacer_vigente(ficha)
         ficha.front_set("actualizada", ahora.strftime("%Y-%m-%d"))
         _atomic(path, ficha.texto())
+    _decisor_resultado(decisor, tipo)
     return {"ok": True, "id": nid, "tipo": tipo, "cerro": [c for c in cierra if c in abiertos],
             "desconocidos": [c for c in cierra if c not in abiertos],
             "ruta": _rel(brain, path), **({"decisor": _decisor_resumen(decisor)} if decisor else {})}
@@ -657,12 +668,32 @@ def guardar_nota(brain, tab, texto, tipo="nota", motor="", cierra=(), ahora=None
 def _decisor_tipo(texto):
     """El veredicto del uso «Memoria» de Decisores para el tipo de una nota,
     o None (apagado, falló o tardó: la nota se guarda como siempre)."""
+    from decisions import decisores_activos
+    if not decisores_activos():
+        return None
     try:
         import decisions
         # al_agente: su línea ◆ le llega en la salida de `memoria nota` (y en --json)
         return decisions.gate("workspace.memory", context=texto, al_agente=True)
     except Exception:
         return None
+
+
+def _decisor_resultado(v, tipo):
+    """«¿Pasó?» en Decisores: con «decide» sobre el umbral, la nota YA quedó
+    guardada con el tipo que eligió (se anota tras escribirla); si eligió el
+    mismo «nota», no cambió nada. Sugiere u observa: nada que anotar (es una
+    opinión)."""
+    try:
+        if not v or v.get("mode") != "apply" or not v.get("id"):
+            return
+        import decisions
+        if tipo != "nota":
+            decisions.record_result(v["id"], "tipo_cambiado", detalle=ETIQUETA.get(tipo, tipo))
+        else:
+            decisions.record_result(v["id"], "opinion")
+    except Exception:
+        pass
 
 
 def _decisor_resumen(v):
@@ -686,6 +717,9 @@ def decisor_linea(r):
     como hecho · 88 % · aplicado» o «◆ <modelo>: la nota parece hecho · 71 % · sugerido»
     + cómo guardarla la próxima. '' si no hay nada que decir — también si
     eligió el mismo tipo genérico con que se guardó («nota»). Sigue ui.lang."""
+    from decisions import decisores_activos
+    if not decisores_activos():
+        return ""
     try:
         from decision_errors import _t
     except Exception:
@@ -878,24 +912,40 @@ def actualizar_maleta(brain, tab, motor, transcript, ahora=None, ultima="", si_c
     `ultima`: ver extracto. `si_cambio`: si la sección de `motor` ya dice lo
     mismo, no reescribe nada (idempotente: el hook de cada respuesta no toca
     el archivo —ni lo manda a sincronizar— cuando no hay nada nuevo).
-    `espera`: segundos máximos por el candado (TimeoutError si no llega)."""
-    import sessions_registry as reg
-    motor = normalizar_motor(motor) or "agente"
+    `espera`: segundos máximos por el candado (TimeoutError si no llega).
+    F5: si la maleta de ese motor ya sale de los eventos (arquitectura/maleta: el paquete por sesión encendido
+    y el motor con vía por sesión), la del transcript calla: no pisa la de los eventos."""
     if not transcript or not os.path.isfile(transcript):
         return False
-    ex = extracto(motor, transcript, brain=brain, ultima=ultima)
+    try:
+        from arquitectura import maleta as _maleta_eventos
+        if _maleta_eventos.la_escribe_el_nucleo(normalizar_motor(motor) or ""):
+            return False
+    except Exception:
+        pass
+    ex = extracto(normalizar_motor(motor) or "agente", transcript, brain=brain, ultima=ultima)
     if not ex:
         return False
+    return poner_seccion(brain, tab, motor, ex["lineas"], ex["turnos"], ahora=ahora, si_cambio=si_cambio,
+                         espera=espera)
+
+
+def poner_seccion(brain, tab, motor, lineas, turnos, ahora=None, si_cambio=False, espera=10):
+    """Escribe la sección de `motor` en la maleta (una por motor, la más nueva arriba), con
+    candado. La usan el cierre de cada motor (su extracto) y la página al cambiar de motor
+    (el del historial único). True si escribió."""
+    import sessions_registry as reg
+    motor = normalizar_motor(motor) or "agente"
     ahora = ahora or _ahora()
     path = maleta_path(brain, tab)
     with _lock(path, timeout=espera):
         antes = leer_maleta(path)
-        if si_cambio and any(s["motor"] == motor and s["lineas"] == ex["lineas"]
-                             and s["turnos"] == ex["turnos"] for s in antes):
+        if si_cambio and any(s["motor"] == motor and s["lineas"] == lineas
+                             and s["turnos"] == turnos for s in antes):
             return False
         secs = [s for s in antes if s["motor"] != motor]
         secs.insert(0, {"motor": motor, "cuando": ahora.strftime("%Y-%m-%d %H:%M"),
-                        "turnos": ex["turnos"], "lineas": ex["lineas"]})
+                        "turnos": turnos, "lineas": lineas})
         secs.sort(key=lambda s: s["cuando"], reverse=True)
         head = ("---\npestaña: %s\nactualizada: %s\n---\n\n# Maleta de «%s»\n\n"
                 "Lo último de esta pestaña en cada motor, para seguir en otro. Workspace la "
@@ -1332,11 +1382,15 @@ def mover_memoria_claude(brain, origen, destino):
 #: Hasta 2026-11-05 también la RUTA del shim `workspace-memoria`, que nombraba
 #: el AGENTS.md cuando la última ventana era Copilot/Cursor/Kiro; esos motores
 #: ahora guardan con la herramienta MCP (memoria_mcp) y nada nombra el shim.
-PERMISOS_CLAUDE = ("Bash(workspace memoria:*)", "Bash(workspace.cmd memoria:*)")
+#: Con ellas, el reporte de la revisión de skills (`workspace revision resultado …`,
+#: F4 de la prueba de punta a punta v4), también en Windows. Solo `resultado`:
+#: `workspace revision ahora` lanza una revisión y `deshacer` revierte skills.
+PERMISOS_REVISION = ("Bash(workspace revision resultado:*)", "Bash(workspace.cmd revision resultado:*)")
+PERMISOS_CLAUDE = ("Bash(workspace memoria:*)", "Bash(workspace.cmd memoria:*)") + PERMISOS_REVISION
 
 
 def permisos_claude():
-    """Las reglas de memoria del `--settings` de Claude Code."""
+    """Las reglas de memoria (y del reporte de la revisión) del `--settings` de Claude Code."""
     return list(PERMISOS_CLAUDE)
 
 
@@ -1360,6 +1414,28 @@ def permisos_bus_claude(root=None, windows=None):
     if any(c in ruta for c in '"\n*()'):
         return []
     return ['Bash(python3 "%s" conversar:*)' % ruta, "Bash(python3 %s conversar:*)" % ruta]
+
+
+#: El avance de una skill (`workspace pasos <ejecución> plan|ahora|hecho|pide|fin …`): un comando
+#: de Workspace como `workspace memoria`, con la misma forma de regla, también en Windows.
+PERMISOS_PASOS = ("Bash(workspace pasos:*)", "Bash(workspace.cmd pasos:*)")
+
+
+def permisos_pasos_claude(root=None, windows=None):
+    """Las reglas del avance de una skill. Sin ellas, con «preguntar antes» Claude Code pide permiso en CADA paso y la
+    página se queda esperando (17-nov). Desde N2 (prueba de punta a punta v3) la instrucción dice `workspace pasos`:
+    con la ruta larga de pasos.py el modelo la metió en una función de shell (`P() { python3 … }`) y esa forma pregunta
+    siempre. Siguen las de la ruta resuelta de pasos.py (Mac/Linux, como el bus), para la instrucción de una skill que
+    ya iba; en Windows no, por lo mismo que el bus (permisos_bus_claude)."""
+    windows = (os.name == "nt") if windows is None else windows
+    reglas = list(PERMISOS_PASOS)
+    if windows:
+        return reglas
+    raiz = root or os.environ.get("WORKSPACE_ROOT") or os.path.dirname(os.path.abspath(__file__))
+    ruta = raiz.rstrip("/") + "/pasos.py"
+    if any(c in ruta for c in '"\n*()'):
+        return reglas
+    return reglas + ['Bash(python3 "%s":*)' % ruta, "Bash(python3 %s:*)" % ruta]
 
 
 def claude_deny_protegidas(brain, windows=None):
@@ -1388,6 +1464,18 @@ def claude_deny_lectura(windows=None):
         return []
 
 
+def claude_permisos_sesion(brain, protegidas=False):
+    """El bloque `permissions` de una sesión de Claude Code que abre Workspace, en su terminal
+    (claude_settings_args) o en la página (pagina_v2.ajustes_claude): permiso para `workspace memoria …`, el bus
+    de salas y el avance de una skill (`workspace pasos`, sin una tarjeta por paso con «Preguntarme todo»); con
+    `protegidas`, negar escribir la config protegida del cerebro; SIEMPRE, negar leer la bóveda de llaves."""
+    data = {"allow": permisos_claude() + permisos_bus_claude() + permisos_pasos_claude()}
+    deny = (claude_deny_protegidas(brain) if protegidas else []) + claude_deny_lectura()
+    if deny:
+        data["deny"] = deny
+    return data
+
+
 def claude_settings_args(brain, passthrough=(), protegidas=False):
     """`--settings <archivo>` para esta sesión de Claude Code (opción
     documentada; no se escribe su configuración):
@@ -1408,10 +1496,7 @@ def claude_settings_args(brain, passthrough=(), protegidas=False):
     try:
         if any(str(a) == "--settings" or str(a).startswith("--settings=") for a in passthrough or ()):
             return []
-        data = {"permissions": {"allow": permisos_claude() + permisos_bus_claude()}}
-        deny = (claude_deny_protegidas(brain) if protegidas else []) + claude_deny_lectura()
-        if deny:
-            data["permissions"]["deny"] = deny
+        data = {"permissions": claude_permisos_sesion(brain, protegidas)}
         try:
             import install as _install
             hooks = _install.build_hooks({}, brain, launch=True)
@@ -1661,6 +1746,16 @@ def _vaciar_bandeja(path):
         _atomic(path, "")
 
 
+#: Un comando de Workspace va SOLO: la regla que lo preaprueba (Claude Code) no casa
+#: con uno encadenado ni metido en una función, y Antigravity solo deja pasar lo
+#: idéntico a su regla (N2 de la v3; F4 de la v4: `… && workspace memoria …`).
+UN_COMANDO = ("  · Cada comando de Workspace va solo, en su propia línea: no lo encadenes con otros "
+              "comandos ni lo metas en variables o funciones.")
+UN_COMANDO_CORTO = "Cada comando de Workspace, solo, en su propia línea."
+#: OpenClaw en Windows (_shell_powershell): `&&` no existe en Windows PowerShell 5.1.
+POWERSHELL = "Tu terminal es PowerShell: para tus otros comandos, `;` en vez de `&&`."
+
+
 def instruccion(revision=0, tab="", motor=""):
     c = _cmd(tab, motor)
     if _via_mcp(motor):                    # la herramienta gana a la bandeja (agy)
@@ -1681,16 +1776,19 @@ def instruccion(revision=0, tab="", motor=""):
         "--blocker … --next-step … --result … (≤600 caracteres por campo; si hay conflicto, "
         "%s status y reconciliar, nunca pisar)." % (revision, c.split(" %s")[0]),
         "  · Si `workspace` no existe en tu terminal, usa `workspace.cmd` (Windows).",
+        UN_COMANDO,
         "  · Si el comando falla o no se aprueba, NO escribas la memoria a mano (ni el "
         "archivo de la pestaña ni STATE/MEMORY.md): avísale al socio en una línea."]
-        + (["  · Tu terminal es PowerShell: separa comandos con `;`, no con `&&`."]
-           if _shell_powershell(motor) else []))
+        + (["  · " + POWERSHELL] if _shell_powershell(motor) else []))
 
 
 def instruccion_decisores(motor=""):
     """Cómo preguntarle al decisor de Workspace — SOLO si el socio encendió un
     uso de agentes en Decisores (si no, ''). CLI o herramienta MCP según el
     motor, como la memoria."""
+    from decisions import decisores_activos
+    if not decisores_activos():
+        return ""
     try:
         import decisions
         return decisions.agent_instruction(via_mcp=_via_mcp(motor))
@@ -1707,6 +1805,10 @@ def instruccion_mcp(revision=0):
         "hacer append a ## Historial):",
         "  · Usa tus herramientas de Workspace (servidor MCP «workspace-memoria»), no la "
         "terminal: no piden permiso.",
+        "  · Si tu cerebro (BRAIN.md, AGENTS.md o una skill) dice `workspace memoria nota`, "
+        "aquí es guardar_nota; `workspace memoria checkpoint`, guardar_resumen; el "
+        "`workspace pasos` (o el pasos.py) de una skill, reportar_avance; y `workspace revision resultado`, "
+        "revision_resultado. Hacen lo mismo, sin terminal.",
         "  · guardar_nota con tipo decision|pendiente|hecho|nota|dato|preferencia y el texto: "
         "en el momento, una nota por cosa (lo decidido, lo pendiente, lo que quedó hecho).",
         "  · Un pendiente devuelve su id (P-7). Al resolverlo: guardar_nota con tipo hecho y "
@@ -1719,6 +1821,7 @@ def instruccion_mcp(revision=0):
         "  · Si esas herramientas no están en tu lista (esta instrucción puede ser de otra "
         "ventana), usa la terminal: workspace memoria nota --tipo <tipo> \"texto\" (pedirá "
         "permiso).",
+        UN_COMANDO,
         "  · Si falla o no se aprueba, NO escribas la memoria a mano (ni el archivo de la "
         "pestaña ni STATE/MEMORY.md): avísale al socio en una línea."])
 
@@ -1744,7 +1847,8 @@ def instruccion_entrada(revision=0, tab=""):
         "escribe .claude/memoria-entrada/%s.checkpoint.md con las líneas expected-revision: %d, "
         "objective: …, decision: …, blocker: …, next-step: …, result: … (≤600 caracteres "
         "cada una) y corre EXACTAMENTE: workspace memoria checkpoint --entrada (Windows: "
-        "workspace.cmd …)." % (slug, revision)])
+        "workspace.cmd …)." % (slug, revision),
+        UN_COMANDO])
 
 
 #: Un cerebro de la plantilla anterior todavía dice, en lo que el agente lee al
@@ -2097,21 +2201,20 @@ def instruccion_corta(revision=0, tab="", motor=""):
         return ("Guardar memoria: escribe las notas (tipo: texto) en .claude/memoria-entrada/%s.md "
                 "y corre EXACTAMENTE workspace memoria nota --entrada (Windows: workspace.cmd …); "
                 "resumen: %s.checkpoint.md + workspace memoria checkpoint --entrada "
-                "(expected-revision: %d). Nunca edites el archivo de la pestaña a mano."
-                % (reg._slug(tab), reg._slug(tab), revision))
+                "(expected-revision: %d). Nunca edites el archivo de la pestaña a mano. %s"
+                % (reg._slug(tab), reg._slug(tab), revision, UN_COMANDO_CORTO))
     if _via_mcp(motor):
         return ("Guardar memoria: herramienta guardar_nota (tipo decision|pendiente|hecho|nota|"
                 "dato|preferencia, texto; cerrar: cierra [\"P-n\"]); resumen: guardar_resumen "
                 "(expected_revision %d …). Sin esas herramientas: workspace memoria nota --tipo "
                 "… \"…\". Nunca escribas la memoria a mano (ni el archivo de la pestaña ni "
-                "STATE/MEMORY.md), aunque falle." % revision)
+                "STATE/MEMORY.md), aunque falle. %s" % (revision, UN_COMANDO_CORTO))
     c = _cmd(tab, motor)
     return ("Guardar memoria: " + c % "nota" + " --tipo decision|pendiente|hecho|nota|dato|"
             "preferencia \"…\" (cerrar: --cierra P-n); resumen: " + c % "checkpoint"
             + " --expected-revision %d …. Nunca escribas la memoria a mano (ni el archivo de "
-            "la pestaña ni STATE/MEMORY.md), aunque el comando falle." % revision
-            + (" Tu terminal es PowerShell: separa con `;`, no con `&&`."
-               if _shell_powershell(motor) else ""))
+            "la pestaña ni STATE/MEMORY.md), aunque el comando falle. %s" % (revision, UN_COMANDO_CORTO)
+            + (" " + POWERSHELL if _shell_powershell(motor) else ""))
 
 
 def paquete_recortado(lineas, limite, revision=0, tab="", motor=""):

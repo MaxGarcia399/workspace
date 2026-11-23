@@ -4,7 +4,7 @@
 Decisión del socio (opción A, 2026-11-08): 6 de 9 motores (codex, opencode,
 kiro, copilot, hermes, openclaw) no esperan en segundo plano. Cuando les llega
 un `pide` o un `responde` de una sala se quedan quietos hasta que alguien les
-escribe. Workspace les escribe UNA línea en su panel, y Enter:
+escribe. Workspace les escribe una línea en su panel, y Enter:
 
     Workspace: te llegó un pedido en la sala «<título>». Sigue tu skill
     colaborar-por-bus: <comando del bus> esperar --sala <id> --timeout 0
@@ -24,9 +24,17 @@ Reglas (todas a la vez):
   · solo si `herdr pane get` dice `agent_status` idle o done y `focused`
     false. Con foco o trabajando no se escribe nada: el hub ofrece «Avisar»
     (a mano, misma verificación del panel);
-  · una sola vez por mensaje y por participante, con un registro local
-    (`<estado>/salas/avisos-panel.json`, no viaja). Queda a la vista: el hub
-    muestra «◆ avisé a X» y `conversar ver` lo dice bajo el mensaje.
+  · lo que se VE manda sobre ese estado (pantalla_motor.lectura): con un menú
+    abierto (permiso, pregunta) no se teclea nunca, ni a mano; si el motor se
+    ve trabajando no está quieto aunque herdr diga idle; si herdr no lo
+    reconoce («unknown»: OpenClaw, Hermes) está quieto cuando su pantalla no
+    muestra spinner ni menú y no cambia entre dos lecturas;
+  · el cursor confirma la recepción: a los tres minutos sin lectura pasa a
+    «no leído» y permite un único reintento automático, quieto y sin foco.
+    Si tampoco se lee, el hub lo dice y ofrece «Avisar». El registro local
+    (`<estado>/salas/avisos-panel.json`, no viaja) guarda ambos intentos;
+  · para Codex, dos muestras iguales de estado y pantalla separadas tres
+    segundos: un idle transitorio o una salida que cambia no permiten escribir.
 En otra máquina no se avisa nada: el hub de ESA máquina, si está abierto,
 avisa a sus pestañas locales con la misma regla. Sin herdr, o si herdr
 falla, no se hace nada y nada se rompe: una línea dice por qué. Sin daemon:
@@ -55,8 +63,13 @@ HERDR_ENV = ("HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "HERDR_SOCKE
 QUIETO = ("idle", "done")
 TIMEOUT_S = 3.0
 PAUSA_ENTER_S = 0.15        # entre el texto y el Enter: que el motor termine de recibirlo
+PANEL_LOCK_S = 0.8         # si otro entrega, se reintenta en el siguiente ciclo
 AVISO_MAX_S = 24 * 3600     # un mensaje más viejo que esto ya no se avisa solo
 AVISOS_MAX = 500
+COMPROBAR_AVISO_S = 180.0  # tres minutos para comprobar el cursor de entrega
+INTENTOS_AUTO_MAX = 2     # envío inicial y un único reintento
+QUIETUD_CODEX_S = 3.0     # dos muestras de estado y pantalla antes de escribir
+QUIETUD_PANTALLA_S = 1.0  # motor sin estado en herdr (OpenClaw, Hermes): dos lecturas iguales
 BARRIDO_S = 5.0             # el hub mira cada tanto (no en cada cuadro)
 #: Los ejecutables de cada motor (lo que `process-info` debe mostrar en el
 #: panel). Una prueba exige que coincidan con `META["needs"]` de engines/.
@@ -110,12 +123,20 @@ def _escribir(ruta, datos):
     atomico.escribir(ruta, json.dumps(datos, ensure_ascii=False, indent=1) + "\n")
 
 
+#: Las corridas que abre la página (la conversación de la página y la del monito de escritorio): no son una terminal.
+#: Si heredaran el panel de herdr de quien prendió la página, su registro haría creer que la terminal de esa
+#: conversación está abierta (y la página se negaría a escribir: «La terminal de esta conversación está abierta…»).
+VIAS_SIN_TERMINAL = ("pagina", "escritorio")
+
+
 def registrar(agente, wid, motor="", env=None, fuente="arranque"):
     """Guarda el panel de herdr de la pestaña `<agente>--<wid>` (lo que exporta
     herdr en `env`). `fuente`: «lanzar» o «arranque» (el lanzador o el
     session_start: mandan) · «conversar» (un comando del bus: solo si aún no
     hay registro o el que hay también vino de un comando). True si quedó."""
     env = os.environ if env is None else env
+    if str(env.get("WORKSPACE_VIA") or "").strip() in VIAS_SIN_TERMINAL:
+        return False            # una corrida de la página o del monito no es una terminal (aunque herede un panel)
     panel = str(env.get("HERDR_PANE_ID") or "").strip()
     agente, wid = str(agente or "").strip(), str(wid or "").strip()
     if not (panel and agente and wid):
@@ -191,16 +212,57 @@ def _exe(env=None):
     return shutil.which("herdr")
 
 
+TROZO = 300            # caracteres por send-text
+PAUSA_TROZO_S = 0.15
+
+
+def teclear(panel, texto, socket=""):
+    """Teclea `texto` en el panel en trozos con una pausa corta. De un solo send-text largo, Claude Code se quedaba solo
+    con el final (17-nov, en vivo: de 2 548 caracteres recibió los últimos 504; la instrucción de una skill llegó sin su
+    principio). Como «pegado» llega completo, pero el motor lo envuelve como texto pegado y no como tuyo. En trozos de
+    300 llega completo y normal. → {} o None si herdr falló."""
+    import time as _t
+    texto = str(texto or "")
+    for i in range(0, max(len(texto), 1), TROZO):
+        if _herdr(["pane", "send-text", panel, texto[i:i + TROZO]], socket, json_out=False) is None:
+            return None
+        if i + TROZO < len(texto):
+            _t.sleep(PAUSA_TROZO_S)
+    return {}
+
+
+def tecla_herdr(k):
+    """El nombre que acepta `herdr pane send-keys` para una tecla de las listas blancas de la página
+    (localhost_web.TECLAS, localhost_sistema.TECLAS): `c-u` → `ctrl+u`; `c-c`, tal cual (herdr la acepta así y
+    es la de Detener de los adapters, TECLAS_PARAR). H6 (17-nov): herdr 0.9.5 rechazaba las `c-<letra>` con
+    «unsupported key» y aceptó ctrl+u, ctrl+a y ctrl+k."""
+    k = str(k).lower()
+    return "ctrl+" + k[2:] if k.startswith("c-") and k != "c-c" else k
+
+
+def entorno_herdr(socket=""):
+    """El entorno para llamar a herdr: con el `socket` de un panel registrado,
+    ESE (HERDR_SOCKET_PATH; gana a HERDR_SESSION, que se quita); sin él, el
+    herdr de la sesión de este proceso, tal cual: su HERDR_SOCKET_PATH o su
+    HERDR_SESSION. W0 (17-nov, ALTA): antes se quitaba HERDR_SESSION siempre y,
+    al crear el espacio y la pestaña (aún sin panel), herdr caía en su sesión
+    por omisión: en Windows la página abrió pestañas en el herdr real del socio
+    aunque el servidor corriera con HERDR_SESSION=qa-v2. Igual en todo SO."""
+    e = dict(os.environ)
+    if socket:
+        e.pop("HERDR_SESSION", None)
+        e["HERDR_SOCKET_PATH"] = socket
+    return e
+
+
 def _herdr(args, socket="", env=None, json_out=True):
-    """`herdr <args>` contra el server de ESE panel (su socket). → el `result`
-    del JSON ({} si no trae), o None si herdr no está o falló."""
+    """`herdr <args>` contra el server de ESE panel (su socket) o, sin él, el de
+    la sesión de este proceso (entorno_herdr). → el `result` del JSON ({} si no
+    trae), o None si herdr no está o falló."""
     exe = _exe(env)
     if not exe:
         return None
-    e = dict(os.environ)
-    e.pop("HERDR_SESSION", None)
-    if socket:
-        e["HERDR_SOCKET_PATH"] = socket
+    e = entorno_herdr(socket)
     try:
         import arbol_procesos             # en Windows, sin ventana de consola (corre de fondo)
         r = subprocess.run([exe] + list(args), capture_output=True, text=True, encoding="utf-8",
@@ -260,18 +322,126 @@ def estado_panel(reg):
         if not motor_corre((pi or {}).get("process_info"), motor):
             return {"ok": False, "motivo": "en su panel ya no corre %s" % (motor or "su motor")}
     st = str(pane.get("agent_status") or "")
-    return {"ok": True, "motivo": "", "quieto": st in QUIETO, "foco": bool(pane.get("focused")),
-            "status": st}
+    return _con_pantalla(reg, {"ok": True, "motivo": "", "quieto": st in QUIETO, "foco": bool(pane.get("focused")),
+                               "status": st})
 
 
-def escribir(reg, texto):
-    """La línea y Enter en el panel registrado. True si herdr lo aceptó."""
-    if _herdr(["pane", "send-text", reg["panel"], texto], reg.get("socket", ""),
-              json_out=False) is None:
+def _con_pantalla(reg, ep):
+    """El estado de herdr corregido por lo que se VE en el panel (pantalla_motor.lectura):
+    herdr dice «done» con el menú de permiso de Antigravity abierto, «idle» mientras Codex
+    trabaja, y «unknown» siempre con OpenClaw y Hermes. Así:
+      · un menú abierto (permiso, pregunta) → `menu`, y nunca quieto;
+      · el motor se ve trabajando (spinner, «Working…», «esc to interrupt») → no quieto;
+      · herdr no reconoce al motor («unknown» o vacío) y nada de lo anterior → quieto
+        `por_pantalla` (escribir exige además dos lecturas iguales: _sigue_igual).
+    `firma` cambia si cambia lo visible. Si no se puede leer la pantalla, queda lo de herdr."""
+    vis = leer(reg, 60)
+    if vis is None:
+        return ep
+    try:
+        import pantalla_motor
+        lec = pantalla_motor.lectura(vis)
+    except Exception:
+        return ep
+    ep["firma"] = lec["firma"]
+    if lec["menu"]:
+        ep.update(menu=True, quieto=False)
+    elif lec["trabajando"]:
+        ep["quieto"] = False
+    elif ep.get("status") in ("", "unknown"):
+        ep.update(quieto=True, por_pantalla=True)
+    return ep
+
+
+def _sigue_igual(reg, ep):
+    """Motor sin estado en herdr: otra lectura tras QUIETUD_PANTALLA_S, igual a la primera y
+    todavía quieta (sin menú ni spinner). Una salida que cambia no deja escribir."""
+    time.sleep(QUIETUD_PANTALLA_S)
+    otra = estado_panel(reg)
+    return bool(otra.get("ok") and otra.get("quieto") and not otra.get("menu")
+                and otra.get("firma") and otra.get("firma") == ep.get("firma"))
+
+
+def leer(reg, lineas=40):
+    """Lo que se ve en el panel registrado (`herdr pane read --source visible`),
+    como texto plano; None si herdr no está o falló. Solo lee."""
+    exe = _exe()
+    if not exe:
+        return None
+    e = entorno_herdr(reg.get("socket") or "")
+    try:
+        import arbol_procesos
+        r = subprocess.run([exe, "pane", "read", reg["panel"], "--source", "visible", "--lines",
+                            str(int(lineas))], capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=TIMEOUT_S, env=e, stdin=subprocess.DEVNULL,
+                           **arbol_procesos._sin_ventana())
+    except Exception:
+        return None
+    if r.returncode != 0:
+        return None
+    return r.stdout or ""
+
+
+def _t(key, default, **kw):
+    import i18n
+    text = i18n.t(key)
+    return (default if text == key else text).format(**kw)
+
+
+def _quietud_codex(reg, primero):
+    antes = leer(reg)
+    if antes is None:
         return False
-    time.sleep(PAUSA_ENTER_S)
-    return _herdr(["pane", "send-keys", reg["panel"], "Enter"], reg.get("socket", ""),
-                  json_out=False) is not None
+    time.sleep(QUIETUD_CODEX_S)
+    segundo = estado_panel(reg)
+    despues = leer(reg)
+    return (segundo.get("ok") and segundo.get("quieto") and not segundo.get("foco")
+            and segundo.get("status") == primero.get("status")
+            and despues is not None and antes == despues)
+
+
+def escribir(reg, texto, exigir_quieto=True):
+    """Exclusión común de salas y skills: revalidar y enviar texto+Enter.
+
+    El archivo local se comparte por pane_id entre todos los procesos, así
+    el texto y su Enter de un escritor nunca se intercalan con los de otro.
+    Sin candado, o si el panel ya no está quieto, no se teclea; con
+    `exigir_quieto=False` («[v] Avisar», el botón del socio) se teclea aunque el
+    agente esté trabajando, como siempre, pero igual bajo el candado. El foco y la
+    entrada vacía los decide quien llama: «[v] Avisar» escribe con foco a
+    propósito, y cada motor pinta su prompt distinto (Codex muestra un texto
+    de ejemplo con la entrada vacía).
+
+    Con un MENÚ en pantalla (permiso, pregunta con opciones) jamás se teclea, ni
+    a mano ni forzado, diga lo que diga herdr: el Enter elegiría la opción marcada
+    («1. Yes, run command»). Ese menú se contesta con sus flechas (elegir_opcion
+    de la página) o en la terminal. Un motor sin estado en herdr (por_pantalla)
+    pide además dos lecturas iguales de su pantalla.
+    """
+    import hashlib
+    import olock
+    panel = str(reg.get("panel") or "")
+    if not panel:
+        return False
+    clave = hashlib.sha256(panel.encode("utf-8")).hexdigest()
+    try:
+        # _estado es per-máquina; la ruta no depende de qué directorios
+        # existían cuando cada proceso resolvió el candado.
+        with olock.file_lock(os.path.join(_estado(), "escritura-panel", clave), timeout=PANEL_LOCK_S):
+            ep = estado_panel(reg)
+            if not ep.get("ok") or ep.get("menu"):
+                return False
+            if exigir_quieto and (not ep.get("quieto") or (ep.get("por_pantalla") and not _sigue_igual(reg, ep))):
+                return False
+            if teclear(panel, texto, reg.get("socket", "")) is None:
+                return False
+            # un texto largo llega como «pegado» (Codex lo junta en [Pasted Content]): si el Enter
+            # cae dentro de esa ráfaga, el motor lo toma como salto de renglón y no lo manda
+            time.sleep(PAUSA_ENTER_S + min(0.85, len(texto) / 2000.0))
+            return _herdr(["pane", "send-keys", panel, "Enter"], reg.get("socket", ""),
+                          json_out=False) is not None
+    except (OSError, olock.LockTimeout):
+        return False
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -348,13 +518,50 @@ def avisos_de(sala_id):
     return out
 
 
+def comprobar_avisos(sala, ahora=None):
+    """Herdr aceptó el texto; el cursor confirma si el agente lo recibió.
+    También se comprueba lo ya entregado, aunque no quede en despertares()."""
+    if not avisos_de(sala["id"]):
+        return
+    ahora = time.time() if ahora is None else ahora
+
+    def hacer():
+        av, reinicio = _registro()
+        cambio = False
+        for rec in av.values():
+            if not isinstance(rec, dict) or rec.get("sala") != sala["id"] or rec.get("reinicio"):
+                continue
+            if rec.get("estado") not in ("avisado", "no_leido"):
+                continue
+            mid, clave = rec.get("msg"), rec.get("para")
+            if _entregado(sala, clave, mid, sala.get("pedidos", {}).get(mid)):
+                rec.update(estado="leido", leido_t=ahora)
+                cambio = True
+            elif rec["estado"] == "avisado" and ahora - float(rec.get("t") or ahora) >= COMPROBAR_AVISO_S:
+                rec.update(estado="no_leido", comprobado_t=ahora)
+                cambio = True
+        if cambio:
+            _guardar_registro(av, reinicio)
+    _con_candado(hacer)
+
+
+def _bloqueo_auto(rec, nombre):
+    estado = rec.get("estado")
+    if estado in ("avisado", "leido"):
+        return "ya", "ya le avisé a %s en su panel" % nombre
+    if estado == "no_leido" and int(rec.get("intentos") or 1) >= INTENTOS_AUTO_MAX:
+        return "no_leido", _t("conv.notice.unread", "◆ avisé a {a} pero no lo leyó; el hub ofrece Avisar", a=nombre)
+    return None
+
+
 def _anotar(sala_id, mid, clave, estado, **extra):
     """Deja el resultado en el registro local (bajo su candado)."""
     def hacer():
         av, reinicio = _registro()
         k = _k(sala_id, mid, clave)
         previo = av.get(k) or {}
-        if previo.get("estado") == "avisado" and estado != "avisado":
+        if (previo.get("estado") in ("avisado", "no_leido", "leido")
+                and estado not in ("avisado", "no_leido", "leido")):
             return                       # un bloqueo posterior no borra el aviso
         av[k] = dict({"sala": sala_id, "msg": mid, "para": clave, "estado": estado,
                       "t": time.time()}, **extra)
@@ -399,6 +606,7 @@ def avisar(sala, mid, token, nota="pide", manual=False, brains=None, quien=""):
     `manual` (el botón del hub): sin mirar foco ni si trabaja, y aunque ya se
     le haya avisado; la verificación del panel es la misma. Jamás levanta."""
     try:
+        comprobar_avisos(sala)
         return _avisar(sala, mid, token, nota, manual, brains, quien)
     except Exception as e:
         return "falla", "no pude avisar: %s" % type(e).__name__
@@ -412,8 +620,9 @@ def _avisar(sala, mid, token, nota, manual, brains, quien):
     clave = cands[0]
     nombre = salas.nombre_de(sala, clave)
     k = _k(sala["id"], mid, clave)
-    if not manual and (avisos().get(k) or {}).get("estado") == "avisado":
-        return "ya", "ya le avisé a %s en su panel" % nombre
+    bloqueo = _bloqueo_auto(avisos().get(k) or {}, nombre) if not manual else None
+    if bloqueo:
+        return bloqueo
     est = salas.estado_participante(sala, clave, brains=brains)
     if est.get("estado") == "escuchando":
         return "escucha", "%s está escuchando" % nombre
@@ -423,6 +632,10 @@ def _avisar(sala, mid, token, nota, manual, brains, quien):
     ep = estado_panel(reg)
     if not ep["ok"]:
         return "sin_panel", "no le escribí a %s: %s" % (nombre, ep["motivo"])
+    if ep.get("menu"):                   # ni a mano: el Enter elegiría la opción marcada de su menú
+        _anotar(sala["id"], mid, clave, "trabajando", nota=nota, status=ep.get("status"))
+        return "trabajando", _t("conv.notice.menu", "no le escribí a {a}: espera que contestes algo en su terminal",
+                                a=nombre)
     if not manual and ep["foco"]:
         _anotar(sala["id"], mid, clave, "foco", nota=nota)
         return "foco", "no le escribí a %s: su panel tiene el foco" % nombre
@@ -430,6 +643,9 @@ def _avisar(sala, mid, token, nota, manual, brains, quien):
         _anotar(sala["id"], mid, clave, "trabajando", nota=nota, status=ep.get("status"))
         return "trabajando", "no le escribí a %s: está trabajando (%s)" % (
             nombre, ep.get("status") or "?")
+    if not manual and reg.get("motor") == "codex" and not _quietud_codex(reg, ep):
+        _anotar(sala["id"], mid, clave, "trabajando", nota=nota)
+        return "trabajando", _t("conv.notice.not_stable", "no le escribí a {a}: su panel aún no lleva 3 s quieto", a=nombre)
     res = {}
 
     def hacer():                         # bajo el candado: el que publica y el hub no avisan dos veces
@@ -441,20 +657,38 @@ def _avisar(sala, mid, token, nota, manual, brains, quien):
                                  or "error de lectura"))
             return
         m = next((x for x in sala.get("mensajes") or () if x.get("id") == mid), None)
-        if not manual and ((av.get(k) or {}).get("estado") == "avisado"
-                           or (reinicio and m is not None and m.get("t", 0) <= reinicio)):
+        if not manual and _entregado(sala, clave, mid, sala.get("pedidos", {}).get(mid)):
+            previo = av.get(k)
+            if previo:
+                av[k] = dict(previo, estado="leido", leido_t=time.time())
+                _guardar_registro(av, reinicio)
+            res["r"] = ("ya", _t("conv.notice.already_read", "{a} ya recibió el mensaje", a=nombre))
+            return
+        bloqueo = _bloqueo_auto(av.get(k) or {}, nombre) if not manual else None
+        if bloqueo:
+            res["r"] = bloqueo
+            return
+        if not manual and reinicio and m is not None and m.get("t", 0) <= reinicio:
             if reinicio and k not in av:         # el registro se dañó: anotado, sin teclear
                 av[k] = {"sala": sala["id"], "msg": mid, "para": clave, "estado": "avisado",
                          "t": time.time(), "nota": nota, "manual": False, "reinicio": True}
                 _guardar_registro(av, reinicio)
             res["r"] = ("ya", "ya le avisé a %s en su panel" % nombre)
             return
-        if not escribir(reg, linea(sala, nota)):
+        if not manual:
+            final = estado_panel(reg)
+            if not (final.get("ok") and final.get("quieto") and not final.get("foco")):
+                res["r"] = ("trabajando", _t("conv.notice.changed", "no le escribí a {a}: su panel cambió de estado", a=nombre))
+                return
+        previo = av.get(k) or {}
+        intentos = int(previo.get("intentos") or (
+            1 if previo.get("estado") in ("avisado", "no_leido", "leido") else 0))
+        if not escribir(reg, linea(sala, nota), exigir_quieto=not manual):
             res["r"] = ("falla", "no le escribí a %s: herdr no aceptó el texto" % nombre)
             return
         av[k] = {"sala": sala["id"], "msg": mid, "para": clave, "estado": "avisado",
                  "t": time.time(), "nota": nota, "manual": bool(manual), "panel": reg["panel"],
-                 "quien": quien}
+                 "quien": quien, "intentos": intentos + 1}
         _guardar_registro(av, reinicio)
         res["r"] = ("avisado", "◆ avisé a %s en su panel" % nombre)
     _con_candado(hacer)
@@ -533,6 +767,7 @@ def barrer(brains=None, ahora=None):
     except Exception:
         return out
     for s in ss:
+        comprobar_avisos(s, ahora)
         for mid, token, nota in despertares(s, ahora):
             if not _candidatos(s, token):
                 continue

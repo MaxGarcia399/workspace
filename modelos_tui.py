@@ -69,6 +69,8 @@ _ACCIONES = ("connect", "disconnect")
 def models():
     """Los decisores que ve el socio (los de la nube primero). Los internos
     (META `internal`) nunca aparecen."""
+    if not DC.decisores_activos():
+        return []
     return sorted(DC.offered(), key=lambda d: (bool(DC.meta(d).get("local", True)), d))
 
 
@@ -101,6 +103,10 @@ def state(did):
     if not selectable(did):
         return _t("modelos.st.missing", "no instalado"), "DIM"
     st = DC.decider_status(did)
+    if st.get("ready") and DT.DV.sin_conexion(did):
+        # sin internet hace un momento: la llave sigue guardada y el modelo listo
+        # (ni rojo ni «sin llave»); Workspace vuelve a probar solo
+        return _t("decisores.st.offline_short", "sin conexión"), "DIM"
     if st.get("ready"):
         return _t("decisores.st.ready", "listo"), "OK"
     return _detail_txt(st.get("detail")), "ERR"
@@ -541,9 +547,11 @@ def busy(S):
 def _auto_activate(S, did):
     """El PRIMER modelo que queda listo, si en Decisores no hay uno activo,
     se activa solo (los usos siguen apagados: se eligen en Decisores)."""
+    if not DC.decisores_activos():
+        return False
     try:
         if ready(did) and DC.global_model() == DC.OFF:
-            DC.set_global_model(did)
+            DC.set_global_model(did, via="modelos")
             S["msg"] = "✓ " + _t("modelos.msg.activated", "{m} listo y activo en Decisores · los usos "
                                  "siguen apagados: elígelos ahí", m=name(did))
             return True
@@ -686,10 +694,9 @@ def _key_lines(K, iw, ll):
     return [HL.clip(x, iw) for x in L]
 
 
-def _probe_lines(K, iw, pr):
-    if pr.get("running"):
-        sp = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[int(time.time() * 10) % 10]
-        return ["%s%s %s%s" % (K["C"], sp, _t("modelos.probe.running", "probando…"), K["R"])]
+def probe_text(pr):
+    """El resultado de «probar» en una línea → (bien, texto): latencia, tokens
+    y costo, o el porqué del error. Lo usan la columna y la página local."""
     r = pr.get("res") or {}
     if r.get("ok"):
         import decision_context as C
@@ -698,11 +705,20 @@ def _probe_lines(K, iw, pr):
                  c=r.get("choice"), ms=int(r.get("ms") or 0), i=tk.get("in", "—"), o=tk.get("out", "—"))
         if r.get("cost_usd") is not None:
             txt += " · " + _t("modelos.probe.cost", "costo {c}", c=C.fmt_cost(r["cost_usd"]))
+        return True, txt
+    return False, "✗ " + DT._error_txt(r.get("error"), pr.get("did"), timeout_ms=PROBE_TIMEOUT_MS,
+                                       where="probe", detail=r.get("error_detail"),
+                                       elapsed_ms=r.get("ms"))
+
+
+def _probe_lines(K, iw, pr):
+    if pr.get("running"):
+        sp = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[int(time.time() * 10) % 10]
+        return ["%s%s %s%s" % (K["C"], sp, _t("modelos.probe.running", "probando…"), K["R"])]
+    bien, txt = probe_text(pr)
+    if bien:
         return ["%s%s%s" % (K["OK"], ln, K["R"]) for ln in DT.wrap(txt, iw)]
-    return ["%s%s%s" % (K["ERR"], ln, K["R"]) for ln in DT.wrap(
-        "✗ " + DT._error_txt(r.get("error"), pr.get("did"), timeout_ms=PROBE_TIMEOUT_MS,
-                             where="probe", detail=r.get("error_detail"),
-                             elapsed_ms=r.get("ms")), iw)[:3]]
+    return ["%s%s%s" % (K["ERR"], ln, K["R"]) for ln in DT.wrap(txt, iw)[:3]]
 
 
 def _detalle(S, K, did, iw):
@@ -862,20 +878,27 @@ def _pick_lines(S, K, did, iw):
     return out, fila, clic
 
 
-def _pick_choose(S, did, mid):
-    """Elegir un modelo de la lista: se guarda, aviso de una línea y de vuelta
-    a las opciones con el nuevo a la vista."""
+def save_model(did, mid):
+    """Guarda `mid` como modelo de `did` (uno local se precarga). → (guardado,
+    aviso de una línea). Lo usan la lista y la página local."""
     try:
         nuevo = DC.set_decider_model(did, mid)
     except ValueError as e:
-        S["msg"] = str(e) or _t("modelos.msg.model_err", "No pude guardar ese modelo · intenta "
-                                "de nuevo")
+        return False, str(e) or _t("modelos.msg.model_err", "No pude guardar ese modelo · intenta "
+                                   "de nuevo")
+    if is_local(did):
+        DC.warm(did)
+    return True, "✓ " + _t("modelos.msg.model", "Modelo de {m}: {x} · guardado", m=name(did), x=nuevo)
+
+
+def _pick_choose(S, did, mid):
+    """Elegir un modelo de la lista: se guarda, aviso de una línea y de vuelta
+    a las opciones con el nuevo a la vista."""
+    ok, S["msg"] = save_model(did, mid)
+    if not ok:
         return
     close_pick(S)
     S["focus"] = "detail"
-    S["msg"] = "✓ " + _t("modelos.msg.model", "Modelo de {m}: {x} · guardado", m=name(did), x=nuevo)
-    if is_local(did):
-        DC.warm(did)
     if (S.get("probe") or {}).get("did") == did and not busy(S):
         S["probe"] = None                     # el resultado de antes era de otro modelo
 
@@ -987,6 +1010,41 @@ def _cuerpo(S, K, iw):
 
 
 # ── la llave (campo enmascarado en la columna de opciones) ───────────────────
+def connect_key(S, did, key):
+    """Guarda la llave de `did` en la bóveda (DC.connect) y deja en S["msg"] lo
+    que pasó (el aviso de la bóveda nunca en silencio; el primer modelo listo
+    se activa solo). La llave no se imprime ni se guarda en S. → True si quedó
+    guardada. Lo usan Enter en el campo y la página local."""
+    r = DC.connect(did, key)
+    if not r.get("ok"):
+        S["msg"] = (_t("decisores.msg.key_invalid", "Esa llave no parece válida (8 o más "
+                       "caracteres, sin espacios)") if r.get("error") == "invalid_key"
+                    else _t("decisores.msg.key_store", "No pude guardarla en la bóveda de Workspace"))
+        return False
+    S["msg"] = "✓ " + _t("modelos.msg.key_ok", "{m} conectado · la llave quedó guardada en esta "
+                         "computadora", m=name(did))
+    if r.get("aviso"):                    # sin llavero del sistema: se dice, nunca en silencio
+        S["msg"] = r["aviso"]
+    if _auto_activate(S, did) and r.get("aviso"):
+        # «listo y activo» no tapa el aviso de la bóveda: va primero, por si
+        # la línea se corta (Greptile 0.9.0, 8)
+        S["msg"] = r["aviso"] + " · " + S["msg"]
+    return True
+
+
+def disconnect_key(S, did):
+    """Borra la llave guardada de `did` y deja en S["msg"] lo que pasó (y cómo
+    revocarla en el proveedor). → True si se borró."""
+    r = DC.disconnect(did)
+    S["msg"] = ("✓ " + _t("decisores.msg.key_removed", "{m} desconectado: la llave se borró de "
+                          "esta computadora", m=name(did)) + " · " +
+                revoke_line(did)) if r.get("ok") else \
+        _t("decisores.msg.key_store", "No pude guardarla en la bóveda de Workspace")
+    if r.get("ok"):
+        S["revocar"] = did                 # y abajo, entero (el aviso se corta en 80 columnas)
+    return bool(r.get("ok"))
+
+
 def key_act(S, key):
     """Escribiendo la llave: todo lo que se teclea es de la llave (también
     i, ? y q). Enter la guarda en la bóveda; Esc cancela. Nada se imprime."""
@@ -996,22 +1054,10 @@ def key_act(S, key):
         S["msg"] = _t("decisores.msg.key_cancel", "Conexión cancelada · no se guardó nada")
         return
     if key in ("\r", "\n"):
-        r = DC.connect(ll["did"], ll["buf"])
-        if not r.get("ok"):
-            S["msg"] = (_t("decisores.msg.key_invalid", "Esa llave no parece válida (8 o más "
-                           "caracteres, sin espacios)") if r.get("error") == "invalid_key"
-                        else _t("decisores.msg.key_store", "No pude guardarla en la bóveda de Workspace"))
-            return
         did = ll["did"]
+        if not connect_key(S, did, ll["buf"]):
+            return
         S["llave"] = None
-        S["msg"] = "✓ " + _t("modelos.msg.key_ok", "{m} conectado · la llave quedó guardada en esta "
-                             "computadora", m=name(did))
-        if r.get("aviso"):                # sin llavero del sistema: se dice, nunca en silencio
-            S["msg"] = r["aviso"]
-        if _auto_activate(S, did) and r.get("aviso"):
-            # «listo y activo» no tapa el aviso de la bóveda: va primero, por si
-            # la línea se corta (Greptile 0.9.0, 8)
-            S["msg"] = r["aviso"] + " · " + S["msg"]
         keys = [o[0] for o in options(S, did)]
         S["opt"] = keys.index("probe")
         return
@@ -1025,6 +1071,8 @@ def key_act(S, key):
 
 # ── probar (una llamada real chiquita) ───────────────────────────────────────
 def start_probe(S, did):
+    if not DC.decisores_activos():
+        return None
     pr = {"did": did, "running": True, "res": None}
     S["probe"] = pr
 
@@ -1179,6 +1227,8 @@ def _chips(S):
 
 
 def render(S, w, h):
+    if not DC.decisores_activos():
+        return []
     K = _K()
     titulo = _t("modelos.box", "MODELOS DE DECISIÓN")
     if S.get("info"):
@@ -1197,13 +1247,7 @@ def _confirm_act(S, key):
         return
     if key in ("\r", "\n", " ") and c.get("btn", 1) == 0:
         S["confirm"] = None
-        r = DC.disconnect(c["did"])
-        S["msg"] = ("✓ " + _t("decisores.msg.key_removed", "{m} desconectado: la llave se borró de "
-                              "esta computadora", m=name(c["did"])) + " · " +
-                    revoke_line(c["did"])) if r.get("ok") else \
-            _t("decisores.msg.key_store", "No pude guardarla en la bóveda de Workspace")
-        if r.get("ok"):
-            S["revocar"] = c["did"]            # y abajo, entero (el aviso se corta en 80 columnas)
+        disconnect_key(S, c["did"])
         return
     S["confirm"] = None                     # No gracias / Esc / cualquier otra tecla
     S["msg"] = _t("modelos.msg.no_disconnect", "La llave sigue conectada")
@@ -1445,6 +1489,8 @@ def _interactive():
 
 @_theme_screen
 def run(did=None):
+    if not DC.decisores_activos():
+        return 0
     S = initial(did=did)
     if not _interactive():
         print("\n".join(render(S, 112, 44)))
@@ -1463,4 +1509,7 @@ def run(did=None):
 
 
 if __name__ == "__main__":
-    sys.exit(run())
+    # ARCHIVO MÍNIMO por una versión (se borra en la versión 2): esta pantalla ya no se abre. Quien la corre
+    # directo, o un hub que quedó abierto durante la actualización, llega a lo nuevo (puertas.redirigir).
+    import puertas
+    sys.exit(puertas.redirigir('modelos', sys.argv[1:]))

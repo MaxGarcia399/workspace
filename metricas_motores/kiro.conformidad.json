@@ -1,7 +1,7 @@
 {
  "motor": "kiro",
- "version": "3.1.0",
- "actualizado": "2026-11-06",
+ "version": "3.3.0",
+ "actualizado": "2026-11-16",
  "nota": "Cédula de conformidad de las métricas: `version` es la versión certificada (con golden en tests/fixtures/metricas/kiro/3.1.0/ y en VERIFIED_VERSIONS). El historial registra cada verificación: nivel kit (fixture), mínimo (headless real) o completo (consola real con la X). runbooks/agregar-motor.md §3b.",
  "historial": [
   {
@@ -52,6 +52,29 @@
    "fuente": "tests/e2e/metricas_viva.py",
    "fallos": [],
    "notas": "Segunda corrida viva con kiro/1 (0.053 créditos de Kiro; US$ ≈ a 0.04 por crédito). 0 desconocidas."
+  },
+  {
+   "version": "3.3.0",
+   "so": "mac",
+   "nivel": "minimo",
+   "veredicto": "pasa",
+   "fecha": "2026-11-16",
+   "costo_usd_aprox": 0,
+   "intentos": 1,
+   "modelo": "claude-haiku-5.5",
+   "parser": "kiro/1",
+   "fuente": "tests/e2e/metricas_viva.py",
+   "fallos": []
+  },
+  {
+   "version": "3.3.0",
+   "so": "mac",
+   "nivel": "kit",
+   "veredicto": "pasa",
+   "fecha": "2026-11-16",
+   "costo_usd_aprox": 0,
+   "fuente": "tests/fixtures/metricas/kiro/3.3.0 (captura real G1 nivel mínimo)",
+   "parser": "kiro/1"
   }
  ]
 }

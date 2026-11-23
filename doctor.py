@@ -61,6 +61,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 import paths as _paths  # noqa: E402  (SSOT del dir de estado — tests/test_state_dir_guard.py)
 import dispatch   # noqa: E402  (registry efectivo + transporte de cerebros)
+from engines import NO_PREGUNTAN  # noqa: E402  (M3: motores que no preguntan antes)
 import brain_resolver  # noqa: E402  (Z20 — resolución CANÓNICA de cerebros, la misma que dispatch)
 import install    # noqa: E402  (fixers ya probados: launchers, greeter, hooks)
 import events     # noqa: E402  (contrato de eventos N9 — la fase 5 valida contra él)
@@ -71,7 +72,7 @@ import pathguard   # noqa: E402  (P0-4 — detección de rutas redirigidas a One
 HOME = os.path.expanduser("~")
 IS_WIN = os.name == "nt"
 if IS_WIN:
-    os.system("")  # habilita ANSI en Windows 10+ (no-op en consolas viejas)
+    import _console; _console.ansi()  # ANSI en Windows 10+ (solo con consola: sin ella, os.system abría una ventana)
 import _utf8; _utf8.harden()  # B2 · UTF-8 en stdout/err (cp1252 reventaría con box-drawing)
 
 
@@ -284,6 +285,10 @@ def phase_prereqs(ctx, fix):
                          _t("doctor.used_by", "lo usan: {who}", who=', '.join(who)),
                          _t("doctor.phase_prereqs.8", "engines/{v}.py falta o no carga — actualiza Workspace (`workspace update`) o corrige el agente a un motor instalado", v=eng.replace('-', '_'))))
             continue
+        if eng in NO_PREGUNTAN:      # M3: se dice, no se fuerza (no hay qué arreglar)
+            out.append(f(OK, "%s: %s" % (eng, _t("engines.no_pregunta",
+                                                "este motor no pregunta antes de actuar")),
+                         _t("doctor.used_by", "lo usan: {who}", who=', '.join(who))))
         binary = getattr(mod, "BINARY", None) or ENGINE_BINARIES.get(eng)
         if not binary:      # motor sin BINARY: su META declara qué necesita
             needs = (getattr(mod, "META", None) or {}).get("needs") or []
@@ -337,14 +342,19 @@ def phase_prereqs(ctx, fix):
                              _t("doctor.used_by", "lo usan: {who}", who=', '.join(who)),
                              str(getattr(mod, "UPGRADE_HINT", "") or
                                  _t("doctor.engine_version.hint", "actualiza el motor"))))
+            elif st == "untested":
+                out.append(f(OK, _t("doctor.engine_version.untested",
+                                    "{binary} {have}: todavía ninguna versión probada con "
+                                    "Workspace", binary=binary, have=have),
+                             _t("doctor.used_by", "lo usan: {who}", who=', '.join(who)), ""))
             elif st in ("newer", "older"):
                 # Informativo, no aviso (política «la más nueva por defecto»):
                 # una versión más nueva es lo normal; solo un bug comprobado frena.
                 # Sin «→ acción» para una más nueva: es lo normal y no debe sonar a
                 # alarma. A una más vieja sí se le sugiere actualizar.
                 out.append(f(OK, _t("doctor.engine_version." + st,
-                                      "{binary} {have}: versión más nueva que las verificadas con "
-                                      "Workspace (verificadas: {rango})", binary=binary, have=have, rango=rango),
+                                      "{binary} {have}: no es la versión probada con Workspace "
+                                      "(probadas: {rango})", binary=binary, have=have, rango=rango),
                              _t("doctor.used_by", "lo usan: {who}", who=', '.join(who)),
                              "" if st == "newer" else _t(
                                  "doctor.engine_version.hint",
@@ -699,7 +709,7 @@ def phase_brains(ctx, fix):
     discovered = {}
     if not ctx["agents"]:
         return [f(OK, _t("doctor.no_agents", "aún no hay agentes"),
-                  _t("doctor.no_agents.detail", "agrega uno desde el menú `workspace` (Agregar agente)"))]
+                  _t("doctor.no_agents.detail", "agrega uno en el hub con «+ Agregar»"))]
     for a in ctx["agents"]:
         name = a["name"]
         # re-resuelve (fase 2 pudo cambiar algo) con el resolver CANÓNICO
@@ -969,11 +979,177 @@ def _hooks_drift(settings, cfg, brain):
             != _runner_shape(install.build_hooks(cfg, brain)))
 
 
+def _cerebros_sin_cargar(ctx):
+    """[(nombre, cerebro, de_esta_maquina)] de los cerebros que Workspace no
+    tiene cargados (tras borrar Workspace e instalarlo de cero, agents.local.json
+    ya no está). `de_esta_maquina` = registrado AQUÍ de otra forma: en
+    paths.local.json. Lo que solo aparece en el índice del discovery o en el
+    escaneo acotado (agentsreg.scan: no escribe nada) es solo para AVISAR: el
+    índice también trae lo que OneDrive/Dropbox sincroniza de otras máquinas.
+    Falla-suave: []."""
+    vistos = {os.path.normcase(os.path.realpath(b)) for _n, b in _resolved_brains(ctx)}
+    out = []
+
+    def sumar(nombre, brain, aqui):
+        try:
+            k = os.path.normcase(os.path.realpath(brain))
+        except Exception:
+            return
+        if k not in vistos and os.path.isdir(brain):
+            vistos.add(k)
+            out.append((nombre or os.path.basename(os.path.normpath(brain)), brain, aqui))
+    try:
+        import brain_resolver
+        locales = brain_resolver.brain_overrides()
+        for nombre, brain in (locales.items() if isinstance(locales, dict) else ()):
+            if isinstance(brain, str) and brain.strip():
+                sumar(str(nombre), os.path.expanduser(brain.strip()), True)
+    except Exception:
+        pass
+    try:
+        import agentsreg
+        idx = agentsreg.load_index()
+        r = idx or agentsreg.scan()
+        for x in (r or {}).get("found") or []:
+            if isinstance(x, dict) and isinstance(x.get("brain"), str):
+                sumar(x.get("name"), x["brain"], False)       # visto, no registrado
+    except Exception:
+        pass
+    return out
+
+
+def _olock_timeout():
+    """La excepción de un candado ocupado (olock.LockTimeout)."""
+    import olock
+    return olock.LockTimeout
+
+
+def _aviso_candado_settings(name):
+    """No se pudo sostener el candado: el archivo queda como estaba."""
+    return f(WARN, _t("doctor.phase_hooks.lock_busy",
+                      "[{name}] no reescribí settings.local.json: no conseguí el candado",
+                      name=name),
+             _t("doctor.phase_hooks.lock_busy_detail",
+                "otra ventana lo está cambiando; pisarlo perdería ese ajuste"),
+             _t("doctor.phase_hooks.lock_busy_fix",
+                "vuelve a correr `workspace doctor`; el archivo no se tocó"))
+
+
+def _recablear_hook_bajo_candado(name, brain, sp):
+    """Lee, cambia y guarda settings.local.json bajo un solo candado.
+
+    Greptile #7: A9 reescribía el archivo entero con la copia leída. Si otra
+    ventana cambiaba permisos u otra llave en medio, ese guardado la pisaba.
+    El candado es `olock.file_lock` sobre `olock.ruta_candado` — el mismo lugar
+    que `local_lock` para un archivo del cerebro (`.claude/locks/`, no un
+    `.lock` hermano, que Obsidian subiría). Nadie más candaba este archivo.
+    Justo antes de guardar se relee y solo se instalan `hooks` y, si tocaba,
+    `statusLine`. Sin candado no se toca el archivo."""
+    try:
+        import olock
+        from olock import LockTimeout
+    except Exception:
+        return _aviso_candado_settings(name)
+    if olock.file_lock is None:
+        return _aviso_candado_settings(name)
+    redo_sline = False
+    try:
+        with olock.file_lock(olock.ruta_candado(sp), timeout=5):
+            if install.json_corrupt(sp):
+                return None
+            settings = _read_json(sp)
+            if not isinstance(settings, dict):
+                settings = {}
+            dead, _otra = _stale_runner_paths(settings)
+            if not dead:
+                return None
+            cfg = dispatch.load_agent_cfg({"name": name, "brain": brain, "_loaded": True})
+            install.render_hooks_only(cfg, brain, settings=settings)
+            scripts = install.expand(cfg.get("scripts"), brain)
+            redo_sline = (not _statusline_ok(settings, scripts)
+                          and scripts.get("statusline"))
+            if redo_sline:
+                settings["statusLine"] = {
+                    "type": "command",
+                    "command": install.hook_cmd(install.PY, scripts["statusline"], "--brain", brain),
+                    "padding": 0, "refreshInterval": 60}
+            if install.json_corrupt(sp):
+                return None
+            fresco = _read_json(sp)
+            if not isinstance(fresco, dict):
+                return None
+            fresco["hooks"] = settings.get("hooks")
+            if redo_sline:
+                fresco["statusLine"] = settings["statusLine"]
+            install.write_json(sp, fresco)
+    except LockTimeout:
+        return _aviso_candado_settings(name)
+    return f(FIXED, _t("doctor.phase_hooks.rewired", "[{name}] hook re-cableado a esta "
+                       "instalación", name=name),
+             _t("doctor.phase_hooks.rewired_detail", "solo `hooks`{s} · para abrirlo desde "
+                "el hub, cárgalo en «+ Agregar» › «Ya tengo un agente»",
+                s=" + `statusLine`" if redo_sline else ""))
+
+
+def _hook_sin_cargar(name, brain, aqui, fix):
+    """La fila del doctor de UN cerebro sin cargar con el hook muerto, o None."""
+    sp = os.path.join(brain, ".claude", "settings.local.json")
+    if not os.path.isfile(sp) or install.json_corrupt(sp):
+        return None
+    if aqui and fix:
+        return _recablear_hook_bajo_candado(name, brain, sp)
+    settings = _read_json(sp)
+    if not isinstance(settings, dict):
+        return None
+    dead, _otra = _stale_runner_paths(settings)
+    if not dead:
+        return None
+    if not aqui:
+        # sin registro en esta máquina (p. ej. un cerebro que OneDrive/Dropbox trae
+        # de otra): solo se avisa — re-cablearlo aquí pelearía el hook con la otra
+        return f(WARN, _t("doctor.phase_hooks.dead_foreign", "[{name}] su hook apunta a un "
+                          "Workspace que ya no existe (cerebro sin cargar en esta máquina): Claude Code "
+                          "bloquea cada mensaje hasta que lo cargues en «+ Agregar» › «Ya tengo un agente»",
+                          name=name),
+                 dead[0],
+                 _t("doctor.phase_hooks.dead_foreign_fix", "si lo usas aquí, cárgalo en "
+                    "«+ Agregar» › «Ya tengo un agente»: lo re-cablea a esta instalación"))
+    return f(FAIL, _t("doctor.phase_hooks.dead_unloaded", "[{name}] su hook apunta a un "
+                      "Workspace que ya no existe: Claude Code bloquea cada mensaje",
+                      name=name),
+             dead[0],
+             _t("doctor.phase_hooks.dead_unloaded_fix", "corre `workspace doctor` (lo "
+                "re-cablea a esta instalación"))
+
+
+def _hooks_sin_cargar(ctx, fix):
+    """0.9.1 · A9: el hook de un cerebro que apunta a un workspace_hook.py que ya
+    no existe (se borró Workspace y se instaló de cero, en otra carpeta). Python
+    sale con 2 y Claude Code bloquea CADA mensaje de esa pestaña hasta recargar
+    el agente. Los cargados ya los revisa phase_hooks. Aquí, los que no: se
+    re-cablea a ESTA instalación solo lo registrado en esta máquina
+    (paths.local.json); lo del índice de Descubrir o el escaneo, un aviso
+    informativo (⚠, sin escribir: «el doctor repara lo YA registrado»). Cada
+    cerebro, aislado: uno que truena (sin permiso de escritura, definición rota)
+    deja su aviso y no tumba la fase."""
+    out = []
+    for name, brain, aqui in _cerebros_sin_cargar(ctx):
+        try:
+            fila = _hook_sin_cargar(name, brain, aqui, fix)
+        except Exception as e:
+            fila = f(WARN, _t("doctor.phase_hooks.dead_error", "[{name}] no pude revisar su hook",
+                              name=name), "%s: %s" % (type(e).__name__, e))
+        if fila:
+            out.append(fila)
+    return out
+
+
 def phase_hooks(ctx, fix):
     out = []
     if not _resolved_brains(ctx):
-        return [f(OK, _t("doctor.no_agents", "aún no hay agentes"),
-                  _t("doctor.phase_hooks.2", "nada que cablear"))]
+        return _hooks_sin_cargar(ctx, fix) or [
+            f(OK, _t("doctor.no_agents", "aún no hay agentes"),
+              _t("doctor.phase_hooks.2", "nada que cablear"))]
     for a in ctx["agents"]:
         name, brain = a["name"], a["brain"]
         if not (brain and os.path.isdir(brain)):
@@ -982,6 +1158,13 @@ def phase_hooks(ctx, fix):
         scripts = install.expand(a["cfg"].get("scripts"), brain)
         sp = os.path.join(brain, ".claude", "settings.local.json")
         settings = _read_json(sp)
+        if not isinstance(settings, dict):
+            # JSON válido pero NO un objeto (['x']): igual que uno roto, no se toca y la fase
+            # sigue con los demás cerebros (antes: AttributeError y «error interno de la fase»)
+            out.append(f(FAIL, _t("doctor.phase_hooks.27", "[{name}] settings.local.json no se pudo leer: NO se tocó", name=name),
+                         _t("doctor.phase_hooks.4", "el doctor NO lo reescribe: pisarlo descartaría permissions/env/mcpServers en silencio"),
+                         _t("doctor.phase_hooks.5", "revisa/respalda {sp} y bórralo o restáuralo; luego corre `python3 install.py`", sp=sp)))
+            continue
         crit, minor = _hooks_status(settings, setup, scripts)
         sline_ok = _statusline_ok(settings, scripts)
         # Windows: intérprete horneado roto (bump de la Store) o versionado-frágil
@@ -1025,18 +1208,33 @@ def phase_hooks(ctx, fix):
             # P0-3: el RMW de `hooks` lo hace render_hooks_only (fuente única que
             # comparten install/doctor/repair) — muta `settings` sin escribir, el
             # write_json de abajo persiste hooks + statusLine en un solo paso.
-            install.render_hooks_only(a["cfg"], brain, settings=settings)
             redo_sline = (not sline_ok or bool(py_bad)) and scripts.get("statusline")
-            if redo_sline:   # ruta vieja pre-migración O intérprete frágil/roto → re-hornear
-                settings["statusLine"] = {
-                    "type": "command",
-                    "command": install.hook_cmd(install.PY, scripts["statusline"], "--brain", brain),
-                    "padding": 0, "refreshInterval": 60}
-            install.write_json(sp, settings)
+
+            def _recablear(fresco):
+                # `fresco` es la lectura de DENTRO del candado (no la de arriba, que
+                # otra ventana pudo cambiar): solo se toca `hooks` (+ `statusLine`)
+                install.render_hooks_only(a["cfg"], brain, settings=fresco)
+                if redo_sline:   # ruta vieja pre-migración O intérprete frágil/roto → re-hornear
+                    fresco["statusLine"] = {
+                        "type": "command",
+                        "command": install.hook_cmd(install.PY, scripts["statusline"], "--brain", brain),
+                        "padding": 0, "refreshInterval": 60}
+            try:
+                install.mutar_settings_local(sp, _recablear, si_corrupto="abortar")
+            except _olock_timeout():
+                out.append(_aviso_candado_settings(name))
+                continue
+            except install.SettingsIlegible:
+                # se corrompió justo ahora: no se pisa, y se DICE (antes se tragaba en silencio)
+                out.append(f(FAIL, _t("doctor.phase_hooks.27", "[{name}] settings.local.json no se pudo leer: NO se tocó", name=name),
+                             _t("doctor.phase_hooks.4", "el doctor NO lo reescribe: pisarlo descartaría permissions/env/mcpServers en silencio"),
+                             _t("doctor.phase_hooks.5", "revisa/respalda {sp} y bórralo o restáuralo; luego corre `python3 install.py`", sp=sp)))
+                continue
             out.append(f(FIXED, _t("doctor.phase_hooks.20", "[{name}] bloque hooks escrito", name=name),
                          "solo `hooks`" + ("" if not redo_sline else " + `statusLine`")
                          + _t("doctor.phase_hooks.11", " — el resto del archivo se respeta")))
-    return out
+    # después de los cargados: un cerebro sin cargar jamás les quita su reparación
+    return out + _hooks_sin_cargar(ctx, fix)
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -1066,6 +1264,10 @@ def phase_mcps(ctx, fix):
         name, brain = a["name"], a["brain"]
         if not (brain and os.path.isdir(brain)):
             continue
+        desired = install._mcps_for_agent(a["cfg"].get("name", ""))
+        n_scope = len(desired)
+        if not n_scope:
+            continue  # Old markers are inert; an empty registry is not pending.
         sp = os.path.join(brain, ".claude", "settings.local.json")
         # R3-F1 (read-guard, mismo que hooks): un settings TRUNCADO/corrupto NO
         # se reescribe — pisarlo descartaría permissions/env/mcpServers manuales
@@ -1077,32 +1279,100 @@ def phase_mcps(ctx, fix):
                          _t("doctor.phase_mcps.5", "revisa/respalda {sp} y bórralo o restáuralo; luego corre `python3 install.py`", sp=sp)))
             continue
         settings = _read_json(sp)
-        drift, n_scope, channel, reason = _mcps_drift(a["cfg"], brain, settings)
+        if not isinstance(settings, dict):          # JSON válido que no es objeto: tampoco se toca
+            out.append(f(FAIL, _t("doctor.phase_mcps.13", "[{name}] settings.local.json no se pudo leer: NO se tocó", name=name),
+                         _t("doctor.phase_mcps.4", "el doctor NO materializa MCPs sobre un archivo corrupto: pisarlo descartaría permissions/env/mcpServers en silencio"),
+                         _t("doctor.phase_mcps.5", "revisa/respalda {sp} y bórralo o restáuralo; luego corre `python3 install.py`", sp=sp)))
+            continue
+        channel, _ct, reason = install._mcp_projection(a["cfg"])
         if channel != "claude-code":
             # motor sin proyector real (codex/gemini/local/API): honesto, no ✗.
             # Solo se menciona si HAY MCP en scope que no se están enchufando.
             if n_scope:
-                out.append(f(WARN, _t("doctor.phase_mcps.6", "[{name}] {n_scope} MCP(s) en scope sin materializar", name=name, n_scope=n_scope),
+                out.append(f(WARN, _t("doctor.phase_mcps.pending", "[{name}] conexión automática de MCPs pendiente", name=name),
                              reason))
             continue
-        if not drift:
-            if n_scope:     # sin MCPs no hay nada que reportar (función opcional)
-                out.append(f(OK, _t("doctor.phase_mcps.16", "[{name}] MCPs materializados", name=name),
-                             f"{n_scope} server(s) en `mcpServers`"))
-        elif not fix:
-            out.append(f(WARN, _t("doctor.phase_mcps.13", "[{name}] MCPs desincronizados (store ↔ mcpServers)", name=name),
-                         _t("doctor.phase_mcps.14", "{n_scope} server(s) en scope no reflejados en settings.local.json", n_scope=n_scope),
-                         _t("doctor.phase_mcps.10", "corre `workspace doctor` (reescribe SOLO `mcpServers`)")))
-        else:
-            # P0-3: el RMW lo hace render_mcps_only (fuente única que comparten
-            # doctor/CLI) — muta `settings` sin escribir; el write_json de abajo
-            # persiste SOLO el bloque mcpServers, el resto del archivo se respeta.
-            install.render_mcps_only(a["cfg"], brain, settings=settings)
-            install.write_json(sp, settings)
-            out.append(f(FIXED, _t("doctor.phase_mcps.15", "[{name}] bloque mcpServers materializado", name=name),
-                         _t("doctor.phase_mcps.11", "{n_scope} server(s) — solo `mcpServers`, el resto del archivo se respeta", n_scope=n_scope)))
+        conflicts = install._mcp_manual_conflicts(
+            settings, desired)
+        if conflicts:
+            out.append(f(WARN,
+                         _t("doctor.phase_mcps.conflict", "[{name}] conflicto de nombres de MCP", name=name),
+                         _t("doctor.phase_mcps.conflict_detail", "Estas entradas se agregaron a mano y no se cambian: {servers}", servers=", ".join(conflicts)),
+                         _t("doctor.phase_mcps.conflict_action", "Cambia el nombre del MCP de Workspace o resuelve la coincidencia en la configuración del motor; el bloque de MCP no se cambió.")))
+            continue
+        if n_scope:
+            import config_engine
+            out.append(f(WARN,
+                         _t("doctor.phase_mcps.pending", "[{name}] conexión automática de MCPs pendiente", name=name),
+                         config_engine.mcp_registration_note(),
+                         _t("doctor.phase_mcps.kept", "Lo ya escrito se conserva; no se cambió la configuración del motor.")))
     if not out:
         out.append(f(OK, _t("doctor.phase_mcps.9", "sin MCPs configurados"), ""))
+    return out
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  FASE 5e · El cableado del sistema nuevo (arquitectura/verificacion)
+# ══════════════════════════════════════════════════════════════════════════
+def phase_sistema_nuevo(ctx, fix):
+    """D2-a · Lo MISMO que Ajustes › Conexiones: el chequeo rápido (arquitectura/chequeo.revisar, sin IA), no la matriz
+    de laboratorio. Un hallazgo por «Workspace por dentro» y uno por motor instalado, con el estado, las cuentas y
+    los textos de sus filas (✓ ok · ⚠ algo tuyo → aviso · ✗ → falla) y la acción de la fila. El resultado queda
+    guardado: la página y el hub leen ese mismo. Con fix arregla lo de Workspace con los arreglos de Conexiones (cada
+    uno deja su aviso y su «Deshacer»)."""
+    from arquitectura import sesion
+    if not sesion.activo():
+        return [f(WARN, _t("doctor.phase_sistema_nuevo.apagado", "el sistema nuevo está apagado (arquitectura.paquete)"),
+                  _t("doctor.phase_sistema_nuevo.apagado_detalle",
+                     "tus motores abren como antes, sin los hooks, el MCP ni las skills de Workspace por sesión"),
+                  _t("doctor.phase_sistema_nuevo.apagado_accion",
+                     "para volver al sistema nuevo: workspace sistema-nuevo on"))]
+    from arquitectura import chequeo as Q
+    donde = _t("doctor.phase_sistema_nuevo.donde", "Ajustes › Conexiones")
+    try:
+        d = Q.revisar(arreglar=bool(fix), guardar=True)
+    except Exception as e:
+        return [f(WARN, _t("doctor.phase_sistema_nuevo.no_pude", "no pude correr el chequeo rápido de Conexiones"),
+                  "%s: %s" % (type(e).__name__, e), donde + " › " + _t("doctor.phase_sistema_nuevo.revisar",
+                                                                        "Revisar ahora"))]
+    estado = {Q.OK: OK, Q.TUYO: WARN, Q.ROTO: FAIL}
+
+    def accion(a):
+        """La acción de una fila, dicha para la terminal: lo de Workspace se arregla con --fix; lo demás, en
+        Conexiones con su botón."""
+        if not a:
+            return ""
+        if a.get("tipo") == "arreglar":
+            return _t("doctor.phase_sistema_nuevo.arreglar",
+                      "workspace doctor --fix lo arregla (o {d} › «{b}»)", d=donde, b=a.get("etiqueta") or "Arreglar")
+        return "%s › «%s»" % (donde, a.get("etiqueta") or "")
+
+    out = []
+    for a in d.get("avisos") or ():                  # lo que se arregló solo en esta revisión (con su Deshacer)
+        if fix and a.get("ok") and a.get("arreglo") and a.get("texto"):
+            out.append(f(FIXED, a["texto"], "",
+                         _t("doctor.phase_sistema_nuevo.deshacer", "{d} › «Deshacer»", d=donde)
+                         if a.get("deshacer") else ""))
+    w = d.get("workspace") or {}
+    if w:
+        out.insert(0, f(estado.get(w.get("estado"), OK), w.get("texto") or "Workspace por dentro",
+                        w.get("detalle") or "", accion(w.get("accion"))))
+    motores = d.get("motores") or []
+    if not motores:
+        return out + [f(OK, _t("doctor.phase_sistema_nuevo.sin_motores", "ningún motor instalado todavía"), "")]
+    for m in motores:
+        filas = m.get("filas") or []
+        cuenta = {}
+        for fl in filas:
+            cuenta[fl.get("estado")] = cuenta.get(fl.get("estado"), 0) + 1
+        resumen = " · ".join("%s %d" % (Q.GLIFO[e], cuenta[e]) for e in (Q.OK, Q.TUYO, Q.ROTO) if cuenta.get(e))
+        malas = [fl for fl in filas if fl.get("estado") in (Q.TUYO, Q.ROTO)]
+        malas.sort(key=lambda fl: Q.ORDEN.index(fl["estado"]))            # lo roto primero
+        detalle = " · ".join("%s: %s" % (fl.get("nombre") or fl.get("id"), fl.get("texto") or "") for fl in malas)
+        version = (" " + m["version"]) if m.get("version") else ""
+        out.append(f(estado.get(m.get("estado"), OK),
+                     "[%s]%s %s" % (m.get("nombre") or m.get("motor"), version, resumen),
+                     detalle[:900], accion(malas[0].get("accion")) if malas else ""))
     return out
 
 
@@ -1364,7 +1634,24 @@ def phase_extras(ctx, fix):
         out.append(f(OK, _t("doctor.phase_extras.19", "retención de transcripts: la de Claude Code (30 días)"),
                      _t("doctor.phase_extras.25", "cleanupPeriodDays sin definir"),
                      _t("doctor.phase_extras.20", "`workspace doctor` la fija en {cleanup_days} días en ~/.claude/settings.json (no pisa nada más)", cleanup_days=install.CLEANUP_DAYS)))
+    out += _firma_monito()
     return out
+
+
+def _firma_monito():
+    """La firma de Workspace Compañero, la app de escritorio (Mac): estable o ad hoc. Solo informa (nunca ⚠): con ad hoc, macOS vuelve a
+    pedir sus permisos cada vez que cambia su Swift (escritorio/firmar.py). Falla suave: sin monito armado (fuera de
+    la Mac nunca lo hay), nada."""
+    try:
+        from escritorio import abrir as A
+        from escritorio import probar_rama as PR
+        pares = ((A.canal()[1], A.ruta_app()), (A.NOMBRE_APP_PRUEBA, PR.ruta_app()))
+        lineas = [(A.linea_firma(n, a), A.estado_firma(a)) for n, a in pares]
+    except Exception:
+        return []
+    return [f(OK, _t("doctor.phase_extras.26", "firma de Workspace Compañero"), lin,
+              "" if e.get("estable") else _t("doctor.phase_extras.27", "una firma estable conserva los permisos: `python3 escritorio/firmar.py`"))
+            for lin, e in lineas if lin]
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -1754,6 +2041,112 @@ def phase_brain_identity(ctx, fix):
                          "%s: %s" % (type(e).__name__, e),
                          _t("doctor.phase_brain_identity.left_hint",
                             "el agente sigue funcionando; revisa ese archivo a mano")))
+    # Guía de skills (tercera puerta de 202611110130): un cerebro que ya existe
+    # recibe las skills que le faltan. La que ya tiene no se toca.
+    try:
+        import skills_de_plantilla
+    except Exception:
+        skills_de_plantilla = None
+    for name, brain in (_resolved_brains(ctx) if skills_de_plantilla else []):
+        try:
+            if fix:
+                hechos = skills_de_plantilla.actualizar(brain, state_dir=sdir, name=name)
+                if hechos:
+                    out.append(f(FIXED, _t("doctor.phase_brain_identity.skills_fixed",
+                                           "[{name}] skills de la guía copiadas (las que ya estaban no se tocaron)",
+                                           name=name), ", ".join(hechos)))
+                # tercera puerta de 202611220230: el bloque largo que la 0.9.2 puso en INDEX-LITE, más corto
+                cortos = skills_de_plantilla.acortar(brain, state_dir=sdir, name=name)
+                if cortos:
+                    out.append(f(FIXED, _t("doctor.phase_brain_identity.skills_lite_fixed",
+                                           "[{name}] el renglón de la guía en skills/INDEX-LITE.md quedó más "
+                                           "corto, para que quepa en su presupuesto (con respaldo)",
+                                           name=name), ", ".join(cortos)))
+            pend = skills_de_plantilla.trabajos(brain)
+            sello_ileg = [x for x in pend if x.startswith(skills_de_plantilla.SELLO)]
+            agente_ileg = [x for x in pend if x.startswith(skills_de_plantilla.AGENTE_JSON)]
+            reng = [x for x in pend if x.endswith(skills_de_plantilla.RENGLON)]
+            skills_pend = [x for x in pend if x not in reng and not x.endswith(skills_de_plantilla.ILEGIBLE)]
+            if sello_ileg:
+                out.append(f(WARN, _t("doctor.phase_brain_identity.skills_sello_ilegible",
+                                      "[{name}] skills de la guía sin copiar: no se puede leer el sello de la guía",
+                                      name=name),
+                             sello_ileg[0],
+                             _t("doctor.phase_brain_identity.skills_sello_ilegible_hint",
+                                "`.workspace/guia-agentes.json` está vacío, dañado, es una carpeta o un "
+                                "enlace. No se copió nada. Bórralo, o espera a que termine el sync, y "
+                                "corre `workspace doctor`")))
+            if agente_ileg:
+                out.append(f(WARN, _t("doctor.phase_brain_identity.skills_ilegible",
+                                      "[{name}] skills de la guía sin copiar: no se puede leer su agent.json",
+                                      name=name),
+                             agente_ileg[0],
+                             _t("doctor.phase_brain_identity.skills_ilegible_hint",
+                                "guárdalo como JSON válido en UTF-8 (con Obsidian Sync, espera a que "
+                                "termine) y corre `workspace doctor`; no se copió nada en este cerebro")))
+            elif skills_pend and not fix and not sello_ileg:
+                out.append(f(WARN, _t("doctor.phase_brain_identity.skills_old",
+                                      "[{name}] faltan skills de la guía para agentes",
+                                      name=name),
+                             ", ".join(pend),
+                             _t("doctor.phase_brain_identity.skills_fix_hint",
+                                "corre `workspace doctor`: copia las skills que faltan y añade un "
+                                "renglón a skills/README.md (y a INDEX-LITE.md, si cabe), con respaldo previo de "
+                                "esos dos archivos; no borra nada")))
+            if reng and not sello_ileg and not agente_ileg and not (skills_pend and not fix):
+                # el catálogo cambió mientras se anotaba (un sync en curso) y se reintenta
+                out.append(f(WARN, _t("doctor.phase_brain_identity.skills_renglon",
+                                      "[{name}] falta el renglón de la guía en el catálogo de skills",
+                                      name=name),
+                             ", ".join(reng),
+                             _t("doctor.phase_brain_identity.skills_renglon_hint",
+                                "otra ventana o el sync cambió ese archivo justo al anotarlo; corre "
+                                "`workspace doctor` cuando termine el sync (lo añade con respaldo "
+                                "previo, no borra nada)")))
+        except Exception as e:
+            out.append(f(WARN, _t("doctor.phase_brain_identity.skills_error",
+                                  "[{name}] skills de la guía sin cambiar", name=name),
+                         "%s: %s" % (type(e).__name__, e),
+                         _t("doctor.phase_brain_identity.left_hint",
+                            "el agente sigue funcionando; revisa ese archivo a mano")))
+    # skills-cierre (tercera puerta de 202611220100): BRAIN.md §5 e INDEX-LITE.md dicen cómo usar una skill a la
+    # vista del socio (usar_skill), con respaldo y una sola vez. Con --fix; sin él, nada que avisar (no es esencial).
+    try:
+        import skills_a_la_vista
+    except Exception:
+        skills_a_la_vista = None
+    for name, brain in (_resolved_brains(ctx) if (skills_a_la_vista and fix) else []):
+        try:
+            hechos = skills_a_la_vista.actualizar(brain, state_dir=sdir, name=name)
+            if hechos:
+                out.append(f(FIXED, _t("doctor.phase_brain_identity.vista_fixed",
+                                       "[{name}] el cerebro ya dice cómo usar las skills a la vista (con respaldo)",
+                                       name=name), ", ".join(hechos)))
+        except Exception as e:
+            out.append(f(WARN, _t("doctor.phase_brain_identity.vista_error",
+                                  "[{name}] cómo usar las skills a la vista, sin cambiar", name=name),
+                         "%s: %s" % (type(e).__name__, e),
+                         _t("doctor.phase_brain_identity.left_hint",
+                            "el agente sigue funcionando; revisa ese archivo a mano")))
+    # puertas nuevas (tercera puerta de 202611221218): las skills de la guía que ya estaban en el cerebro mandan a las
+    # pantallas nuevas del hub, solo si son una versión anterior intacta; con respaldo y una sola vez. Con --fix.
+    try:
+        import skills_puertas_nuevas
+    except Exception:
+        skills_puertas_nuevas = None
+    for name, brain in (_resolved_brains(ctx) if (skills_puertas_nuevas and fix) else []):
+        try:
+            hechos = skills_puertas_nuevas.actualizar(brain, state_dir=sdir, name=name)
+            if hechos:
+                out.append(f(FIXED, _t("doctor.phase_brain_identity.puertas_fixed",
+                                       "[{name}] las skills de la guía ya mandan a las pantallas nuevas del hub "
+                                       "(con respaldo)", name=name), ", ".join(hechos)))
+        except Exception as e:
+            out.append(f(WARN, _t("doctor.phase_brain_identity.puertas_error",
+                                  "[{name}] skills de la guía sin poner al día", name=name),
+                         "%s: %s" % (type(e).__name__, e),
+                         _t("doctor.phase_brain_identity.left_hint",
+                            "el agente sigue funcionando; revisa ese archivo a mano")))
     if not out:
         out.append(f(OK, _t("doctor.phase_brain_identity.ok",
                             "identidad de los agentes al día (formato v2 o viejo respetado)"), ""))
@@ -1843,6 +2236,33 @@ def phase_identidad(ctx, fix):
     return out
 
 
+def phase_pantallas_retiradas(ctx, fix):
+    """5f · Una instalación por sync (sin .git: el update no la toca) conserva lo que la versión ya no trae: código de
+    desarrollo (con él la copia se cree de desarrollo y las pantallas de antes vuelven) o pantallas que una versión
+    borró. Lo dice; con --fix lo aparta a <estado>/backups/pantallas-retiradas/ (no borra nada, no toca cerebros)."""
+    try:
+        import puertas
+    except Exception:
+        return []
+    sobra = puertas.restos(ROOT)
+    if not sobra:
+        return [f(OK, _t("doctor.phase_pantallas.ok", "sin restos de pantallas de antes en esta copia"))]
+    if not fix:
+        return [f(WARN, _t("doctor.phase_pantallas.hay", "esta copia (sin git) trae %d archivo(s) que tu versión ya no "
+                           "trae") % len(sobra), ", ".join(sobra),
+                  _t("doctor.phase_pantallas.accion", "workspace doctor --fix los aparta (con respaldo; nada se borra)"))]
+    hechos, donde = puertas.apartar(sobra, ROOT)
+    out = []
+    if hechos:
+        out.append(f(FIXED, _t("doctor.phase_pantallas.apartados", "aparté %d archivo(s) que tu versión ya no trae")
+                     % len(hechos), donde))
+    quedan = [r for r in sobra if r not in hechos]
+    if quedan:
+        out.append(f(WARN, _t("doctor.phase_pantallas.quedan", "no pude apartar: %s") % ", ".join(quedan), "",
+                     _t("doctor.phase_pantallas.quedan_accion", "revisa los permisos de la carpeta de Workspace")))
+    return out
+
+
 PHASES = [
     ("1 · Prerrequisitos (git · python · CLI del motor)", phase_prereqs),
     ("1b · Rutas en la nube (OneDrive · solo detección)", phase_redirected_paths),
@@ -1856,7 +2276,9 @@ PHASES = [
     ("4d · Quién eres en cada cerebro (identidad de esta máquina)", phase_identidad),
     ("5 · Hooks de cada agente", phase_hooks),
     ("5c · MCPs (solo si los usas)", phase_mcps),
+    ("5e · Conexiones (el mismo chequeo rápido de Ajustes › Conexiones)", phase_sistema_nuevo),
     ("5d · Restos de la instalación anterior", phase_legacy_residue),
+    ("5f · Pantallas de antes (instalación por sync)", phase_pantallas_retiradas),
     ("6 · Comandos (workspace + agentes)", phase_launchers),
     ("7 · Greeter · retención de transcripts", phase_extras),
 ]

@@ -8,6 +8,281 @@ Cómo leer esto: cada versión tiene su número (`MAYOR.MENOR.PARCHE`). Un
 cambio de PARCHE arregla cosas; uno de MENOR trae funciones nuevas sin romper
 nada; uno de MAYOR avisa con tiempo si algo cambia de forma.
 
+## 0.10.0 — 2026-11-23
+
+Trae también todo lo de la 0.9.1 y la 0.9.2 (abajo), que no salieron por
+separado. Donde esas notas y estas digan cosas distintas, vale lo de aquí.
+
+**Novedades**
+- **Un hub nuevo.** `workspace` abre Inicio: la tarjeta de tu agente con su
+  personaje, su motor, «Conversar» y «Sesiones», y arriba las secciones
+  Agentes · Motores · Skills · Calendario · Ajustes · Ayuda. ←→ o un clic trae
+  al agente de al lado. Le escribes a tu agente ahí mismo, y es la misma
+  conversación que ves en el navegador.
+- **Pestañas.** Cada agente puede tener varias conversaciones abiertas, las
+  mismas en el hub y en la página. «+» abre una nueva o una de sus sesiones;
+  cerrar una pestaña no borra nada. En el hub: Ctrl+T, Ctrl+W, Ctrl+←→ y
+  Alt+1…9.
+- **Agregar agente, en una tarjeta.** En Inicio hay un «Agente nuevo»
+  dormido. Al tocarlo eliges cómo se ve (cara, color, nombre, para qué) y con
+  qué motor piensa, y lo despiertas. «Ya tengo un agente» te enseña los que
+  encontró en tu computadora, o pegas o arrastras su carpeta. El primer
+  arranque es esa misma tarjeta.
+- **Archivar y quitar agentes.** «Archivar» lo saca de tus listas sin tocar su
+  carpeta ni sus sesiones, y vuelve con «Traer de vuelta». «Quitar de
+  Workspace» lo desconecta de esta computadora; su carpeta nunca se borra y el
+  aviso te dice dónde queda. Las dos piden confirmar y tienen «Deshacer».
+- **Permisos por agente, en tres niveles.** «Automático (recomendado)» usa el
+  modo automático oficial de su motor, «Editar sin preguntar» lo deja libre
+  dentro de su cerebro y «Preguntar» pregunta todo. **Cambia lo de fábrica:**
+  los agentes que tenías en «su cerebro sin preguntar» pasan a «Automático».
+  Lo cambias por agente en Configuración → Permisos. En los motores sin modo
+  automático con revisión (Codex, Kiro, OpenCode, Hermes y OpenClaw) queda
+  como estaba.
+- **Tus motores abren con el sistema nuevo de Workspace.** Cada motor recibe
+  los hooks, las herramientas y las skills de Workspace en cada sesión, por su
+  camino oficial y sin tocar su configuración global. Se apaga con
+  `workspace sistema-nuevo off` o en Configuración → General.
+- **Conexiones ya revisa y arregla.** En Ajustes › Conexiones (hub y página)
+  ves cada pieza por motor con «Verificar ahora», y después «Arreglar»,
+  «Deshacer» y «Reportar». El doctor dice lo mismo.
+- **La página recuerda.** El tema, el agente y la pestaña en que estabas, tu
+  motor de fábrica y lo que contestaste «Ahora no» se quedan aunque la cierres
+  y la vuelvas a abrir. Después de una actualización, la página que tenías
+  abierta se renueva sola cuando queda libre.
+- **Una guía que sale una sola vez.** La primera vez, el hub y la página te
+  enseñan en cinco pasos dónde está cada cosa. Después la abres con «? Guía».
+- **Ajustes completos en la página:** Usuarios, Calendario, Ayuda, Apariencia
+  y «Cuenta y proveedor» de cada motor.
+- **Actualizar, en una tarjeta.** Ajustes › Actualizaciones ofrece
+  «Actualizar», «Revisar y reparar» y «Solo revisar», con sus pasos a la
+  vista.
+
+**Cambió**
+- **Las pantallas de antes ya no están.** Agentes, Motores, Comandos, Tono,
+  Calendario, Usuarios, Documentación y Actualizaciones ahora son secciones del
+  hub nuevo. `workspace agentes`, `tono`, `calendario`, `comandos` y
+  `conexiones` abren el hub en su sección. Las skills de la guía de tus
+  agentes se actualizan solas para mandarte a las pantallas nuevas, con
+  respaldo, y solo si no las habías editado.
+- **Conversaciones sale del hub, de la página y del manual** mientras se
+  rediseña. Decisores sigue en pausa. La vista de Memoria ya no está en la
+  página; tus agentes siguen guardando su memoria igual.
+- **La página anterior (`/clasico`) ya no se abre.** Con Workspace en inglés
+  se abre la página nueva, en español y con un aviso de una línea.
+- **Antigravity con una cuenta personal de Google.** Motores te avisa: Google
+  prohíbe usar esa cuenta en otras apps y puede suspender tu acceso a
+  Antigravity. Con esa cuenta, la página no le escribe a Antigravity: solo lo
+  miras y lo abres con «Ir a la terminal». Para usarlo completo, pon una API
+  key de Google AI Studio o una cuenta de empresa. Workspace no puede
+  distinguir una cuenta personal de una de empresa al entrar con Google, así
+  que trata todo inicio con Google como personal.
+
+**Arreglos**
+- **Windows: el mouse funciona en el hub** (clic, rueda y pasar por encima),
+  en Windows Terminal y en la consola clásica. Al salir, la consola queda como
+  estaba.
+- **Windows: ya no asoman ventanas negras** al abrir el hub ni al revisar tus
+  motores, y «Ir a la terminal» abre una ventana que sí se ve. Si el motor
+  sale con error, la ventana se queda con el aviso hasta que pulses Enter.
+- **El instalador de Mac y Linux muestra sus cuatro pasos,** reintenta si se
+  cae el internet y espera a que termines de instalar las herramientas de
+  Apple.
+- **El instalador de Windows no cierra la ventana si algo falla** y te ofrece
+  instalar Python.
+
+## 0.9.2 — 2026-11-11
+
+**Novedades**
+- **Revisión de skills a la vista (opcional, apagada por defecto).** Si la
+  enciendes, la revisión de lo que tu agente aprendió corre en una pestaña que
+  ves: con chat, pasos, el motor que elijas, un tope de tokens y Deshacer. Solo
+  cuenta una skill como creada cuando puede comprobar quién la escribió; si no
+  puede, lo dice.
+- **Tus agentes saben usar Workspace.** Cinco skills nuevas (configurar,
+  personalizar y reparar Workspace, calendario y tareas, memoria de la pestaña)
+  y un manual en español e inglés. A los cerebros que ya tienes les llegan solas,
+  con respaldo, y si algo queda pendiente te avisa.
+- **Conversaciones: salir y volver.** `conversar salir` te saca de una sala y
+  `conversar unirse` te regresa. Lo que alguien dijo en una sala nunca se borra
+  ni deja de contar, aunque la Mac y la PC tengan la hora distinta.
+
+- **Workspace en tu navegador, nuevo.** Una entrada del hub (y `workspace web`)
+  abre una página local, solo en esta computadora, con tus agentes, cada uno con
+  su personaje. Se cierra con Ctrl+C o con «Apagar».
+  - **Una conversación por agente que sigue aunque cambies de motor.** Ves el
+    historial de todos sus motores junto, y el motor nuevo sabe lo que se habló
+    con los otros, también cuando regresas a uno que ya habías usado.
+  - **El cambio de motor dice qué está pasando** («Cargando a Zenith en Kiro…»)
+    y no te deja escribir a medias.
+  - **Skills dentro del chat,** con su avance siempre a la vista y botones para
+    lo que te piden. Una skill a la vez por agente.
+  - **El panel de cada agente:** qué está haciendo, el uso de su motor (en
+    Claude Code, el % de tu plan), sus pendientes al día, su tono (12 estilos con
+    ejemplo), sus archivos y su apariencia.
+  - **Crear un agente desde la página,** con el mismo proceso que el hub.
+  - **Modelo, esfuerzo y aprobaciones por motor:** cada motor ofrece solo lo que
+    tiene, y se aplica por su camino oficial.
+  - **Fallas con salida.** Si un motor se queda sin crédito, llega a su límite,
+    pierde la sesión o está saturado, te lo dice en simple y te ofrece seguir con
+    otro motor o reintentar.
+  - **Mientras tu agente trabaja,** lo que lo interrumpiría (cambiar de motor,
+    empezar otra skill) espera, y lo que escribes queda en cola y sale solo.
+  - **Rápida con muchos agentes:** la página se entera de los cambios en vez de
+    preguntarlo todo a cada rato.
+  - **La página solo escribe en la caja de chat del motor:** nunca contesta por
+    ti un menú, un permiso ni una actualización.
+  - **Por ahora en español:** con Workspace en inglés se abre la página anterior,
+    que sigue en `/clasico`.
+- **Decisores se toma una pausa.** Sale de esta versión mientras lo
+  rediseñamos. Tu configuración y tu historial se quedan guardados.
+- **Conexiones, una sección nueva en el hub (solo lectura).** Ves qué MCP
+  tiene cada uno de tus motores, sin tocar nada: si está en el motor, si solo
+  está en Workspace (el motor no lo lee), si el archivo no se pudo leer o si el
+  motor no lo admite. También con `workspace conexiones`.
+
+**Arreglos**
+- **MCPs honestos.** Workspace ya no pisa un MCP que agregaste a mano con el
+  mismo nombre, y ya no dice «conectado» cuando el motor no lo lee. La CLI lo
+  aclara y el doctor muestra la conexión como pendiente.
+- **Tus ajustes no se pierden.** Si `settings.local.json` no se puede leer,
+  Workspace no escribe encima: lo aparta con respaldo o lo deja intacto, y el
+  doctor y `workspace repair` te dicen cuál es.
+- **Una migración trabada en un cerebro ya no frena a los demás**, y desinstalar
+  respeta el mismo candado que el resto.
+- **Proxy.** Si tu proxy local está apagado, el mensaje lo dice («el proxy no
+  está abierto») en vez de «revisa tu internet». Y si la dirección de un decisor
+  local deja de apuntar a esta computadora, Workspace no se conecta sin el proxy.
+- **Windows.** La revisión de skills cierra bien el motor y reconoce las rutas
+  de Windows; el índice ligero de skills ya no se llena por los saltos de línea
+  de Windows.
+- **«Te pregunta antes» vuelve a preguntar.** Según sus notas, desde Claude
+  Code 2.1.284 una sesión interactiva sin modo configurado abre en automático,
+  y desde Antigravity 1.5.7 una sesión sin modo guardado abre en Auto: tus
+  agentes con el acceso automático apagado editaban y corrían comandos sin
+  preguntar. Ahora Workspace les pasa siempre el modo que pregunta (en Claude
+  Code, `manual`, que existe desde la 2.1.200: Workspace necesita esa o una más
+  nueva, y el doctor te lo dice). En Claude
+  Code, un agente con su cerebro sin preguntar también vuelve a pedirte permiso
+  para la terminal y lo de fuera, como dice su ajuste. Con el acceso apagado,
+  el modo que pregunta gana aunque el cerebro diga otro `defaultMode`, y el
+  arranque te avisa.
+- **Agentes y el doctor te dicen qué motores no preguntan antes de actuar:**
+  OpenCode, OpenClaw, Hermes y Cursor no tienen una forma oficial de hacerlo,
+  así que en ellos el interruptor «su cerebro sin preguntar» no aparece.
+- **El doctor y Motores te dicen si tu motor es la versión probada,** también
+  en Claude Code, Codex y Antigravity, con una sola lista de versiones por
+  motor (antes había dos y daban avisos falsos). Probadas hoy en esta Mac:
+  Claude Code 2.1.326, Codex 0.169.0, Kiro 3.3.0 y Cursor 2026.11.13.
+- **Claude Code ya no se actualiza solo dentro de Workspace** (con su variable
+  oficial; tu configuración no se toca). Actualizar sigue siendo tuyo, con
+  `claude update`.
+- **Una skill que arrancas desde la página ya no se traba pidiendo permiso**
+  en GitHub Copilot, Cursor, Kiro y Antigravity: el agente cuenta su avance con
+  la herramienta de Workspace, aprobada por su nombre y sin pasar por la
+  terminal, también en Windows. Si el cerebro le dice a tu
+  agente que guarde memoria con `workspace memoria nota`, en esos motores ahora
+  sabe que es su herramienta, que no te pregunta.
+- **En Claude Code, el avance de una skill ya no se traba en un permiso.** La
+  página le pide a tu agente contarlo con `workspace pasos` (en Windows,
+  `workspace.cmd pasos`): el comando completo, solo y en una línea. Va aprobado
+  como `workspace memoria`. Antes le daba la ruta de `pasos.py` para que la
+  abreviara, y el agente la metió en una función de la terminal, que Claude Code
+  siempre pregunta. Si un motor igual te pide permiso para contar su avance, la
+  página te lo dice así, con Permitir y No, también cuando Claude Code tiene
+  abierto su panel de archivos.
+- **Kiro ya no te pide permiso para leer su cerebro al arrancar:** Workspace le
+  pide leerlo con su herramienta de leer archivos, no con la terminal.
+- **La página abre sus pestañas en el herdr de su sesión** (`HERDR_SESSION` o
+  `HERDR_SOCKET_PATH`), también en Windows, donde podía abrirlas en tu herdr
+  de siempre aunque le dijeras otra sesión.
+- **Si la llave del proveedor de tu motor vence o no vale** (Hermes con
+  OpenRouter: «HTTP 401: API key expired»), la página te lo dice en una tarjeta
+  y te lleva a Motores. Un agente que solo habla de llaves ya no se toma por
+  un error.
+- **Si cambias a un motor sin crédito, la página te lo dice en segundos:**
+  «No pude cambiar a GitHub Copilot», con el porqué y «Volver a» el de antes.
+  Antes seguía «abriendo» dos minutos. Pasa igual con el límite del plan, una
+  sesión vencida o una llave que no vale. Además, la tarjeta del error nombra
+  al motor que lo tiene, no al de antes.
+- **Al arrancar, tu agente ya no te pide permiso para reportar su revisión de
+  skills.** Workspace le pide usar su herramienta (`revision_resultado`) y, si
+  no la tiene, el comando `workspace revision resultado` solo, en su propia
+  línea; en Claude Code va aprobado como `workspace memoria`. Antes Antigravity
+  lo encadenó con otro comando y te preguntó «Run this command?».
+- **El botón de modelo de Claude Code ya no cambia el modelo de tus otras
+  sesiones.** Tecleaba `/model`, que Claude Code guarda como el modelo de todas
+  tus sesiones nuevas: tus otros agentes y la terminal. Ahora lo que eliges va
+  solo en la conversación de ese agente y se aplica al reabrirla («Reabrir
+  ahora»). Y se queda: también cuando vuelves a Claude Code desde otro motor.
+- **Una skill que no llegó a arrancar ya no le llega después a otro motor:** si
+  cambias de motor o la detienes en la página, Workspace deja de esperar para
+  dársela.
+- **Las teclas que mandas desde la página llegan a la terminal del motor:**
+  Ctrl+U y las demás combinaciones con Ctrl van con el nombre que entiende
+  herdr. Inicio, Fin, RePág, AvPág, Supr y Shift+Tab ya no se mandan (herdr no
+  las tiene) en vez de responder «ya no está», que no era cierto.
+- **Codex ya no te ofrece actualizarse al abrir dentro de Workspace** (una
+  tecla lo aceptaba); actualizar sigue siendo tuyo, con su instalador.
+- **OpenClaw en Windows:** el aviso del modo de una sola ventana roto cubre
+  también las 2026.11.x estables.
+- **Conexiones lee la configuración de Hermes** aunque traiga listas escritas
+  a la manera corta de YAML.
+
+## 0.9.1 — 2026-11-10
+
+**Novedades**
+- **Decisores te dice qué pasó después.** El Historial separa una opinión de
+  un resultado comprobado, con la columna «¿pasó?». Solo dice «sí» cuando hay
+  prueba; las decisiones de antes, que no guardaban ese dato, lo dicen así.
+  En el hub y en la ventanita, «◆ Decisores hoy» junta solo los resultados
+  comprobados, y cada cifra abre su detalle.
+- **Las revisiones de skills que se quedaron pendientes se ven.** Si una
+  revisión no dejó resultado, Workspace la pide una segunda y última vez, y la
+  ves en el hub y en la ventanita con «Hacer ahora». Cada revisión es de la
+  pestaña que la generó. Cuenta como hecha solo si esa pestaña escribió la
+  skill o reportó que no había nada que mejorar: el cambio de otra pestaña no
+  cuenta. Revisar no siempre crea una skill.
+- **Más claro quién decide y para qué.** Cada uso dice qué hace en su nivel
+  actual y qué modelo usa de verdad, y puedes hacer que todos sigan al
+  general. El historial de ajustes guarda quién cambió qué.
+
+**Arreglos**
+- **Sin internet, Decisores dice «sin conexión».** Antes parecía
+  descompuesto. Ahora distingue entre no encontrar el servidor, conexión
+  rechazada y conexión lenta. La llave sigue guardada y el aviso dice cuándo
+  reintenta. Si Ollama está cerrado, dice que no está abierto.
+- **Los avisos de las conversaciones se comprueban.** Si un agente no leyó el
+  aviso que Workspace le escribió en su panel, se le vuelve a avisar una vez.
+  Si tampoco lo lee, la conversación lo dice («avisé a X pero no lo leyó») y
+  te deja [v] Avisar. Dos avisos al mismo panel ya no se mezclan en uno.
+- **Si una pestaña de Claude Code sigue trabajando en segundo plano, el hub
+  te conecta a ella** (`claude attach`) en vez de dejarte en la terminal con
+  «That session is running in the background». En Mac y en Windows.
+- **El hub en reposo gasta menos CPU.** Ya no relee los temas en cada
+  repintado.
+- **Varios pedidos vencidos se atienden juntos.** Puedes darles 30 minutos
+  más o cancelarlos todos a la vez (cancelar todos pide confirmación). Quien
+  hizo un pedido también puede cancelarlo desde la terminal.
+- **Pausar una conversación pide confirmación.** El primer toque explica qué
+  hará y el segundo pausa. Reanudar sigue siendo directo.
+- **Los vencimientos dicen el día**, por ejemplo «mañana 12:00», en lugar de
+  una hora que parecía de hoy.
+- **En Windows, los avisos de las conversaciones usan el Python de
+  Workspace.** Ya no abren la Microsoft Store en PCs donde Python arranca con
+  `py -3`.
+- **El calendario respeta el estado al desmarcar una tarea.** Una tarea lista
+  que nadie había tomado vuelve a LISTA. Las que terminó un agente, o que ya
+  estaban tomadas, vuelven a BORRADOR para que no se ejecuten otra vez por
+  error.
+- **Doctor detecta el hook roto después de reinstalar Workspace.** Si borraste
+  Workspace y lo instalaste de cero, Claude Code bloqueaba cada mensaje. Doctor
+  lo repara en los cerebros cargados o registrados en esta máquina sin pisar
+  lo que otra ventana haya cambiado, y para los demás te dice cómo hacerlo
+  desde Agregar agente.
+- **Decisores cabe mejor en ventanas chicas.** El Historial mantiene visible
+  la decisión elegida y muestra la fecha de los días anteriores.
+
 ## 0.9.0 — 2026-11-09
 
 **Novedades**

@@ -74,9 +74,19 @@ workspace.json`; doc «custom agents», https://kiro.dev/docs/custom-agents/:
 el del proyecto gana al global del mismo nombre y solo carga con la carpeta
 de confianza, por eso va `--trust-workspace`), elegido POR CORRIDA
 (`--agent workspace`) salvo que el socio elija agente o motor. La identidad va
-en el AGENTS.md (no hace falta `.kiro/steering/`) y Workspace no usa hooks de
-Kiro. Lo que una versión anterior dejaba en `~/.kiro` (el agente global y los
-segmentos de la barra) lo quita la migración 202611052341_kiro_config_en_el_cerebro.
+en el AGENTS.md (no hace falta `.kiro/steering/`). Lo que una versión anterior
+dejaba en `~/.kiro` (el agente global y los segmentos de la barra) lo quita la
+migración 202611052341_kiro_config_en_el_cerebro.
+
+HOOKS Y MCP NÚCLEO (cable-kiro, 19-nov): con el paquete por sesión encendido,
+el MISMO agente `workspace` lleva también los hooks del paquete (en línea en el
+perfil, doc «hooks», https://kiro.dev/docs/hooks/), el servidor MCP núcleo
+`workspace` aprobado por nombre y las skills del paquete de ese cerebro
+(memoria_mcp.kiro_paquete; ficha `sesion.perfil`). Corren solo con ese agente y
+se van con él al desinstalar. VERIFICADO 3.5.0 (`chat --no-interactive --v3`,
+caja negra): corren SessionStart, UserPromptSubmit, PreToolUse,
+PermissionRequest, PostToolUse y Stop; la línea 2.x sigue cargando el perfil.
+Por ACP (la página) Kiro no corre hooks: ahí los momentos llegan por ACP.
 
 El agente sirve en las dos líneas (doc «agent configuration reference»: V3
 carga un archivo con `permissions` aunque traiga los campos de 2.x):
@@ -138,7 +148,7 @@ CAPABILITIES = {
 BINARY = "kiro-cli"
 
 #: Versiones del CLI oficial con las que se VERIFICARON las lecturas de este
-#: adapter (engine_versions: doctor avisa si la instalada es de otra línea).
+#: adapter (historial).
 #: 2.34.0 (macOS, 2026-10-28). 2.35.1 (macOS, cuenta real, 2026-10-29: chat V2,
 #: sesiones en sessions/cli/; checklist e2e con dos agentes). Kiro anuncia la
 #: 3.0 para fin de octubre de 2026 y se actualiza solo: verificar y agregar en
@@ -152,7 +162,8 @@ BINARY = "kiro-cli"
 # 3.1.0 (2026-11-05, macOS, cuenta real, sin ventana): el agente del cerebro carga
 # en V2 y V3; escribir en el cerebro no pregunta, fuera pregunta y `.kiro/` se
 # niega (tests/e2e/kiro_permisos.py). Las sesiones (§3.2) siguen sin verificar en 3.x.
-VERIFIED_VERSIONS = ("2.34.0", "2.35.1", "2.35.2", "2.37.0", "2.37.1")
+#: La lista de versiones PROBADAS es una sola: la del parser de este motor
+#: (engine_versions.verified); lo de arriba es el historial de este adapter.
 #: `--trust-workspace` existe desde la 2.34 (doc oficial «permissions»).
 TRUST_FLAG_SINCE = (2, 34)
 
@@ -749,6 +760,15 @@ def inject_context(cfg, session_context=""):
     return opencode.inject_agents_md(cfg, session_context=session_context, engine="kiro")
 
 
+#: H2 (prueba de punta a punta v2, 17-nov): tras un cambio de motor Kiro leía el
+#: cerebro con `cd … && cat BOOT/0*.md … | head -300` en su terminal, que pregunta.
+#: Leer el cerebro ya lo tiene permitido (fs_read `./**` del agente `workspace`,
+#: memoria_mcp.kiro_agente_config): el arranque le pide esa herramienta. La
+#: terminal no se aprueba (en Kiro 3.0 una regla de terminal dejó colar otro comando).
+LEER_SIN_TERMINAL = ("Lee esos archivos con tu herramienta para leer archivos, no con la "
+                     "terminal: leer tu cerebro no pide permiso y la terminal sí.")
+
+
 def _identity_doc(cfg):
     from engines import opencode
     return opencode._identity_doc(cfg)
@@ -1009,6 +1029,14 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
                 autonomia=_autonomy(cfg)))
         except Exception:
             pass
+        try:
+            from arquitectura import contrato, sesion as _sesion
+            lleva = _sesion.activo() and bool((contrato.ficha("kiro").get("sesion") or {}).get("perfil"))
+        except Exception:
+            lleva = False
+        print("  paquete     : " + ("hooks del paquete y MCP núcleo `workspace` en ese mismo agente "
+                                    "(memoria_mcp.kiro_paquete)" if lleva else
+                                    "apagado: el agente lleva solo la memoria"))
         print("  barra       : la nativa de Kiro, sin tocar (uso y créditos se prenden en "
               "su /settings display)")
         print("  config      : solo en el cerebro (.kiro/agents/workspace.json); nada en "
@@ -1155,9 +1183,10 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
     # Arranque del cerebro como codex/opencode: un launch PELADO de una sesión
     # NUEVA arranca solo (mensaje posicional: VERIFICADO, Kiro lo envía al
     # abrir); al retomar no se inyecta nada. Lo que pase el socio manda.
+    import memoria
     boot = first_prompt or ("" if (passthrough or resumed) else
-                            "Lee %s e inicia el cerebro. Al terminar, confirma en una "
-                            "línea breve." % _identity_doc(cfg))
+                            "Lee %s e inicia el cerebro. %s %s"
+                            % (_identity_doc(cfg), LEER_SIN_TERMINAL, memoria.fin_arranque()))
     if boot and os.name == "nt":
         import memoria
         boot = memoria.argv_seguro(boot)

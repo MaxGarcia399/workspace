@@ -1,7 +1,7 @@
 {
  "motor": "codex",
- "version": "0.164.0",
- "actualizado": "2026-10-27",
+ "version": "0.169.0",
+ "actualizado": "2026-11-16",
  "nota": "Cédula de conformidad de las métricas: `version` es la versión certificada (con golden en tests/fixtures/metricas/codex/0.164.0/ y en VERIFIED_VERSIONS). El historial registra cada verificación: nivel kit (fixture), mínimo (headless real) o completo (consola real con la X). runbooks/agregar-motor.md §3b.",
  "historial": [
   {
@@ -68,6 +68,29 @@
    "fallos": [],
    "parser": "codex/2",
    "notas": "parsers g2: el `cat no-existe.txt` cuenta en comandos_no_cero, no en errores"
+  },
+  {
+   "version": "0.169.0",
+   "so": "mac",
+   "nivel": "minimo",
+   "veredicto": "pasa",
+   "fecha": "2026-11-16",
+   "costo_usd_aprox": 0,
+   "intentos": 1,
+   "modelo": "el del motor",
+   "parser": "codex/2",
+   "fuente": "tests/e2e/metricas_viva.py",
+   "fallos": []
+  },
+  {
+   "version": "0.169.0",
+   "so": "mac",
+   "nivel": "kit",
+   "veredicto": "pasa",
+   "fecha": "2026-11-16",
+   "costo_usd_aprox": 0,
+   "fuente": "tests/fixtures/metricas/codex/0.169.0 (captura real G1 nivel mínimo)",
+   "parser": "codex/2"
   }
  ]
 }

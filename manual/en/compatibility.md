@@ -91,7 +91,7 @@ modes that skip every permission.
 | Codex | `-s workspace-write -a on-request`, with network off | `-s read-only -a on-request`: asks for approval to edit or run anything |
 | Antigravity | `--mode accept-edits` and the `write_file(<brain>)` rule | no `--mode`; the rule stays `read_file(<brain>)` |
 
-Change it in **Agents** (pick the agent and Enter) (see [Permissions](engines.md#permissions)).
+Change it in the hub, in **Settings › Permissions** (see [Permissions](engines.md#permissions)).
 
 - In a windowless task, anything that would ask is denied.
 - **Codex:** with *brain*, its commands run without asking **inside its sandbox**: they can only
@@ -107,7 +107,7 @@ Change it in **Agents** (pick the agent and Enter) (see [Permissions](engines.md
 
 ## Your keys: which engine can read them
 
-Workspace keeps the keys you give it (for example, a decision model's) in its vault, outside
+Workspace keeps the keys you give it in its vault, outside
 your brain (see [Privacy](privacy.md#credentials)). No engine gets it through the environment.
 On top of that, for the engines that have rules for it, Workspace denies them **reading the
 vault** (the file `~/.claude/workspace/secrets.local` and the folder

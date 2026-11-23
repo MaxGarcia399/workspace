@@ -93,6 +93,13 @@ def _alive(pid):
     if not pid:
         return False
     try:
+        from control import hijos               # en Windows la señal 0 es un Ctrl+C: por su API, sin señales
+        return bool(hijos.vivo(pid))
+    except ImportError:
+        pass
+    if os.name == "nt":
+        return False
+    try:
         os.kill(int(pid), 0)
         return True
     except (OSError, ValueError):

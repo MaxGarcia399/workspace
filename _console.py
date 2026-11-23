@@ -64,3 +64,19 @@ def interactive():
     una TUI que lee teclado y repinta (hub, picker, pantallas completas).
     Si cualquiera está redirigido (pipe, archivo, NUL) → False."""
     return is_console(sys.stdin) and is_console(sys.stdout)
+
+
+def ansi():
+    """Enciende el ANSI de la consola en Windows 10+ con el truco de siempre (`os.system("")`: el cmd.exe deja
+    prendido el modo VT de la consola). Solo si este proceso TIENE consola: sin ella (la página `front.py web
+    --fondo`, lanzada DETACHED, importa front.py y dispatch.py) ese cmd.exe abría su propia ventana un instante.
+    No-op fuera de Windows."""
+    if os.name != "nt":
+        return
+    try:
+        import arbol_procesos
+        if not arbol_procesos.hay_consola():
+            return
+    except Exception:
+        pass
+    os.system("")

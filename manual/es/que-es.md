@@ -18,7 +18,7 @@ Agente = identidad + cerebro + motor
 
 - **Configura y abre tus motores oficiales**, con tu cuenta. El motor sigue siendo el que
   habla con el modelo.
-- Un **menú (el hub)** para elegir un agente y entrar con una tecla.
+- El **hub**, para elegir un agente y hablarle con una tecla.
 - Le da a cada agente su memoria al arrancar, para que no empiece de cero cada vez.
 - Te deja **cambiar de motor** sin rehacer al agente.
 - Se **revisa y repara solo** (`workspace doctor`) y se **actualiza solo**.

@@ -1,7 +1,7 @@
 {
  "motor": "opencode",
  "version": "2.1.4",
- "actualizado": "2026-10-27",
+ "actualizado": "2026-11-16",
  "nota": "Cédula de conformidad de las métricas: `version` es la versión certificada (con golden en tests/fixtures/metricas/opencode/2.1.4/ y en VERIFIED_VERSIONS). El historial registra cada verificación: nivel kit (fixture), mínimo (headless real) o completo (consola real con la X). runbooks/agregar-motor.md §3b.",
  "historial": [
   {
@@ -26,6 +26,22 @@
     "TZ"
    ],
    "parser": "opencode/2"
+  },
+  {
+   "version": "2.1.4",
+   "so": "mac",
+   "nivel": "completo",
+   "veredicto": "invalida",
+   "fecha": "2026-11-16",
+   "costo_usd_aprox": 0.0261,
+   "intentos": 3,
+   "modelo": "el del motor",
+   "parser": "opencode/3",
+   "fuente": "tests/e2e/metricas_viva.py",
+   "fallos": [
+    "pasos del guion"
+   ],
+   "notas": "opencode 2.1.4. Los 3 intentos hicieron los pasos 1-3 y 6, con exactamente 2 filas de 2.1.4 (kit ya aislado), pero el kit nunca vio una herramienta en curso que interrumpir (paso 4): el guion del nivel completo no alcanzó a interrumpir con el modelo de la cuenta."
   }
  ]
 }

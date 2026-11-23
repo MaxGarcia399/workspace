@@ -684,6 +684,7 @@ def send(from_agent, to_agent, type, subject, body="", requires_approval=False,
             return []
         ts = _dt.datetime.now()
         ids = []
+        enviados = []
         for target in targets:
             to = _safe_name(target)
             brain = bm.get(target) or bm.get(to) or ""
@@ -694,9 +695,25 @@ def send(from_agent, to_agent, type, subject, body="", requires_approval=False,
                              extra=extra, nuevo_hilo=nuevo_hilo)
             if mid:
                 ids.append(mid)
+                enviados.append(to + ":" + extra["para_sesion"] if extra["para_sesion"] else to)
+        if ids:
+            _decisores_mandado(enviados)
         return ids
     except Exception:
         return []
+
+
+def _decisores_mandado(destinos):
+    """Decisores («Repartir», ¿pasó?): esta pestaña le mandó algo a `destinos`.
+    Apagado: nada (decision_visible.tras_mandar no lee ni escribe)."""
+    from decisions import decisores_activos
+    if not decisores_activos():
+        return
+    try:
+        import decision_visible
+        decision_visible.tras_mandar(destinos)
+    except Exception:
+        pass
 
 
 def _write_one(brain, sender, to, mtype, subj, body, approval, ts, extra=None,
@@ -1884,7 +1901,7 @@ def _me_retiro(otra):
 
 def _bus_cmd():
     """El comando del bus como lo imprimen los help: (salas._bus): con la ruta
-    RESUELTA y la forma de la plataforma — en Windows `python "C:\\…\\messages.py"`
+    RESUELTA y la forma de la plataforma — en Windows `C:/…/python.exe "C:\\…\\messages.py"`
     (`python3` puede abrir la Microsoft Store y una ruta relativa solo sirve
     desde la carpeta de Workspace); en Mac/Linux `python3 "/…/messages.py"`."""
     try:

@@ -1,0 +1,118 @@
+/* ===== boceto: el escritorio de ejemplo alrededor del monito (no viaja a la app) ===== */
+*{box-sizing:border-box}
+html{background:#0e0e10}
+body.wsm-boceto{margin:0;min-height:100%;background:#0e0e10;color:var(--tx);font:15px/1.55 var(--sans);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+.wsm-boceto h1,.wsm-boceto h2,.wsm-boceto p{margin:0}
+.wsm-boceto button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+.wsm-boceto code{font:13px var(--mono);background:#1d1d21;border-radius:6px;padding:1px 6px;color:#d6d6dc}
+.bc-top>kbd,.bc-lead kbd{font:650 12px var(--sans);padding:1px 7px;border-radius:6px;border:1px solid #3a3a42;border-bottom-width:2px;color:var(--tx);background:#1b1b1f}
+
+.bc-top{max-width:1240px;margin:0 auto;padding:34px 28px 6px;--ac:#ff4fa3;--acx:#ffffff}
+.bc-ceja{font-size:12.5px;font-weight:650;color:var(--tx3);letter-spacing:.02em;margin-bottom:6px}
+.bc-top h1{font-size:30px;line-height:1.15;font-weight:750;letter-spacing:-.01em}
+.bc-lead{margin-top:10px!important;max-width:780px;color:var(--tx2);font-size:15.5px}
+.bc-estados{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px}
+.bc-estados .chip{padding:7px 14px;font-size:13.5px}
+.bc-estados .chip small{font-size:11px;font-weight:700;color:var(--tx3);margin-left:2px}
+.bc-estados .chip.p small{color:inherit;opacity:.7}
+.bc-estados .chip.rec{gap:8px}
+.bc-estados .chip.rec svg{flex:none}
+.bc-estados .sep{width:1px;align-self:stretch;margin:4px 4px;background:#2a2a30}
+
+/* ---------- el escritorio de ejemplo ---------- */
+.bc-esc{position:relative;max-width:1184px;height:clamp(560px,calc(100vh - 272px),720px);margin:18px auto 0;border-radius:18px;overflow:hidden;border:1px solid #23232a;
+  background:radial-gradient(900px 520px at 18% 8%,#2c3554 0%,transparent 62%),radial-gradient(800px 640px at 92% 96%,#3b2442 0%,transparent 60%),
+  radial-gradient(700px 400px at 70% 30%,#1f3b3a 0%,transparent 70%),#15161c;box-shadow:0 30px 80px rgba(0,0,0,.45)}
+@media (max-width:1240px){.bc-esc{margin:18px 28px 0}}
+.bc-menu{position:absolute;left:0;right:0;top:0;height:30px;display:flex;align-items:center;gap:18px;padding:0 16px;
+  background:rgba(14,14,18,.72);border-bottom:1px solid rgba(255,255,255,.05);font-size:13px;color:#d9d9e0;white-space:nowrap}
+.bc-menu .bc-app{font-weight:700}
+.bc-der{margin-left:auto;display:flex;align-items:center;gap:14px}
+.bc-kbd{display:inline-flex;gap:3px}
+.bc-kbd kbd{font:650 11px/1 var(--sans);padding:3px 6px;border-radius:5px;background:#26262c;border:1px solid #3a3a42;border-bottom-width:2px;color:#e9e9ee}
+.bc-kbd.pulsa kbd{animation:wsm-tecla .35s var(--ease) 2;background:#ff4fa3;color:#fff;border-color:#ff4fa3}
+.bc-nw{white-space:nowrap}
+.bc-hora{color:#b9b9c2;font-variant-numeric:tabular-nums}
+
+.bc-ventana{position:absolute;left:4.5%;top:58px;width:min(820px,66%);bottom:34px;border-radius:12px;overflow:hidden;background:#fbfbfc;color:#1f2328;
+  box-shadow:0 30px 70px rgba(0,0,0,.5),0 0 0 1px rgba(0,0,0,.2);font-size:13.5px}
+.bc-tit{height:38px;display:flex;align-items:center;gap:8px;padding:0 14px;background:#eceef1;border-bottom:1px solid #dcdfe4}
+.bc-tit i{width:12px;height:12px;border-radius:50%;background:#cfd2d8}
+.bc-tit i:nth-child(1){background:#ff6159}.bc-tit i:nth-child(2){background:#ffbd2e}.bc-tit i:nth-child(3){background:#28c941}
+.bc-tit b{flex:1;text-align:center;margin-right:52px;font-weight:650;color:#4a4f57;font-size:13px}
+.bc-herr{display:flex;gap:4px;padding:8px 12px;border-bottom:1px solid #e3e5e9;background:#f6f7f9;overflow:hidden}
+.bc-herr button{padding:6px 12px;border-radius:7px;color:#2f343b;font-size:13px;font-weight:550}
+.bc-herr button:hover{background:#e7e9ee}
+.bc-formula{display:flex;align-items:center;gap:10px;padding:6px 12px;border-bottom:1px solid #e3e5e9;font-size:12.5px;color:#4a4f57}
+.bc-formula span{min-width:44px;padding:2px 8px;border:1px solid #d6d9df;border-radius:5px;text-align:center;font-weight:600}
+.bc-formula code{background:none;padding:0;color:#2f343b;font-size:12.5px}
+.bc-hoja{display:grid;grid-template-columns:40px minmax(120px,1.3fr) repeat(4,minmax(90px,1fr));font-variant-numeric:tabular-nums}
+.bc-hoja>div{height:33px;display:flex;align-items:center;padding:0 10px;border-right:1px solid #eceef1;border-bottom:1px solid #eceef1;white-space:nowrap;overflow:hidden}
+.bc-hoja .h{background:#f2f3f5;color:#6b7079;font-size:12px;font-weight:600;justify-content:center}
+.bc-hoja .n{background:#f2f3f5;color:#8a8f98;font-size:12px;justify-content:center}
+.bc-hoja .t{font-weight:650;color:#1f2328}
+.bc-hoja .num{justify-content:flex-end}
+.bc-hoja .colC{background:#fff}
+.bc-hoja .colC.sel{background:#eef4ff}
+.bc-hoja .colC.hecho{animation:bc-celda .7s var(--ease)}
+@keyframes bc-celda{0%{background:#c9f2dc}100%{background:#fff}}
+
+/* ---------- galería de estados ---------- */
+.bc-sec{max-width:1240px;margin:0 auto;padding:44px 28px 0}
+.bc-sec h2{font-size:21px;font-weight:720;letter-spacing:-.005em}
+.bc-sub{margin-top:6px!important;color:var(--tx2);font-size:14.5px;max-width:760px}
+.bc-gal{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-top:18px}
+.bc-card{position:relative;background:#141416;border:1px solid #222227;border-radius:18px;padding:16px 16px 15px;min-height:236px;display:flex;flex-direction:column}
+.bc-esc2{position:relative;height:130px;border-radius:14px;background:var(--rail);border:1px solid #1b1b1f;display:flex;align-items:flex-end;justify-content:center;padding-bottom:14px;overflow:visible}
+.bc-esc2 .col{display:flex;flex-direction:column;align-items:center}
+.bc-esc2 .ray7{margin-top:7px}
+.bc-card h3{margin:13px 0 0;font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px}
+.bc-card h3 small{font-size:11px;font-weight:750;color:var(--tx3);border:1px solid #2c2c33;border-radius:999px;padding:0 7px;line-height:18px}
+.bc-card p{margin-top:3px!important;color:var(--tx2);font-size:13px;line-height:1.45}
+.bc-card .quien{position:absolute;top:24px;left:26px;font-size:11.5px;font-weight:650;color:var(--tx3)}
+.bc-mini-barra{position:absolute;left:12px;right:12px;top:12px;height:30px;border-radius:10px;background:var(--card);border:1px solid #2b2b31;display:flex;align-items:center;padding:0 10px;font-size:12px;color:var(--tx2);overflow:hidden;white-space:nowrap}
+.bc-mini-barra i{display:inline-block;width:2px;height:14px;margin-left:1px;background:var(--tx);animation:lat 1s steps(2) infinite}
+.bc-mini-boton{position:absolute;right:16px;top:26px;padding:5px 11px;border-radius:8px;background:#f6f7f9;color:#2f343b;font-size:12px;font-weight:600;
+  box-shadow:0 0 0 2px var(--c),0 0 18px color-mix(in srgb,var(--c) 50%,transparent);animation:wsm-pulso 1.3s ease-in-out infinite}
+.bc-mini-pasos{position:absolute;left:16px;right:16px;top:20px;display:flex;gap:4px}
+.bc-mini-pasos b{flex:1;height:5px;border-radius:999px;background:color-mix(in srgb,var(--c) 22%,#2a2a30)}
+.bc-mini-pasos b.h{background:var(--c)}.bc-mini-pasos b.a{background:var(--c);animation:lat 1s ease-in-out infinite}
+
+/* ---------- terminal ---------- */
+.bc-term{margin-top:18px;border-radius:14px;overflow:hidden;background:#0a0a0c;border:1px solid #222227;max-width:860px}
+.bc-term-t{height:34px;display:flex;align-items:center;gap:8px;padding:0 14px;background:#151518;border-bottom:1px solid #1f1f24;font-size:12.5px;color:var(--tx3)}
+.bc-term-t i{width:11px;height:11px;border-radius:50%;background:#2c2c33}
+.bc-term-t span{margin-left:8px}
+.bc-term pre{margin:0;padding:16px 18px 18px;min-height:250px;font:13px/1.65 var(--mono);color:#d4d4da;white-space:pre-wrap;word-break:break-word}
+.bc-term .pr{color:#7d7d88}.bc-term .ag{font-weight:700}.bc-term .gr{color:#7d7d88}.bc-term .am{color:var(--warn)}
+.bc-term .cur{display:inline-block;width:8px;height:15px;vertical-align:-3px;background:#d4d4da;animation:lat 1s steps(2) infinite}
+
+.bc-pie{max-width:1240px;margin:0 auto;padding:40px 28px 48px;color:var(--tx3);font-size:13px}
+
+/* ---------- teléfono / ventanas angostas ---------- */
+@media (max-width:820px){
+  .bc-top{padding:22px 16px 4px}
+  .bc-top h1{font-size:25px}
+  .bc-lead{font-size:14.5px}
+  .bc-estados{gap:6px;margin-top:16px}
+  .bc-estados .chip{padding:6px 11px;font-size:12.5px}
+  .bc-estados .sep{display:none}
+  .bc-esc{margin:14px 12px 0;height:680px;border-radius:16px}
+  .bc-menu{gap:12px;padding:0 12px;font-size:12px}
+  .bc-ocultable,.bc-hora{display:none}
+  .bc-ventana{left:10px;right:10px;width:auto;top:42px;bottom:auto;height:430px}
+  .bc-hoja{grid-template-columns:30px minmax(86px,1.2fr) repeat(2,minmax(80px,1fr))}
+  .bc-hoja .xD,.bc-hoja .xE,.bc-hoja .xF{display:none}
+  .bc-sec{padding:34px 16px 0}
+  .bc-gal{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .bc-card{min-height:226px;padding:12px}
+  .bc-card p{font-size:12.5px}
+  .bc-term pre{font-size:11.5px;padding:12px 12px 14px}
+  .bc-pie{padding:32px 16px 40px}
+}
+
+/* capturas (#estado=…): solo el escritorio de ejemplo, a lo alto de la ventana */
+.bc-captura .bc-top,.bc-captura .bc-sec,.bc-captura .bc-pie{display:none}
+.bc-captura .bc-esc{height:calc(100vh - 36px);max-width:none;margin:18px}
+/* (las animaciones CSS no avanzan en el Chrome sin ventana con tiempo virtual: en la captura, la burbuja ya abierta) */
+.bc-captura .wsm-globo,.bc-captura .wsm-barra{animation:none!important}

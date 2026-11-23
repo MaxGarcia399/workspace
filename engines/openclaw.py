@@ -86,11 +86,11 @@ CAPABILITIES = {
 BINARY = "openclaw"
 
 #: Versiones del CLI oficial con las que se VERIFICARON las lecturas de este
-#: adapter (engine_versions: doctor avisa si la instalada es de otra línea).
-#: Al verificar una versión nueva, agrégala aquí (runbooks/agregar-motor.md).
+#: adapter (historial).
 #: 2026.5.12 (agents.list[i]) · 2026.9.33 y 2026.10.4 (agents.entries.<id>,
 #: gateway; 10.4 VERIFICADA en Windows con gateway el 2026-10-16).
-VERIFIED_VERSIONS = ("2026.5.12", "2026.9.33", "2026.10.4")
+#: La lista de versiones PROBADAS es una sola: la del parser de este motor
+#: (engine_versions.verified); lo de arriba es el historial de este adapter.
 #: Política «la más nueva por defecto» (2026-10-16): Workspace instala `latest`
 #: y se adapta; solo frena un bug COMPROBADO, en su modo y plataforma, con la
 #: salida «abrir de todos modos» (engine_versions.allow_anyway).
@@ -99,13 +99,18 @@ VERIFIED_VERSIONS = ("2026.5.12", "2026.9.33", "2026.10.4")
 #: «initial message not sent» (DataCloneError por el env Proxy de Windows,
 #: regresión de openclaw#164354). Con el GATEWAY la 10.4 funciona (conecta,
 #: responde y carga el historial): el bug solo pega en el modo de respaldo de
-#: una ventana. Al verificar una versión que lo arregle, acota `to`.
+#: una ventana. Sigue en las stable 2026.11.x (issue openclaw#195962 abierto, lo
+#: reproduce en 10.10 y 11.1; el arreglo está solo en main y 2026.11.5-beta; las
+#: notas de 11.3 y 11.4 no lo nombran). Al verificar una stable que lo arregle, acota `to`.
 KNOWN_BROKEN = (
-    {"platforms": ("win32",), "modes": ("local",), "from": "2026.10.0", "to": "2026.10.99",
-     "why": "OpenClaw 2026.10 tiene un bug en Windows en el modo de una sola ventana "
-            "(sin gateway): no carga el historial ni envía mensajes",
-     "hint": "revisa por qué no se pudo encender el gateway (workspace doctor), o "
-             "usa la 2026.9.33: npm install -g openclaw@2026.9.33"},
+    {"platforms": ("win32",), "modes": ("local",), "from": "2026.10.0", "to": "2026.11.4",
+     "why": "OpenClaw 2026.10 y 2026.11 tienen un bug en Windows en el modo de una sola "
+            "ventana (sin gateway): no carga el historial ni envía mensajes",
+     # Sin bajar de versión: la 9.33 ya no es de las probadas y Motores la llama
+     # «vieja · actualiza», que devuelve a la 11.x rota (revisión ciega 16-nov).
+     "hint": "usa el modo con gateway, que sí funciona: `workspace doctor` te dice por qué "
+             "no encendió. El arreglo está en la beta de OpenClaw; cuando salga en una "
+             "estable, Workspace lo marca"},
 )
 #: Perfil PROPIO de Workspace (aísla estado/config en ~/.openclaw-<perfil>).
 #: Env de override SOLO para tests (perfiles desechables).
@@ -113,8 +118,55 @@ PROFILE = os.environ.get("WORKSPACE_OPENCLAW_PROFILE", "").strip() or "workspace
 _KEY_PREFIX = "ws-"
 
 
+
+
+def _aviso_linea(texto):
+    """Un aviso de una línea; con el hub de prueba (rama de PRUEBA), con su piel (hub_carga)."""
+    try:
+        import hub_carga
+        if hub_carga.activo() and hub_carga.linea(texto):
+            return
+    except Exception:
+        pass
+    print(texto)
+
+#: V2-a (22-nov): el perfil y la carpeta de plugin de las corridas AISLADAS. El plugin de Workspace lleva adentro la
+#: carpeta de Workspace que lo armó: la auditoría o una prueba corrida desde un worktree reescribía el plugin
+#: compartido (`<estado>/arquitectura/openclaw/workspace`) con el suyo, y el OpenClaw de uso diario terminaba
+#: corriendo el código de ese worktree. Aislada, una corrida usa este perfil y la carpeta `openclaw-auditoria`:
+#: ni el plugin compartido ni el perfil `workspace` se tocan.
+PERFIL_AISLADO = "workspace-auditoria"
+CARPETA_AISLADA = "openclaw-auditoria"
+#: "1" aísla y "0" no, sin mirar la carpeta (para una prueba a mano). Sin ella decide `_es_worktree`.
+AISLADO_ENV = "WORKSPACE_OPENCLAW_AISLADO"
+#: El permiso de escribir lo global desde un worktree (install.FORCE_ENV; la suite lo pone con su HOME temporal).
+_FORZAR = "WORKSPACE_FORCE_LAUNCHERS"
+_AQUI_RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _es_worktree():
+    """¿Esta copia de Workspace es un worktree SECUNDARIO de git? (`.git` es un archivo: el mismo criterio de
+    install.running_from_worktree, sin importar el instalador). El checkout principal y una copia sin git, no."""
+    try:
+        return os.path.isfile(os.path.join(_AQUI_RAIZ, ".git"))
+    except Exception:
+        return False
+
+
+def aislado():
+    """¿Esta corrida va con su propio perfil y su propia carpeta de plugin? Desde un worktree secundario, sí (salvo
+    con el permiso de escribir lo global, que la suite pone junto a su HOME temporal)."""
+    v = os.environ.get(AISLADO_ENV, "").strip()
+    if v in ("0", "1"):
+        return v == "1"
+    return _es_worktree() and os.environ.get(_FORZAR) != "1"
+
+
 def _profile():
-    return os.environ.get("WORKSPACE_OPENCLAW_PROFILE", "").strip() or PROFILE
+    pedido = os.environ.get("WORKSPACE_OPENCLAW_PROFILE", "").strip() or PROFILE
+    if pedido == "workspace" and aislado():           # el de uso diario jamás, aunque el entorno lo pida
+        return PERFIL_AISLADO
+    return pedido
 
 
 def _exe(override=None):
@@ -138,9 +190,12 @@ def _env_motor():
     engine_env) — su turno `agent --local` ES el agente. Falla-suave."""
     try:
         import secret_store
-        return secret_store.engine_env()
+        env = secret_store.engine_env()
     except Exception:
-        return None
+        env = os.environ.copy()
+    for key in ("OPENCLAW_CONFIG_PATH", "OPENCLAW_STATE_DIR", "OPENCLAW_HOME"):
+        env.pop(key, None)
+    return env
 
 
 def _run(cmd, runner=None, timeout=60, cwd=None):
@@ -399,6 +454,285 @@ _BRAIN_SETTINGS = (
 _OPTIONAL_SETTINGS = ("skills.workshop.autonomous.mode",)
 _MISSING = object()
 
+#: El plugin compartido se carga desde el perfil propio de Workspace.
+PLUGIN_ID = "workspace"
+_PLUGIN_SETTINGS = (
+    ("plugins.entries.%s.enabled" % PLUGIN_ID, True),
+    ("plugins.entries.%s.hooks.allowConversationAccess" % PLUGIN_ID, True),
+)
+#: Aislamiento entre cerebros (hallazgo de la cacería 19-nov): de fábrica las herramientas de sesiones de OpenClaw ven
+#: TODAS las sesiones del gateway («Default is all», docs/concepts/session-tool.md), así que un agente de Workspace
+#: leía y buscaba (sessions_search) las conversaciones de los otros agentes del perfil. «agent»: solo las suyas.
+SESSION_VISIBILITY = "tools.sessions.visibility"
+PLUGIN_PATHS = "plugins.load.paths"
+
+
+def _paquete_activo():
+    """¿El sistema nuevo (el paquete por sesión) está encendido? Falla-suave → False."""
+    try:
+        from arquitectura import sesion
+        return sesion.activo()
+    except Exception:
+        return False
+
+
+def _interruptor_guardado():
+    """El ajuste del paquete tal como quedó guardado en esta máquina, SIN WORKSPACE_PAQUETE: esa variable decide una
+    apertura (la trae el entorno de toda terminal de agente con el paquete) y `workspace sistema-nuevo on|off` se
+    corre justo desde ahí (prueba en vivo, 21-nov). Falla-suave → False."""
+    try:
+        from arquitectura import sesion
+        return sesion.activo({})
+    except Exception:
+        return False
+
+
+def _faltan(d, exe, runner, ajustes):
+    """Los ajustes de `ajustes` que no están definidos en el perfil (solo esos: lo que hay se respeta)."""
+    return [{"path": p, "value": v} for p, v in ajustes if _current(exe, p, d, runner) is _MISSING]
+
+
+def plugin_dir(home=None):
+    """La carpeta del plugin de Workspace que carga el perfil: la compartida de la máquina, o la de las corridas
+    aisladas (V2-a: desde un worktree nunca la compartida)."""
+    import paths
+    return os.path.join(paths.state_dir(home), "arquitectura", CARPETA_AISLADA if aislado() else "openclaw",
+                        PLUGIN_ID)
+
+
+def _same_path(path, target):
+    return isinstance(path, str) and os.path.normcase(os.path.realpath(
+        os.path.expanduser(path))) == os.path.normcase(os.path.realpath(target))
+
+
+def _paths_with_plugin(paths):
+    paths = [] if paths is _MISSING else paths
+    if not isinstance(paths, list):
+        raise ValueError("plugins.load.paths no es una lista")
+    target = plugin_dir()
+    return paths if any(_same_path(p, target) for p in paths) else [*paths, target]
+
+
+def _ruta_plugin_registrada(d):
+    paths = _get_path(d, PLUGIN_PATHS)
+    return isinstance(paths, list) and any(_same_path(p, plugin_dir()) for p in paths)
+
+
+def _marca_plugin_apagado():
+    return os.path.join(state_dir(), "workspace-plugin.apagado")
+
+
+def _plugin_ok(d):
+    if not _paquete_activo():
+        return not _ruta_plugin_registrada(d) or _get_path(d, _PLUGIN_SETTINGS[0][0]) is False
+    return (not os.path.isfile(_marca_plugin_apagado())
+            and _ruta_plugin_registrada(d)
+            and _get_path(d, SESSION_VISIBILITY) == "agent"
+            and all(_get_path(d, p) is not _MISSING for p, _v in _PLUGIN_SETTINGS))
+
+
+def _candado_plugin():
+    """El candado del interruptor del plugin propio (en el estado de Workspace, que siempre existe). Quien lee el
+    interruptor y escribe el plugin en el perfil lo hace bajo él, de punta a punta (revisor 3): la apertura
+    (ensure_profile), la reparación y `workspace sistema-nuevo on|off`. Así un apagado que llega a media apertura
+    espera y se aplica sobre lo que la apertura escribió."""
+    from olock import file_lock
+    return file_lock(os.path.join(os.path.dirname(plugin_dir()), "interruptor"), timeout=2 * _PREP_TIMEOUT)
+
+
+def _estado_plugin(exe, runner):
+    """(¿la ruta del plugin propio está registrada?, su `enabled`) en el perfil: del archivo si se lee directo; si existe
+    pero no se lee (JSON5, $include…), por el CLI oficial (`config get`, el mismo respaldo que usa el resto del
+    adaptador: revisor 3, antes se daba por hecho que no había plugin). Sin archivo, no hay perfil ni plugin."""
+    d = _profile_config()
+    if d is not None:
+        return _ruta_plugin_registrada(d), _get_path(d, _PLUGIN_SETTINGS[0][0])
+    if not os.path.isfile(os.path.join(state_dir(), "openclaw.json")):
+        return False, _MISSING
+    if not exe:
+        raise RuntimeError("no puedo leer el perfil de OpenClaw sin su CLI")
+    paths = _current(exe, PLUGIN_PATHS, None, runner)
+    registrada = isinstance(paths, list) and any(_same_path(p, plugin_dir()) for p in paths)
+    return registrada, (_current(exe, _PLUGIN_SETTINGS[0][0], None, runner) if registrada else _MISSING)
+
+
+def _sincronizar(activo, exe, runner):
+    """El plugin propio como dice `activo`, recordando si lo apagó Workspace (para no encender uno que apagó el
+    socio). Con el candado tomado. → True si quedó así (o no hay plugin propio)."""
+    from atomico import escribir
+
+    marca = _marca_plugin_apagado()
+    pendiente = os.path.isfile(marca)
+    if activo and not pendiente:
+        return True
+    exe = exe or _exe()
+    registrada, actual = _estado_plugin(exe, runner)
+    if not registrada:
+        return True
+    if not exe:
+        return False
+    if not activo:
+        if actual is False:
+            return True
+        if not pendiente:
+            escribir(marca, "workspace\n")
+    path = _PLUGIN_SETTINGS[0][0]
+    if actual is not activo and _set_batch(exe, [{"path": path, "value": activo}], runner) != 0:
+        return False
+    if activo:
+        os.unlink(marca)
+    return True
+
+
+def sincronizar_plugin(exe=None, runner=None):
+    """Aplica el ajuste GUARDADO del paquete, leído bajo el candado (revisor 3: antes llegaba ya decidido), al plugin
+    propio: lo usan `workspace sistema-nuevo on|off` y su deshacer. → True si el plugin quedó como dice el ajuste (o
+    no hay perfil); False si no se pudo comprobar o cambiar (se reintenta en la próxima apertura)."""
+    try:
+        with _candado_plugin():
+            return _sincronizar(_interruptor_guardado(), exe, runner)
+    except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired):
+        return False
+
+
+def legacy_plugin(brain):
+    return os.path.join(str(brain), ".openclaw", "extensions", PLUGIN_ID)
+
+
+def legacy_backup(brain):
+    return os.path.join(str(brain), ".openclaw", "workspace-plugin.backup")
+
+
+def plugin_owned(path):
+    """Reconoce las dos marcas del paquete generado por Workspace."""
+    if os.path.islink(path):
+        return False
+    try:
+        for name, key, value in (("openclaw.plugin.json", "id", PLUGIN_ID),
+                                 ("package.json", "name", "workspace-openclaw")):
+            with open(os.path.join(path, name), encoding="utf-8") as fh:
+                doc = json.load(fh)
+            if not isinstance(doc, dict) or doc.get(key) != value:
+                return False
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def mover_plugin_anterior(brain, *, deshacer=False):
+    source, target = legacy_plugin(brain), legacy_backup(brain)
+    if deshacer:
+        source, target = target, source
+    if not plugin_owned(source):
+        return ""
+    root = os.path.realpath(brain)
+    for path in (source, target):
+        if os.path.realpath(path) != os.path.join(root, os.path.relpath(path, brain)):
+            raise ValueError("la ruta del plugin pasa por un enlace")
+    if os.path.lexists(target):
+        raise FileExistsError("ya existe el destino del respaldo de OpenClaw")
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    os.rename(source, target)
+    return target
+
+
+def cerebros_del_perfil():
+    """Workspaces explícitos que OpenClaw puede inspeccionar al validar el perfil."""
+    d = _profile_config() or {}
+    agents = d.get("agents")
+    if not isinstance(agents, dict):
+        return []
+    entries = agents.get("entries")
+    rows = list(entries.values()) if isinstance(entries, dict) else []
+    for key in ("list", "defaults"):
+        value = agents.get(key)
+        rows.extend(value if isinstance(value, list) else [value])
+    return [os.path.expanduser(r["workspace"]) for r in rows if isinstance(r, dict)
+            and isinstance(r.get("workspace"), str) and os.path.isabs(os.path.expanduser(r["workspace"]))]
+
+
+def asegurar_plugin(brain=None):
+    """Instala una copia compartida. Aparta la copia del cerebro si es nuestra."""
+    if not _paquete_activo():
+        return []
+    from arquitectura import sesion
+    from olock import file_lock
+
+    dst = plugin_dir()
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    with file_lock(dst):
+        if os.path.lexists(dst) and not plugin_owned(dst):
+            raise ValueError("la ruta fija del plugin de OpenClaw ya está ocupada")
+        sesion._copiar_carpeta(sesion.instalar()["openclaw"], dst)
+        if brain:
+            respaldo = mover_plugin_anterior(brain)
+            if respaldo:
+                print("OpenClaw: plugin anterior apartado en %s." % respaldo)
+    return [dst]
+
+
+def validar_perfil(exe=None, runner=None):
+    """True si valida, False si lo rechaza, None si falta o no pudo comprobarse."""
+    exe = exe or _exe()
+    if not exe or not os.path.isfile(os.path.join(state_dir(), "openclaw.json")):
+        return None
+    try:
+        return _run(_base(exe) + ["config", "validate"], runner=runner,
+                    timeout=_GET_TIMEOUT).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def reparar_plugin(exe=None, runner=None):
+    """Repara las piezas de Workspace de su perfil propio (con el interruptor leído bajo su candado)."""
+    exe = exe or _exe()
+    if not exe:
+        return False
+    try:
+        with _candado_plugin():
+            if not _paquete_activo():
+                return False
+            asegurar_plugin()
+            for brain in dict.fromkeys(cerebros_del_perfil()):
+                respaldo = mover_plugin_anterior(brain)
+                if respaldo:
+                    print("OpenClaw: plugin anterior apartado en %s." % respaldo)
+            d = _profile_config()
+            if d is None:
+                return False
+            ops = _ops_plugin(exe, d, runner)
+            return (not ops or _set_batch(exe, ops, runner) == 0) and validar_perfil(exe, runner) is True
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return False
+
+
+def _ops_plugin(exe, d, runner):
+    ops = _faltan(d, exe, runner, _PLUGIN_SETTINGS)
+    paths = _current(exe, PLUGIN_PATHS, d, runner)
+    wanted = _paths_with_plugin(paths)
+    if wanted != paths:
+        ops.append({"path": PLUGIN_PATHS, "value": wanted})
+    if _current(exe, SESSION_VISIBILITY, d, runner) != "agent":
+        ops.append({"path": SESSION_VISIBILITY, "value": "agent"})
+    return ops
+
+
+def recargar_plugin(exe=None, runner=None):
+    """`openclaw plugins reload workspace` (su vía oficial tras cambiar el código o la carpeta de un plugin) en el gateway
+    del perfil, si está encendido; uno apagado lo descubre al arrancar. Lo usa la auditoría, que apunta su agente a un
+    cerebro nuevo en cada corrida. → True si lo recargó. Falla-suave."""
+    exe = exe or _exe()
+    if not exe:
+        return False
+    try:
+        import openclaw_gateway as G
+        if not G.running(_profile()):
+            return False
+        r = _run(_base(exe) + ["plugins", "reload", PLUGIN_ID], runner=runner, timeout=_PREP_TIMEOUT)
+        return getattr(r, "returncode", 1) == 0
+    except Exception:
+        return False
+
 
 def _setting_is(cur, want):
     """¿El valor actual ya es el que el cerebro necesita? Booleanos por
@@ -502,7 +836,7 @@ def _quick_ok(cfg, d):
     del cerebro: sin creación de archivos ni memoria nativa escribiendo en él;
     agente con workspace = cerebro; y el modelo por defecto usa un proveedor
     conectado). Solo metadatos: jamás lee llaves."""
-    if not _brain_settings_ok(d):
+    if not _brain_settings_ok(d) or not _plugin_ok(d):
         return False
     agents = d.get("agents") if isinstance(d.get("agents"), dict) else {}
     defaults = agents.get("defaults") if isinstance(agents.get("defaults"), dict) else {}
@@ -576,9 +910,18 @@ def _current(exe, path, d, runner):
     if isinstance(d, dict):
         return _get_path(d, path)
     rc, out = _cfg_get(exe, path, runner)
-    last = out.splitlines()[-1].strip().lower() if out else ""
-    if rc != 0 or not last:
+    if rc != 0 or not out:
         return _MISSING
+    if path == PLUGIN_PATHS:
+        # El fallback del CLI puede devolver un valor vacío en vez de un
+        # error de clave ausente. Solo una lista contiene rutas existentes.
+        if out.strip().lower() in ("false", "null", "undefined"):
+            return _MISSING
+        value = _json_out(out)
+        if isinstance(value, list):
+            return value
+        raise ValueError("no pude leer plugins.load.paths")
+    last = out.splitlines()[-1].strip().lower()
     return {"true": True, "false": False}.get(last, last)
 
 
@@ -591,11 +934,27 @@ def ensure_profile(exe=None, runner=None):
     toca (vanilla). Si OpenClaw no termina a tiempo se relee su archivo (en
     Windows el proceso de node termina igual) y, si lo obligatorio no quedó,
     una línea para el socio, nunca el error crudo. Devuelve (ok, aviso):
-    aviso = '' o una línea para el socio."""
+    aviso = '' o una línea para el socio. El interruptor del paquete se lee y
+    el plugin se escribe bajo el candado del plugin (revisor 3)."""
+    from olock import LockTimeout
     exe = exe or _exe()
     if not exe:
         return False, "openclaw no está en PATH"
     try:
+        with _candado_plugin():
+            return _ensure_profile(exe, runner)
+    except LockTimeout:
+        return False, "otra apertura de OpenClaw sigue preparando su perfil; vuelve a abrir el agente en un momento"
+    except OSError as e:
+        return False, "%s: %s" % (type(e).__name__, e)
+
+
+def _ensure_profile(exe, runner):
+    """ensure_profile con el candado del plugin tomado."""
+    try:
+        activo = _paquete_activo()
+        if not _sincronizar(activo, exe, runner):
+            return False, "no pude sincronizar el plugin de Workspace para OpenClaw"
         d = _profile_config()
         req, opt, cambiados = [], [], {}
         for path, want, why in _BRAIN_SETTINGS:
@@ -606,6 +965,10 @@ def ensure_profile(exe=None, runner=None):
             if cur is not _MISSING:          # estaba definido distinto: lo cambió alguien
                 cambiados[path] = why
         mem, mem_aviso = _extra_files_ops(exe, d, runner)
+        # La ruta y la visibilidad entre agentes son obligatorias con el plugin.
+        plug = _ops_plugin(exe, d, runner) if activo else []
+        req += [op for op in plug if op["path"] in (PLUGIN_PATHS, SESSION_VISIBILITY)]
+        opt += [op for op in plug if op["path"] not in (PLUGIN_PATHS, SESSION_VISIBILITY)]
         try:
             hechos, mem_ok = _write_groups(exe, req, opt, mem, runner)
         except subprocess.TimeoutExpired as e:
@@ -631,6 +994,12 @@ def ensure_profile(exe=None, runner=None):
                 short = path.rsplit(".", 1)[-1]
             avisos.append("restauré %s=%s (Workspace lo necesita para %s)"
                           % (short, _setting_text(want), why))
+        if any(op["path"] == _PLUGIN_SETTINGS[0][0] for op in plug) and _PLUGIN_SETTINGS[0][0] in hechos:
+            avisos.append(_t("motorbar.openclaw.plugin_on",
+                             "encendí el plugin de Workspace en su perfil (avisos, MCP y skills); se apaga con "
+                             "`openclaw --profile {p} plugins disable workspace`",
+                             "turned on the Workspace plugin in its profile (hooks, MCP and skills); turn it off "
+                             "with `openclaw --profile {p} plugins disable workspace`", p=_profile()))
         if mem and not mem_ok:
             avisos.append(_t("motorbar.openclaw.memory_failed",
                              "no pude prender la carga de la memoria larga (STATE/MEMORY.md): "
@@ -892,7 +1261,7 @@ def _gateway_begin(exe):
     local de una sola ventana (lo de antes)."""
     import openclaw_gateway as G
     prof = _profile()
-    ok, port, why = ensure_gateway_config(exe, notify=print)
+    ok, port, why = ensure_gateway_config(exe, notify=_aviso_linea)
     if not ok:
         print("WORKSPACE: %s; OpenClaw abre en modo de una sola ventana." % why)
         return None, True
@@ -900,7 +1269,7 @@ def _gateway_begin(exe):
         return None, False
     try:
         if not G.running(prof) and not _port_free(port) and not G.healthy(port, timeout=0.5):
-            ok, port2, _w = ensure_gateway_config(exe, notify=print, repick=True)
+            ok, port2, _w = ensure_gateway_config(exe, notify=_aviso_linea, repick=True)
             port = port2 if ok and port2 else port
         G.enter(prof)
         G.ensure_running(exe, prof, port)
@@ -1036,6 +1405,10 @@ def prepare_agent(cfg, exe=None, runner=None):
     exe = exe or _exe()
     if not exe:
         return False, "openclaw no está en PATH"
+    try:
+        asegurar_plugin((cfg or {}).get("_brain", ""))
+    except (OSError, ValueError):
+        return False, "no pude preparar el plugin de Workspace para OpenClaw"
     if _quick_ok(cfg, _profile_config()):
         return True, agent_id(cfg)
     ok, why = ensure_profile(exe, runner=runner)
@@ -1407,6 +1780,11 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
     # Camino rápido: si el archivo del perfil ya dice que todo está bien, no se
     # llama al CLI (cada llamada cuesta 2-3 s); si no, el camino exacto por CLI
     # corrige y avisa.
+    try:
+        asegurar_plugin(brain)
+    except (OSError, ValueError):
+        print("WORKSPACE: no pude preparar el plugin de Workspace para OpenClaw.")
+        sys.exit(1)
     if not _quick_ok(cfg, _profile_config()):
         ok, why = ensure_profile(exe)
         if not ok:
@@ -1459,7 +1837,8 @@ def _arranque(cfg, tab_name="", extra=""):
         except Exception:
             pass
     partes.append(extra)
-    partes.append("Al terminar, confirma en una línea breve.")
+    import memoria
+    partes.append(memoria.fin_arranque())
     return _argv_seguro(" ".join(p for p in partes if p))
 
 
@@ -1552,7 +1931,7 @@ def _run_tab(cfg, passthrough, *, exe, aid, brain, preselect, show_banner, gw_po
     # pegados arriba del TUI, que es EN LÍNEA).
     if gw_port:
         import openclaw_gateway as G
-        ok, why = G.wait_ready(exe, _profile(), gw_port, notify=print)
+        ok, why = G.wait_ready(exe, _profile(), gw_port, notify=_aviso_linea)
         if not ok:
             print("WORKSPACE: " + why)
             sys.exit(1)
@@ -1601,6 +1980,12 @@ def _run_tab(cfg, passthrough, *, exe, aid, brain, preselect, show_banner, gw_po
         except Exception:
             pass
 
+    def _al_lanzar(cmd, env):
+        # F4: la clave con que abre su TUI queda anotada (estado de Workspace): la página entra a
+        # la misma sesión del gateway por su puente ACP mientras esta terminal siga abierta.
+        from control import compartido
+        return compartido.sesion_openclaw(brain, env.get("WORKSPACE_WID") or "", cmd, env)
+
     watch = None
     if gw_port:
         # Si el gateway se cae con la pestaña abierta, esta pestaña lo revive
@@ -1615,7 +2000,7 @@ def _run_tab(cfg, passthrough, *, exe, aid, brain, preselect, show_banner, gw_po
         rc = interactive.run_official_cli_interactive(
             "openclaw", brain=brain or None, argv=argv, context_sink=_ctx_sink,
             pending={"tab": tab[1] if tab else "", "agent": agent, "resumed": resumed},
-            guardando=show_banner)
+            guardando=show_banner, al_lanzar=_al_lanzar if brain else None)
     except Exception as e:
         print("WORKSPACE: no pude lanzar openclaw (%s: %s)" % (type(e).__name__, e))
         sys.exit(1)

@@ -34,6 +34,7 @@ STRINGS = {
     'cli.repair.failed': '{n} with errors: {names}',
     'cli.repair.head': 'hooks rewired (settings.local.json)',
     'cli.repair.none': 'No resolved brains to rewire. Run `workspace doctor` to resolve them.',
+    'cli.repair.unreadable': "the settings.local.json of {name} could not be read and was NOT touched · check or restore it and run `workspace repair` again",
     'cli.repair.registry_fail': "couldn't read the agent registry ({err}) — run `workspace doctor`",
     'cli.repo.branch': 'branch {branch}',
     'cli.repo.dirty': 'uncommitted local changes',

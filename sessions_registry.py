@@ -486,10 +486,12 @@ def _legacy_copy(brain, name, sl, soc):
     return "---\nsesión: %s\ntitulo: %s\n---\n\n%s" % (sl, name, txt)
 
 
-def _seed_md(brain, name, claude_wid="", soc=None):
+def _seed_md(brain, name, claude_wid="", soc=None, canal=""):
     """Siembra el .md de una pestaña (formato de STATE/sessions/README.md)
     para que ENTRE al modelo sincronizado. Jamás pisa uno existente.
-    Devuelve True si quedó el archivo (ya existía o se creó)."""
+    `canal`: «navegador» marca la conversación fija de la página (fuera de
+    los menús: agent_brand.pestanas). Devuelve True si quedó el archivo (ya
+    existía o se creó)."""
     name = _clean_name(name)
     sl = _slug(name)
     if not sl:            # nombre vacío/raro ("?", "···") → JAMÁS sembrar un
@@ -506,13 +508,13 @@ sesión: %s
 titulo: %s
 socio: %s
 workspace: %s
-origen: terminal
+origen: %s
 creada: %s
 actualizada: %s
 estado: activa
 migrar: no
 trabajo: por-confirmar
----
+%s---
 
 # Sesión: %s
 
@@ -523,7 +525,8 @@ nota`; este archivo no se edita a mano. Ver STATE/sessions/README.md.]
 
 ## Historial
 - %s — pestaña registrada en el modelo sincronizado de sesiones.
-""" % (sl, name, soc, claude_wid or "", today, today, name, today)
+""" % (sl, name, soc, claude_wid or "", canal or "terminal", today, today,
+       ("canal: %s\n" % canal) if canal else "", name, today)
     try:
         import atomico                    # tmp único + reintento (ver _atomic_write)
         atomico.escribir(path, txt, avisar=True)
@@ -805,12 +808,44 @@ def _mirror_to_claude(brain, agent, name, wid):
         return False
 
 
+def _numero_oficial(brain, sl, engine):
+    """F5 (D3-a): el número oficial de la conversación de la pestaña en ese motor, del registro de eventos de la
+    arquitectura nueva (arquitectura/registro.numero_de), SOLO si el motor ya lo confirmó en sus hooks: uno que
+    solo se le pasó al abrir no basta para apagar lo de hoy (si el motor abrió otro y su hook no lo dijo, lo de
+    hoy lo ata). '' si no. Solo con el paquete por sesión encendido; falla-suave → ''."""
+    try:
+        from arquitectura import registro, sesion as _sesion
+        if not _sesion.activo():
+            return ""
+        for bt in _brain_tabs(brain):
+            if bt.get("slug") != sl:
+                continue
+            for clave in (bt.get("workspace"), bt.get("name")):
+                if clave:
+                    n, visto = registro.numero_de(brain, str(clave), engine)
+                    if n and visto:
+                        return n
+        return ""
+    except Exception:
+        return ""
+
+
 def bind(brain, agent, name, engine, rid, *, expected_rid=None, preserve_before=False):
-    """Bind under a local OS lock; recovery compares previous id and backs up."""
+    """Bind under a local OS lock; recovery compares previous id and backs up.
+    F5: con número oficial, la adivinanza queda apagada: atar OTRO id no se hace y se dice en el log."""
     rid = str(rid or "").strip()
     sl = _slug(name)
     engine = str(engine or "").strip()
     if not rid or not sl or not engine or engine == "last_opened":
+        return False
+    oficial = _numero_oficial(brain, sl, engine)
+    if oficial and rid != oficial:
+        try:
+            from arquitectura import sesion as _sesion
+            _sesion.anotar_log("%s · %s · adivinanza apagada: no se ata %s (número oficial %s)"
+                               % (engine, sl, rid, oficial))
+        except Exception:
+            pass
         return False
     try:
         from olock import file_lock
@@ -1041,11 +1076,15 @@ def forget_engine(engine):
 
 def resume_id(brain, agent, name, engine):
     """El resume-id LOCAL del motor para esa pestaña, o ''. Para claude-code
-    cae al workspaces.json y al `workspace:` del frontmatter (back-compat)."""
+    cae al workspaces.json y al `workspace:` del frontmatter (back-compat).
+    F5: si la pestaña tiene número oficial en ese motor, ese y nada más."""
     try:
         sl = _slug(name)
         if not sl:            # nombre sin slug → jamás matchear "" contra
             return ""         # entradas basura del ws json (doble-check)
+        oficial = _numero_oficial(brain, sl, engine)
+        if oficial:
+            return oficial
         slot = _local_slot(_local_load(), brain, sl) or {}
         rid = str(slot.get(engine) or "")
         if rid or engine != "claude-code":
@@ -1736,7 +1775,16 @@ def tab_memory(brain, name, limit=None, engine="", resumed=False, entregar=False
     pestaña no tiene memoria. Antes era «checkpoint O historial» (Panorama,
     hallazgo 3): ahora van los dos y la maleta. `entregar=True` solo cuando
     se le da al agente al arrancar (session_doc_block, first_prompt_context):
-    ahí se reserva la curación semanal; un tablero que solo muestra no."""
+    ahí se reserva la curación semanal; un tablero que solo muestra no.
+    Al entregarlo: si el núcleo (F6) se lo da a ese motor al abrir (su hook de
+    inicio o su MCP), aquí va '' para no repetirlo."""
+    if entregar and engine:
+        try:
+            from arquitectura import nucleo
+            if nucleo.entrega(engine)["al_abrir"]:
+                return ""
+        except Exception:
+            pass
     try:
         import memoria
         kw = {"limite": limit} if limit else {}
@@ -1777,7 +1825,9 @@ def first_prompt_context(brain, name, base_prompt="", engine=""):
     """PRIMER prompt de arranque para harnesses sin hook SessionStart y sin
     doc de proyecto utilizable (último recurso VISIBLE): el prompt base +
     pestaña activa + el paquete de memoria."""
-    parts = [base_prompt or "Inicia el cerebro.", _active_tab_line(name)]
+    import memoria                        # desde la página: arrancar sin anunciarse
+    parts = [((base_prompt or "Inicia el cerebro.") + " " + memoria.fin_arranque(False)).strip(),
+             _active_tab_line(name)]
     mem = tab_memory(brain, name, engine=engine, entregar=True)
     if mem:
         parts.append(mem)

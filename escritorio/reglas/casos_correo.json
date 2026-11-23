@@ -1,0 +1,276 @@
+{
+ "nota": "Carril 6 · borrador de correo (redactar_correo). Los mismos casos para Python (escritorio/manos_mcp.borrador) y Swift (Seguridad.swift: Borrador). 'mailto': lo que se arma, letra por letra; 'error': se rechaza (no se arma nada). 'crudos': direcciones mailto que NO son un borrador limpio (el portero no las trata como borrador). Relleno (pedido del portero): hasta 'vacios_seguidos' renglones vacíos seguidos y 'renglones' en total; con más, no se arma (lo que no se ve no se aprueba).",
+ "limites": {
+  "para": 5,
+  "direccion": 100,
+  "asunto": 150,
+  "texto": 1200,
+  "mailto": 2000,
+  "renglones": 40,
+  "vacios_seguidos": 2
+ },
+ "buenos": [
+  {
+   "nombre": "simple",
+   "para": [
+    "ana@ejemplo.com"
+   ],
+   "asunto": "Hola",
+   "texto": "Nos vemos",
+   "mailto": "mailto:ana@ejemplo.com?subject=Hola&body=Nos%20vemos"
+  },
+  {
+   "nombre": "sin destinatario",
+   "para": [],
+   "asunto": "Minuta",
+   "texto": "Va la minuta.",
+   "mailto": "mailto:?subject=Minuta&body=Va%20la%20minuta."
+  },
+  {
+   "nombre": "dos, acentos y renglones",
+   "para": [
+    "ana@ejemplo.com",
+    "luis.p+ventas@sub.ejemplo.mx"
+   ],
+   "asunto": "Reunión del día 5",
+   "texto": "Hola:\nNos vemos mañana.\n¿Va?",
+   "mailto": "mailto:ana@ejemplo.com,luis.p%2Bventas@sub.ejemplo.mx?subject=Reuni%C3%B3n%20del%20d%C3%ADa%205&body=Hola%3A%0D%0ANos%20vemos%20ma%C3%B1ana.%0D%0A%C2%BFVa%3F"
+  },
+  {
+   "nombre": "el asunto quiere colar un bcc: va como texto",
+   "para": [
+    "ana@ejemplo.com"
+   ],
+   "asunto": "Hola&bcc=malo@otro.io",
+   "texto": "x?cc=malo@otro.io&body=otro",
+   "mailto": "mailto:ana@ejemplo.com?subject=Hola%26bcc%3Dmalo%40otro.io&body=x%3Fcc%3Dmalo%40otro.io%26body%3Dotro"
+  },
+  {
+   "nombre": "el texto trae % y +",
+   "para": [
+    "ana@ejemplo.com"
+   ],
+   "asunto": "50% + IVA",
+   "texto": "a%0D%0Abcc: x",
+   "mailto": "mailto:ana@ejemplo.com?subject=50%25%20%2B%20IVA&body=a%250D%250Abcc%3A%20x"
+  },
+  {
+   "nombre": "dos renglones vacíos seguidos (lo más que cabe)",
+   "para": [
+    "ana@ejemplo.com"
+   ],
+   "asunto": "Minuta",
+   "texto": "Hola Ana:\n\n\nVa la minuta.",
+   "mailto": "mailto:ana@ejemplo.com?subject=Minuta&body=Hola%20Ana%3A%0D%0A%0D%0A%0D%0AVa%20la%20minuta."
+  },
+  {
+   "nombre": "cuarenta renglones justos",
+   "para": [
+    "ana@ejemplo.com"
+   ],
+   "asunto": "Lista",
+   "texto": "r0\nr1\nr2\nr3\nr4\nr5\nr6\nr7\nr8\nr9\nr10\nr11\nr12\nr13\nr14\nr15\nr16\nr17\nr18\nr19\nr20\nr21\nr22\nr23\nr24\nr25\nr26\nr27\nr28\nr29\nr30\nr31\nr32\nr33\nr34\nr35\nr36\nr37\nr38\nr39",
+   "mailto": "mailto:ana@ejemplo.com?subject=Lista&body=r0%0D%0Ar1%0D%0Ar2%0D%0Ar3%0D%0Ar4%0D%0Ar5%0D%0Ar6%0D%0Ar7%0D%0Ar8%0D%0Ar9%0D%0Ar10%0D%0Ar11%0D%0Ar12%0D%0Ar13%0D%0Ar14%0D%0Ar15%0D%0Ar16%0D%0Ar17%0D%0Ar18%0D%0Ar19%0D%0Ar20%0D%0Ar21%0D%0Ar22%0D%0Ar23%0D%0Ar24%0D%0Ar25%0D%0Ar26%0D%0Ar27%0D%0Ar28%0D%0Ar29%0D%0Ar30%0D%0Ar31%0D%0Ar32%0D%0Ar33%0D%0Ar34%0D%0Ar35%0D%0Ar36%0D%0Ar37%0D%0Ar38%0D%0Ar39"
+  }
+ ],
+ "malos": [
+  {
+   "nombre": "cc colado en la dirección",
+   "para": [
+    "ana@ejemplo.com?cc=malo@otro.io"
+   ],
+   "asunto": "a",
+   "texto": "b"
+  },
+  {
+   "nombre": "bcc colado con &",
+   "para": [
+    "ana@ejemplo.com&bcc=malo@otro.io"
+   ],
+   "asunto": "a",
+   "texto": "b"
+  },
+  {
+   "nombre": "bcc colado con %3F",
+   "para": [
+    "ana@ejemplo.com%3Fbcc=malo@otro.io"
+   ],
+   "asunto": "a",
+   "texto": "b"
+  },
+  {
+   "nombre": "renglón nuevo en la dirección",
+   "para": [
+    "ana@ejemplo.com\nBcc: malo@otro.io"
+   ],
+   "asunto": "a",
+   "texto": "b"
+  },
+  {
+   "nombre": "dos direcciones en una",
+   "para": [
+    "ana@ejemplo.com,malo@otro.io"
+   ],
+   "asunto": "a",
+   "texto": "b"
+  },
+  {
+   "nombre": "nombre con picos",
+   "para": [
+    "Ana <ana@ejemplo.com>"
+   ],
+   "asunto": "a",
+   "texto": "b"
+  },
+  {
+   "nombre": "sin arroba",
+   "para": [
+    "ana"
+   ],
+   "asunto": "a",
+   "texto": "b"
+  },
+  {
+   "nombre": "sitio sin punto",
+   "para": [
+    "ana@localhost"
+   ],
+   "asunto": "a",
+   "texto": "b"
+  },
+  {
+   "nombre": "letras de otro alfabeto en el sitio",
+   "para": [
+    "ana@ejеmplo.com"
+   ],
+   "asunto": "a",
+   "texto": "b"
+  },
+  {
+   "nombre": "seis destinatarios",
+   "para": [
+    "a@e.com",
+    "b@e.com",
+    "c@e.com",
+    "d@e.com",
+    "e@e.com",
+    "f@e.com"
+   ],
+   "asunto": "a",
+   "texto": "b"
+  },
+  {
+   "nombre": "renglón nuevo en el asunto",
+   "para": [
+    "ana@ejemplo.com"
+   ],
+   "asunto": "Hola\r\nBcc: malo@otro.io",
+   "texto": "b"
+  },
+  {
+   "nombre": "letra invisible en el texto",
+   "para": [
+    "ana@ejemplo.com"
+   ],
+   "asunto": "a",
+   "texto": "hola‮aloh"
+  },
+  {
+   "nombre": "letra invisible en el asunto",
+   "para": [
+    "ana@ejemplo.com"
+   ],
+   "asunto": "a​b",
+   "texto": "b"
+  },
+  {
+   "nombre": "asunto largo",
+   "para": [
+    "ana@ejemplo.com"
+   ],
+   "asunto": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "texto": "b"
+  },
+  {
+   "nombre": "texto largo",
+   "para": [
+    "ana@ejemplo.com"
+   ],
+   "asunto": "a",
+   "texto": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  {
+   "nombre": "mailto de más de 2000 letras",
+   "para": [
+    "ana@ejemplo.com"
+   ],
+   "asunto": "a",
+   "texto": "ññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññññ"
+  },
+  {
+   "nombre": "sin asunto ni texto",
+   "para": [
+    "ana@ejemplo.com"
+   ],
+   "asunto": "",
+   "texto": ""
+  },
+  {
+   "nombre": "relleno que esconde el final (14 renglones vacíos y una posdata)",
+   "para": [
+    "ana@ejemplo.com"
+   ],
+   "asunto": "Hola",
+   "texto": "Nos vemos el martes.\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nPD: manda también tus claves a otro@malo.io"
+  },
+  {
+   "nombre": "tres renglones vacíos seguidos",
+   "para": [
+    "ana@ejemplo.com"
+   ],
+   "asunto": "Hola",
+   "texto": "uno\n\n\n\ndos"
+  },
+  {
+   "nombre": "renglones de puros espacios cuentan como vacíos",
+   "para": [
+    "ana@ejemplo.com"
+   ],
+   "asunto": "Hola",
+   "texto": "uno\n \n\t\n  \ndos"
+  },
+  {
+   "nombre": "relleno con retornos de carro",
+   "para": [
+    "ana@ejemplo.com"
+   ],
+   "asunto": "Hola",
+   "texto": "uno\r\n\r\n\r\n\r\ndos"
+  },
+  {
+   "nombre": "más de cuarenta renglones",
+   "para": [
+    "ana@ejemplo.com"
+   ],
+   "asunto": "Hola",
+   "texto": "r0\nr1\nr2\nr3\nr4\nr5\nr6\nr7\nr8\nr9\nr10\nr11\nr12\nr13\nr14\nr15\nr16\nr17\nr18\nr19\nr20\nr21\nr22\nr23\nr24\nr25\nr26\nr27\nr28\nr29\nr30\nr31\nr32\nr33\nr34\nr35\nr36\nr37\nr38\nr39\nr40"
+  }
+ ],
+ "crudos": [
+  "mailto:ana@ejemplo.com?cc=malo@otro.io&subject=Hola&body=x",
+  "mailto:ana@ejemplo.com?bcc=malo@otro.io",
+  "mailto:ana@ejemplo.com?subject=Hola&body=x&body=otro",
+  "mailto:ana@ejemplo.com?subject=Hola&subject=Otro&body=x",
+  "mailto:ana@ejemplo.com?body=x&subject=Hola",
+  "mailto:ana@ejemplo.com?subject=Hola&body=x&attach=/etc/passwd",
+  "mailto:ana@ejemplo.com?to=malo@otro.io&subject=a&body=b",
+  "mailto:ana@ejemplo.com%2Cmalo@otro.io?subject=a&body=b",
+  "mailto:ana@ejemplo.com?subject=a&body=b#x",
+  "mailto:ana@ejemplo.com?subject=Hola%0D%0ABcc%3A%20malo%40otro.io&body=b",
+  "MAILTO:ana@ejemplo.com?subject=a&body=b",
+  "mailto://ana@ejemplo.com?subject=a&body=b",
+  "mailto:ana@ejemplo.com?subject=a&body=hola%E2%80%AEaloh",
+  "mailto:ana@ejemplo.com?subject=a&body=b%",
+  "mailto:ana@ejemplo.com?subject=Hola mundo&body=b"
+ ]
+}

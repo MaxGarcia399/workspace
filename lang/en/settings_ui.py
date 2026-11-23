@@ -17,6 +17,16 @@ STRINGS = {
     'settings_ui.label.agentes.auto_mode': 'Auto-mode in interactive sessions',
     'settings_ui.label.ui.anim': 'Animations',
     'settings_ui.label.ui.autostart': 'Open when the terminal opens',
+    'settings_ui.label.ui.navegador_al_iniciar': 'Open Workspace in the browser at startup',
+    'settings_ui.help.ui.navegador_al_iniciar': ('When you open Workspace in a terminal, also open '
+                                                 'Workspace in your browser, only if no other hub is '
+                                                 'open on this machine. If the page is already '
+                                                 'running, it reuses it.'),
+    'settings_ui.label.arquitectura.paquete': 'New architecture: per-session package',
+    'settings_ui.help.arquitectura.paquete': ('Opens each engine with the Workspace package for that '
+                                              'session (hooks, MCP and skills through its official '
+                                              'route, without touching its global config). Applies '
+                                              'when the engine opens.'),
     'settings_ui.label.ui.lang': 'Language',
     'settings_ui.label.ui.background': 'Independent background',
     'settings_ui.label.ui.brightness': 'Brightness',
@@ -54,3 +64,5 @@ STRINGS = {
     'settings_ui.choice.ui.background.personalizado': 'custom',
     # layout lanzador
 }
+
+STRINGS.update({'settings_ui.label.hooks.skill_review_mode': 'When to review skills', 'settings_ui.help.hooks.skill_review_mode': 'Off, on open, on close or with a button. Off by default.', 'settings_ui.label.hooks.skill_review_engine': 'Skill review engine', 'settings_ui.help.hooks.skill_review_engine': 'session uses the session engine; choose a fixed engine from installed engines.'})

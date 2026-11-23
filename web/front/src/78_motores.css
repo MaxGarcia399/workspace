@@ -1,0 +1,6 @@
+/* ================= H3-b: Motores con su línea de Conexiones y sus botones grandes ================= */
+.cfg-cxl{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:14px 0 4px;padding:10px 14px;border-radius:12px;background:var(--card)}
+.cfg-cxl b{font-weight:700}.cfg-cxl .cxe{color:var(--tx3);font-weight:650;flex:1}
+.cfg-cxl .cxe.ok{color:var(--ok)}.cfg-cxl .cxe.warn{color:var(--warn)}.cfg-cxl .cxe.mal{color:#ffb4ab}
+.cfg-cambios{margin:2px 4px 0}.cfg-cambio{font-size:12.5px;color:var(--tx2);margin-top:4px}.cfg-cambio.mal{color:#ffb4ab}
+.cfg-acciones .btc.grande{padding:10px 18px;font-size:14px;border-radius:12px;font-weight:650}

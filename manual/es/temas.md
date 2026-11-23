@@ -7,13 +7,12 @@ oscuros que elijas aparte (dejarían el texto invisible).
 
 ## Cambiar el tema
 
-- En el **primer arranque**, paso *Apariencia* (lo repites con `workspace onboarding`).
-- En cualquier momento, en el hub: entra a **Personalización ›** (o escribe «tema»), elige
-  la fila **tema** o **fondo** y pulsa Enter para pasar al siguiente. El cambio se guarda al
-  momento.
+- El primer arranque ya no lo pregunta: empiezas con el tema de fábrica.
+- En cualquier momento, en el hub: **Ajustes › Apariencia**, filas **Tema del hub** y **Fondo
+  independiente**.
 
-<!-- Verificado contra front.py (cycle_pin), settings.py (ui.theme default «bruma»,
-ui.background, ui.background_custom, ui.hub_pins) y onboarding_tui.py (paso apariencia). -->
+<!-- Verificado contra hub_secciones_r2.py (ajustes_filas: grupos General y Apariencia) y
+settings.py (ui.theme default «bruma», ui.background, ui.background_custom, pin_label). -->
 
 El **fondo** se puede cambiar sin cambiar el tema: negro, grafito, azul, verde o violeta;
 **tema** vuelve al fondo del tema activo, y **personalizado** usa tu propio color. Ese color se
@@ -23,8 +22,10 @@ define una vez, desde la carpeta de Workspace (en Windows, `python` en vez de `p
 python3 settings.py set ui.background_custom "#1a1b26"
 ```
 
-Personalización tiene también **brillo** (más vivo o más apagado), **luz roja** (modo noche)
-y **auto-abrir** (que el hub aparezca al abrir la terminal).
+Ajustes › Apariencia tiene también **Brillo** (más vivo o más apagado) y **Luz roja (modo
+noche)**. En Ajustes › General están **Abrir al abrir la terminal** (que el hub aparezca al
+abrir la terminal) y **Abrir Workspace en el navegador al iniciar** (que la página se abra junto
+con el hub, si no hay otro hub abierto).
 
 ## Qué cambia y qué no
 

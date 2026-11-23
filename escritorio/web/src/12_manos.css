@@ -1,0 +1,44 @@
+/* ===== las manos en la burbuja: tarjeta de permiso de la Mac y ojito (parte de la burbuja: 25_manos.js) =====
+   Con las variables y los botones (.chip) de la página; el color lo pone el personaje (--c), la interfaz va en grises.
+   Entra con resorte; lo pixel (candado, ojo, puntitos de espera) va en escalón. */
+.wsmm{display:flex;flex-direction:column;align-items:flex-end;gap:10px;pointer-events:none}
+.wsmm:empty{display:none}
+.wsmm>*{pointer-events:auto}
+.wsmm-tarjeta{position:relative;width:min(356px,calc(100vw - 28px));background:var(--card);border:1px solid var(--line);border-radius:20px;
+  border-bottom-right-radius:8px;box-shadow:0 0 0 .5px rgba(0,0,0,.45),0 2px 6px rgba(0,0,0,.26),0 8px 18px -12px rgba(0,0,0,.55);padding:12px 15px 13px;transform-origin:100% 100%;
+  font:14.5px/1.5 var(--sans);color:var(--tx);animation:wsmm-pop .44s cubic-bezier(.2,.9,.25,1.15) both}
+.wsmm-tarjeta.sale{animation:wsmm-sale .24s steps(5) forwards;pointer-events:none}
+.wsmm-cab{display:flex;align-items:center;gap:8px;min-height:24px;padding-right:26px;font-size:12.5px;color:var(--tx3)}
+.wsmm-cab b{color:var(--warn);font-weight:650;font-size:12.5px}
+.wsmm-ico{flex:none;fill:var(--warn);shape-rendering:crispEdges}
+.wsmm-ico .hueco{fill:var(--card)}
+.wsmm-tarjeta.gracias .wsmm-cab b{color:var(--ok)}
+.wsmm-tarjeta.gracias .wsmm-ico{fill:var(--ok)}
+.wsmm-x{position:absolute;top:9px;right:9px;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;color:var(--tx3);
+  font:400 19px/1 var(--sans);background:none;border:0;cursor:pointer}
+.wsmm-x:hover{background:#2a2a30;color:var(--tx)}
+.wsmm-txt{margin-top:6px;font-size:14.5px;line-height:1.5;word-wrap:break-word}
+.wsmm-nota{display:block;margin-top:5px;font-size:12px;color:var(--tx3)}
+.wsmm-nota:empty{display:none}
+.wsmm-tarjeta .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:11px}
+.wsmm-tarjeta .chips:empty{display:none}
+.wsmm-tarjeta .chip{padding:7px 15px;font-size:13.5px}
+.wsmm-pts{display:inline-flex;gap:3px;margin-left:6px;vertical-align:1px}
+.wsmm-pts i{width:4px;height:4px;background:var(--tx2);animation:wsmm-pt 1.2s steps(2) infinite}
+.wsmm-pts i:nth-child(2){animation-delay:.2s}.wsmm-pts i:nth-child(3){animation-delay:.4s}
+@keyframes wsmm-pt{50%{opacity:.2}}
+
+/* el ojito: una píldora chica junto al nido mientras mira */
+.wsmm-ojo{display:flex;align-items:center;gap:8px;height:32px;padding:0 13px 0 10px;border-radius:999px;background:var(--card);
+  border:1px solid color-mix(in srgb,var(--c) 45%,var(--line));box-shadow:0 2px 6px rgba(0,0,0,.26),0 6px 16px -8px rgba(0,0,0,.5),0 0 0 3px color-mix(in srgb,var(--c) 14%,transparent);
+  font:650 12.5px/1 var(--sans);color:var(--tx);white-space:nowrap;transform-origin:100% 50%;animation:wsmm-pop .38s cubic-bezier(.2,.9,.25,1.15) both}
+.wsmm-ojo.sale{animation:wsmm-sale .24s steps(5) forwards}
+.wsmm-ojo-svg{flex:none;fill:var(--c);shape-rendering:crispEdges;animation:wsmm-parpadea 3.2s steps(1) infinite}
+.wsmm-ojo-svg .pupila{animation:wsmm-mira 2.4s steps(4) infinite alternate}
+@keyframes wsmm-mira{from{transform:translateX(-2px)}to{transform:translateX(2px)}}
+@keyframes wsmm-parpadea{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.15)}}
+.wsmm-ojo-svg{transform-origin:50% 50%}
+
+@keyframes wsmm-pop{0%{opacity:0;transform:translateY(12px) scale(.6)}60%{opacity:1;transform:translateY(0) scale(1.06)}100%{opacity:1;transform:none}}
+@keyframes wsmm-sale{from{clip-path:inset(0 0 0 0);opacity:1}to{clip-path:inset(100% 0 0 0);opacity:0}}
+@media (prefers-reduced-motion:reduce){.wsmm-tarjeta,.wsmm-ojo,.wsmm-ojo-svg,.wsmm-ojo-svg .pupila,.wsmm-pts i{animation:none!important}}

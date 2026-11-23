@@ -1266,4 +1266,7 @@ def run(version_text=""):
 
 
 if __name__ == "__main__":
-    print(run() or "")
+    # ARCHIVO MÍNIMO por una versión (se borra en la versión 2): esta pantalla ya no se abre. Quien la corre
+    # directo, o un hub que quedó abierto durante la actualización, llega a lo nuevo (puertas.redirigir).
+    import puertas
+    sys.exit(puertas.redirigir('actualizaciones', sys.argv[1:]))

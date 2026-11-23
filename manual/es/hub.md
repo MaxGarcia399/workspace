@@ -1,69 +1,85 @@
 # El hub y sus teclas
 
-El **hub** es lo que ves al escribir `workspace`: una caja con tus agentes y, debajo, tres
-entradas — **Menú**, **Personalización** e **Idioma**. Enter entra; el título de la caja dice
-dónde estás (WORKSPACE › MENÚ) y Esc regresa. La caja tiene siempre el mismo tamaño: puedes
-achicar la ventana hasta que solo quepa ella.
+El **hub** es lo que ves al escribir `workspace`. Abre en **Inicio**: arriba, **Buscar**,
+**Navegador**, **Guía** y ✕; en medio, la tarjeta del agente elegido (su monito, su nombre y su
+motor) con **Conversar** y **Sesiones**; abajo, una fila con las secciones. La primera vez que lo
+abres sale una guía corta; la vuelves a ver con `?` o con **Guía**.
 
-Debajo de tus agentes va **◆ Decisores**, con el modelo de decisión activo donde un agente lleva
-su motor («Jev»). Sin modelo dice «configurar» (sus primeros 7 días en esta máquina, «nuevo») y
-Enter te lleva a Motores → Modelos de decisión para conectar uno; con modelo, Enter abre Decisores.
-También se abre con el `0`.
+Si todavía no tienes agentes, el hub abre con la tarjeta para agregar el primero.
 
-**Escribe para buscar.** Cualquier letra escribe en la búsqueda de arriba y la lista se filtra al
-instante, sin importar mayúsculas ni acentos. Desde el inicio la búsqueda encuentra también lo de
-dentro (por ejemplo «tema» → Personalización › tema).
+<!-- Secciones y teclas verificadas contra hub_inicio.py (SECCIONES, SUBS) y
+hub_secciones_r2.py (TECLAS). La prueba tests/test_manual_compat.py falla si cambian. -->
 
-<!-- Teclas verificadas contra front.py (_jump_map, lz_key, Tab, flechas).
-La prueba tests/test_manual_compat.py falla si cambian. -->
+## Agregar un agente
 
-## Moverse y entrar
+**+ Agregar** abre la tarjeta para agregar un agente: uno nuevo, o uno que ya tienes («Ya tengo
+un agente»). Está en Inicio, al pie de la lista de agentes, y en **Agentes**.
+`workspace onboarding` abre el hub con esa tarjeta.
+
+## Secciones
+
+Desde Inicio, Tab llega a la fila de secciones; ← → cambia de sección, ↓ muestra sus partes y
+Enter la abre. También las encuentras escribiendo su nombre.
+
+| Sección | Qué hay |
+|---|---|
+| Agentes | Apariencia (la cara y el color de cada agente), Tono, Quién lo usa, Tablero y **+ Agregar** |
+| Motores | cada motor de agentes y si está listo. «Iniciar sesión», «Instalar» y «Reparar» abren el programa oficial de ese motor en la terminal; al terminar vuelves a Motores |
+| Skills | las skills de tus agentes |
+| Calendario | tu agenda: agregas, cambias, marcas o quitas eventos |
+| Ajustes | General (el idioma, entre otros), Apariencia (tema y fondo), Permisos, Usuarios, Uso, Actualizaciones (revisar, reparar o actualizar Workspace, con los pasos en vivo) y Conexiones (lo que Workspace conecta en cada motor) |
+| Ayuda | Teclas, Comandos (lo que escribes en la terminal), Documentación (este manual) y Novedades |
+
+Desde la terminal llegas directo: `workspace agentes` abre Agentes; `workspace tono`, Agentes ›
+Tono; `workspace calendario`, Calendario; `workspace conexiones`, Ajustes › Conexiones; y
+`workspace comandos`, Ayuda › Comandos. Con argumentos, esos comandos siguen en texto
+([Comandos](comandos.md)).
+
+## Teclas
+
+La lista completa, según dónde estás, está en **Ayuda › Teclas** (o F1). Las de siempre:
 
 | Tecla | Qué hace |
 |---|---|
-| ↑ ↓ | moverte por la lista |
-| Enter | abrir lo seleccionado: un agente se lanza; una entrada con `›` se abre; en Personalización cambia el valor |
-| Esc | borrar la búsqueda o regresar un nivel |
-| letras | buscar |
-| ⌫ | borrar la última letra de la búsqueda |
-| `1` … `9` | con la búsqueda vacía: apuntar al agente con ese número; la misma tecla otra vez lo abre |
-| `0` | con la búsqueda vacía: abrir Decisores (o Motores → Modelos de decisión si aún no tienes modelo) |
-| `q` | con la búsqueda vacía: salir a tu terminal normal |
+| Tab | otra área (Shift-Tab: la de antes) |
+| ↑ ↓ ← → | moverte dentro del área |
+| Enter | hacer lo enfocado |
+| Esc | regresar un nivel |
+| `q` | salir (fuera de la caja de escribir) |
 
-## Sobre el agente apuntado
-
-**← →** cambian su motor (`‹ motor ›`, se guarda en esta máquina; el próximo Enter ya lo usa) y
-**Tab** muestra en una línea su motor, dónde vive su cerebro y qué está haciendo. En la fila de
-**◆ Decisores**, **← →** cambian el modelo de decisión activo entre los que están listos y
-«apagado» (`‹ Jev ›`, se guarda como en Decisores → Ajustes).
-
-## Menú
-
-Las secciones del **Menú**. Se abren desde Menú › o buscándolas:
-
-| Sección | Para qué |
-|---|---|
-| Agentes | tus agentes y sus opciones (Enter sobre uno); «+ agregar agente», al final de la lista, crea o carga uno nuevo |
-| Actualizaciones | revisar, reparar y actualizar Workspace |
-| Comandos | todo lo que puedes escribir en la terminal |
-| Calendario | tu agenda, editable a pantalla completa |
-| Tono | los diales de personalidad de tus agentes |
-| Motores | dos cuadritos: **Motores de agentes** (estado de cada motor, qué puede hacer y sus conexiones) y **Modelos de decisión**, con el mismo diseño: la lista de modelos (Jev, OpenRouter y Liquid en la nube; Ollama en esta computadora) con su estado real y, al lado, sus opciones — conectar tu llave (en la nube es lo único que hay que configurar; se queda en esta PC), elegir el modelo si trae varios, probarlo con una llamada real (cuánto tarda, cuántos tokens usa y cuánto costó) y ver su límite de contexto y su precio aproximado. Ollama no lleva llave ni costo y tu contexto no sale de esta computadora; si le falta algo, dice el siguiente paso en una línea (abrirlo, actualizarlo a 0.35.0 o `ollama pull nimble`) |
-| Conversaciones | lo que tus agentes se dicen entre sí: salas de hasta 6 agentes, cada uno en su pestaña y de cualquier motor (Activas, Todas, Archivadas). Cabecera como WhatsApp (tema, objetivo e integrantes; `i` o clic en el tema = info del grupo) y cada mensaje con el color de quien habla. **e** escribe como tú (al último que habló, o a quien nombres con «@nombre»), **p** pausa o reanuda, **c** cierra (dos veces), **r** archiva y **b** borra una archivada; **t** cambia la espera por respuesta (15 min a 24 h); si un pedido vence, **m** le da 30 min más y **x** lo cancela; **a** abre la pestaña de quien falta. En una ventana chica se ve como el celular: la lista o el chat. Se actualiza sola; lo que leíste se guarda solo en esta PC. Con Decisores › Conversaciones encendido, un decisor puede callar un pedido que solo agradece, pausar una sala que da vueltas y sugerir cerrarla (todo marcado con ◆); apagado, todo igual |
-| Usuarios | quién usa cada agente: «soy yo en esta PC», cambiar nombre, unir dos usuarios que son la misma persona (p. ej. el de la Mac y el de Windows) y crear uno nuevo. Cada usuario tiene una cédula (un ID fijo), así que renombrar nunca confunde a otra máquina; nada se borra |
-| Decisores | qué modelo de decisión elige entre opciones fijas (Jev, OpenRouter o Liquid en la nube, Ollama en esta computadora, o ninguno: de fábrica no hay uno activo) y en qué usos ayuda; los modelos se conectan y se prueban en Motores → Modelos de decisión, una sola vez (el primero que queda listo se activa solo). Usos: memoria, evals, skills, seguridad y conversaciones de Workspace, y elegir, revisar, mejor prompt y repartir para tus agentes; cada uso con su nivel (apagado · observa · sugiere · decide). Preguntar para probarlo a mano, con el contexto que elijas (nada, la pestaña, sesiones, la memoria o todo el cerebro —si no cabe, lo más relevante; si nada coincide, lo más reciente—; cada nivel dice antes cuántos tokens y cuánto cuesta, y `v` muestra qué fuentes van; si el modelo dice que no cupo, Workspace recorta y vuelve a intentar solo). Si algo falla, el aviso dice qué pasó y qué hacer, y `d` muestra el detalle técnico. Un `.md` con `privado: true` en su frontmatter, o dentro de una carpeta `privado/`, nunca se manda; tampoco lo que es de otras personas en un cerebro compartido (sus sesiones, perfiles, bandeja y memoria), los chats, los mensajes entre agentes, las bitácoras ni los archivos que empiezan con `_` dentro de `deliverables/`, y los secretos se quitan antes de salir. Historial para ver qué pasó, qué cambió cada decisión y cuántas hubo hoy, y calificar si acertó; junto al umbral de cada uso, sus últimas confianzas. Todo viene apagado: así no sale nada; cada uso que enciendas con un modelo en la nube manda su pregunta y un contexto mínimo. La bitácora se queda en esta PC |
-| Documentación | el mapa de la memoria (su primer renglón) y todo lo que hace Workspace, en 13 capítulos (abrir una pestaña, cerrar, qué viaja, qué sale a la red, qué no hace…): cada uno con un mapa, el dato real de esta PC para el agente elegido, el archivo o comando que lo comprueba (Enter lo abre) y el ajuste que lo apaga |
-
-## Mapa de la memoria
-
-Está en **Documentación** (Menú › Documentación): su primer renglón, o la tecla `m` desde
-cualquier capítulo, abre el mapa de cómo recuerda el agente elegido: el árbol real de su cerebro
-y, paso a paso, qué archivos lee y cuáles escribe, en orden y en colores. ← → o las cifras
-`0` … `7` cambian de paso, ↑ ↓ desplaza si no cabe, Tab cambia de agente, Enter abre lo que lo
-demuestra y Esc te regresa a los capítulos.
+En Inicio, ← → traen al agente de al lado y ↑ ↓ cambian su motor (se guarda solo). Enter
+conversa, o hace lo que necesite su motor (por ejemplo, iniciar sesión). La tecla `s` abre sus
+sesiones de su programa oficial y la `n`, la versión del navegador. Las demás letras buscan un
+agente o una sección; `/` busca aunque escribas `s`, `n` o `q`.
 
 ## Las cifras
 
-Las cifras `1` … `9` siguen el orden de tus agentes en el hub: el primero es `1`, el segundo `2`,
-y así. Del décimo en adelante, usa las flechas o la búsqueda. El `0` abre Decisores. Las
-letras escriben en la búsqueda y `q` sale a tu terminal.
+Las cifras `1` … `9` llevan directo a ese agente, en el orden de tus agentes: el primero es `1`,
+el segundo `2`, y así. Del décimo en adelante, usa las flechas o la búsqueda. `q` sale a tu
+terminal.
+
+## Workspace en el navegador
+
+**Navegador ↗** (arriba en Inicio, o la tecla `n`) abre tu navegador en la página local de
+Workspace, solo en esta computadora, y el hub se queda donde estaba. Hay una sola página por
+computadora: si ya está abierta (desde otro hub o con `workspace web`), se vuelve a abrir esa. Se
+cierra con «Apagar» en la página, y se apaga sola si pasa un día sin que nadie la use. Para que se
+abra sola cada vez que abres Workspace en una terminal, enciende **Abrir Workspace en el
+navegador al iniciar** en Ajustes › General: solo lo hace si no tienes otro hub abierto en esta
+computadora.
+
+La página está en español. Si tu idioma es otro, te lo dice en una línea.
+
+## Revisión de skills visible
+
+Viene apagada. En los ajustes de revisión de skills puedes elegir cuándo revisa el agente: al abrir la siguiente sesión, al cerrar o con botón. También eliges el motor: el de la sesión o uno fijo instalado. El booleano antiguo encendido conserva «al abrir» mientras no elijas otro modo. Hermes y OpenClaw solo usan el botón.
+
+Antes de empezar ves una estimación de tokens; es aproximada, no una factura ni un tope de consumo del motor. Cada tanda tiene como máximo tres revisiones. Las sesiones pendientes de una misma pestaña se leen juntas; lo de más de siete días vence.
+
+Con herdr se abre una pestaña sin quitarte el foco: el chat real a la izquierda y los pasos a la derecha. **Parar** deja pendiente lo que falta. El reporte del agente no cuenta como comprobación: el cierre debe comprobar la escritura en la sesión receptora. La pestaña cierra al acabar. Deshacer solo restaura archivos cuya escritura aparece en esa sesión y se niega si ya cambiaron después; los archivos nuevos se archivan. Si el motor no registra autoría suficiente, no se ofrece deshacer esos archivos.
+
+Sin herdr, las revisiones usan la misma ventana, una tras otra. Ves el costo antes y puedes dejarlas para después. Ctrl+C para la tanda. También puedes usar `workspace revision ahora`; `workspace revision ver <tanda> [índice]` muestra el cambio y `workspace revision deshacer <tanda> [índice]` lo restaura (el índice empieza en 0).
+
+La función debe seguir apagada para clientes hasta completar la prueba en vivo de los nueve motores.
+
+Deshacer exige además reconstruir el contenido posterior a la escritura de la receptora; si no hay evidencia suficiente, no restaura y explica el motivo.

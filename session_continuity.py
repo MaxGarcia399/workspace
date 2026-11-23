@@ -141,8 +141,8 @@ def write_checkpoint(brain, tab, expected_revision=None, engine="", **fields):
         clean[k] = " ".join(v.split())
     if not clean["objective"] or not clean["next_step"]:
         raise ValueError("Objetivo y siguiente paso son obligatorios")
-    from secret_scan import ALLOW_MARKER
-    if scan_text(json.dumps(clean, ensure_ascii=False).replace(ALLOW_MARKER, "")):
+    from secret_scan import sin_marcas
+    if scan_text(sin_marcas(json.dumps(clean, ensure_ascii=False))):
         raise ValueError("Checkpoint rechazado: contiene posibles secretos")
     # memoria v1: candado fuera del cerebro (o en <cerebro>/.claude/ dentro del
     # sandbox de un motor, donde el estado per-máquina no se puede escribir).

@@ -117,6 +117,56 @@ def brain_overrides(root=None):
     return b if isinstance(b, dict) else {}
 
 
+def _escribir_paths_local(doc):
+    p = paths_local()
+    tmp = "%s.tmp-%d" % (p, os.getpid())
+    try:
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh, ensure_ascii=False, indent=2)
+            fh.write("\n")
+        os.replace(tmp, p)
+        return True
+    except OSError:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        return False
+
+
+def quitar_ruta_local(nombre):
+    """Quita la ruta local de `nombre` (brains.<nombre> de paths.local.json, la de esta máquina) y la devuelve; None
+    si no tenía o no se pudo escribir. Lo demás del archivo se queda (agente_apartar: quitar de Workspace)."""
+    p = paths_local()
+    try:
+        doc = _read_json(p)
+    except Exception:
+        return None
+    mapa = doc.get("brains") if isinstance(doc, dict) else None
+    if not isinstance(mapa, dict) or nombre not in mapa:
+        return None
+    valor = mapa.pop(nombre)
+    return valor if _escribir_paths_local(doc) else None
+
+
+def poner_ruta_local(nombre, valor):
+    """Devuelve a `nombre` la ruta local que tenía (el «Deshacer» de quitar): no pisa una que ya esté."""
+    p = paths_local()
+    try:
+        doc = _read_json(p)
+    except Exception:
+        if os.path.lexists(p):
+            return False                        # está pero no se pudo leer: ilegible no es vacío, no se pisa
+        doc = {}
+    if not isinstance(doc, dict):
+        return False
+    if not isinstance(doc.get("brains"), dict):
+        doc["brains"] = {}
+    doc["brains"].setdefault(nombre, valor)
+    return _escribir_paths_local(doc)
+
+
 # ── parte PURA de ruta ────────────────────────────────────────────────────────
 def join_brain(raw, root, pathmod=None):
     """Ruta efectiva de un campo `brain` crudo. Pura respecto al disco:

@@ -569,9 +569,11 @@ def revelar(path, runner=None):
         return False
 
 
-def build(out_dir=None, doctor_runner=None, redactor=None, now=None):
+def build(out_dir=None, doctor_runner=None, redactor=None, now=None, extra=None):
     """Arma el zip y devuelve (ruta, redactor). `doctor_runner`/`redactor`
-    inyectables (tests herméticos). Nunca levanta por una sección rota."""
+    inyectables (tests herméticos). `extra`: [(nombre, objeto)] que se suman
+    como JSON, redactados igual (Conexiones → «Reportar»: la evidencia de la
+    fila). Nunca levanta por una sección rota."""
     red = redactor or default_redactor()
     out_dir = out_dir or salida()
     stamp = (now or datetime.datetime.now()).strftime("%Y%m%d-%H%M%S")
@@ -593,6 +595,8 @@ def build(out_dir=None, doctor_runner=None, redactor=None, now=None):
     add("agentes.json", agentes, True)
     add("colores.json", colores, True)
     add("metricas-salud.json", metricas_salud, True)
+    for nombre, obj in extra or ():
+        add(str(nombre), lambda o=obj: o, True)
     try:
         for n, txt in logs():
             piezas.append(("logs/" + red.redact(n), red.redact(txt)))

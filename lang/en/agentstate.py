@@ -7,5 +7,5 @@ STRINGS = {
     "agentstate.cause.not_found": "not found: %(path)s",
     "agentstate.repair.found": "%(repair)s → found at %(path)s",
     "agentstate.cli.empty":
-        "no agents registered — load one with `workspace agents`",
+        "no agents registered — add one in the hub with «+ Agregar» (`workspace agents`)",
 }

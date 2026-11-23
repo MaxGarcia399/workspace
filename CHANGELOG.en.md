@@ -8,6 +8,278 @@ How to read this: every version has a number (`MAJOR.MINOR.PATCH`). A PATCH
 change fixes things; a MINOR one brings new features without breaking
 anything; a MAJOR one warns you well in advance if something changes shape.
 
+## 0.10.0 — 2026-11-23
+
+It also brings everything from 0.9.1 and 0.9.2 (below), which never shipped on
+their own. Where those notes and these disagree, these are the ones that hold.
+
+**New**
+- **A new hub.** `workspace` opens Home: your agent's card with its character,
+  its engine, "Chat" and "Sessions", and the sections on top: Agents · Engines
+  · Skills · Calendar · Settings · Help. ←→ or a click brings the next agent.
+  You write to your agent right there, and it is the same conversation you see
+  in the browser. For now the new hub and the page are in Spanish only.
+- **Tabs.** Each agent can have several conversations open, the same ones in
+  the hub and on the page. "+" opens a new one or one of its sessions; closing
+  a tab deletes nothing. In the hub: Ctrl+T, Ctrl+W, Ctrl+←→ and Alt+1…9.
+- **Add an agent, in one card.** Home has a sleeping "New agent". Touch it,
+  choose how it looks (face, color, name, what it is for) and which engine it
+  thinks with, and wake it up. "I already have an agent" shows the ones found
+  on your computer, or you paste or drag its folder. First run is that same
+  card.
+- **Archive and remove agents.** "Archive" takes it out of your lists without
+  touching its folder or its sessions, and "Bring back" returns it. "Remove
+  from Workspace" disconnects it from this computer; its folder is never
+  deleted and the notice tells you where it stays. Both ask you to confirm and
+  have "Undo".
+- **Per-agent permissions, in three levels.** "Automatic (recommended)" uses
+  the engine's official automatic mode, "Edit without asking" leaves it free
+  inside its brain and "Ask" asks about everything. **The default changes:**
+  agents you had on "its brain without asking" move to "Automatic". Change it
+  per agent in Settings → Permissions. On engines without a reviewed automatic
+  mode (Codex, Kiro, OpenCode, Hermes and OpenClaw) it stays as it was.
+- **Your engines open with the new Workspace system.** Each engine gets the
+  Workspace hooks, tools and skills per session, through its official path and
+  without touching its global configuration. Turn it off with
+  `workspace sistema-nuevo off` or in Settings → General.
+- **Connections now checks and fixes.** In Settings › Connections (hub and
+  page) you see every piece per engine with "Verify now", and then "Fix",
+  "Undo" and "Report". The doctor says the same.
+- **The page remembers.** Your theme, the agent and tab you were on, your
+  default engine and what you answered "Not now" stay when you close it and
+  open it again. After an update, the page you had open renews itself once it
+  is free.
+- **A guide shown once.** The first time, the hub and the page show you in
+  five steps where everything is. Afterwards, open it with "? Guide".
+- **Full settings on the page:** Users, Calendar, Help, Appearance and
+  "Account and provider" for each engine.
+- **Update, in one card.** Settings › Updates offers "Update", "Check and
+  repair" and "Check only", with its steps in view.
+
+**Changed**
+- **The earlier screens are gone.** Agents, Engines, Commands, Tone, Calendar,
+  Users, Documentation and Updates are now sections of the new hub.
+  `workspace agentes`, `tono`, `calendario`, `comandos` and `conexiones` open
+  the hub on their section. Your agents' guide skills update themselves to
+  point to the new screens, with a backup, and only if you had not edited
+  them.
+- **Conversations leaves the hub, the page and the manual** while it is being
+  redesigned. Deciders is still paused. The Memory view is no longer on the
+  page; your agents keep saving their memory as before.
+- **The earlier page (`/clasico`) no longer opens.** With Workspace in English
+  the new page opens, in Spanish and with a one-line notice.
+- **Antigravity with a personal Google account.** Engines warns you: Google
+  forbids using that account in other apps and can suspend your access to
+  Antigravity. With that account, the page does not write to Antigravity: you
+  only watch it and open it with "Go to the terminal". To use it fully, add a
+  Google AI Studio API key or a company account. Workspace cannot tell a
+  personal account from a company one when you sign in with Google, so it
+  treats every Google sign-in as personal.
+
+**Fixes**
+- **Windows: the mouse works in the hub** (click, wheel and hover), in Windows
+  Terminal and in the classic console. On exit the console is left as it was.
+- **Windows: no more black windows popping up** when you open the hub or check
+  your engines, and "Go to the terminal" opens a window you can see. If the
+  engine exits with an error, the window stays with the notice until you press
+  Enter.
+- **The Mac and Linux installer shows its four steps,** retries when the
+  internet drops and waits while you install Apple's tools.
+- **The Windows installer no longer closes the window when something fails**
+  and offers to install Python.
+
+## 0.9.2 — 2026-11-11
+
+**New**
+- **Skill review you can watch (optional, off by default).** When you turn it
+  on, the review of what your agent learned runs in a tab you can see: with
+  chat, steps, the engine you choose, a token cap and Undo. A skill only counts
+  as created when Workspace can check who wrote it; when it can't, it says so.
+- **Your agents know how to use Workspace.** Five new skills (set up,
+  personalize and repair Workspace, calendar and tasks, tab memory) and a
+  manual in Spanish and English. Brains you already have get them on their own,
+  with a backup, and you're told if anything is left pending.
+- **Conversations: leave and come back.** `conversar salir` takes you out of a
+  room and `conversar unirse` brings you back. What someone said in a room is
+  never erased or discounted, even if your Mac and PC clocks disagree.
+
+- **Workspace in your browser, new.** A hub entry (and `workspace web`) opens a
+  local page, only on this computer, with your agents, each with its own
+  character. Close it with Ctrl+C or "Shut down".
+  - **One conversation per agent that continues when you switch engines.** You
+    see the history of all its engines together, and the new engine knows what
+    was said with the others, even when you go back to one you already used.
+  - **Switching engines tells you what's happening** ("Loading Zenith in
+    Kiro…") and won't let you type halfway.
+  - **Skills inside the chat,** with their progress always in view and buttons
+    for whatever they ask you. One skill at a time per agent.
+  - **Each agent's panel:** what it's doing, its engine usage (in Claude Code,
+    the % of your plan), its to-dos kept up to date, its tone (12 styles with an
+    example), its files and its look.
+  - **Create an agent from the page,** with the same process as the hub.
+  - **Model, effort and approvals per engine:** each engine offers only what it
+    has, applied through its official path.
+  - **Failures with a way out.** If an engine runs out of credit, hits its
+    limit, loses its session or is overloaded, it tells you plainly and offers
+    to continue with another engine or retry.
+  - **While your agent works,** whatever would interrupt it (switching engines,
+    starting another skill) waits, and what you type is queued and goes out on
+    its own.
+  - **Fast with many agents:** the page hears about changes instead of asking
+    for everything every few seconds.
+  - **The page only types into the engine's chat box:** it never answers a
+    menu, a permission or an update for you.
+  - **Spanish for now:** with Workspace in English, the previous page opens; it
+    is still at `/clasico`.
+- **Deciders takes a break.** It leaves this version while we redesign it. Your
+  settings and history stay saved.
+- **Connections, a new hub section (read-only).** See which MCP each of your
+  engines has, without touching anything: whether it's in the engine, only in
+  Workspace (the engine doesn't read it), unreadable, or not supported by that
+  engine. Also with `workspace conexiones`.
+
+**Fixes**
+- **Honest MCPs.** Workspace no longer overwrites an MCP you added by hand with
+  the same name, and no longer says "connected" when the engine doesn't read it.
+  The CLI explains this and the doctor shows the connection as pending.
+- **Your settings are not lost.** If `settings.local.json` can't be read,
+  Workspace doesn't write over it: it sets it aside with a backup or leaves it
+  untouched, and the doctor and `workspace repair` tell you which one.
+- **A stuck migration in one brain no longer holds up the others**, and
+  uninstalling respects the same lock as everything else.
+- **Proxy.** If your local proxy is off, the message says so ("the proxy is not
+  open") instead of "check your internet". And if a local decider's address
+  stops pointing to this computer, Workspace won't connect without the proxy.
+- **Windows.** Skill review closes the engine cleanly and understands Windows
+  paths; the light skills index no longer fills up because of Windows line
+  endings.
+- **"Asks you first" asks again.** Per their notes, since Claude Code
+  2.1.284 an interactive session with no permission mode configured opens in
+  auto, and since Antigravity 1.5.7 a session with no saved mode opens in
+  Auto: your agents with automatic access turned off were editing and running
+  commands without asking. Workspace now always passes them the mode that
+  asks (in Claude Code, `manual`, which exists since 2.1.200: Workspace needs
+  that or newer, and the doctor tells you). In Claude Code, an agent with its brain open also asks you again for
+  the terminal and anything outside, as its setting says. With access off,
+  the mode that asks wins even if the brain sets another `defaultMode`, and the
+  launch tells you.
+- **Agents and the doctor tell you which engines don't ask before acting:**
+  OpenCode, OpenClaw, Hermes and Cursor have no official way to do it, so the
+  "its brain without asking" switch doesn't show up for them.
+- **The doctor and Engines tell you whether your engine is the tested
+  version,** now also for Claude Code, Codex and Antigravity, with a single
+  list of versions per engine (there were two, and they gave false warnings).
+  Tested today on this Mac: Claude Code 2.1.326, Codex 0.169.0, Kiro 3.3.0 and
+  Cursor 2026.11.13.
+- **Claude Code no longer updates itself inside Workspace** (through its
+  official variable; your settings aren't touched). Updating is still yours,
+  with `claude update`.
+- **A skill you start from the page no longer gets stuck asking for
+  permission** in GitHub Copilot, Cursor, Kiro and Antigravity: the agent
+  reports its progress with Workspace's tool, approved by its name and without
+  going through the terminal, on Windows too. If the brain tells your agent to save memory with `workspace memoria nota`, in those
+  engines it now knows that's its tool, which doesn't ask you.
+- **In Claude Code, a skill's progress no longer gets stuck on a permission.**
+  The page asks your agent to report it with `workspace pasos` (on Windows,
+  `workspace.cmd pasos`): the full command, alone and on one line. It's
+  pre-approved like `workspace memoria`. Before, it gave the path to `pasos.py`
+  for the agent to shorten, and the agent put it inside a terminal function,
+  which Claude Code always asks about. If an engine still asks you for
+  permission to report its progress, the page says so, with Allow and No, also
+  when Claude Code has its file panel open.
+- **Kiro no longer asks you for permission to read its brain on launch:**
+  Workspace asks it to read it with its file-reading tool, not the terminal.
+- **The page opens its tabs in its own session's herdr** (`HERDR_SESSION` or
+  `HERDR_SOCKET_PATH`), on Windows too, where it could open them in your usual
+  herdr even when you gave it another session.
+- **If your engine's provider key expires or isn't valid** (Hermes with
+  OpenRouter: "HTTP 401: API key expired"), the page tells you in a card and
+  takes you to Engines. An agent that only talks about keys is no longer taken
+  for an error.
+- **If you switch to an engine with no credit, the page tells you within
+  seconds** that it couldn't switch to GitHub Copilot, with the reason and a
+  button to go back to the previous one. Before, it stayed "opening" for two minutes. The same goes
+  for the plan's limit, an expired session or a key that isn't valid. Also, the
+  error card names the engine that has it, not the previous one.
+- **On launch, your agent no longer asks you for permission to report its
+  skill review.** Workspace asks it to use its tool (`revision_resultado`) and,
+  if it doesn't have it, the `workspace revision resultado` command alone, on
+  its own line; in Claude Code it's pre-approved like `workspace memoria`.
+  Before, Antigravity chained it with another command and asked you "Run this
+  command?".
+- **Claude Code's model button no longer changes the model of your other
+  sessions.** It typed `/model`, which Claude Code saves as the model for all
+  your new sessions: your other agents and the terminal. Now what you pick goes
+  only into that agent's conversation and applies when you reopen it. And it
+  stays: also when you come back to Claude Code from another engine.
+- **A skill that never got to start no longer reaches another engine later:**
+  if you switch engines or stop it on the page, Workspace stops waiting to hand
+  it over.
+- **Keys you send from the page reach the engine's terminal:** Ctrl+U and the
+  other Ctrl combinations go with the name herdr understands. Home, End, Page
+  Up, Page Down, Delete and Shift+Tab are no longer sent (herdr doesn't have
+  them) instead of answering "it's gone", which wasn't true.
+- **Codex no longer offers to update itself when it opens inside Workspace**
+  (one key accepted it); updating is still yours, with its installer.
+- **OpenClaw on Windows:** the warning about the broken single-window mode
+  also covers the stable 2026.11.x releases.
+- **Connections reads Hermes' configuration** even when it has lists written in
+  YAML's short form.
+
+## 0.9.1 — 2026-11-10
+
+**New**
+- **Deciders tells you what happened next.** History separates an opinion
+  from a verified outcome in the "happened?" column. It only says "yes"
+  when there is proof; older decisions, which didn't store this, say so. In
+  the hub and the small window, "◆ Deciders today" gathers only verified
+  outcomes, and each count opens its details.
+- **Skill reviews that were left pending now show up.** If a review left no
+  outcome, Workspace asks for it a second and final time, and you see it in
+  the hub and the small window with "Do it now". Each review belongs to the tab
+  that produced it. It only counts as done if that tab wrote the skill or
+  reported there was nothing to improve: a change from another tab doesn't
+  count. A review doesn't always create a skill.
+- **Clearer who decides and why.** Each use says what it does at its current
+  level and which model it really uses, and you can make all of them follow
+  the general one. Settings history records who changed what.
+
+**Fixes**
+- **Offline, Deciders says "no connection".** It used to look broken. It now
+  tells apart a server it can't find, a refused connection and a slow
+  connection. Your key stays saved and the notice says when it will retry. If
+  Ollama is closed, it says it isn't open.
+- **Conversation notices are verified.** If an agent didn't read the notice
+  Workspace wrote in its pane, it is notified once more. If it still doesn't
+  read it, the conversation says so ("notified X but they have not read it")
+  and gives you [v] Notify. Two notices to the same pane no longer merge into
+  one.
+- **If a Claude Code tab is still working in the background, the hub
+  connects you to it** (`claude attach`) instead of leaving you at the
+  terminal with "That session is running in the background". On Mac and
+  Windows.
+- **The idle hub uses less CPU.** It no longer rereads themes on every
+  redraw.
+- **Handle several overdue requests together.** Give them all 30 more
+  minutes or cancel them all at once (cancelling all asks for confirmation).
+  Whoever made a request can also cancel it from the terminal.
+- **Pausing a conversation asks for confirmation.** The first press explains
+  what it will do and the second one pauses. Resuming is still one press.
+- **Deadlines show the day**, for example "tomorrow 12:00", instead of a time
+  that looked like today.
+- **On Windows, conversation notices use Workspace's Python.** They no longer
+  open the Microsoft Store on PCs where Python starts with `py -3`.
+- **The calendar keeps the right status when you uncheck a task.** A ready
+  task nobody had claimed goes back to READY. Tasks an agent finished, or that
+  were already claimed, go back to DRAFT so they don't run again by mistake.
+- **Doctor catches the broken hook after reinstalling Workspace.** If you
+  deleted Workspace and installed it from scratch, Claude Code blocked every
+  message. Doctor repairs it for brains loaded or registered on this machine
+  without overwriting what another window changed, and for the others it
+  tells you how to do it from Add agent.
+- **Deciders fits small windows better.** History keeps the selected decision
+  visible and shows the date for earlier days.
+
 ## 0.9.0 — 2026-11-09
 
 **New**

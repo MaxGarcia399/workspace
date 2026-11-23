@@ -65,7 +65,7 @@ def _with_store_lock(fn):
         return fn()
 
 GROUPS = ("latido", "jobs", "hooks", "modelos", "budget", "cerebro",
-          "sesiones", "agentes", "ui", "decisions", "otros")
+          "sesiones", "agentes", "ui", "decisions", "decisores", "arquitectura", "otros")
 
 _SENTINEL = object()
 
@@ -239,7 +239,7 @@ def _hub_pin_ok(key):
     Late-binding sobre _BY_KEY (se llama en runtime, no al import)."""
     try:
         spec = _BY_KEY.get(key)
-        if not spec or spec.get("readonly") or spec.get("hidden"):
+        if not spec or spec.get("readonly") or not visible(spec):
             return False               # oculto = no se ancla ni se cicla
         t = spec.get("type")
         if t in ("enum", "bool"):
@@ -308,13 +308,23 @@ SETTINGS_SCHEMA = (
 
     # ── hooks (kill-switches — el env WORKSPACE_NO_* SIEMPRE gana) ──
     {"key": "hooks.skill_review", "group": "hooks",
-     "label": "Skill review (al abrir la siguiente sesión)", "type": "bool", "default": False,
+     "label": "Skill review (al volver a abrir la pestaña)", "type": "bool", "default": False,
      "help": "Revisión de skills: al cerrar se guarda una vista de la sesión y, al "
-             "abrir la siguiente, el agente la revisa en su sesión, a la vista (usa "
-             "un poco de tu suscripción). Nada corre sin ventana. Es el valor para "
+             "volver a abrir ESA pestaña, el agente la revisa en su sesión, a la vista "
+             "(usa un poco de tu suscripción). Workspace comprueba si dejó resultado "
+             "(una skill creada o mejorada, o «nada que aprender»); si no, la pide una "
+             "vez más y el hub la muestra. Nada corre sin ventana. Es el valor para "
              "los agentes que no lo eligen en su agent.json (`skill_review`).",
      "applies": "hooks/skill_review.py + skill_review_start.py: `skill_review` del "
                 "agent.json > este ajuste; env WORKSPACE_NO_SKILL_REVIEW=1 gana siempre."},
+    {"key": "hooks.skill_review_mode", "group": "hooks", "label": "Cuándo revisar skills",
+     "type": "enum", "default": "off", "choices": ("off", "on_open", "on_close", "button"),
+     "help": "Apagado, al abrir, al cerrar o con botón. De fábrica apagado.",
+     "applies": "hooks/skill_review.py: modo explícito > booleano anterior."},
+    {"key": "hooks.skill_review_engine", "group": "hooks", "label": "Motor para revisar skills",
+     "type": "str", "default": "session",
+     "help": "session usa el de la sesión; un motor fijo se elige entre los instalados.",
+     "applies": "hooks/skill_review.py: skill_review_engine del agente > ajuste global."},
     {"key": "hooks.transcript_backup", "group": "hooks",
      "label": "Backup de transcripts (Y2b)", "type": "bool", "default": True,
      "help": "Respaldo del .jsonl crudo a ~/.claude/workspace/transcripts-backup/.",
@@ -440,8 +450,10 @@ SETTINGS_SCHEMA = (
     {"key": "agentes.auto_mode", "group": "agentes",
      "label": "Auto-mode en sesiones interactivas", "type": "bool",
      "default": False,
-     "help": "on = las sesiones interactivas de Claude Code lanzadas desde "
-             "el menú/launchers arrancan en auto-aceptar ediciones — "
+     "help": "Solo para los agentes en «Editar sin preguntar» (Configuración → "
+             "Permisos; «Automático», el de fábrica, ya va en el modo auto de "
+             "Claude Code). on = sus sesiones interactivas de Claude Code "
+             "arrancan en auto-aceptar ediciones — "
              "`claude --permission-mode acceptEdits`, el mecanismo OFICIAL "
              "de Claude Code (el 'accept edits on' del shift+tab; NUNCA "
              "bypassPermissions/--dangerously-skip-permissions). off (de "
@@ -478,11 +490,25 @@ SETTINGS_SCHEMA = (
     {"key": "ui.autostart", "group": "ui", "label": "Abrir al abrir la terminal",
      "type": "bool", "default": False,
      "help": "Si cada terminal nueva abre el menú de Workspace (greeter del rc) "
-             "o si Workspace solo abre con el comando `workspace` (default — "
-             "menos invasivo). Lo fija el paso «arranque» del onboarding.",
+             "o si Workspace solo abre con el comando `workspace`. Una "
+             "instalación nueva en Mac y Linux lo deja ENCENDIDO (el primer "
+             "arranque ya no lo pregunta); sin valor guardado, una instalación "
+             "que ya existía conserva el bloque que tenga.",
      "applies": "install.set_terminal_autostart() reescribe el bloque del "
                 "greeter en ~/.zshrc (o el $PROFILE de PowerShell); "
                 "env WORKSPACE_NO_GREETER=1 desactiva el greeter pase lo que pase."},
+    {"key": "ui.navegador_al_iniciar", "group": "ui",
+     "label": "Abrir Workspace en el navegador al iniciar",
+     "type": "bool", "default": False,
+     "help": "Al abrir Workspace en una terminal, abre también «Workspace en "
+             "el navegador» (la página local, solo en esta computadora) — solo "
+             "si no hay otro hub abierto en esta máquina, y una vez por "
+             "terminal. Si la página ya está corriendo, la reusa. OFF "
+             "(default): solo se abre desde su fila del hub o con `workspace web`.",
+     "applies": "front._hub_al_abrir() al arrancar el hub: hub_presencia.al_abrir() "
+                "cuenta los otros hubs abiertos y localhost_fondo abre (o reusa) la "
+                "página desprendida, sin bloquear el hub. Siempre a la vista en "
+                "Personalización (hub_pins_resolved)."},
     {"key": "ui.lang", "group": "ui", "label": "Idioma",
      "type": "enum", "default": "es", "choices": ("es", "en"),
      "help": "Idioma de la interfaz que VE EL CLIENTE (menú del hub, "
@@ -653,6 +679,20 @@ SETTINGS_SCHEMA = (
      "applies": "hublayout.lanzador_pins() → el submenú PERSONALIZACIÓN "
                 "del lanzador."},
 
+    # ── arquitectura (la nueva, por fases) ──
+    {"key": "arquitectura.paquete", "group": "arquitectura",
+     "label": "Arquitectura nueva: paquete por sesión",
+     "type": "bool", "default": True,
+     "help": "Abre cada motor con el paquete de Workspace por sesión (sus hooks, el MCP y "
+             "las skills, por la vía oficial de cada motor y sin tocar su config global) y "
+             "anota sus momentos en el registro de eventos de la pestaña: así la página ve "
+             "su estado sin leer la pantalla. Se aplica al abrir el motor. ON de fábrica (el "
+             "sistema nuevo); si lo apagas, los motores abren como antes y tu elección se "
+             "respeta al actualizar.",
+     "applies": "arquitectura/sesion.activo() al lanzar (engines/claude_code.launch e "
+                "interactive.run_official_cli_interactive); env WORKSPACE_PAQUETE=1/0 gana. "
+                "También desde la página: Configuración → General."},
+
     # ── otros ──
     {"key": "otros.auto_update", "group": "otros",
      "label": "Actualizaciones automáticas", "type": "enum", "default": "auto",
@@ -777,6 +817,10 @@ _DECISION_POINTS = (
 )
 
 SETTINGS_SCHEMA = SETTINGS_SCHEMA + (
+    {"key": "decisores.en_pausa", "group": "decisores",
+     "label": "Pausa de consultas", "type": "bool", "default": True,
+     "help": "Suspende las consultas y sus pantallas sin modificar los datos guardados.",
+     "applies": "decisions.decisores_activos()"},
     {"key": "decisions.model", "group": "decisions",
      "label": "Decisores · modelo general", "type": "enum", "default": "off",
      "choices": ("off", "jev"), "choices_fn": _decider_choices,
@@ -1318,6 +1362,13 @@ def hub_pins_resolved():
         # (los pins guardados de antes no lo traen).
         if keys and "ui.un_color" not in keys:
             keys.append("ui.un_color")
+        # «Workspace en el navegador» al iniciar: siempre a la vista, junto a
+        # auto-abrir (los pins guardados de antes no lo traen).
+        if keys and "ui.navegador_al_iniciar" not in keys:
+            if "ui.autostart" in keys:
+                keys.insert(keys.index("ui.autostart") + 1, "ui.navegador_al_iniciar")
+            else:
+                keys.append("ui.navegador_al_iniciar")
         # Dentro de herdr: el ajuste que decide quién manda el tema, siempre a
         # la vista (fuera de herdr no aparece: ahí no hace nada).
         herdr_etq = ""
@@ -1631,6 +1682,15 @@ def _fmt_val(v):
     return str(v) if str(v) else "(vacío)"
 
 
+def visible(spec):
+    if spec.get("hidden"):
+        return False
+    if spec["group"] in ("decisions", "decisores"):
+        from decisions import decisores_activos
+        return decisores_activos()
+    return True
+
+
 def _cli_list():
     stored = _load_store().get("settings", {})
     if not isinstance(stored, dict):
@@ -1644,7 +1704,7 @@ def _cli_list():
                                               _fmt_val(j["enabled"]), j["label"]))
             continue
         rows = [s for s in SETTINGS_SCHEMA if s["group"] == g
-                and not s.get("hidden")]       # oculto: get/set siguen, no se lista
+                and visible(s)]       # oculto: get/set siguen, no se lista
         if not rows:
             continue
         print("\n[%s]" % g)

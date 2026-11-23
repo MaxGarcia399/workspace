@@ -70,7 +70,10 @@ if not sys.path or sys.path[0] != ROOT:
 _DE_PESTANA = ("WORKSPACE_HERMES_RUN", "WORKSPACE_HERMES_SESSION", "WORKSPACE_BRAIN",
                "WORKSPACE_WS", "ZENITH_WS", "WORKSPACE_WID", "WORKSPACE_AGENT_NAME",
                "WORKSPACE_ENGINE", "WORKSPACE_SESSION_ENGINE", "WORKSPACE_ENGINE_LABEL",
-               "WORKSPACE_SESSION_ID", "WORKSPACE_SESSION_PID")
+               "WORKSPACE_SESSION_ID", "WORKSPACE_SESSION_PID",
+               # cable-hermes: el perfil de agente de la pestaña que arrancó el gateway (el de ESTE aviso lo
+               # dice su payload, abajo)
+               "WORKSPACE_HERMES_PERFIL_AGENTE")
 
 
 def main():

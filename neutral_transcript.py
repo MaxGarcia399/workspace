@@ -175,10 +175,16 @@ def validate(doc):
 
 
 # ── infraestructura común de parseo ────────────────────────────────────────
-def _iter_jsonl(path):
+def _iter_jsonl(path, pos=None):
     """Itera (n_lineas_no_vacias_hasta_aqui, dict|None) — None = línea
     corrupta/no-dict (se cuenta pero no se parsea; mismo conteo que el
-    sanitizador histórico de dream, que suma n_lines ANTES de json.loads)."""
+    sanitizador histórico de dream, que suma n_lines ANTES de json.loads).
+    Con `pos` ({"offset": bytes}) lee desde ese byte y solo renglones
+    completos (el último, a medio escribir, espera a su salto), y deja en
+    `pos["offset"]` dónde seguir: la lectura incremental de la página."""
+    if pos is not None:
+        yield from _iter_jsonl_desde(path, pos)
+        return
     with open(path, encoding="utf-8", errors="replace") as fh:
         n = 0
         for raw in fh:
@@ -194,20 +200,40 @@ def _iter_jsonl(path):
             yield n, (d if isinstance(d, dict) else None)
 
 
+def _iter_jsonl_desde(path, pos):
+    with open(path, "rb") as fh:
+        fh.seek(int(pos.get("offset") or 0))
+        n = 0
+        for raw in fh:
+            if not raw.endswith(b"\n"):
+                break
+            pos["offset"] = pos.get("offset", 0) + len(raw)
+            raw = raw.strip()
+            if not raw:
+                continue
+            n += 1
+            try:
+                d = json.loads(raw.decode("utf-8", "replace"))
+            except ValueError:
+                yield n, None
+                continue
+            yield n, (d if isinstance(d, dict) else None)
+
+
 def _dedupe(items):
     seen = set()
     return [x for x in items if not (x in seen or seen.add(x))]
 
 
 # ── Claude Code ────────────────────────────────────────────────────────────
-def parse_claude_code(path):
+def parse_claude_code(path, pos=None):
     """.jsonl de Claude Code → doc neutral. Espejo fiel de lo que el
     sanitizador histórico de dream extrae, PERO conservando la estructura
-    (turnos + tool_calls) en vez de aplanar a texto."""
+    (turnos + tool_calls) en vez de aplanar a texto. `pos`: ver _iter_jsonl."""
     doc = empty_doc(engine="claude-code", source_path=path)
     ses = doc["session"]
     files, n_lines = [], 0
-    for n, d in _iter_jsonl(path):
+    for n, d in _iter_jsonl(path, pos):
         n_lines = n
         if d is None:
             continue
@@ -278,7 +304,7 @@ def _patch_files(args, args_raw):
     return [m.group(1).strip() for m in _PATCH_FILE_RX.finditer(hay)]
 
 
-def parse_codex(path):
+def parse_codex(path, pos=None):
     """rollout-*.jsonl de Codex CLI → doc neutral.
 
     ⚠ APROXIMACIÓN basada en fuentes públicas. Decisiones documentadas
@@ -288,18 +314,21 @@ def parse_codex(path):
       duplican los response_item → tomarlos ambos duplicaría turnos).
     - reasoning / function_call_output / token_count → fuera (equivalen a
       thinking / tool_result de Claude; higiene §11).
-    - files_touched: de function_call apply_patch, buscando
+    - files_touched: de function_call o custom_tool_call apply_patch, buscando
       "*** Add/Update/Delete File: <path>" en `arguments` (formato del
       apply_patch tool de Codex). Escrituras vía `shell` heredoc NO se
       capturan (limitación documentada).
+    - `pos`: lectura incremental, ver _iter_jsonl.
     - Codex no tiene título de sesión (custom-title es de Claude) → "".
     - git branch: payload de session_meta trae `git.branch` en versiones
       recientes; si falta, "".
     """
     doc = empty_doc(engine="codex", source_path=path)
     ses = doc["session"]
+    ses["tools_recorded"] = True  # cero llamadas no significa un motor sin registro de herramientas
     files, n_lines = [], 0
-    for n, d in _iter_jsonl(path):
+    current_cwd = ""
+    for n, d in _iter_jsonl(path, pos):
         n_lines = n
         if d is None:
             continue
@@ -310,6 +339,7 @@ def parse_codex(path):
         if t == "session_meta":
             ses["id"] = payload.get("session_id") or payload.get("id", ses["id"]) or ses["id"]
             ses["cwd"] = payload.get("cwd", ses["cwd"]) or ses["cwd"]
+            current_cwd = ses["cwd"]
             git = payload.get("git")
             if isinstance(git, dict):
                 ses["git_branch"] = git.get("branch", "") or ses["git_branch"]
@@ -318,8 +348,12 @@ def parse_codex(path):
                 ses["first_ts"] = ses["first_ts"] or pts
                 ses["last_ts"] = pts
             continue
+        if t == "turn_context":
+            if isinstance(payload.get("cwd"), str) and payload["cwd"]:
+                current_cwd = payload["cwd"]
+            continue
         if t != "response_item":
-            continue        # event_msg / turn_context → fuera (ver docstring)
+            continue        # event_msg → fuera (ver docstring)
         pt = payload.get("type")
         if ts:
             ses["first_ts"] = ses["first_ts"] or ts
@@ -343,20 +377,25 @@ def parse_codex(path):
             noise = (role == "user"
                      and text.lstrip().startswith(CODEX_NOISE_PREFIXES))
             doc["turns"].append(make_turn(role, text, ts=ts, noise=noise))
-        elif pt == "function_call":
+        elif pt in ("function_call", "custom_tool_call"):
             name = payload.get("name", "")
-            args_raw = payload.get("arguments", "")
+            args_raw = payload.get("input" if pt == "custom_tool_call" else "arguments", "")
             try:
-                args = json.loads(args_raw)
+                args = args_raw if isinstance(args_raw, dict) else json.loads(args_raw)
                 args = args if isinstance(args, dict) else {"_args": args}
             except (TypeError, ValueError):
                 args = {"_raw": str(args_raw)[:2000]}
             tc = make_tool_call(name, args, payload.get("call_id", ""))
+            tc["cwd"] = payload.get("cwd") or current_cwd
+            if name == "apply_patch":
+                # Por herramienta y antes de truncar _raw: la revisión solo
+                # acredita las escrituras posteriores a su propia entrega.
+                tc["files_touched"] = _patch_files(args, args_raw)
             # tool call = turno del asistente sin texto (igual que Claude)
             doc["turns"].append(make_turn(
                 "assistant", "", ts=ts, tool_calls=[tc]))
             if name == "apply_patch":
-                files.extend(_patch_files(args, args_raw))
+                files.extend(tc["files_touched"])
         # reasoning / function_call_output / otros → fuera
     ses["n_source_lines"] = n_lines
     doc["files_touched"] = _dedupe(files)

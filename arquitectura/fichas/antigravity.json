@@ -1,0 +1,81 @@
+{
+  "motor": "antigravity",
+  "nombre": "Antigravity CLI",
+  "binario": "agy",
+  "versiones_probadas": ["1.5.10"],
+  "fuente": "B",
+  "via_control": {
+    "tipo": "terminal",
+    "detalle": "Con plan personal, meter agy en otra app es ROJO: queda en la terminal, en «modo nativo» con la etiqueta experimental (D7-a).",
+    "misma_conversacion": false,
+    "semaforo": "gris"
+  },
+  "momentos": {
+    "session_start": {"eventos": ["SessionStart"], "estado": "si", "puede": ["inyectar"], "nota": "injectSteps; conversationId llega en cada hook"},
+    "user_prompt": {"eventos": ["PreInvocation"], "estado": "si", "puede": ["inyectar"], "nota": "lastUserInput; injectSteps"},
+    "pre_tool": {"eventos": ["PreToolUse"], "estado": "si", "puede": ["decidir"], "nota": "decision allow | auto_approve | deny | ask | …, más overwrite"},
+    "post_tool": {"eventos": ["PostToolUse"], "estado": "si", "puede": ["observar"]},
+    "permission_request": {"eventos": [], "estado": "parcial", "puede": ["observar"], "nota": "sin evento: la barra de estado trae tool_confirmation_pending"},
+    "turn_end": {"eventos": ["Stop", "PostInvocation"], "estado": "si", "puede": ["seguir"], "nota": "Stop decision continue; PostInvocation terminationBehavior"},
+    "compact": {"eventos": [], "estado": "sin_doc", "puede": []},
+    "session_end": {"eventos": [], "estado": "herdr", "puede": [], "nota": "sin SessionEnd: lo ve herdr al cerrarse el panel"}
+  },
+  "paquete": {
+    "formato": "claude",
+    "carga_por_sesion": "agy plugin import claude {paquete}",
+    "instala": "agy plugin import claude (desde el plugin de Claude)",
+    "hooks": {"dialecto": "claude", "ruta": "hooks/hooks.json", "raiz_var": "CLAUDE_PLUGIN_ROOT", "confianza": "a verificar: si el import conserva hooks y MCP"},
+    "mcp": {"declara": "mcp_config.json del plugin importado", "preaprueba": "mcp(workspace/*)"},
+    "skills": ".agents/skills (lee un solo nivel: vista plana)"
+  },
+  "permisos": {"por_sesion": ["--settings", "--mode", "--sandbox"], "preguntar": "si", "sandbox": true,
+    "niveles": {
+      "auto": {"bandera": ["--mode", "auto"], "lanzador": "--mode auto en macOS y Linux, con el deny de Workspace (engines/antigravity._policy_argv). Su --help 1.5.11: «--mode … (accept-edits, auto, plan)»; su changelog: «approves file edits and safe commands without asking and still prompts before irreversible actions… available on Linux and macOS». En Windows y sin el deny, accept-edits (como editar)"}
+    }
+  },
+  "uso_plan": {"tipo": "statusline", "fuente": "barra de estado oficial: quota con su reinicio"},
+  "conversacion": {"id": "hook_inicio", "como": "conversationId en cada hook"},
+  "tono": "agente propio (--agent)",
+  "nucleo": {
+    "mcp": {"declara": ".agents/mcp_config.json del proyecto (por fusión) y sus herramientas aprobadas en el --settings de la corrida", "archivos": [{"fundir": "{paquete}/.mcp.json", "a": "{cerebro}/.agents/mcp_config.json", "clave": "mcpServers", "sustituir": {"${CLAUDE_PLUGIN_ROOT}/lanzador/": "{lanzador}/"}}], "ajustes": {"permissions": {"allow": ["mcp(workspace/{herramienta})"]}}, "nota": "auditoría real 18-nov: por la terminal el MCP núcleo no estaba (solo la memoria vieja, `workspace-memoria`). Ahora el servidor `workspace` se suma por FUSIÓN a su .agents/mcp_config.json (lo del socio y `workspace-memoria` quedan; apunta al lanzador fijo) y agy lo abre como hijo con el entorno de la pestaña (verificado en memoria_mcp). Su aprobación va DENTRO del único --settings de la corrida (permisos._con_ajustes), el que arma su lanzador con las reglas del socio: si la corrida no trae uno, no se crea (su permissions reemplazaría el del socio) y las herramientas piden permiso. Una regla por herramienta (agy aprueba por nombre, doc «mcp(server/tool)»; el comodín no está verificado), abierta desde la lista REAL del MCP núcleo: {herramienta} vale por cada una (nucleo.expandir_herramientas), sin la lista ni su número a mano"},
+    "al_abrir": "hook",
+    "tono": {"via": "hook"},
+    "chat": {"via": "mensaje", "nota": "la página la manda una vez por conexión, antes de tu primer mensaje (el contexto de la sesión, como la nota de la maleta): su tono va por el hook, que es de su terminal"},
+    "verificado": false,
+    "nota": "hooks5: su vía por sesión carga solo sus hooks (sesion.sin_nucleo); el núcleo entra por probador.real. Ojo: su --settings reemplaza los permisos globales en la sesión (memoria_mcp los junta en las corridas de hoy)"
+  },
+  "sesion": {
+    "archivos": [{"copiar": "{paquete}/antigravity/hooks.json", "a": "{cerebro}/.agents/hooks.json", "sustituir": {"{paquete}/lanzador/": "{lanzador}/"}}],
+    "de_antes": {"mcp": "el MCP de memoria de Workspace en el .agents/mcp_config.json del cerebro (memoria_mcp.preparar_antigravity, al abrir)"},
+    "skills": {"via": "proyecto", "ruta": "{cerebro}/.agents/skills", "nota": "las skills del cerebro en la carpeta de skills del proyecto (paquete.skills: .agents/skills, lee un solo nivel: la vista plana de Workspace, con su sello; la global, ~/.gemini/config/skills, no se toca); una del socio con el mismo nombre gana (arq-default, 18-nov; a verificar en real con arquitectura.auditoria)"},
+    "mcp_del_nucleo": true,
+    "sin_nucleo": "sus hooks y el MCP núcleo (arq-default: por fusión en su .agents/mcp_config.json, junto a la memoria de hoy, y su aprobación dentro del único --settings de la corrida). Su hook de inicio todavía no tiene la forma para devolverle texto al modelo (injectSteps, sin verificar): el paquete de la pestaña sigue en el GEMINI.md y el tono, como hoy",
+    "confianza": "sin confianza por hook: carga los de <workspace>/.agents/hooks.json en una carpeta de confianza (su changelog: «workspace-local hooks defined in <workspace>/.agents/hooks.json not loading after trusting a folder»). El lanzador de hoy ya pone el cerebro en trustedWorkspaces (engines/antigravity.ensure_brain_access)",
+    "nota": "en SU forma, no la de Claude (generar.hooks_antigravity): la de Claude, su lector la salta entera («invalid hook \"hooks\"… The loader skips this whole file»), y por eso el probador real 3 no vio nada. Su `agy plugin validate --strict` (1.5.11) acepta la nuestra: hooks 1, sin avisos. Sus eventos: SessionStart, PreInvocation, Stop, PreToolUse y PostToolUse (sin cierre ni compactar). Con la ruta de esta máquina (se reescribe en cada arranque)"
+  },
+  "config_global": [
+    "{home}/.gemini/config/hooks.json",
+    "{home}/.gemini/config/mcp_config.json",
+    "{home}/.gemini/config/plugins",
+    "{home}/.gemini/config/agents",
+    "{home}/.gemini/config/skills",
+    "{home}/.gemini/antigravity-cli/settings.json",
+    "{home}/.gemini/AGENTS.md",
+    "{home}/.gemini/GEMINI.md"
+  ],
+  "probador": {
+    "env": {},
+    "preparar": [
+      {"correr": ["agy", "plugin", "import", "claude", "{paquete}"]}
+    ],
+    "corrida": ["agy", "-p", "{prompt}", "--output-format", "json"],
+    "timeout_s": 240,
+    "real": {
+      "preparar": [{"copiar": "{paquete}/antigravity/hooks.json", "a": "{cerebro}/.agents/hooks.json"}, {"fundir": "{paquete}/.mcp.json", "a": "{cerebro}/.agents/mcp_config.json", "clave": "mcpServers", "sustituir": {"${CLAUDE_PLUGIN_ROOT}/lanzador/": "{lanzador}/"}}],
+      "corrida": ["agy", "--settings", "{\"permissions\":{\"allow\":[\"mcp(workspace/{herramienta})\"]},\"trustedWorkspaces\":[\"{cerebro_real}\"]}", "-p", "{prompt}", "--output-format", "json"],
+      "nota": "sin `agy plugin import` (escribe en la config global): los hooks van en .agents/hooks.json del proyecto, en SU forma (hooks5). Carga los del proyecto solo en una carpeta de confianza: la carpeta temporal va en trustedWorkspaces del --settings de la corrida («Settings for this session only, never saved», su --help); si agy la guardara, la red de seguridad lo vería en su settings.json"
+    },
+    "verificado": false,
+    "nota": "en -p lo que pide aprobación se niega en silencio: antes de herramienta igual dispara"
+  }
+}

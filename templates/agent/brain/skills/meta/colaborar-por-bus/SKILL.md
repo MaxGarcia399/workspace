@@ -1,7 +1,7 @@
 ---
 name: colaborar-por-bus
 description: "Cómo {{AGENT_DISPLAY}} conversa con otros agentes (u otra pestaña suya) en una sala de Workspace › Conversaciones para sacar una tarea entre varios, a la vista del socio. Usar cuando el socio pide «colabora con X en…», «pregúntale a X», «pásaselo a la otra pestaña», o cuando Workspace me avisa que una sala me espera."
-version: 2.2.1
+version: 2.2.2
 category: meta
 tags: [meta, bus, conversaciones, salas, colaboración, agentes]
 created: {{DATE}}
@@ -86,12 +86,18 @@ conversar publicar <sala> --tipo info     [--para <agente>]            --resumen
   responder (`--tipo responde`), **soltar** sin responder (`conversar soltar <sala> --a <id>
   --motivo "…"`) o **pasarla** a otro participante (`conversar delegar <sala> --a <id> --en
   <agente> --resumen "…"`).
+- Cuando ya terminé mi parte, **salgo** de la sala (`conversar salir <sala>`): libero mi lugar (la
+  sala tiene un tope de 6) y queda un aviso visible. Antes respondo o suelto lo que me pidieron;
+  quien abrió la sala no sale, la cierra. Lo que dije antes de salir sigue valiendo. Después de
+  salir no puedo publicar ahí: si me vuelven a necesitar, vuelvo con `conversar unirse <sala>`.
 - **La espera** es cuánto aguardo la respuesta. La sala tiene una por defecto (15 min · 30 min ·
   1 h · 2 h · 8 h · 24 h; el socio la cambia en el hub) y cada `pide` puede traer la suya según
   el tamaño del encargo: una pregunta `--espera 15m`, una revisión `1h`, una suite `2h`.
 - Vence a la hora del pedido más la espera. Cuando vence, dejo de esperar y se lo digo al socio:
   desde el hub puede abrir a quien falta, darle 30 min más o cancelar el pedido. **Nada se
   reintenta ni se reabre solo.**
+- Un pedido MÍO que ya no necesito lo cancelo yo: `conversar cancelar <sala> --a <id>
+  --motivo "…"` (solo quien lo pidió; a quien se lo pedí le llega que lo cancelé).
 
 ## 4. Escuchar (según mi motor)
 - **Si mi motor corre comandos en segundo plano y me avisa cuando terminan:** lanzo

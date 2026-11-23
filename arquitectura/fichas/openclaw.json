@@ -1,0 +1,193 @@
+{
+  "motor": "openclaw",
+  "nombre": "OpenClaw",
+  "binario": "openclaw",
+  "versiones_probadas": [
+    "2026.10.7"
+  ],
+  "fuente": "C",
+  "via_control": {
+    "tipo": "servidor",
+    "detalle": "Gateway WebSocket v4: la página es un cliente más de la misma sesión. F4: con su terminal abierta (TUI del perfil de Workspace con `--session <clave de la pestaña>`), la página entra a ESA clave por su puente ACP (`openclaw acp --session <clave>`, de su --help 2026.10.7; el puente ya pasó el probador real), sin tocar su config: el gateway es el del perfil. Con la terminal cerrada, su agente con una clave propia de la pestaña (`agent:<id>:ws-pagina-<hash>`). El puente NO acepta servidores MCP por sesión (docs/cli/acp.md, «Per-session MCP servers: Unsupported»; con ellos session/new da -32603 «ACP bridge mode does not support per-session MCP servers», VERIFICADO 19-nov): el MCP de Workspace llega por el plugin del agente, como en la terminal.",
+    "misma_conversacion": true,
+    "semaforo": "verde"
+  },
+  "momentos": {
+    "session_start": {
+      "eventos": [
+        "session_start"
+      ],
+      "estado": "si",
+      "puede": [
+        "observar"
+      ],
+      "nota": "aviso tipado del plugin (docs/plugins/hooks/reference.md); solo observa"
+    },
+    "user_prompt": {
+      "eventos": [
+        "before_prompt_build"
+      ],
+      "estado": "si",
+      "puede": [
+        "inyectar"
+      ],
+      "nota": "aviso tipado; un plugin que no viene con OpenClaw necesita plugins.entries.workspace.hooks.allowConversationAccess (lo pone Workspace en SU perfil)"
+    },
+    "pre_tool": {
+      "eventos": [
+        "before_tool_call"
+      ],
+      "estado": "si",
+      "puede": [
+        "bloquear",
+        "decidir"
+      ],
+      "nota": "aviso tipado: {block, blockReason} niega; también le suma la clave de la sesión a las herramientas del MCP de Workspace (params)"
+    },
+    "post_tool": {
+      "eventos": [
+        "after_tool_call"
+      ],
+      "estado": "si",
+      "puede": [
+        "observar"
+      ]
+    },
+    "permission_request": {
+      "eventos": [
+        "exec.approval.requested"
+      ],
+      "estado": "servidor",
+      "puede": [
+        "decidir"
+      ],
+      "nota": "por el Gateway (la página lo recibe por su puente ACP como session/request_permission)"
+    },
+    "turn_end": {
+      "eventos": [
+        "agent_end"
+      ],
+      "estado": "si",
+      "puede": [
+        "observar"
+      ],
+      "nota": "aviso tipado (con allowConversationAccess); el «sigue» va por chat.send"
+    },
+    "compact": {
+      "eventos": [
+        "before_compaction",
+        "after_compaction"
+      ],
+      "estado": "si",
+      "puede": [
+        "observar"
+      ]
+    },
+    "session_end": {
+      "eventos": [
+        "session_end"
+      ],
+      "estado": "si",
+      "puede": [
+        "observar"
+      ]
+    }
+  },
+  "paquete": {
+    "formato": "openclaw",
+    "carga_por_sesion": "plugin nativo compartido, registrado por plugins.load.paths en el perfil propio de Workspace",
+    "instala": "lo copia Workspace al preparar el agente (engines/openclaw.asegurar_plugin); se quita al desinstalar",
+    "hooks": {
+      "dialecto": "openclaw",
+      "ruta": "index.js",
+      "raiz_var": null,
+      "confianza": "un plugin del workspace viene apagado (docs/tools/plugin.md: «Workspace-origin plugins are disabled by default; explicitly enable»): Workspace lo enciende en SU perfil (`plugins.entries.workspace.enabled`), igual que `openclaw plugins enable`, que para uno del workspace no pide revisar capacidades (VERIFICADO 19-nov, sin --accept-capabilities). Su aviso de procedencia («can't verify where this plugin came from») solo apaga lo que exige confianza (turnos de agente desde avisos, subir permisos del gateway), que no se usa"
+    },
+    "mcp": {
+      "declara": "mcpServers del manifiesto del plugin (docs/plugins/manifest/surfaces.md); el gateway abre uno por sesión",
+      "preaprueba": "no hace falta: OpenClaw no pide permiso para las herramientas MCP de un plugin encendido (VERIFICADO 19-nov)"
+    },
+    "skills": "las del cerebro, nativas por el skills/ del workspace de su agente (= el cerebro; VERIFICADO con una skill anidada en skills/<categoría>/<skill>); el plugin trae solo las del paquete (en el gateway un plugin es de todos los agentes)"
+  },
+  "permisos": {
+    "por_sesion": [
+      "modo de la sesión: read-only | guarded | workspace | full"
+    ],
+    "preguntar": "a_verificar",
+    "sandbox": false,
+    "niveles": {
+      "auto": {
+        "no": "sus modos de sesión (read-only | guarded | workspace | full) no traen uno con revisión automática verificado: queda como hoy"
+      }
+    }
+  },
+  "uso_plan": {
+    "tipo": "comando",
+    "fuente": "openclaw status --usage"
+  },
+  "conversacion": {
+    "id": "fijado_antes",
+    "como": "la clave de sesión que pone Workspace (`--session` de su TUI, `--session-key` de un turno sin ventana, `--session` de su puente ACP); el índice clave → pestaña es lo que deja a sus avisos y a su MCP, que corren en el gateway, hallar la pestaña"
+  },
+  "tono": "SOUL.md del agente",
+  "nucleo": {
+    "mcp": {
+      "declara": "mcpServers del plugin nativo (el gateway lo abre por sesión, sin el entorno de la pestaña): el aviso before_tool_call le suma la clave de la sesión a cada llamada y el servidor halla la pestaña con ella",
+      "nota": "sin argumentos ni entorno por sesión: va en el plugin"
+    },
+    "al_abrir": "hook",
+    "tono": {
+      "via": "no",
+      "nota": "SOUL.md del agente: sigue lo de hoy"
+    },
+    "chat": {"via": "mensaje", "nota": "la página la manda una vez por conexión, antes de tu primer mensaje (el contexto de la sesión, como la nota de la maleta): sin vía de sistema por sesión (su puente ACP)"},
+    "verificado": false
+  },
+  "sesion": {
+    "perfil": "perfil propio de Workspace compartido por sus agentes; engines/openclaw registra la ruta fija en plugins.load.paths",
+    "id": {
+      "flags": [
+        "--session",
+        "--session-key"
+      ],
+      "fija": [
+        "--session",
+        "--session-key"
+      ]
+    },
+    "skills": {
+      "via": "paquete",
+      "nota": "las del cerebro le llegan nativas por el skills/ de su workspace (el cerebro); el plugin trae las del paquete"
+    },
+    "sin_nucleo": "sus avisos corren en el gateway, que atiende a todas las pestañas sin su entorno: el paquete de la pestaña al abrir y el tono siguen por el AGENTS.md de hoy (el MCP sí va, por el plugin)",
+    "mcp_del_nucleo": true,
+    "nota": "engines/openclaw instala el plugin fijo antes de encender el gateway del perfil propio; la clave oficial identifica la pestaña"
+  },
+  "config_global": [
+    "{home}/.openclaw/openclaw.json",
+    "{home}/.openclaw/extensions"
+  ],
+  "probador": {
+    "env": {},
+    "preparar": [
+      {
+        "escribir": "{home}/.openclaw/openclaw.json",
+        "contenido": "{\"plugins\": {\"load\": {\"paths\": [\"{paquete}\"]}}}"
+      }
+    ],
+    "corrida": [
+      "openclaw",
+      "agent",
+      "--local",
+      "--message",
+      "{prompt}",
+      "--json"
+    ],
+    "timeout_s": 240,
+    "real": {
+      "no": "su plugin se enciende en la config de un perfil (el de Workspace) y su modelo es el de ese perfil: lo prueba arquitectura.auditoria con el perfil y el agente de Workspace, no el HOME real del socio"
+    },
+    "verificado": false,
+    "nota": "HOME temporal: ni el Gateway ni los agentes reales del usuario"
+  }
+}

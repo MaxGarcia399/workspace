@@ -1,0 +1,97 @@
+/* ===== skills v11 · el panel «Primero el tema» (60_skills.js · panelSkills) =====
+   En reposo, gris. Al pasar el cursor, con el foco, al apretar, en la fila abierta y en la que se lanza, se ilumina (L-1):
+   el color del agente solo en el objeto, una barrita de 3 px y la flecha; nunca de relleno. Un solo gesto al apretar:
+   un aplastón corto, sin onda ni rebote, y lo iluminado se queda hasta que cambia la lista. */
+.side.skp{width:372px}.side.skp .in{width:372px;padding:0;overflow:hidden}
+.side.pr{width:352px}.side.pr .in{width:352px;padding:0}
+.sk3{position:relative;display:flex;flex-direction:column;height:100%}
+.sk3.mueve .lista3{pointer-events:none}
+.hd3{display:flex;align-items:center;justify-content:space-between;padding:14px 12px 10px 18px}
+.hd3 b{font-size:16px;font-weight:650}
+.bus3{display:flex;align-items:center;gap:8px;margin:0 14px 6px;padding:0 8px 0 11px;height:36px;border-radius:10px;background:#1c1c20;border:1px solid var(--borde);color:var(--tx3);cursor:text;transition:border-color .15s}
+.bus3:hover{border-color:#33333a}
+.bus3:focus-within{border-color:color-mix(in srgb,var(--ac) 70%,#2a2a30)}
+.bus3 svg{flex:none}
+.bus3 input{flex:1;min-width:0;margin:0;padding:0;border:0;border-radius:0;background:none;font-size:13.5px}  /* un solo campo: la caja es .bus3 */
+.bus3 input::placeholder{color:var(--tx3)}
+.bus3 kbd{font:11px var(--mono);color:var(--tx3);border:1px solid #33333a;border-radius:5px;padding:0 5px}
+.bus3 .lim{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;color:var(--tx3)}
+.bus3 .lim:hover{background:#26262c;color:var(--tx)}
+.lista3{flex:1;min-height:0;overflow:auto;padding:0 12px 24px;-webkit-mask-image:linear-gradient(#000 calc(100% - 24px),transparent);mask-image:linear-gradient(#000 calc(100% - 24px),transparent)}
+.lab3{display:flex;align-items:center;gap:8px;padding:16px 4px 8px;font-size:11px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--tx3)}
+.lab3.tm8{padding-top:24px}
+/* los objetos de tema (C-1): dos grises en reposo; iluminados, el color del agente y su segundo tono */
+.emb7{display:inline-grid;place-items:center;flex:none;line-height:0}
+.emb7 svg{display:block;overflow:visible}
+.emb7 .o1{fill:#8e8e98;color:#8e8e98;transition:fill .24s ease,color .24s ease}
+.emb7 .o2{fill:#55555f;transition:fill .24s ease}
+.emb7 .s2{stroke:#55555f;transition:stroke .24s ease}
+.tema6:hover .emb7 .o1,.tema6:focus-visible .emb7 .o1,.tema6.apretada .emb7 .o1,.f3s:hover .emb7 .o1,.f3s:focus-within .emb7 .o1,.f3s.abierta .emb7 .o1,.f3s.lanza .emb7 .o1,.niv6 .emb7 .o1,.h5 .emb7 .o1{fill:var(--ac);color:var(--ac)}
+.tema6:hover .emb7 .o2,.tema6:focus-visible .emb7 .o2,.tema6.apretada .emb7 .o2,.f3s:hover .emb7 .o2,.f3s:focus-within .emb7 .o2,.f3s.abierta .emb7 .o2,.f3s.lanza .emb7 .o2,.niv6 .emb7 .o2,.h5 .emb7 .o2{fill:color-mix(in srgb,var(--ac) 50%,#17171a)}
+.tema6:hover .emb7 .s2,.tema6:focus-visible .emb7 .s2,.tema6.apretada .emb7 .s2,.f3s:hover .emb7 .s2,.f3s:focus-within .emb7 .s2,.f3s.abierta .emb7 .s2,.f3s.lanza .emb7 .s2,.niv6 .emb7 .s2,.h5 .emb7 .s2{stroke:color-mix(in srgb,var(--ac) 50%,#17171a)}
+/* filas: favoritas, dentro de un tema y en la búsqueda */
+.f3s{--fbg:transparent;position:relative;border-radius:12px;background:var(--fbg);transition:background-color .15s}
+.f3s:hover,.f3s:focus-within,.f3s.lanza{--fbg:var(--lit-row)}
+.f3s.abierta{--fbg:var(--lit-row-open)}
+.f3s::before{content:"";position:absolute;left:0;top:12px;height:26px;width:3px;border-radius:0 3px 3px 0;background:var(--ac);transform:scaleY(0);transition:transform .22s var(--ease);z-index:3;pointer-events:none}
+.f3s:hover::before,.f3s:focus-within::before,.f3s.abierta::before,.f3s.lanza::before{transform:scaleY(1)}
+.f3s .fila{position:relative;display:flex;align-items:center;padding:10px 40px 10px 8px;border-radius:12px;cursor:pointer;outline:0;overflow:hidden;transition:transform .12s ease-out}
+.f3s .fila:active{transform:scale(.992)}
+.f3s .fila:focus-visible{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ac) 60%,transparent)}
+.f3s .fila>*{position:relative;z-index:1}
+.f3s .fila>.acc3{position:absolute;z-index:2}
+.f3s .t{flex:1;min-width:0}
+.f3s .t b{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:600;line-height:1.35}
+.f3s .t b span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.f3s .t b .emb7{margin-right:1px}
+.f3s .t>span{display:block;color:var(--tx3);font-size:12.5px;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.acc3{position:absolute;right:6px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:2px;padding-left:22px;border-radius:0 10px 10px 0}
+.f3s:hover .acc3,.f3s:focus-within .acc3,.f3s.abierta .acc3,.f3s.lanza .acc3{background:linear-gradient(90deg,transparent,var(--fbg) 22px)}
+.usar3{position:relative;overflow:hidden;height:26px;padding:0 11px;border-radius:7px;background:#2c2c33;color:var(--tx);font-size:12.5px;font-weight:600;opacity:0;transform:translateX(4px);pointer-events:none;transition:opacity .15s,transform .12s ease-out,background-color .15s,color .15s}
+.f3s:hover .usar3,.f3s:focus-within .usar3,.f3s.abierta .usar3,.f3s.lanza .usar3{opacity:1;transform:none;pointer-events:auto}
+.usar3:hover{background:var(--ac);color:var(--acx)}
+.usar3:active{transform:scale(.94)!important}
+.est3{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;color:#5f5f69;opacity:0;transition:opacity .15s,color .15s,background-color .15s}
+.f3s:hover .est3,.f3s:focus-within .est3,.est3.on{opacity:1}
+.est3:hover{color:var(--tx);background:#2a2a30}
+.est3.on svg{fill:currentColor}
+.est3 svg{transition:transform .3s var(--rebote)}
+.est3.brinca svg{transform:scale(1.28);transition-duration:.12s}
+.det3{display:grid;grid-template-rows:0fr;transition:grid-template-rows .4s var(--ease)}
+.f3s.abierta .det3{grid-template-rows:1fr}
+.det3>div{overflow:hidden}
+.dt3{padding:0 14px 12px 28px}
+.dt3 p{font-size:12.5px;line-height:1.55;color:var(--tx2)}
+.dt3 ol{margin:8px 0 8px 16px;padding:0;font-size:12.5px;line-height:1.75;color:var(--tx2)}
+.dt3 ol li::marker{color:var(--tx3)}
+.meta3{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--tx3)}
+/* tarjetas de tema */
+.tema6{--k-tile:#26262b;--k-tx:#ededf0;--k-mu:#94949e;position:relative;overflow:hidden;outline:0;display:flex;align-items:center;gap:14px;width:100%;height:64px;margin:0 0 8px;padding:0 14px 0 12px;border-radius:14px;background:#1e1e22;text-align:left;transition:background-color .2s ease,box-shadow .2s ease,transform .12s ease-out}
+.tema6>*{position:relative;z-index:1}
+.tema6::before{content:"";position:absolute;left:0;top:16px;bottom:16px;width:3px;border-radius:0 3px 3px 0;background:var(--ac);transform:scaleY(0);transition:transform .22s var(--ease);z-index:2}
+.tema6:hover,.tema6:focus-visible,.tema6.apretada{background:var(--lit-card);--k-tile:var(--lit-tile);--k-tx:var(--lit-tx);--k-mu:#a3a3ad}
+.tema6:hover::before,.tema6:focus-visible::before,.tema6.apretada::before{transform:scaleY(1)}
+.tema6:active,.tema6.apretada{transform:scale(.985)}
+.tema6:focus-visible{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ac) 60%,transparent)}
+.tema6 .mmc{width:40px;height:40px;border-radius:11px;background:var(--k-tile);display:grid;place-items:center;flex:none;transition:background-color .24s ease}
+.tema6 .tt6{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.tema6 .nm8{display:flex;align-items:baseline;gap:8px;min-width:0}
+.tema6 .nm8 b{font-size:14.5px;font-weight:650;color:var(--k-tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:color .24s ease}
+.tema6 .nm8 i{font-style:normal;font-size:12px;font-weight:600;color:var(--k-mu);transition:color .24s ease}
+.tema6 small{display:block;font-size:12.5px;color:var(--k-mu);line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:color .24s ease}
+.tema6 .chev6{flex:none;color:var(--k-mu);transition:color .24s ease,transform .35s var(--rebote)}
+.tema6:hover .chev6,.tema6:focus-visible .chev6,.tema6.apretada .chev6{transform:translateX(3px);color:var(--ac)}
+/* dentro de un tema */
+.niv6{display:flex;align-items:center;gap:10px;padding:12px 0 8px;margin-bottom:4px}
+.niv6 .atras{position:relative;overflow:hidden;width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:var(--tx2);transition:background-color .15s,color .15s}
+.niv6 .atras:hover{background:#26262c;color:var(--tx)}
+.niv6 .mmc{width:32px;height:32px;border-radius:9px;background:var(--lit-tile);display:grid;place-items:center;flex:none}
+.niv6 b{font-size:15px;font-weight:650;color:#ededf0}
+.niv6 i{font-style:normal;font-size:12px;font-weight:600;color:var(--tx3)}
+.lista3 .nueva{position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;gap:8px;width:100%;height:40px;margin-top:16px;padding:0;border:1px solid #2a2a30;border-radius:10px;color:var(--tx3);font-size:13px;font-weight:600;transition:color .15s,background-color .15s,border-color .15s}
+.lista3 .nueva:hover{color:var(--tx);background:#1f1f23;border-color:color-mix(in srgb,var(--ac) 40%,#33333a)}
+.lista3 .nueva svg{flex:none;transition:color .15s}
+.lista3 .nueva:hover svg{color:var(--ac)}
+.vacio3{padding:28px 18px 8px;text-align:center;color:var(--tx3);font-size:13px;line-height:1.5}
+.vacio3 b{display:block;color:var(--tx2);font-weight:600;margin-bottom:2px}
+@media (prefers-reduced-motion:reduce){.tema6,.f3s .fila,.usar3,.est3 svg,.tema6::before,.f3s::before,.det3{transition:none}}

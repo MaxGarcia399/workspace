@@ -50,6 +50,18 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 
 # ── archivos de estado ──────────────────────────────────────────────────────
+
+
+def _avisa(notify, texto):
+    """El aviso de una línea; con el hub de prueba (rama de PRUEBA), con su piel (hub_carga)."""
+    try:
+        import hub_carga
+        if hub_carga.activo() and hub_carga.linea(texto):
+            return
+    except Exception:
+        pass
+    notify(texto)
+
 def _safe(profile):
     return re.sub(r"[^A-Za-z0-9_.-]+", "-", str(profile or "workspace"))
 
@@ -536,10 +548,10 @@ def wait_ready(exe, profile, port, timeout=START_TIMEOUT, notify=None, health=No
                 ensure_running(exe, profile, port, spawn=spawn)    # p. ej. lo estaban apagando
         if time.time() - t0 > 1.5 and "start" not in said:
             said.add("start")
-            notify("WORKSPACE: encendiendo OpenClaw (la primera pestaña tarda unos segundos)…")
+            _avisa(notify, "WORKSPACE: encendiendo OpenClaw (la primera pestaña tarda unos segundos)…")
         if "owner" not in said and OWNERSHIP_WAIT in log_tail(profile):
             said.add("owner")
-            notify("WORKSPACE: otra ventana de OpenClaw tiene el perfil abierto en el modo "
+            _avisa(notify, "WORKSPACE: otra ventana de OpenClaw tiene el perfil abierto en el modo "
                    "anterior (local). Ciérrala y esta pestaña sigue sola.")
         time.sleep(0.5)
     return False, "OpenClaw no encendió en %d s. Registro: %s" % (timeout, log_path(profile))

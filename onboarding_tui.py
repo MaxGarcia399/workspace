@@ -3,29 +3,30 @@
 
 La primera vez que alguien baja Workspace y lo abre, no hay config, no hay
 agentes y no sabe qué es esto. Este flujo lo recibe al estilo WORKSPACE
-(wordmark, cajas del tema, transparencia total) y lo deja operativo en
-3 etapas (las de `_ETAPAS`) más pasos opcionales y un resumen honesto:
+(wordmark, cajas del tema) y lo deja operativo en 2 etapas (las de
+`_ETAPAS`) y un resumen honesto:
 
-  idioma → bienvenida → 1 MOTORES → 2 APARIENCIA → (arranque) → 3 AGENTE
-         → (tono) → (google calendar) → resumen
+  (idioma) → bienvenida → 1 MOTORES → 2 AGENTE → resumen
 
-(idioma, arranque y google calendar son pasos opcionales, no etapas; ver _VISTAS.)
+El idioma solo se pregunta si el del sistema no se pudo leer (o no está entre
+los que hay): si se lee, se guarda y se empieza en la bienvenida.
+
+F0 del onboarding nuevo (19-nov): tema y fondo, arranque (abrir al abrir la
+terminal), tono y Google Calendar SALIERON del primer arranque. Quedan con su
+valor de fábrica y se cambian después en el hub (Personalización, Tono); el
+arranque nuevo lo deja encendido el instalador (decisión del dueño: greeter ON
+de fábrica, sin preguntarlo aquí).
 
 Qué REUSA (nada se duplica — este módulo solo orquesta):
-  · motores     harnesses.installed()/describe(probe=True): detección real de
-                binarios en PATH + sesión/login de cada CLI (el probe corre en
-                un hilo daemon — la UI nunca se congela). Solo se ofrecen los
-                SOPORTADOS: claude-code · codex · antigravity. La elección se
-                persiste como `modelos.default_engine` (config_engine, tier A).
-  · apariencia  el sistema de temas existente: hubtheme.hub_picker() (lista
-                curada), ui.theme + ui.background (settings), tuitheme.palette
-                (la pantalla ya se pinta con lo elegido = preview real) y
-                theme.apply_colors (el fondo OSC de la terminal, en vivo).
+  · motores     harnesses.describe(probe=True): detección real de binarios en
+                PATH + la sesión que dice el comando OFICIAL de cada motor
+                (session_active; el probe corre en un hilo daemon — la UI
+                nunca se congela). La lista enseña los motores instalados; los
+                que no están van en una sola línea. El primero marcado queda
+                como `modelos.default_engine` (config_engine, tier A).
   · agente      add_agent_tui COMPLETO (crear / cargar / descubrir): aquí solo
                 se elige el camino; el flujo real es la misma pantalla del hub,
-                pre-sembrada en la vista elegida.
-  · tono        tono_tui COMPLETO, pre-sembrado en el agente recién conectado
-                (solo si apareció uno nuevo).
+                pre-sembrada en la vista elegida, y al terminar vuelve aquí.
 
 No re-disparo: ~/.claude/workspace/onboarded.json (env WORKSPACE_ONBOARDED lo
 pisa — tests herméticos). Se escribe en cuanto la bienvenida se PINTA sin el
@@ -87,83 +88,59 @@ def _t(key, es):
 SOPORTADOS = ("claude-code", "codex", "antigravity", "opencode", "openclaw",
               "hermes", "kiro", "copilot", "cursor")
 
-#: Copy honesto por motor: qué es, de quién, cómo se entra. Nada inventado.
+#: Copy por motor en palabras simples: qué es, cómo se entra, qué cambia.
 _MOTOR_INFO = {
     "claude-code": (
-        "Claude Code — el CLI oficial de Anthropic (binario `claude`).",
-        "Entra con tu suscripción: corre `claude` una vez y sigue el login.",
-        "Es el motor con más integración en Workspace: hooks reales, avisos "
-        "en vivo y su memoria propia dentro del cerebro."),
+        "Claude Code, de Anthropic.",
+        "Entras con tu cuenta de Claude la primera vez que abres a tu agente.",
+        "Es el motor que Workspace conoce mejor: te enseña en vivo lo que hace "
+        "tu agente."),
     "codex": (
-        "Codex — el CLI de OpenAI (binario `codex`), con tu suscripción de "
-        "ChatGPT.",
-        "Entra con `codex login` en tu terminal.",
-        "Workspace lo envuelve; nunca lee ni toca tu token (~/.codex/)."),
+        "Codex, de OpenAI, con tu cuenta de ChatGPT.",
+        "Para entrar: escribe «codex login» en tu terminal.",
+        "Workspace nunca ve tu contraseña."),
     "antigravity": (
-        "Antigravity — el CLI `agy` de Google (Gemini).",
-        "La sesión se abre con tu cuenta Google desde el propio CLI.",
-        "Workspace lo envuelve igual que a los demás motores."),
+        "Antigravity, de Google (Gemini).",
+        "Entras con tu cuenta de Google desde el propio Antigravity.",
+        "Workspace lo usa igual que a los demás motores."),
     "opencode": (
-        "OpenCode — CLI de código abierto (binario `opencode`), agnóstico de "
-        "modelo.",
-        "Conecta tu proveedor con `opencode auth login` (OpenRouter, Anthropic, "
-        "OpenAI u otros).",
-        "Workspace lo envuelve; el modelo es el que elijas en tu config de "
-        "opencode y nunca lee tu credencial."),
+        "OpenCode, de código abierto: funciona con el modelo que elijas.",
+        "Para conectar tu cuenta: escribe «opencode auth login» en tu terminal.",
+        "Usa el modelo que elijas en OpenCode; Workspace nunca ve tu llave."),
     "openclaw": (
-        "OpenClaw — agente personal de código abierto (binario `openclaw`), en "
-        "su modo terminal local.",
-        "Conecta tu proveedor y elige tu modelo desde Motores › cuenta y "
-        "proveedor (abre el setup oficial de OpenClaw).",
-        "Workspace usa un perfil propio de OpenClaw sobre tu mismo cerebro: no "
-        "crea archivos extra, no fija modelo y nunca lee tu credencial."),
+        "OpenClaw, un agente personal de código abierto.",
+        "Conecta tu cuenta y elige tu modelo desde Motores › cuenta y proveedor.",
+        "Workspace le da su propio espacio: no fija modelo y nunca ve tu llave."),
     "hermes": (
-        "Hermes — agente de código abierto de Nous Research (binario `hermes`), "
-        "en su terminal.",
-        "Conecta tu proveedor y elige tu modelo desde Motores › cuenta y "
-        "proveedor (abre el setup oficial de Hermes).",
-        "Workspace usa un perfil propio de Hermes (copia tu config; tu Hermes "
-        "personal no cambia) con la identidad de tu agente y sin la memoria propia "
-        "de Hermes; nunca lee tu credencial."),
+        "Hermes, de Nous Research, de código abierto.",
+        "Conecta tu cuenta y elige tu modelo desde Motores › cuenta y proveedor.",
+        "Workspace usa su propia copia (tu Hermes no cambia) y nunca ve tu "
+        "llave."),
     "kiro": (
-        "Kiro — el agente de terminal de AWS (binario `kiro-cli`), antes Amazon Q "
-        "Developer CLI.",
-        "Entra con tu cuenta de Kiro: `kiro-cli login` (Builder ID, Identity Center, "
-        "Google o GitHub).",
-        "Workspace lo envuelve sobre tu mismo cerebro: el modelo es el que "
-        "elijas en Kiro y nunca lee tu credencial. Su config va en el cerebro "
-        "(.kiro/agents/workspace.json): nada en tu ~/.kiro."),
+        "Kiro, el agente de AWS (antes Amazon Q).",
+        "Para entrar: escribe «kiro-cli login» en tu terminal.",
+        "Usa el modelo que elijas en Kiro; Workspace nunca ve tu llave ni toca "
+        "tu configuración de Kiro."),
     "copilot": (
-        "GitHub Copilot — el CLI oficial de GitHub (binario `copilot`), con tu "
-        "suscripción de Copilot.",
-        "Entra con `copilot login` en tu terminal (o desde Motores › cuenta y "
-        "proveedor).",
-        "Workspace lo envuelve: el modelo es el de tu cuenta y nunca lee tu "
-        "token. Escribe solo su barra en ~/.copilot/settings.json; la memoria y "
-        "el aislamiento entre agentes van en cada arranque."),
+        "GitHub Copilot, con tu cuenta de Copilot.",
+        "Para entrar: escribe «copilot login» en tu terminal (o desde Motores › "
+        "cuenta y proveedor).",
+        "Usa el modelo de tu cuenta. Workspace solo agrega su barra en la "
+        "configuración de Copilot y nunca ve tu contraseña."),
     "cursor": (
-        "Cursor — el CLI de Cursor (binario `cursor-agent`), con tu cuenta de "
-        "Cursor.",
-        "Entra con `cursor-agent login` (o desde Motores › cuenta y proveedor).",
-        "Workspace lo envuelve: el modelo es el que elijas en Cursor y nunca "
-        "lee tu credencial. En ~/.cursor/cli-config.json escribe su barra y el "
-        "permiso de guardar la memoria, y confía en la carpeta de tu cerebro."),
+        "Cursor, con tu cuenta de Cursor.",
+        "Para entrar: escribe «cursor-agent login» en tu terminal (o desde "
+        "Motores › cuenta y proveedor).",
+        "Usa el modelo que elijas en Cursor. Workspace agrega su barra "
+        "y nunca ve tu contraseña."),
 }
 
-#: Fondos del onboarding = las opciones de ui.background MENOS `personalizado`
-#: (pide un #RRGGBB a mano — `python3 settings.py set ui.background_custom`,
-#: aquí no cabe honesto).
-_FONDOS = (("tema", "el del tema"), ("negro", "negro puro"),
-           ("grafito", "grafito"), ("azul", "azul noche"),
-           ("verde", "verde bosque"), ("violeta", "violeta"))
-
-_ETAPAS = ("motores", "apariencia", "agente")
+_ETAPAS = ("motores", "agente")
 
 #: Opción extra del paso agente (las otras 3 se toman de add_agent_tui).
 _SIN_AGENTE = ("ninguno", "terminar sin agente",
-               ("También puedes agregarlo cuando quieras desde el hub "
-                "(Agentes › «+ agregar agente») — crear, cargar o descubrir siguen "
-                "ahí, idénticos.",))
+               ("También puedes agregarlo cuando quieras desde Workspace "
+                "(Agentes › «+ agregar agente»).",))
 
 
 # ── flag de primer uso ──────────────────────────────────────────────────────
@@ -392,22 +369,20 @@ def _estado_motor(K, S, eid):
         return (_t("onboarding.motores.st.unavailable",
                    "no disponible en esta instalación"), K["DK"], False)
     if not d.get("binaries_ok"):
-        falta = ", ".join("`%s`" % b for b in (d.get("needs") or [])) \
-            or _t("onboarding.motores.st.cli", "CLI")
-        return (_t("onboarding.motores.st.not_installed",
-                   "no instalado — falta {falta} en PATH").format(falta=falta),
+        return (_t("onboarding.motores.st.not_installed", "no instalado"),
                 K["DK"], False)
     p = S["probe"].get(eid)
     if p is None:
         return (_t("onboarding.motores.st.checking",
-                   "binario ✓ · checando sesión…"), K["DIM"], True)
+                   "revisando si ya entraste…"), K["DIM"], True)
     if p.get("ready"):
         return (_t("onboarding.motores.st.session_ok",
-                   "binario ✓ · sesión activa ✓"), K["OK"], True)
-    det = p.get("detail") or _t("onboarding.motores.st.no_session",
-                                "sin sesión")
+                   "listo ✓ · ya entraste a tu cuenta"), K["OK"], True)
+    if "session" in p and p["session"] is None:          # P1: no se pudo saber: se dice así, sin inventar
+        return (_t("onboarding.motores.st.session_unknown",
+                   "instalado · no pude comprobar si ya entraste"), K["DIM"], True)
     return (_t("onboarding.motores.st.login_needed",
-               "binario ✓ · falta login — {det}").format(det=det), K["B"], True)
+               "instalado · falta entrar a tu cuenta"), K["B"], True)
 
 
 def _estado_corto(K, S, eid):
@@ -418,39 +393,78 @@ def _estado_corto(K, S, eid):
                 K["DK"])
     p = S["probe"].get(eid)
     if p is None:
-        return (_t("onboarding.motores.short.binary", "binario ✓"), K["DIM"])
+        return (_t("onboarding.motores.short.binary", "instalado"), K["DIM"])
     if p.get("ready"):
-        return (_t("onboarding.motores.short.session", "sesión ✓"), K["OK"])
-    return (_t("onboarding.motores.short.login", "falta login"), K["B"])
+        return (_t("onboarding.motores.short.session", "listo ✓"), K["OK"])
+    if "session" in p and p["session"] is None:
+        return (_t("onboarding.motores.short.unknown", "sin comprobar"), K["DIM"])
+    return (_t("onboarding.motores.short.login", "falta entrar"), K["B"])
 
 
-def _temas():
-    """[(id, label)] curados para el hub — hubtheme.hub_picker(). Falla-suave
-    → el snapshot de choices de ui.theme → (default del hub,)."""
+def _visibles(S):
+    """Los motores que la lista enseña (y que ↑↓ recorre): los instalados, en
+    el orden de SOPORTADOS. Los que no están van juntos en una sola línea."""
+    return [e for e in SOPORTADOS if (S["harn"].get(e) or {}).get("binaries_ok")]
+
+
+def _no_instalados(S):
+    return [e for e in SOPORTADOS if not (S["harn"].get(e) or {}).get("binaries_ok")]
+
+
+#: El idioma del sistema → el de Workspace, para no preguntar lo que la
+#: computadora ya sabe. Primero el de la interfaz de macOS (AppleLanguages),
+#: luego LC_ALL / LC_MESSAGES / LANG. Solo cuenta si es uno de los que hay.
+def _idioma_del_sistema():
+    candidatos = []
+    if sys.platform == "darwin":
+        try:
+            import subprocess
+            r = subprocess.run(["/usr/bin/defaults", "read", "-g", "AppleLanguages"],
+                               capture_output=True, text=True, encoding="utf-8",
+                               errors="replace", timeout=3)
+            for tok in (r.stdout or "").replace("(", " ").replace(")", " ").replace(",", " ").split():
+                tok = tok.strip().strip('"')
+                if tok:
+                    candidatos.append(tok)
+                    break                          # el primero es el de la interfaz
+        except Exception:
+            pass
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        v = (os.environ.get(var) or "").strip()
+        if v and v not in ("C", "POSIX") and not v.startswith("C."):
+            candidatos.append(v)
+            break
     try:
-        import hubtheme
-        out = [(t.get("id"), t.get("label") or t.get("id"))
-               for t in hubtheme.hub_picker() if t.get("id")]
-        if out:
-            return out
+        hay = {c for c, _n in (i18n.available() if i18n else [("es", ""), ("en", "")])}
     except Exception:
-        pass
+        hay = {"es", "en"}
+    for c in candidatos:
+        code = c.replace("-", "_").split("_")[0].split(".")[0].lower()
+        if code in hay:
+            return code
+    return ""
+
+
+def _idioma_auto():
+    """Si nadie eligió idioma (sin ui.lang guardado ni WORKSPACE_LANG) y el del
+    sistema se lee, lo guarda y devuelve True: el paso «idioma» sobra. Si ya
+    había uno elegido, también sobra. False = hay que preguntarlo."""
+    if os.environ.get("WORKSPACE_LANG"):
+        return True
     try:
         import settings
-        spec = next(s for s in settings.SETTINGS_SCHEMA
-                    if s["key"] == "ui.theme")
-        return [(c, c) for c in spec.get("choices") or (_tema_default(),)]
+        if settings.get_stored("ui.lang"):
+            return True
     except Exception:
-        return [(_tema_default(), _tema_default())]
-
-
-def _tema_default():
-    """El default ÚNICO del hub (tuitheme.DEFAULT_ID) — no un literal suelto."""
+        return False
+    code = _idioma_del_sistema()
+    if not code or i18n is None:
+        return False
     try:
-        import tuitheme
-        return tuitheme.DEFAULT_ID
+        i18n.set_lang(code)
+        return True
     except Exception:
-        return "bruma"
+        return False
 
 
 def _setting(key, default):
@@ -564,180 +578,28 @@ def _accion_primaria(S, K, w):
     elif v == "bienvenida":
         txt = _t("onboarding.action.bienvenida", "Enter para empezar")
     elif v == "motores":
+        # B6 (puerta N5): Enter CONTINÚA desde cualquier fila; espacio marca
         txt = _t("onboarding.action.motores_opt",
                  "espacio marca · Enter continúa") \
-            if S["mi"] < len(SOPORTADOS) else \
+            if S["mi"] < len(_visibles(S)) else \
             _t("onboarding.action.continuar", "Enter continúa al siguiente paso")
-    elif v == "apariencia":
-        items = _items_apariencia(S)
-        if S["ti"] < len(items):
-            txt = _t("onboarding.action.apariencia_opt",
-                     "Enter aplica «{lbl}»").format(lbl=items[S["ti"]][2])
-        else:
-            txt = _t("onboarding.action.continuar",
-                     "Enter continúa al siguiente paso")
-    elif v == "autostart":
-        opts = _autostart_opts()
-        if S.get("asi", 1) < len(opts):
-            txt = _t("onboarding.action.autostart",
-                     "Enter elige «{lbl}» · Esc salta").format(lbl=opts[S.get("asi", 1)][1])
-        else:
-            txt = _t("onboarding.action.continuar", "Enter continúa al siguiente paso")
     elif v == "agente":
         ops = _opciones_agente()
         tok, lbl, _d = ops[S["ai"] % len(ops)]
         txt = _t("onboarding.action.agente", "Enter abre «{lbl}»").format(
             lbl=_t("onboarding.agente.%s.label" % tok, lbl)) if tok != "ninguno" else \
             _t("onboarding.action.sin_agente", "Enter continúa sin agente (lo agregas después)")
-    elif v == "gcal":
-        txt = _t("onboarding.action.gcal_done", "Enter te lleva al resumen") \
-            if _gcal_configured() else \
-            _t("onboarding.action.gcal", "Esc salta · Enter conecta")
     elif v == "resumen":
-        txt = _t("onboarding.action.resumen", "Enter abre el hub")
+        txt = _t("onboarding.action.resumen", "Enter abre Workspace")
     else:
         txt = ""
     return HL.clip(" %s▸ %s%s" % (K["C"] + K["BO"], txt, K["R"]), w - 1)
 
 
-# ── pasos nuevos (opcionales, no etapas): autostart · Google Calendar ─────────
-def _autostart_opts():
-    """Los dos radios del paso autostart (menos invasivo al final)."""
-    return (("abrir", _t("onboarding.autostart.opt_on",
-                         "al abrir la terminal")),
-            ("comando", _t("onboarding.autostart.opt_off",
-                           "solo con el comando workspace")))
-
-
-def _b_autostart(S, K, iw, full=2):
-    """Paso autostart: ¿la terminal abre Workspace sola, o solo con el
-    comando? La caja der explica qué cambia y dónde. Saltable con Esc."""
-    opts = _autostart_opts()
-    cur_on = bool(_setting("ui.autostart", False))
-    eleccion = S.get("as_choice", 0 if cur_on else 1)
-    izq = []
-    izq.append(_divisor(K, _t("onboarding.autostart.div", "arranque"), iw,
-                        tono=2))
-    izq += _parrafo(K, (_t("onboarding.autostart.heading",
-                           "¿Cuándo abre Workspace?"),), iw, color=K["WH"])
-    izq.append("")
-    for i, (_tok, lbl) in enumerate(opts):
-        sel = (i == S.get("asi", 1))
-        activo = (i == eleccion)
-        bar, cur = _foco(K, sel)
-        marca = ("%s●%s" % (K["C"], K["R"])) if activo else \
-            ("%s○%s" % (K["GREY"], K["R"]))
-        lab = "%s%s%s" % ((K["WH"] + K["BO"]) if sel
-                          else (K["GREY"] if activo else K["DK"]), lbl, K["R"])
-        izq.append(HL.clip("%s%s %s %s" % (bar, cur, marca, lab), iw))
-        izq.append("")
-    izq.append(_fila_continuar(K, S.get("asi", 1) >= len(opts), iw))
-
-    der = []
-    foco = opts[min(S.get("asi", 1), len(opts) - 1) if S.get("asi", 1) < len(opts) else eleccion][0]
-    der.append(_divisor(K, _t("onboarding.div.que_cambia", "qué cambia"), iw,
-                        tono=3))
-    if foco == "abrir":
-        der += _parrafo(K, (_t(
-            "onboarding.autostart.on_p",
-            "Cada terminal nueva abre el menú de Workspace: eliges un agente o "
-            "sigues con una terminal normal (q). Cómodo para entrar directo al "
-            "hub."),), iw)
-    else:
-        der += _parrafo(K, (_t(
-            "onboarding.autostart.off_p",
-            "La terminal arranca como siempre; escribes `workspace` cuando "
-            "quieras el hub. Menos invasivo — ideal si compartes la máquina o "
-            "corres scripts en ella."),), iw)
-    if full >= 1:
-        der.append("")
-        der.append(_divisor(K, _t("onboarding.autostart.div_donde",
-                                  "dónde queda"), iw))
-        der += _parrafo(K, (_t(
-            "onboarding.autostart.donde_p",
-            "ui.autostart en settings.json + un bloque en ~/.zshrc (o tu "
-            "$PROFILE de PowerShell). Cambiarlo luego: repite "
-            "`workspace onboarding` o edita ese bloque."),), iw)
-    return izq, der
-
-
-def _gcal_on():
-    """¿Se ofrece el paso de Google Calendar? En pausa por ahora (gcal.enabled)."""
-    try:
-        import gcal
-        return gcal.enabled()
-    except Exception:
-        return False
-
-
-def _gcal_configured():
-    try:
-        import gcal
-        return bool(gcal.configured())
-    except Exception:
-        return False
-
-
-def _gcal_accounts():
-    try:
-        import gcal
-        return gcal.list_accounts()
-    except Exception:
-        return []
-
-
-def _b_gcal(S, K, iw, full=2):
-    """Google Calendar: browser OAuth first, iCal fallback; local credentials."""
-    conf = _gcal_configured()
-    izq = []
-    izq.append(_divisor(K, _t("onboarding.gcal.div_pasos", "cómo"), iw,
-                        tono=2))
-    if conf:
-        izq += _parrafo(K, (_t("onboarding.gcal.already",
-                               "Ya tienes Google Calendar conectado ✓"),), iw,
-                        color=K["OK"])
-        for a in _gcal_accounts()[:3]:
-            izq.append(HL.clip(" %s●%s %s%s%s" % (
-                K["C"], K["R"], K["GREY"], a.get("label", ""), K["R"]), iw))
-    else:
-        pasos = (
-            _t("onboarding.gcal.step1",
-               'Pulsa Enter y elige «Conectar con Google en el navegador».'),
-            _t("onboarding.gcal.step2",
-               'Elige tu cuenta de Google y autoriza leer los eventos.'),
-            _t("onboarding.gcal.step3", 'Vuelve a Workspace: la sesión se renueva automáticamente.'),
-            _t("onboarding.gcal.step4",
-               'También puedes conectar con una URL iCal.'),
-            _t("onboarding.gcal.step5",
-               'La primera conexión necesita el cliente OAuth de Workspace.'))
-        for n, txt in enumerate(pasos, 1):
-            for i, sub in enumerate(_wrap(txt, max(8, iw - 5))):
-                pre = (" %s%d%s " % (K["C"] + K["BO"], n, K["R"])) if i == 0 \
-                    else "    "
-                izq.append(HL.clip(pre + "%s%s%s" % (K["DIM"], sub, K["R"]),
-                                   iw))
-
-    der = []
-    der.append(_divisor(K, _t("onboarding.div.que_cambia", "qué cambia"), iw,
-                        tono=1))
-    der += _parrafo(K, (_t(
-        "onboarding.gcal.changes_p",
-        "Workspace LEE tus eventos (solo lectura) y los muestra en el "
-        "calendario del hub. Nunca escribe en tu agenda."),), iw)
-    if full >= 1:
-        der.append("")
-        der.append(_divisor(K, _t("onboarding.gcal.div_seguro", "seguro"), iw))
-        der += _parrafo(K, (_t(
-            "onboarding.gcal.seguro_p",
-            'La sesión de Google o la URL iCal se guarda en tu máquina. Puedes quitar la conexión desde el calendario.'),),
-            iw)
-    return izq, der
-
-
 # ── render ──────────────────────────────────────────────────────────────────
 def _fila_etapas(S, K, w):
-    """`1 motores ── 2 apariencia ── 3 agente` — etapas REALES del proceso
-    (hechas ✓ · actual encendida · pendientes tenues), no el cursor."""
+    """`1 motores ── 2 agente` — etapas REALES del proceso (hechas ✓ ·
+    actual encendida · pendientes tenues), no el cursor."""
     partes = []
     for n, et in enumerate(_ETAPAS):
         lbl = _t("onboarding.etapa.%s" % et, et)
@@ -754,10 +616,10 @@ def _fila_etapas(S, K, w):
 
 
 def _b_idioma(S, K, iw, full=2):
-    """Paso 0: elegir el idioma de la interfaz del cliente. Las opciones se
-    muestran con su nombre NATIVO (Español / English) sea cual sea el idioma
-    activo; al elegir, set_lang persiste y el resto del flujo ya sale en ese
-    idioma."""
+    """Paso 0 (solo si el idioma del sistema no se pudo leer): elegir el
+    idioma de la interfaz. Las opciones se muestran con su nombre NATIVO
+    (Español / English) sea cual sea el idioma activo; al elegir, set_lang
+    persiste y el resto del flujo ya sale en ese idioma."""
     opts = i18n.available() if i18n else [("es", "Español"), ("en", "English")]
     izq = []
     izq.append(_divisor(K, _t("onboarding.idioma.divisor", "idioma"), iw,
@@ -792,15 +654,12 @@ def _b_idioma(S, K, iw, full=2):
 def _b_bienvenida(S, K, iw, full=2):
     izq = _parrafo(K, (
         _t("onboarding.welcome.p1",
-           "Workspace es un hub local para tus agentes de IA: cada agente vive "
-           "en su propio cerebro (una carpeta de archivos tuya) y corre sobre "
-           "un motor CLI que ya tengas instalado — Claude Code, Codex, "
-           "Antigravity, OpenCode, OpenClaw, Hermes, Kiro, GitHub Copilot o "
-           "Cursor."),
+           "Workspace junta a tus agentes de IA en un solo lugar. Cada agente "
+           "guarda lo que aprende en una carpeta tuya y piensa con un motor "
+           "de IA que ya tienes, como Claude Code o Codex."),
         _t("onboarding.welcome.p2",
-           "Todo pasa en tu máquina: cero dependencias, sin cuentas nuevas, y "
-           "Workspace nunca ve ni guarda tus credenciales (el login es de cada "
-           "CLI).")), iw)
+           "Todo pasa en tu computadora: no hay cuentas nuevas y Workspace "
+           "nunca ve tus contraseñas.")), iw)
     izq += ["", _fila_continuar(K, True, iw)]
     der = []
     der.append(_divisor(K, _t("onboarding.welcome.plan_title",
@@ -808,14 +667,10 @@ def _b_bienvenida(S, K, iw, full=2):
     pasos = (
         (_t("onboarding.welcome.step1_t", "1 motores"),
          _t("onboarding.welcome.step1_d",
-            "detecto qué CLIs tienes y eliges cuáles usar")),
-        (_t("onboarding.welcome.step2_t", "2 apariencia"),
+            "reviso qué motores de IA tienes y si ya entraste a tu cuenta")),
+        (_t("onboarding.welcome.step2_t", "2 agente"),
          _t("onboarding.welcome.step2_d",
-            "tema y fondo del hub — se ven al instante")),
-        (_t("onboarding.welcome.step3_t", "3 agente"),
-         _t("onboarding.welcome.step3_d",
-            "crear uno nuevo, cargar uno existente o buscar "
-            "en tu disco (y afinar su tono)")))
+            "creas tu primer agente (o conectas uno que ya tengas)")))
     for tit, txt in pasos:
         der.append(HL.clip(" %s%s%s" % (K["WH"] + K["BO"], tit, K["R"]), iw))
         for sub in _wrap(txt, max(8, iw - 4)):
@@ -826,15 +681,23 @@ def _b_bienvenida(S, K, iw, full=2):
                                   "transparencia"), iw))
         der += _parrafo(K, (
             _t("onboarding.welcome.transparency_p",
-               "Al final: un resumen de lo elegido y dónde quedó guardado. "
-               "Puedes saltarte esto con q y repetirlo cuando quieras con "
-               "`workspace onboarding`."),), iw, bullet=False)
+               "Al final ves un resumen. Tema, arranque y tono quedan como "
+               "vienen y los cambias cuando quieras en Workspace. Puedes "
+               "saltarte esto con q y repetirlo con «workspace onboarding»."),),
+            iw, bullet=False)
     return izq, der
 
 
 def _b_motores(S, K, iw, full=2):
+    vis = _visibles(S)
     izq = []
-    for i, eid in enumerate(SOPORTADOS):
+    if not vis:
+        izq += _parrafo(K, (_t("onboarding.motores.ninguno_instalado",
+                               "No encontré ningún motor de IA en esta "
+                               "computadora. Puedes seguir e instalar uno "
+                               "después."),), iw, color=K["B"])
+        izq.append("")
+    for i, eid in enumerate(vis):
         sel = (i == S["mi"])
         txt, col, elegible = _estado_motor(K, S, eid)
         usa = eid in S["sel"]
@@ -850,8 +713,14 @@ def _b_motores(S, K, iw, full=2):
             izq.append(HL.clip("      %s%s%s" % (col, sub, K["R"]), iw))
         if not S.get("_compacto"):           # con poco alto, sin aire entre motores
             izq.append("")
+    faltan = _no_instalados(S)
+    if faltan:
+        for sub in _wrap(_t("onboarding.motores.no_instalados",
+                            "no instalados: {lista}").format(lista=" · ".join(faltan)),
+                         max(8, iw - 3)):
+            izq.append(HL.clip("   %s%s%s" % (K["DK"], sub, K["R"]), iw))
     izq.append(_divisor(K, _t("onboarding.motores.div_listo", "listo"), iw))
-    selc = (S["mi"] == len(SOPORTADOS))
+    selc = (S["mi"] >= len(vis))
     bar, cur = _foco(K, selc)
     _cont = _t("onboarding.continuar", "✦ continuar")
     _mk = _t("onboarding.motores.marcados",
@@ -859,8 +728,8 @@ def _b_motores(S, K, iw, full=2):
     izq.append(_fila_continuar(K, selc, iw, _cont, "   %s%s%s" % (K["DK"], _mk, K["R"])))
 
     der = []
-    if S["mi"] < len(SOPORTADOS):
-        eid = SOPORTADOS[S["mi"]]
+    if S["mi"] < len(vis):
+        eid = vis[S["mi"]]
         info = _motor_info(eid)
         der.append(_divisor(K, _t("onboarding.div.tu_eleccion", "tu elección"),
                             iw, tono=1))
@@ -881,114 +750,22 @@ def _b_motores(S, K, iw, full=2):
             primero = next(e for e in SOPORTADOS if e in S["sel"])
             der += _parrafo(K, (_t(
                 "onboarding.motores.default_p",
-                "Los motores marcados son tu set de trabajo. «{motor}» queda "
-                "como default (modelos.default_engine) para los agentes que no "
-                "declaren el suyo — cada agente puede fijar otro después."
+                "Tu primer agente usará «{motor}». Cada agente puede usar otro "
+                "después."
             ).format(motor=primero),), iw)
         else:
             der += _parrafo(K, (_t(
                 "onboarding.motores.none_p",
-                "Sin ningún motor marcado no se puede lanzar agentes. Puedes "
-                "continuar igual, instalar un CLI después y repetir esto con "
-                "`workspace onboarding`."),), iw, color=K["B"])
+                "Sin un motor tus agentes no pueden pensar. Puedes seguir igual "
+                "e instalar uno después."),), iw, color=K["B"])
     if full >= 2:
         der.append("")
         der.append(_divisor(K, _t("onboarding.motores.div_honesto", "honesto"),
                             iw))
         der += _parrafo(K, (_t(
             "onboarding.motores.honesto_p",
-            "El estado de sesión se lee del propio CLI de cada motor; "
-            "Workspace no guarda ni ve credenciales."),), iw)
-    return izq, der
-
-
-def _fondo_val(v):
-    """VALOR de ui.background tal como se MUESTRA (el guardado no cambia):
-    en es es el id mismo (paridad); en en, su nombre corto traducido."""
-    v = str(v)
-    return _t("onboarding.fondo_val.%s" % v, v) if v in _FONDO_IDS else v
-
-
-_FONDO_IDS = ("tema", "negro", "grafito", "azul", "verde", "violeta",
-              "personalizado")
-
-
-def _items_apariencia(S):
-    """[(tipo, id, label)] navegables + la fila continuar al final."""
-    out = [("tema", tid, lbl) for tid, lbl in S["temas"]]
-    out += [("fondo", fid, _t("onboarding.fondo.%s" % fid, lbl))
-            for fid, lbl in _FONDOS]
-    return out
-
-
-def _b_apariencia(S, K, iw, full=2):
-    items = _items_apariencia(S)
-    tema_act = str(_setting("ui.theme", _tema_default()))
-    fondo_act = str(_setting("ui.background", "tema"))
-    izq, grupo = [], None
-    for i, (tipo, iid, lbl) in enumerate(items):
-        if tipo != grupo:
-            if grupo is not None:
-                izq.append("")
-            izq.append(_divisor(K, _t("onboarding.apariencia.group.%s" % tipo,
-                                      tipo), iw))
-            grupo = tipo
-        sel = (i == S["ti"])
-        act = (iid == (tema_act if tipo == "tema" else fondo_act))
-        bar, cur = _foco(K, sel)
-        marca = ("%s●%s" % (K["C"], K["R"])) if act else \
-            ("%s·%s" % (K["DK"], K["R"]))
-        lab = "%s%s%s" % ((K["WH"] + K["BO"]) if sel
-                          else (K["GREY"] if act else K["DIM"]),
-                          HL.pad(lbl, 18), K["R"])
-        extra = ("%s%s%s" % (K["OK"],
-                             _t("onboarding.apariencia.activo", "activo"),
-                             K["R"])) if act else ""
-        izq.append(HL.clip("%s%s %s %s %s" % (bar, cur, marca, lab, extra), iw))
-    izq.append("")
-    izq.append(_fila_continuar(K, S["ti"] == len(items), iw))
-
-    der = []
-    der.append(_divisor(K, _t("onboarding.div.tu_eleccion", "tu elección"),
-                        iw, tono=1))
-    der.append(HL.clip(" %s%s%s  %s%s%s" % (
-        K["DK"], _t("onboarding.apariencia.group.tema", "tema"), K["R"],
-        K["WH"] + K["BO"], tema_act, K["R"]), iw))
-    der.append(HL.clip(" %s%s%s %s%s%s" % (
-        K["DK"], _t("onboarding.apariencia.group.fondo", "fondo"), K["R"],
-        K["WH"] + K["BO"], _fondo_val(fondo_act), K["R"]), iw))
-    try:
-        import herdr_tema
-        _herdr = herdr_tema.etiqueta()
-    except Exception:
-        _herdr = ""
-    if _herdr:
-        # Dentro de herdr esta pantalla NO es la vista previa: los colores los
-        # pone herdr. Se dice en una línea en vez de fingir.
-        der.append(HL.clip(" %s%s%s" % (K["B2"], _t(
-            "onboarding.apariencia.herdr_manda",
-            "dentro de herdr manda {tema}; esto vale fuera de herdr").replace(
-                "{tema}", _herdr), K["R"]), iw))
-    if full >= 1:
-        der.append("")
-        der.append(_divisor(K, _t("onboarding.div.que_cambia", "qué cambia"),
-                            iw, tono=3))
-        der += _parrafo(K, (
-            _t("onboarding.apariencia.changes_p1",
-               "El tema pinta todo el hub — wordmark, cajas, sliders — y se "
-               "guarda al instante: esta pantalla YA está pintada con él; eso "
-               "es la vista previa."),
-            _t("onboarding.apariencia.changes_p2",
-               "El fondo es un eje independiente: cambia solo el color de "
-               "fondo de la terminal y combina con cualquier tema."),), iw)
-    if full >= 2:
-        der.append("")
-        der.append(_divisor(K, _t("onboarding.apariencia.div_donde",
-                                  "dónde queda"), iw))
-        der += _parrafo(K, (_t(
-            "onboarding.apariencia.donde_p",
-            "ui.theme y ui.background en ~/.claude/workspace/settings.json. "
-            "Brillo y luz roja: en «Personalización» del hub."),), iw)
+            "«Listo» solo sale cuando el propio motor confirma que ya entraste. "
+            "Workspace nunca ve tus contraseñas."),), iw)
     return izq, der
 
 
@@ -1025,9 +802,8 @@ def _b_agente(S, K, iw, full=2):
                                   "siguiente paso"), iw))
         der += _parrafo(K, (_t(
             "onboarding.agente.siguiente_p",
-            "Se abre la pantalla real del hub («Agregar agente») en ese "
-            "camino. Si queda un agente nuevo conectado, al volver podrás "
-            "afinar su TONO; después, el resumen."),), iw)
+            "Se abre el formulario; al terminar vuelves aquí y ves el "
+            "resumen."),), iw)
     return izq, der
 
 
@@ -1037,20 +813,21 @@ def _b_agente(S, K, iw, full=2):
 #: búsqueda; las cifras van a tus agentes y `q` sale.
 _TECLAS_CLAVE = (
     ("workspace", "onboarding.resumen.tecla_abrir",
-     "abre el hub desde cualquier terminal"),
+     "abre Workspace en cualquier terminal"),
+    ("1-9", "onboarding.resumen.tecla_agentes",
+     "elige a tu agente; la misma tecla lo abre"),
     ("abc", "onboarding.resumen.tecla_buscar",
      "escribe para buscar un agente o una sección"),
-    ("1-9", "onboarding.resumen.tecla_agentes",
-     "apunta a tu agente; la misma tecla otra vez lo abre"),
     ("q", "onboarding.resumen.tecla_salir",
-     "sale del hub a tu terminal"),
+     "sale a tu terminal"),
 )
 
 
 def teclas_clave():
     """[(tecla, texto)] de las teclas que importan, en el idioma activo.
     Solo LEE (no toca keybinds.json ni el flag)."""
-    return [(tecla, _t(key, es)) for tecla, key, es in _TECLAS_CLAVE]
+    return [(_t("onboarding.resumen.tecla.%s" % tecla, tecla), _t(key, es))
+            for tecla, key, es in _TECLAS_CLAVE]
 
 
 def _b_resumen(S, K, iw, full=2):
@@ -1062,24 +839,11 @@ def _b_resumen(S, K, iw, full=2):
             txt, col = _estado_corto(K, S, eid)
             izq.append(HL.clip(" %s●%s %s  %s%s%s" % (
                 K["C"], K["R"], HL.pad(eid, 12), col, txt, K["R"]), iw))
-        izq.append(HL.clip(" %s%s%s" % (
-            K["DK"], _t("onboarding.resumen.default", "default: {engine}")
-            .format(engine=S.get("def_engine") or _t(
-                "onboarding.resumen.sin_cambio", "sin cambio")), K["R"]), iw))
     else:
         izq.append(HL.clip(" %s%s%s" % (K["DIM"], _t(
             "onboarding.resumen.ninguno_marcado",
-            "ninguno marcado — instala un CLI y repite con "
-            "`workspace onboarding`"), K["R"]), iw))
-    izq.append("")
-    izq.append(_divisor(K, _t("onboarding.resumen.div_apariencia",
-                              "apariencia"), iw, tono=2))
-    izq.append(HL.clip(" %s %s%s%s · %s %s%s%s" % (
-        _t("onboarding.apariencia.group.tema", "tema"),
-        K["WH"] + K["BO"], _setting("ui.theme", _tema_default()), K["R"],
-        _t("onboarding.apariencia.group.fondo", "fondo"),
-        K["WH"] + K["BO"], _fondo_val(_setting("ui.background", "tema")),
-        K["R"]), iw))
+            "ninguno marcado — instala uno y repite con «workspace "
+            "onboarding»"), K["R"]), iw))
     izq.append("")
     izq.append(_divisor(K, _t("onboarding.resumen.div_agentes", "agentes"),
                         iw, tono=3))
@@ -1087,9 +851,8 @@ def _b_resumen(S, K, iw, full=2):
     if ags:
         for a in ags[:4]:
             nuevo = a["name"] in S["nuevos"]
-            izq.append(HL.clip(" %s%s%s  %s%s%s" % (
-                K["WH"] + K["BO"] if nuevo else K["GREY"], a["name"], K["R"],
-                K["DK"], a.get("brain", ""), K["R"]), iw))
+            izq.append(HL.clip(" %s%s%s" % (
+                K["WH"] + K["BO"] if nuevo else K["GREY"], a["name"], K["R"]), iw))
         if len(ags) > 4:
             izq.append(HL.clip(" %s%s%s" % (K["DK"], _t(
                 "onboarding.resumen.y_mas", "… y {n} más").format(
@@ -1097,12 +860,8 @@ def _b_resumen(S, K, iw, full=2):
     else:
         izq.append(HL.clip(" %s%s%s" % (K["DIM"], _t(
             "onboarding.resumen.sin_agentes",
-            "sin agentes aún — «Agregar agente» en el hub cuando quieras"),
+            "sin agentes aún — «Agregar agente» en Workspace cuando quieras"),
             K["R"]), iw))
-    if S.get("tono"):
-        izq.append(HL.clip(" %s%s%s" % (K["OK"], _t(
-            "onboarding.resumen.tono_ok", "tono ajustado para {agente} ✓")
-            .format(agente=S["tono"]), K["R"]), iw))
 
     der = []
     # Primero las teclas (esencial: no se degrada con `full`); luego dónde quedó.
@@ -1125,10 +884,8 @@ def _b_resumen(S, K, iw, full=2):
         ap = _ar.local_path()
     except Exception:
         ap = "~/.claude/workspace/agents.local.json"
-    filas = ((_t("onboarding.resumen.fila_config",
-                 "config (tema, fondo, motor)"), sp),
-             (_t("onboarding.resumen.fila_agentes", "agentes registrados"),
-              ap),
+    filas = ((_t("onboarding.resumen.fila_config", "tus ajustes"), sp),
+             (_t("onboarding.resumen.fila_agentes", "tus agentes"), ap),
              (_t("onboarding.resumen.fila_onboarding", "este onboarding"),
               flag_path()))
     for lbl, ruta in filas:
@@ -1140,35 +897,25 @@ def _b_resumen(S, K, iw, full=2):
                                   "de aquí en adelante"), iw))
         der += _parrafo(K, (
             _t("onboarding.resumen.adelante_p1",
-               "Enter te deja en el hub: ahí lanzas agentes y en el Menú "
-               "tienes Agentes (a = agregar), Motores, Usuarios y Tono."),
+               "Enter te lleva a Workspace: ahí abres a tus agentes. El tema "
+               "y el arranque están en Personalización, y el tono, en Tono."),
             _t("onboarding.resumen.adelante_p2",
-               "Repetir este flujo: `workspace onboarding`."),), iw)
+               "Repetir este flujo: «workspace onboarding»."),), iw)
     return izq, der
 
 
 _VISTAS = {"idioma": (_b_idioma, "IDIOMA · LANGUAGE", "WORKSPACE"),
            "bienvenida": (_b_bienvenida, "QUÉ ES WORKSPACE", "EL PLAN"),
-           "motores": (_b_motores, "MOTORES DETECTADOS", "EL MOTOR"),
-           "apariencia": (_b_apariencia, "TEMA Y FONDO", "LA APARIENCIA"),
-           "autostart": (_b_autostart, "ARRANQUE", "CÓMO ABRE"),
+           "motores": (_b_motores, "TUS MOTORES", "EL MOTOR"),
            "agente": (_b_agente, "TU PRIMER AGENTE", "EL CAMINO"),
-           "gcal": (_b_gcal, "GOOGLE CALENDAR", "OPCIONAL"),
            "resumen": (_b_resumen, "LO QUE QUEDÓ", "DÓNDE Y QUÉ SIGUE")}
 
-#: Claves i18n del TÍTULO de cada caja, por vista (izq, der). Solo las vistas
-#: ya traducidas aparecen aquí; las demás usan el literal de _VISTAS (español,
-#: paridad). Las fases 1+ agregan su vista = una línea aquí. `idioma` no entra:
-#: su título es bilingüe fijo (el idioma aún no se elige).
+#: Claves i18n del TÍTULO de cada caja, por vista (izq, der). `idioma` no
+#: entra: su título es bilingüe fijo (el idioma aún no se elige).
 _TITLE_KEYS = {
     "bienvenida": ("onboarding.welcome.title_l", "onboarding.welcome.title_r"),
     "motores": ("onboarding.motores.title_l", "onboarding.motores.title_r"),
-    "apariencia": ("onboarding.apariencia.title_l",
-                   "onboarding.apariencia.title_r"),
-    "autostart": ("onboarding.autostart.title_l",
-                  "onboarding.autostart.title_r"),
     "agente": ("onboarding.agente.title_l", "onboarding.agente.title_r"),
-    "gcal": ("onboarding.gcal.title_l", "onboarding.gcal.title_r"),
     "resumen": ("onboarding.resumen.title_l", "onboarding.resumen.title_r"),
 }
 
@@ -1177,31 +924,24 @@ _HINT_KEYS = {
     "idioma": "onboarding.hints.idioma",
     "bienvenida": "onboarding.hints.welcome",
     "motores": "onboarding.hints.motores",
-    "apariencia": "onboarding.hints.apariencia",
-    "autostart": "onboarding.hints.autostart",
     "agente": "onboarding.hints.agente",
-    "gcal": "onboarding.hints.gcal",
     "resumen": "onboarding.hints.resumen",
 }
 
 _HINTS = {
     "idioma": "↑↓ idioma · Enter elige · Esc/q salta",
-    "bienvenida": "Enter empieza · q al hub (vuelve con `workspace onboarding`)",
+    "bienvenida": "Enter empieza · q salta (vuelve con «workspace onboarding»)",
     "motores": "↑↓ motor · espacio marca/quita · Enter continúa · Esc atrás · q salta",
-    "apariencia": "↑↓ opción · Enter/espacio aplica (guarda ya) · Esc atrás · q salta",
-    "autostart": "↑↓ opción · Enter elige · Esc salta · q sale",
     "agente": "↑↓ camino · 1-4 directo · Enter abre · Esc atrás · q salta",
-    "gcal": "Enter conecta · Esc salta · q sale",
-    "resumen": "Enter — al hub",
+    "resumen": "Enter — a Workspace",
 }
 
 
 # ══ REDISEÑO 2026-10-14 (concepto Omarchy, como las secciones del hub) ══════
-# Cada paso en UNA caja centrada: arriba el avance (motores → apariencia →
-# agente), en medio SOLO lo que hay que decidir y abajo la acción principal
-# (▸). Lo didáctico de cada paso —qué cambia, dónde queda, el plan— vive
-# detrás de `i` (antes era la caja de la derecha). La lógica de cada paso no
-# cambió: mismos builders, mismas teclas, más `i`.
+# Cada paso en UNA caja centrada: arriba el avance (motores → agente), en
+# medio SOLO lo que hay que decidir y abajo la acción principal (▸). Lo
+# didáctico de cada paso —qué cambia, dónde queda, el plan— vive detrás de
+# `i` (antes era la caja de la derecha).
 _OB_BOX_W = 66
 
 
@@ -1214,23 +954,15 @@ def _chips_ob(S):
                    ("Enter", _t("onboarding.k.choose", "elige")), info,
                    ("q", _t("onboarding.k.skip", "salta"))),
         "bienvenida": (("Enter", _t("onboarding.k.start", "empieza")), info,
-                       ("q", _t("onboarding.k.to_hub", "al hub"))),
+                       ("q", _t("onboarding.k.skip", "salta"))),
         "motores": (("↑↓", _t("onboarding.k.engine", "motor")),
                     (_t("onboarding.k.space", "espacio"), _t("onboarding.k.mark", "marca")),
                     ("Enter", _t("onboarding.k.next", "continúa")), info,
                     ("Esc", _t("onboarding.k.back", "atrás"))),
-        "apariencia": (("↑↓", _t("onboarding.k.option", "opción")),
-                       ("Enter", _t("onboarding.k.apply", "aplica")), info,
-                       ("Esc", _t("onboarding.k.back", "atrás"))),
-        "autostart": (("↑↓", _t("onboarding.k.option", "opción")),
-                      ("Enter", _t("onboarding.k.choose", "elige")), info,
-                      ("Esc", _t("onboarding.k.skip", "salta"))),
         "agente": (("↑↓", _t("onboarding.k.path", "camino")),
                    ("Enter", _t("onboarding.k.open", "abre")), info,
                    ("Esc", _t("onboarding.k.back", "atrás"))),
-        "gcal": (("Enter", _t("onboarding.k.connect", "conecta")), info,
-                 ("Esc", _t("onboarding.k.skip", "salta"))),
-        "resumen": (("Enter", _t("onboarding.k.to_hub", "al hub")), info),
+        "resumen": (("Enter", _t("onboarding.k.to_hub", "a Workspace")), info),
     }
     return tabla.get(v, (info,))
 
@@ -1254,7 +986,7 @@ def _cuerpo_ob(S, K, iw):
         fin = next((i for i, ln in enumerate(der)
                     if i and not SB._ANSI.sub("", ln).strip()), len(der))
         cuerpo += [""] + list(der[:fin])
-        cuerpo += ["", _fila_continuar(K, True, iw, _t("onboarding.ir_al_hub", "✦ ir al hub"))]
+        cuerpo += ["", _fila_continuar(K, True, iw, _t("onboarding.ir_al_hub", "✦ ir a Workspace"))]
     # el cursor del paso (para que la caja lo siga si no cabe todo)
     S["_cur"] = len(out) + next((i for i, ln in enumerate(cuerpo)
                                  if K["PTR"] in ln), 0)
@@ -1265,7 +997,7 @@ def _cuerpo_ob(S, K, iw):
 #: Pasos de solo texto (una sola acción): con poco alto ↑↓ desplazan la caja.
 #: Abre siguiendo al botón, como siempre; lo de arriba se alcanza con ↑ (antes
 #: la caja solo seguía al botón y el principio quedaba fuera de alcance).
-_SOLO_TEXTO = ("bienvenida", "gcal", "resumen")
+_SOLO_TEXTO = ("bienvenida", "resumen")
 
 
 def render(S, w, h):
@@ -1311,11 +1043,11 @@ def _persistir_motores(S):
     if ok:
         S["def_engine"] = primero
         S["msg"] = _t("onboarding.msg.default_saved",
-                      "motor default: {motor} · guardado ✓").format(
+                      "tu primer agente usará {motor} · guardado ✓").format(
                           motor=primero)
     else:
         S["msg"] = _t("onboarding.msg.default_fail",
-                      "no pude guardar el default ({err}) — sigue igual"
+                      "no pude guardar el motor ({err}) — sigue igual"
                       ).format(err=err)
 
 
@@ -1375,18 +1107,19 @@ def _accion(S, key):
         return True
 
     if v == "motores":
-        n = len(SOPORTADOS)
+        vis = _visibles(S)
+        n = len(vis)
         if key == "up":
             S["mi"] = (S["mi"] - 1) % (n + 1)
         elif key in ("down", "tab"):
             S["mi"] = (S["mi"] + 1) % (n + 1)
         elif key == "\x1b":
             S["view"] = "bienvenida"
-        elif key in tuple("123"):
+        elif key in tuple("123456789") and int(key) <= n:
             S["mi"] = int(key) - 1
             key = " "                            # cae al toggle
         if key in (" ",) and S["mi"] < n:
-            eid = SOPORTADOS[S["mi"]]
+            eid = vis[S["mi"]]
             _txt, _c, elegible = _estado_motor(_K(), S, eid)
             if not elegible:
                 S["msg"] = _t("onboarding.msg.not_installable",
@@ -1397,65 +1130,11 @@ def _accion(S, key):
             else:
                 S["sel"].add(eid)
         elif key in ("\r", "\n"):
-            if S["mi"] < n:                      # Enter sobre un motor = toggle
-                return _accion(S, " ")
+            # B6 (puerta N5): la pista dice «Enter continúa» — y continúa,
+            # desde cualquier fila (marcar es con espacio)
             _persistir_motores(S)
             S["hechos"].add("motores")
-            S["view"] = "apariencia"
-        return True
-
-    if v == "apariencia":
-        items = _items_apariencia(S)
-        n = len(items)
-        if key == "up":
-            S["ti"] = (S["ti"] - 1) % (n + 1)
-        elif key in ("down", "tab"):
-            S["ti"] = (S["ti"] + 1) % (n + 1)
-        elif key == "\x1b":
-            S["view"] = "motores"
-        elif key in ("\r", "\n", " "):
-            if S["ti"] >= n:
-                if key == " ":
-                    return True
-                S["hechos"].add("apariencia")
-                S["view"] = "autostart"          # paso nuevo (opcional)
-                return True
-            tipo, iid, lbl = items[S["ti"]]
-            skey = "ui.theme" if tipo == "tema" else "ui.background"
-            ok, err = _guardar(skey, iid)
-            _tipo = _t("onboarding.apariencia.group.%s" % tipo, tipo)
-            if ok:
-                _aplicar_osc()                   # preview real, al instante
-                S["msg"] = _t("onboarding.msg.applied",
-                              "{tipo} «{lbl}» · guardado ✓").format(
-                                  tipo=_tipo, lbl=lbl)
-            else:
-                S["msg"] = _t("onboarding.msg.apply_fail",
-                              "no se pudo aplicar {tipo} ({err})").format(
-                                  tipo=_tipo, err=err)
-        return True
-
-    if v == "autostart":                         # paso NUEVO (opcional)
-        opts = _autostart_opts()
-        n = len(opts)
-        if key == "up":
-            S["asi"] = (S.get("asi", 1) - 1) % (n + 1)    # + el botón «continuar»
-        elif key in ("down", "tab"):
-            S["asi"] = (S.get("asi", 1) + 1) % (n + 1)
-        elif key == "\x1b":                       # Esc = salta (al agente)
             S["view"] = "agente"
-        elif key in ("\r", "\n", " "):
-            if S.get("asi", 1) < n:               # elegir: marca y el cursor pasa al botón
-                S["as_choice"] = S["asi"]
-                S["asi"] = n
-                S["msg"] = _t("onboarding.msg.as_chosen",
-                              "«{lbl}» elegido · ✦ continuar lo guarda").format(
-                                  lbl=opts[S["as_choice"]][1])
-            elif key != " ":                      # el botón: guarda lo elegido y avanza
-                cur_on = bool(_setting("ui.autostart", False))
-                on = (S.get("as_choice", 0 if cur_on else 1) == 0)   # 0 = al abrir terminal
-                _aplicar_autostart(S, on)
-                S["view"] = "agente"
         return True
 
     if v == "agente":
@@ -1464,24 +1143,13 @@ def _accion(S, key):
             S["ai"] = (S["ai"] - 1) % len(ops)
         elif key in ("down", "tab"):
             S["ai"] = (S["ai"] + 1) % len(ops)
-        elif key == "\x1b":                       # atrás: salta el opcional
-            S["view"] = "apariencia"
+        elif key == "\x1b":                       # atrás: a los motores
+            S["view"] = "motores"
         elif key in tuple("1234"):
             S["ai"] = min(int(key) - 1, len(ops) - 1)
         elif key in ("\r", "\n"):
             S["salir"] = ops[S["ai"]][0]         # crear/cargar/descubrir/ninguno
             return False
-        return True
-
-    if v == "gcal":                              # paso NUEVO (opcional)
-        if key == "\x1b":                         # Esc = salta → resumen
-            S["view"] = "resumen"
-        elif key in ("\r", "\n"):
-            if _gcal_configured():                # ya conectado → al resumen
-                S["view"] = "resumen"
-            else:                                 # prompt CLÁSICO fuera del alt
-                S["salir"] = "gcal_connect"
-                return False
         return True
 
     if v == "resumen":
@@ -1490,30 +1158,6 @@ def _accion(S, key):
             return False
         return True
     return True
-
-
-def _aplicar_autostart(S, on):
-    """Persiste ui.autostart y reescribe el bloque del greeter en el rc
-    (install.set_terminal_autostart). Degrada a solo-preferencia si no se
-    puede reescribir limpio (y lo dice)."""
-    _guardar("ui.autostart", bool(on))
-    rc = None
-    try:
-        import install
-        fn = getattr(install, "set_terminal_autostart", None)
-        if fn:
-            rc = fn(bool(on))
-    except Exception:
-        rc = None
-    if rc:
-        S["msg"] = (_t("onboarding.msg.autostart_on",
-                       "Workspace abrirá al abrir la terminal · guardado ✓")
-                    if on else
-                    _t("onboarding.msg.autostart_off",
-                       "Workspace abrirá solo con el comando · guardado ✓"))
-    else:
-        S["msg"] = _t("onboarding.msg.autostart_saved",
-                      "preferencia guardada (ajusta el rc a mano si hace falta)")
 
 
 # ── drivers (mismo patrón que tono_tui; cadencia viva mientras hay probe) ──
@@ -1625,13 +1269,16 @@ def _pantalla(S):
     return S.get("salir") or "quit"
 
 
-# ── reuso de los flujos existentes (add_agent · tono) ───────────────────────
+# ── reuso de los flujos existentes (add_agent) ───────────────────────
 def _add_agent(opcion):
     """La pantalla REAL «Agregar agente», pre-sembrada en el camino elegido
     (1 crear · 2 cargar · 3 descubrir) — mismo estado, mismos drivers."""
     try:
         import add_agent_tui as A
         S = A._estado_inicial()
+        # al terminar (creado, conectado) o con Esc, vuelve AQUÍ y no al menú
+        # «Agregar agente» (callejón de la puerta N5: había que salir con q)
+        S["volver_al_terminar"] = True
         if S.get("view") == "menu":              # sin creación viva re-enganchada
             A._accion(S, {"crear": "1", "cargar": "2",
                           "descubrir": "3"}.get(opcion, "1"))
@@ -1667,41 +1314,13 @@ def _identidad_desde(nuevos):
     return ""
 
 
-def _tono_para(agente):
-    """La pantalla REAL del Tono, pre-sembrada en el agente recién nacido."""
-    try:
-        import tono_tui as T
-        S = {"dests": T._destinos(), "di": 0, "si": 0, "msg": "",
-             "preset": "", "continuar": True}      # con su botón «✦ continuar»
-        if agente in S["dests"]:
-            S["di"] = S["dests"].index(agente)
-        if os.name == "nt":
-            return T._run_windows(S)
-        return T._run_unix(S)
-    except Exception:
-        try:
-            import tono_tui
-            return tono_tui.run()
-        except Exception:
-            return 0
-
-
-def _gcal_connect_clasico(S):
-    """Choose browser OAuth or hidden iCal paste outside the alt-screen."""
-    import google_connect_ui
-    res = google_connect_ui.choose_connection()
-    S["msg"] = google_connect_ui.result_message(res)
-
-
 # ── entrada ─────────────────────────────────────────────────────────────────
 def _estado_inicial():
     harn = _descriptores()
     sel = {e for e in SOPORTADOS if (harn.get(e) or {}).get("binaries_ok")}
-    return {"view": "idioma", "li": 0, "mi": 0, "ti": 0, "ai": 0,
-            "asi": 0 if bool(_setting("ui.autostart", False)) else 1,
+    return {"view": "idioma", "li": 0, "mi": 0, "ai": 0,
             "msg": "", "harn": harn, "probe": {}, "probing": False, "sel": sel,
-            "temas": _temas(), "hechos": set(), "nuevos": [], "tono": "",
-            "def_engine": "", "salir": None}
+            "hechos": set(), "nuevos": [], "def_engine": "", "salir": None}
 
 
 def _progreso(S):
@@ -1725,10 +1344,7 @@ def _resumen_flag(S, completo):
             **_progreso(S),
             "motores": sorted(S["sel"]),
             "default_engine": S.get("def_engine") or "",
-            "tema": str(_setting("ui.theme", "")),
-            "fondo": str(_setting("ui.background", "")),
-            "agentes": [a["name"] for a in _agentes()],
-            "tono": S.get("tono") or None}
+            "agentes": [a["name"] for a in _agentes()]}
 
 
 #: Cómo terminó la última corrida: "fin" (✦ ir al hub) · "quit" · "tamano"
@@ -1762,7 +1378,8 @@ def run(force=False):
     # aviso de tamaño (_draw → _visto). Quien solo vio el aviso —y salió con
     # q/Esc/Ctrl-C, o cerró la ventana— no deja nada escrito.
     S = _estado_inicial()
-    _reanudar(S, prev)
+    if not _reanudar(S, prev) and _idioma_auto():
+        S["view"] = "bienvenida"                  # el idioma ya se sabe: no se pregunta
     _probe_start(S)
 
     def marca(extra):                             # lo último que ESTA corrida escribió
@@ -1787,21 +1404,18 @@ def run(force=False):
                     nuevos = sorted({a["name"] for a in _agentes()} - antes)
                     S["nuevos"] += nuevos
                     _identidad_desde(nuevos)     # quién eres en esta máquina
-                    if nuevos:                   # nació/conectó uno → su TONO
-                        _tono_para(nuevos[0])
-                        S["tono"] = nuevos[0]
-                S["hechos"].add("agente")
+                if token == "ninguno" or S["nuevos"]:
+                    S["hechos"].add("agente")
+                else:                            # volvió sin agente: sigue en su paso
+                    S["view"], S["salir"] = "agente", None
+                    marca(_progreso(S))
+                    continue
                 if token == "ninguno":           # explorar: omitida, queda pendiente
                     S.setdefault("omitidas", set()).add("agente")
                 else:
                     S.get("omitidas", set()).discard("agente")
                 marca(_progreso(S))
-                # paso opcional antes del resumen (Google Calendar: en pausa)
-                S["view"], S["salir"] = ("gcal" if _gcal_on() else "resumen"), None
-                continue
-            if token == "gcal_connect":           # prompt clásico fuera del alt-screen
-                _gcal_connect_clasico(S)
-                S["view"], S["salir"] = "gcal", None
+                S["view"], S["salir"] = "resumen", None
                 continue
             break                                 # token desconocido → fuera
     finally:
@@ -1841,10 +1455,8 @@ def _reanudar(S, prev):
         S["sel"] = set(sel) & set(SOPORTADOS) or S["sel"]
     pend = [e for e in _ETAPAS if e not in S["hechos"]]
     S["view"] = pend[0] if pend else (prev.get("vista") or "resumen")
-    if S["view"] == "gcal" and not _gcal_on():
-        S["view"] = "resumen"
-    if S["view"] not in _VISTAS:
-        S["view"] = "bienvenida"
+    if S["view"] not in _VISTAS:                  # p. ej. un paso que ya no existe
+        S["view"] = "resumen" if not pend else "bienvenida"
     S["msg"] = _t("onboarding.reanudado", "continuando donde lo dejaste")
     return True
 
@@ -1877,5 +1489,7 @@ def maybe_run():
 
 
 if __name__ == "__main__":
-    sys.exit(run(force="--force" in sys.argv or "-f" in sys.argv
-                 or len(sys.argv) == 1))
+    # ARCHIVO MÍNIMO por una versión (se borra en la versión 2): esta pantalla ya no se abre. Quien la corre
+    # directo, o un hub que quedó abierto durante la actualización, llega a lo nuevo (puertas.redirigir).
+    import puertas
+    sys.exit(puertas.redirigir('primer_arranque', sys.argv[1:]))

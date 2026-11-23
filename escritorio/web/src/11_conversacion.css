@@ -1,0 +1,146 @@
+/* ===== la conversación de la burbuja (escritorio UX, 22-nov) =====
+   Una sola plática por agente: lo de antes arriba (se recorre), lo tuyo, su respuesta y sus archivos. El encabezado dice
+   con quién y en qué conversación estás, y lleva «Seguir en la página». Debajo, fijos: lo que te pide (permiso o
+   pregunta) o la línea corta de tu respuesta, lo que está haciendo («Haciendo: …») y [Responder] [Copiar].
+   Su gesto de trabajo lo hace su cuerpo (20_escritorio.js: trabajo()); con «reducir movimiento» solo quedan sus
+   puntitos quietos. */
+/* C1 (ronda 2): sin barra de scroll. La caja la desvanece arriba y abajo SOLO del lado donde hay más, una rayita
+   de 3 pt aparece mientras recorres y se va sola, y «↓ Lo nuevo» sale si llega algo mientras estás arriba */
+.wsm-conv-caja{position:relative;flex:0 1 auto;min-height:0;display:flex;flex-direction:column}
+.wsm-conv{flex:0 1 auto;min-height:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;scrollbar-width:none;
+  --arr:#000;--aba:#000;-webkit-mask-image:linear-gradient(to bottom,var(--arr) 0,#000 26px,#000 calc(100% - 26px),var(--aba) 100%);
+  mask-image:linear-gradient(to bottom,var(--arr) 0,#000 26px,#000 calc(100% - 26px),var(--aba) 100%)}
+.wsm-conv::-webkit-scrollbar{display:none;width:0;height:0}
+.wsm-conv-caja.mas-arriba>.wsm-conv{--arr:transparent}
+.wsm-conv-caja.mas-abajo>.wsm-conv{--aba:transparent}
+.wsm-raya{position:absolute;right:1px;top:0;width:3px;height:18px;border-radius:3px;background:var(--tx2);opacity:0;pointer-events:none;
+  transition:opacity .45s ease-out}
+.wsm-raya.ve{opacity:.55;transition:opacity .12s}
+.wsm .wsm-nuevo{position:absolute;left:50%;bottom:8px;transform:translateX(-50%);z-index:2;padding:6px 14px;border-radius:999px;
+  background:#b9a3ff;color:#16131f;font-size:12.5px;font-weight:700;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.4);
+  animation:wsm-entra .22s var(--ease) both}
+.wsm .wsm-nuevo:hover{background:#cbbaff}
+/* la plática es lo que se encoge y se recorre (lo de abajo —lo que te pide algo, «Haciendo», [Responder]— queda a la
+   vista); si aun así no cabe, la burbuja entera se recorre (14_entregas.css) */
+.wsm-globo>.wsm-conv-caja{flex-shrink:1;min-height:4.5em}
+.wsm-conv>*{flex-shrink:0}
+.wsm-conv .wsm-txt{overflow:visible}
+.wsm-conv>.wsm-tu{flex:none}
+.wsm-globo>.wsm-tarjeta,.wsm-globo>.wsm-listo,.wsm-globo>.wsm-pasos,.wsm-globo>.wsm-lic,.wsm-globo>.wsm-sigue,.wsm-globo>.wsm-uso{flex:none}
+
+/* el encabezado: «Luna · esta conversación» … «Seguir en la página» */
+.wsm-cab{flex-wrap:wrap;row-gap:0;padding-right:58px}
+.wsm-cab .conv{color:var(--tx3);font-size:12px;white-space:nowrap}
+.wsm-cab .estado{margin-left:2px;white-space:nowrap}
+.wsm-cab .br{flex-basis:100%;height:0}
+.wsm .wsm-ir.wsm-ir-cab{margin:-1px 0 2px 10px;padding:1px 6px 1px 6px;font-size:11.5px;white-space:nowrap}
+
+/* lo de antes, en chico: tus mensajes a la derecha, los suyos a la izquierda, avisos al centro */
+/* C2 (ronda 2): lo tuyo, en globo lavanda a la derecha; lo suyo, a la izquierda, SIN globo y con su carita */
+.wsm-hilo{display:flex;flex-direction:column;gap:12px;padding:6px 0 12px}
+.wsm-conv{gap:0}
+.wsm-conv>.wsm-tu,.wsm-conv>.wsm-ahora,.wsm-conv>.wsm-fila{margin-bottom:12px}
+.wsm-h-yo,.wsm-tu{position:relative;align-self:flex-end;max-width:88%;padding:7px 13px;border-radius:16px;border-top-right-radius:6px;
+  background:color-mix(in srgb,#b9a3ff 32%,#24242a);font-size:14px;line-height:1.45;color:var(--tx);white-space:pre-wrap;word-wrap:break-word;overflow:visible;
+  -webkit-user-select:text;user-select:text}
+.wsm-h-yo small{display:block;font-size:11px;font-weight:650;color:color-mix(in srgb,#b9a3ff 60%,#fff);margin-bottom:1px}
+.wsm-h-ag{position:relative;align-self:stretch;display:grid;grid-template-columns:22px minmax(0,1fr);column-gap:9px;font-size:14.5px;line-height:1.55;color:var(--tx);word-wrap:break-word}
+.wsm-h-ag>.cara{display:block;width:22px;height:22px;margin-top:1px;line-height:0;font-style:normal}
+.wsm-h-ag>.cara .mono{filter:none}
+.wsm-h-ag>.cu{min-width:0;display:flex;flex-direction:column;-webkit-user-select:text;user-select:text}
+.wsm-h-ag.aviso{grid-template-columns:minmax(0,1fr)}.wsm-h-ag.aviso>.cara{display:none}
+.wsm-h-ag.aviso .wsm-txt{color:var(--tx2)}
+.wsm-h-ag .cu>.wsm-ent,.wsm-h-ag .cu>.wsm-h-arch{margin-top:8px;align-self:flex-start}
+.wsm-h-ag .cu>.wsm-ent{align-self:stretch}
+.wsm-h-ag .cu>.wsm-ext{margin-top:8px}.wsm-h-ag .cu>.wsm-ext:first-child{margin-top:0}
+/* el formato de lo que escribe: párrafos, listas, títulos, código y enlaces */
+.wsm-h-ag .tx p,.wsm-txt p{white-space:pre-wrap;margin:0 0 7px}
+.wsm-h-ag .tx>:last-child,.wsm-txt>:last-child{margin-bottom:0}
+.wsm-h-ag .tx p.tit,.wsm-txt p.tit{font-weight:650;margin-top:2px}
+.wsm-h-ag .tx b,.wsm-txt b{font-weight:650;color:var(--tx)}
+.wsm-h-ag .tx code,.wsm-txt code{font:12.5px var(--mono);background:#2a2a30;border-radius:5px;padding:1px 5px}
+.wsm-h-ag .tx ul,.wsm-h-ag .tx ol,.wsm-txt ul,.wsm-txt ol{margin:0 0 7px;padding-left:21px}
+.wsm-h-ag .tx li,.wsm-txt li{margin:2px 0;padding-left:2px}
+.wsm-h-ag .tx li.sub,.wsm-txt li.sub{margin-left:16px;list-style-type:circle}
+.wsm-h-ag .tx li::marker,.wsm-txt li::marker{color:var(--tx3)}
+.wsm-h-ag .tx pre,.wsm-txt pre{margin:2px 0 8px;padding:9px 11px;border-radius:10px;background:#16161a;font:12px/1.5 var(--mono);white-space:pre-wrap;word-break:break-word}
+.wsm-enlace{display:inline}
+.wsm-enlace .t{margin-right:5px}
+.wsm-enlace .dir{font:12px var(--mono);color:var(--tx2);word-break:break-all}
+.wsm .wsm-enlace .ir{margin-left:6px;padding:1px 9px;border-radius:999px;border:1px solid #3a3a42;font-size:11.5px;font-weight:650;color:var(--tx2);vertical-align:1px;
+  -webkit-user-select:none;user-select:none}
+.wsm .wsm-enlace .ir:hover{background:#2a2a30;color:var(--tx)}
+.wsm .wsm-enlace .ir:disabled{opacity:.5}
+/* C3: lo que hizo, en UNA línea gris que se abre */
+.wsm-hizo{margin-top:6px;font-size:12px;color:var(--tx3);-webkit-user-select:none;user-select:none}
+.wsm-hizo-caja:empty{display:none}
+.wsm .wsm-hizo .linea{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:1px 0;color:var(--tx3);font-size:12px;text-align:left}
+.wsm .wsm-hizo .linea:hover{color:var(--tx2)}
+.wsm-hizo .linea span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wsm-hizo .fl{flex:none;width:0;height:0;border-left:5px solid currentColor;border-top:3.5px solid transparent;border-bottom:3.5px solid transparent;transition:transform .15s}
+.wsm-hizo.abierta .fl{transform:rotate(90deg)}
+.wsm-hizo .cuales{margin:4px 0 2px 11px;padding-left:9px;border-left:1px solid #2c2c33;white-space:pre-wrap;line-height:1.5;-webkit-user-select:text;user-select:text}
+/* la hora, solo al pasar el ratón; entre días, su separador */
+.wsm-hilo>[data-hora]::after{content:attr(data-hora);position:absolute;top:50%;right:calc(100% + 7px);transform:translateY(-50%);font-size:11px;font-weight:500;
+  color:var(--tx3);white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .15s}
+.wsm-hilo>.wsm-h-ag[data-hora]::after{top:2px;right:0;transform:none;padding:1px 0 1px 9px;background:var(--card)}
+.wsm-hilo>[data-hora]:hover::after{opacity:1}
+.wsm-dia{align-self:center;padding:2px 11px;border-radius:999px;background:#26262c;font-size:11px;font-weight:650;color:var(--tx3)}
+.wsm-conv>.wsm-dia{margin-bottom:12px}
+/* buscar en la plática: los mensajes que lo dicen, y en cuál vas */
+.wsm-hilo>.wsm-h-ag.halla{padding:3px 6px 3px 9px;border-radius:8px;box-shadow:inset 3px 0 0 0 color-mix(in srgb,#b9a3ff 50%,transparent)}
+.wsm-hilo>.wsm-h-ag.halla.ahi{box-shadow:inset 3px 0 0 0 #b9a3ff;background:color-mix(in srgb,#b9a3ff 10%,transparent)}
+.wsm-hilo>.wsm-h-yo.halla{box-shadow:0 0 0 1.5px color-mix(in srgb,#b9a3ff 55%,transparent)}
+.wsm-hilo>.wsm-h-yo.halla.ahi{box-shadow:0 0 0 2px #b9a3ff}
+/* lo que pasó con un enlace: una línea que se va sola */
+.wsm-nota-linea{flex:none;margin-top:6px;font-size:12px;line-height:1.4;color:var(--ok)}
+.wsm-nota-linea.mal{color:var(--warn)}
+.wsm .wsm-h-arch{display:inline-flex;align-items:center;gap:6px;margin-top:5px;max-width:100%;padding:3px 10px 3px 7px;border-radius:999px;
+  background:#202024;border:1px solid #2c2c33;font-size:12px;color:var(--tx2)}
+.wsm .wsm-h-arch:hover{border-color:#3a3a42;color:var(--tx)}
+.wsm-h-arch svg{width:13px;height:13px;flex:none}
+.wsm-h-arch span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wsm-h-nota{align-self:center;font-size:11.5px;color:var(--tx3);text-align:center;padding:0 10px}
+.wsm .wsm-h-mas{align-self:center;font-size:11.5px;color:var(--tx3);padding:2px 8px;border-radius:999px}
+.wsm .wsm-h-mas:hover{background:#26262c;color:var(--tx2)}
+
+/* lo que mandaste mientras trabajaba */
+.wsm-fila{display:flex;flex-direction:column;gap:5px;margin-top:9px}
+.wsm-fila-nota{align-self:flex-end;font-size:11.5px;color:var(--tx3)}
+
+/* tu clic en un permiso: la tarjeta se va y queda una línea corta, que se va sola */
+.wsm-listo{display:flex;align-items:center;gap:8px;margin-top:9px;font-size:13px;font-weight:600;color:var(--tx2)}
+.wsm-listo .ok{width:16px;height:16px;flex:none;border-radius:50%;background:var(--ok);position:relative}
+.wsm-listo .ok::after{content:"";position:absolute;left:5px;top:3px;width:4px;height:7px;border:solid #12301c;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.wsm-listo.no .ok{background:#4a4a52}.wsm-listo.no .ok::after{border-color:#d8d8de}
+.wsm-listo.fue .ok{background:#3a3a42}.wsm-listo.fue .ok::after{border-color:#9a9aa4}
+.wsm-tarjeta .chip.grupo{font-size:13px}
+.wsm-grupo{margin-top:7px;font-size:11.5px;line-height:1.4;color:var(--tx3)}
+.wsm .wsm-listo.entra,.wsm .tras.entra{animation-delay:.14s}
+
+
+/* «Haciendo: …» en una línea */
+.wsm-pasos .hace{color:var(--tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wsm-pasos .barras+small+.hace{margin-top:3px}
+
+/* lo que hizo con el permiso que diste para este trabajo */
+.wsm-lic{margin-top:8px;padding:7px 10px;border-radius:11px;background:#1d1d21;border:1px solid #2c2c33}
+.wsm-lic b{display:block;font-size:12px;font-weight:650;color:var(--tx2)}
+.wsm-lic small{display:block;margin-top:2px;font-size:11.5px;color:var(--tx3)}
+
+/* [Responder] */
+.wsm .wsm-ir.wsm-responder{color:var(--tx);background:#26262c;padding:4px 8px 4px 12px}
+.wsm .wsm-ir.wsm-responder:hover{background:#303038}
+.wsm-sigue{gap:6px}
+
+/* la barra: tu respuesta a una entrega va como «Pedir cambios» (o «Solo platicar») */
+.wsm-sobre{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:0 4px 8px;font-size:12px;color:var(--tx3)}
+.wsm-sobre span{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wsm-sobre .chip{padding:3px 11px;font-size:12px}
+.wsm-sobre .chip:not(.on){opacity:.75}
+.wsm-version{padding:2px 6px 10px;font-size:12.5px;line-height:1.45;color:var(--warn)}
+
+@media (prefers-reduced-motion:reduce){
+  .wsm .wsm-hilo,.wsm .wsm-fila.entra,.wsm .wsm-listo.entra,.wsm .wsm-lic.entra,.wsm .wsm-nuevo,.wsm-nota-linea.entra{animation:none!important}
+  .wsm-raya,.wsm-hilo>[data-hora]::after,.wsm-hizo .fl{transition:none!important}
+}

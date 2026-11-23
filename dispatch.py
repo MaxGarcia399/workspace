@@ -32,7 +32,7 @@ import sys, os, json
 import paths as _paths  # SSOT del dir de estado (guarda: tests/test_state_dir_guard.py)
 sys.dont_write_bytecode = True   # no generar __pycache__ (mantiene limpio el sync)
 if os.name == "nt":
-    os.system("")  # habilita ANSI en Windows 10+ (también para banner/dashboard hijos) — igual que doctor.py
+    import _console; _console.ansi()  # ANSI en Windows 10+ (también para banner/dashboard hijos; solo con consola)
 import _utf8; _utf8.harden()  # B2 · UTF-8 en stdout/err (cp1252 reventaría con box-drawing)
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -601,13 +601,15 @@ def _spawn_repair():
     DETACHED (no se espera su salida) y se traga CUALQUIER error — el arranque del
     agente jamás se bloquea ni se rompe por el render. Desactivable con
     WORKSPACE_NO_AUTORENDER=1. Mac/Linux: start_new_session; Windows: CREATE_NO_WINDOW
-    | CREATE_NEW_PROCESS_GROUP (0x208, igual que el dashboard de dev)."""
+    | CREATE_NEW_PROCESS_GROUP (0x08000200): una consola propia y oculta, que heredan los
+    programas que lance (con 0x208 —DETACHED_PROCESS— no tenía consola y cada uno abría
+    una ventana)."""
     if os.environ.get("WORKSPACE_NO_AUTORENDER"):
         return
     try:
         import subprocess
         front = os.path.join(ROOT, "front.py")
-        kw = {"creationflags": 0x208} if os.name == "nt" else {"start_new_session": True}
+        kw = {"creationflags": 0x08000200} if os.name == "nt" else {"start_new_session": True}
         subprocess.Popen([sys.executable or "python3", front, "repair"],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          stdin=subprocess.DEVNULL, **kw)
@@ -782,6 +784,16 @@ def main():
         sys.exit(2)
 
     name, rest = argv[0], argv[1:]
+    # I11 · el menú de sesiones y sus pantallas de paso son siempre S-1 con la piel H-1 (hub_s1, hub_carga), también
+    # al escribir el comando del agente sin el hub. La marca viaja en el env a lo que se abre: el menú de cada cerebro
+    # (brand/agent-dashboard.py, que no se reescribe) la lee para no repetir su «— cargando…». Solo una copia de
+    # desarrollo con WORKSPACE_HUB_S1=0 conserva el de antes.
+    try:
+        import hub_s1
+        if hub_s1.activo():
+            os.environ["WORKSPACE_HUB_S1"] = "1"
+    except Exception:
+        pass
     try:                    # motor instalado sin tocar el PATH (Antigravity) o tras abrir la terminal
         import path_refresh
         path_refresh.refresh()
@@ -867,7 +879,15 @@ def main():
 
     entry = find_agent(name)
     if not entry:
-        print(f"WORKSPACE: no conozco al agente '{name}'. Corre:  dispatch.py --list")
+        try:                                          # archivado: se dice, con dónde traerlo de vuelta
+            import agente_apartar
+            archivado = agente_apartar.aviso_de_archivado(name)
+        except Exception:
+            archivado = ""
+        if archivado:
+            print("WORKSPACE: " + archivado)
+        else:
+            print(f"WORKSPACE: no conozco al agente '{name}'. Corre:  dispatch.py --list")
         sys.exit(1)
 
     cfg = load_agent_cfg(entry)
@@ -996,6 +1016,12 @@ def main():
         _metricas_al_abrir(passthrough, avisar=avisar)
         _decisores_al_abrir(brain, passthrough, avisar=avisar)
         _boveda_al_abrir(passthrough, avisar=avisar)
+        _sistema_nuevo_al_abrir(passthrough, avisar=avisar)
+    if not plan:
+        import skill_review_visible
+        skill_review_visible.before_open(brain, entry["name"], engine, preselect)
+        if skill_review_visible.wrap_terminal_close(brain, entry["name"], engine, preselect, passthrough):
+            return
     mod.launch(cfg, passthrough, plan=plan, preselect=preselect, show_banner=show_banner)
 
 
@@ -1141,12 +1167,41 @@ def _boveda_al_abrir(passthrough, avisar=print):
         pass
 
 
+def _sistema_nuevo_al_abrir(passthrough, avisar=print):
+    """El sistema nuevo de fábrica (arquitectura/sistema_nuevo): la línea de «tus motores ya abren con el sistema
+    nuevo… deshacer: …», UNA vez tras actualizar. Como el de la bóveda: solo con una persona mirando (sin -p, con
+    terminal) y se decide al soltarlo. Jamás frena."""
+    if any(str(a) in ("-p", "--print") for a in (passthrough or ())):
+        return
+
+    def aviso():
+        try:
+            if not sys.stdout.isatty():
+                return ""
+            from arquitectura import sistema_nuevo
+            return sistema_nuevo.aviso_pendiente() or ""
+        except Exception:
+            return ""
+    try:
+        if avisar is print:
+            txt = aviso()
+            if txt:
+                print(txt)
+        else:
+            avisar(aviso)
+    except Exception:
+        pass
+
+
 def _decisores_al_abrir(brain, passthrough, avisar=print):
     """Decisores: la línea de la última sesión de este cerebro («◆ <modelo> en tu
     última sesión: Evals → resuelta (88 %) · Skills → no amerita»), UNA vez,
     junto a los demás avisos de la apertura. Como el de métricas: solo con una
     persona mirando (sin -p, con terminal) y se decide al soltarlo. Con
     Decisores apagado no hay línea. Jamás frena."""
+    from decisions import decisores_activos
+    if not decisores_activos():
+        return
     if any(str(a) in ("-p", "--print") for a in (passthrough or ())):
         return
 
@@ -1169,6 +1224,17 @@ def _decisores_al_abrir(brain, passthrough, avisar=print):
         pass
 
 
+def _aviso_linea(texto):
+    """Un aviso de una línea de la apertura; con el hub de prueba (rama de PRUEBA), con su piel (hub_carga)."""
+    try:
+        import hub_carga
+        if hub_carga.activo() and hub_carga.linea(texto):
+            return
+    except Exception:
+        pass
+    print(texto)
+
+
 def _reconcile_pending(brain, avisar=print):
     """Red de seguridad del cierre (pending_runs, 2026-10-16): una corrida
     anterior de ESTE cerebro que murió sin cerrar (la X en Windows, un crash)
@@ -1176,7 +1242,7 @@ def _reconcile_pending(brain, avisar=print):
     atada y se retoma. Con tope de tiempo; jamás frena la apertura."""
     try:
         import pending_runs
-        for s in pending_runs.reconcile(brain, budget=8.0, notify=print):
+        for s in pending_runs.reconcile(brain, budget=8.0, notify=_aviso_linea):
             avisar("  respaldo: %s · conversación %s" % (
                 s.get("capture_state") or "—",
                 "atada a «%s»" % s.get("tab") if s.get("bound") else "sin cambios"))

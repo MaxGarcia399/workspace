@@ -1,0 +1,42 @@
+/* Configuración → Conexiones (77_conexiones.js). Conexiones en verde: tres estados, una pestaña por motor y una acción por
+   fila; la matriz (los cinco estados de la prueba a fondo) es la vista de laboratorio */
+.cxv-chips{display:flex;flex-wrap:wrap;gap:6px;margin:18px 0 4px}
+.cxv-chip{display:inline-flex;align-items:center;gap:7px;padding:5px 7px 5px 12px;border-radius:999px;border:1px solid #2e2e34;font-size:13px;color:var(--tx2)}
+.cxv-chip:hover{background:#28282e}.cxv-chip.on{background:#f1f1f4;color:#151518;border-color:#f1f1f4}
+.cxv-chip .vx5{width:19px;height:19px;font-size:11px;border-radius:6px}
+.cxv-cambio{margin:12px 0 4px;padding:11px 14px;border-radius:12px;background:var(--card);font-size:13px;color:var(--tx2)}
+.cxv-cambio.mal{box-shadow:inset 3px 0 0 #e5534b}.cxv-cambio .cfg-acciones{margin-top:8px}
+.cxv-sin{margin-top:10px}.cxv-lab{margin-top:16px;opacity:.75}
+.cxv-volver{font-size:13px;color:var(--tx2);margin:2px 0 6px}.cxv-volver:hover{color:var(--tx)}
+.vx5{display:inline-grid;place-items:center;flex:none;width:22px;height:22px;border-radius:7px;font-size:12.5px;font-weight:750;line-height:1}
+.vx5.ok{background:color-mix(in srgb,var(--ok) 20%,transparent);color:#8fe0b5}
+.vx5.mal{background:color-mix(in srgb,var(--bad) 22%,transparent);color:#ffb4ab}
+.vx5.conf{background:color-mix(in srgb,var(--warn) 22%,transparent);color:#f3c977}
+.vx5.no{background:#26262c;color:var(--tx3)}
+.vx5.nada{background:transparent;border:1px dashed #3a3a42;color:var(--tx3)}
+.vx5-carga{margin-top:20px}.vx5-carga.mal{color:#ffb4ab}
+.vx5-hacer{display:block;margin-top:4px;font-size:12.5px;line-height:1.4;color:var(--tx2)}
+.vx5-hacer.mal{color:#ffb4ab}.vx5-hacer.conf{color:#f3c977}
+.vx5-scroll{overflow-x:auto}
+.vx5t{border-collapse:collapse;width:100%;font-size:13px}
+.vx5t th,.vx5t td{padding:7px 8px;text-align:center;vertical-align:middle}
+.vx5t thead th{font-weight:600;color:var(--tx);border-bottom:1px solid #2a2a30;white-space:nowrap}
+.vx5t thead th b{display:block;font-size:13px;font-weight:650}
+.vx5t thead th small{display:block;font-size:11px;color:var(--tx3);font-weight:500;margin-top:1px}
+.vx5t .vx5-s{text-align:left;color:var(--tx2);font-weight:600;padding-left:16px;white-space:nowrap}
+.vx5t thead .vx5-s{color:var(--tx3);font-size:12px}
+.vx5t tbody tr+tr{border-top:1px solid #25252a}
+.vx5b{display:inline-flex;flex-direction:column;align-items:center;gap:3px;padding:4px 6px;border-radius:9px;min-width:34px;transition:background-color .15s}
+.vx5b:hover{background:#28282e}.vx5b.sel{background:#2e2e35;box-shadow:inset 0 0 0 1px #45454e}
+.vx5b small{font-size:10.5px;color:var(--tx3);white-space:nowrap}
+.vx5-det{border-top:1px solid #2a2a30;padding:12px 16px 14px;font-size:13px;color:var(--tx2);line-height:1.45}
+.vx5-det p{margin-top:5px}
+.vx5-toca{color:var(--tx3);font-size:12.5px}
+.vx5-dh{display:flex;align-items:center;gap:9px}.vx5-dh b{color:var(--tx);font-size:14px;font-weight:650}
+.vx5-dh code{font-size:11.5px;color:var(--tx3);background:#26262c;border-radius:6px;padding:2px 7px}
+.vx5-cam{display:flex;flex-wrap:wrap;gap:14px;margin-top:8px;font-size:12.5px}
+.vx5-cam span{display:inline-flex;align-items:center;gap:6px}
+.vx5-ley{display:flex;flex-wrap:wrap;gap:8px 16px;margin:12px 4px 0;font-size:12px;color:var(--tx3)}
+.vx5-ley span{display:inline-flex;align-items:center;gap:7px}
+.vx5-ley .vx5{width:18px;height:18px;font-size:11px;border-radius:6px}
+.cr>.vx5{align-self:flex-start;margin-top:2px}

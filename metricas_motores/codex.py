@@ -31,7 +31,7 @@ import metricas as M
 
 MOTOR = "codex"
 VERSION = "codex/2"
-VERIFIED_VERSIONS = ("0.164.0",)
+VERIFIED_VERSIONS = ("0.164.0", "0.169.0")
 COBERTURA = {
     "motor_version": ("si", "session_meta.cli_version"),
     "modo_senales": ("si", "session_meta.originator / source"),

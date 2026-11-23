@@ -1,0 +1,273 @@
+{
+  "version": 2,
+  "servidor": "workspace",
+  "_doc": "Lista del MCP núcleo (F6: arquitectura/nucleo_mcp.py la sirve tal cual). Cada herramienta escribe o lee SOLO la pestaña de la ventana que abrió al motor; ninguna acepta cerebro, pestaña ni motor como argumento. La excepción es memoria_buscar, que SOLO LEE: busca en todo el cerebro de esta pestaña (o, con agente, en el de otro agente de esta computadora) y filtra por pestaña. Debajo usan lo mismo que el comando de hoy (memoria.py, session_continuity, pasos.py, los archivos del cerebro): un solo dueño. Un error de la herramienta sale como resultado con isError y el texto empieza con su código entre corchetes: «[SIN_PESTANA] …». Los errores de protocolo van como error JSON-RPC.",
+  "errores": {
+    "SIN_PESTANA": "no se sabe de qué pestaña es esta corrida: se niega, no adivina",
+    "ENTRADA_INVALIDA": "falta un campo, sobra uno o se pasa del tope",
+    "CONFLICTO": "otro chat cambió lo mismo antes: hay que releer y reconciliar, nunca pisar",
+    "NO_ENCONTRADO": "el id, la skill o la ejecución que se nombra no existe",
+    "NO_DISPONIBLE": "esta corrida no ofrece eso (función apagada o el motor no lo permite)"
+  },
+  "herramientas": [
+    {
+      "nombre": "memoria_nota",
+      "area": "memoria",
+      "hace": "Guarda UNA nota en la memoria de la pestaña (decision, pendiente, hecho, nota, dato o preferencia). Un pendiente devuelve su id; un hecho puede cerrar ids con cierra. Preaprobada: no pide permiso.",
+      "solo_lee": false,
+      "entrada": {
+        "type": "object",
+        "properties": {
+          "tipo": {"type": "string", "enum": ["decision", "pendiente", "hecho", "nota", "dato", "preferencia"]},
+          "texto": {"type": "string", "minLength": 1, "maxLength": 4000},
+          "cierra": {"type": "array", "maxItems": 20, "items": {"type": "string", "pattern": "^[PDpd]-[0-9]{1,6}$"}}
+        },
+        "required": ["tipo", "texto"],
+        "additionalProperties": false
+      },
+      "salida": {"type": "object", "properties": {"ok": {"type": "boolean"}, "id": {"type": "string"}}, "required": ["ok"]},
+      "errores": ["SIN_PESTANA", "ENTRADA_INVALIDA", "NO_ENCONTRADO"],
+      "debajo": "memoria.guardar_nota (= `workspace memoria nota`)",
+      "reemplaza": ["guardar_nota de memoria_mcp.py", "`workspace memoria nota` tecleado por el agente en la terminal"],
+      "fase": "F6"
+    },
+    {
+      "nombre": "memoria_checkpoint",
+      "area": "memoria",
+      "hace": "Guarda el resumen de la pestaña al terminar una unidad de trabajo o antes de cambiar de motor, con la revisión que dio memoria_ver (nunca pisa otro chat). La maleta lo lleva.",
+      "solo_lee": false,
+      "entrada": {
+        "type": "object",
+        "properties": {
+          "expected_revision": {"type": "integer", "minimum": 0},
+          "objective": {"type": "string", "maxLength": 600},
+          "next_step": {"type": "string", "maxLength": 600},
+          "decision": {"type": "string", "maxLength": 600},
+          "blocker": {"type": "string", "maxLength": 600},
+          "result": {"type": "string", "maxLength": 600}
+        },
+        "required": ["expected_revision", "objective", "next_step"],
+        "additionalProperties": false
+      },
+      "salida": {"type": "object", "properties": {"ok": {"type": "boolean"}, "revision": {"type": "integer"}}, "required": ["ok", "revision"]},
+      "errores": ["SIN_PESTANA", "ENTRADA_INVALIDA", "CONFLICTO"],
+      "debajo": "session_continuity.write_checkpoint (= `workspace memoria checkpoint`)",
+      "reemplaza": ["guardar_resumen de memoria_mcp.py", "`workspace memoria checkpoint`"],
+      "fase": "F6"
+    },
+    {
+      "nombre": "memoria_ver",
+      "area": "memoria",
+      "hace": "Devuelve el paquete de la pestaña: resumen, lo vigente, notas nuevas y la maleta, con la revisión del resumen (la que pide memoria_checkpoint).",
+      "solo_lee": true,
+      "entrada": {"type": "object", "properties": {}, "additionalProperties": false},
+      "salida": {"type": "object", "properties": {"texto": {"type": "string"}, "revision": {"type": "integer"}}, "required": ["texto", "revision"]},
+      "errores": ["SIN_PESTANA"],
+      "debajo": "memoria.paquete (= `workspace memoria ver`)",
+      "reemplaza": ["ver_memoria de memoria_mcp.py", "`workspace memoria ver`"],
+      "fase": "F6"
+    },
+    {
+      "nombre": "memoria_buscar",
+      "area": "memoria",
+      "hace": "Busca en la memoria del agente: las notas de sus pestañas (y su archivo), lo curado del cerebro (wiki, memoria-archivo…) y lo LITERAL de sus conversaciones en esta computadora (tu mensaje y su respuesta final, sin herramientas ni llaves). Úsala antes de afirmar algo del pasado. Pocos resultados y cortos, con de dónde salió y su fecha. Filtros opcionales: tipo de nota, pestaña («esta» = la de ahora), desde/hasta (AAAA-MM-DD), fuente (notas = lo curado, conversaciones = lo literal) y agente (otro agente de esta computadora). Solo lee; preaprobada.",
+      "solo_lee": true,
+      "entrada": {
+        "type": "object",
+        "properties": {
+          "consulta": {"type": "string", "minLength": 1, "maxLength": 300},
+          "tipo": {"type": "string", "enum": ["decision", "pendiente", "hecho", "nota", "dato", "preferencia"]},
+          "pestana": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._ -]{0,79}$"},
+          "desde": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+          "hasta": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+          "fuente": {"type": "string", "enum": ["todo", "notas", "conversaciones"]},
+          "agente": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,59}$"},
+          "max": {"type": "integer", "minimum": 1, "maximum": 8}
+        },
+        "required": ["consulta"],
+        "additionalProperties": false
+      },
+      "salida": {"type": "object", "properties": {"texto": {"type": "string"}}, "required": ["texto"]},
+      "errores": ["SIN_PESTANA", "ENTRADA_INVALIDA", "NO_ENCONTRADO"],
+      "debajo": "memoria_buscar.buscar: memory_index (el FTS5 derivado, por máquina y fuera del cerebro) con las notas una por una y los turnos literales del registro de eventos (arquitectura/registro.py)",
+      "reemplaza": ["la capa 3 de la skill buscar-memoria (`python3 memory_index.py --query` en la terminal)", "grep a mano en STATE/ y wiki/"],
+      "fase": "memoria-buscar"
+    },
+    {
+      "nombre": "pendientes",
+      "area": "memoria",
+      "hace": "Lo abierto: los pendientes de esta pestaña (con su id, para cerrarlos con memoria_nota) y los de STATE/PENDIENTES.md del cerebro.",
+      "solo_lee": true,
+      "entrada": {"type": "object", "properties": {}, "additionalProperties": false},
+      "salida": {"type": "object", "properties": {"texto": {"type": "string"}}, "required": ["texto"]},
+      "errores": ["SIN_PESTANA"],
+      "debajo": "memoria.vigente de la ficha de la pestaña y localhost_front._items de STATE/PENDIENTES.md (lo mismo que enseña la página)",
+      "reemplaza": ["leer STATE/PENDIENTES.md a mano", "el bloque de pendientes del mensaje de arranque"],
+      "fase": "F6"
+    },
+    {
+      "nombre": "skills_lista",
+      "area": "skills y pasos",
+      "hace": "Las skills del cerebro: categoría, nombre y para qué sirve cada una.",
+      "solo_lee": true,
+      "entrada": {"type": "object", "properties": {}, "additionalProperties": false},
+      "salida": {"type": "object", "properties": {"texto": {"type": "string"}}, "required": ["texto"]},
+      "errores": ["SIN_PESTANA"],
+      "debajo": "skill_meta.iter_skill_dirs sobre skills/ del cerebro (lo mismo que lista la página)",
+      "reemplaza": ["leer skills/INDEX a mano"],
+      "fase": "F6"
+    },
+    {
+      "nombre": "skill_leer",
+      "area": "skills y pasos",
+      "hace": "El SKILL.md de una skill del cerebro (por su nombre, o categoria/nombre) y los otros archivos de su carpeta.",
+      "solo_lee": true,
+      "entrada": {
+        "type": "object",
+        "properties": {"skill": {"type": "string", "minLength": 1, "maxLength": 120, "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,119}$"}},
+        "required": ["skill"],
+        "additionalProperties": false
+      },
+      "salida": {"type": "object", "properties": {"texto": {"type": "string"}}, "required": ["texto"]},
+      "errores": ["SIN_PESTANA", "ENTRADA_INVALIDA", "NO_ENCONTRADO"],
+      "debajo": "el SKILL.md de skills/ del cerebro",
+      "reemplaza": ["buscar y abrir el SKILL.md a mano"],
+      "fase": "F6"
+    },
+    {
+      "nombre": "tarea_actual",
+      "area": "estado en vivo",
+      "hace": "El agente dice en qué está, en una línea. La página lo muestra; vacío la limpia.",
+      "solo_lee": false,
+      "entrada": {
+        "type": "object",
+        "properties": {"tarea": {"type": "string", "maxLength": 60}},
+        "required": ["tarea"],
+        "additionalProperties": false
+      },
+      "salida": {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]},
+      "errores": ["SIN_PESTANA", "ENTRADA_INVALIDA"],
+      "debajo": "arquitectura/registro.py (el registro de eventos de la pestaña)",
+      "reemplaza": ["la tarea de STATE/now.json que se adivina del primer renglón del mensaje (neutral_hooks)", "«¿se ve trabajando?» leído de la pantalla"],
+      "fase": "F6"
+    },
+    {
+      "nombre": "preguntar",
+      "area": "skills y pasos",
+      "hace": "Le preguntas algo al socio y él lo ve en su caja de escribir (en la página y en el hub), enmarcada en tu color. Con opciones (2 a 12, cortas), le salen como botones: úsalas siempre que la respuesta sea elegir; tipo confirmar es sí/no; sin opciones, contesta con texto. Con formularios oficiales (MCP elicitation), el motor muestra uno y devuelve la respuesta; si no, devuelve en_chat con qué hacer: termina tu turno y su respuesta te llega como su próximo mensaje.",
+      "solo_lee": false,
+      "entrada": {
+        "type": "object",
+        "properties": {
+          "pregunta": {"type": "string", "minLength": 1, "maxLength": 500},
+          "tipo": {"type": "string", "enum": ["texto", "opcion", "confirmar"]},
+          "opciones": {"type": "array", "minItems": 2, "maxItems": 12, "items": {"type": "string", "minLength": 1, "maxLength": 200}},
+          "paso": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"}
+        },
+        "required": ["pregunta"],
+        "additionalProperties": false
+      },
+      "salida": {
+        "type": "object",
+        "properties": {"respuesta": {"type": "string"}, "en_chat": {"type": "boolean"}, "cancelada": {"type": "boolean"}, "id": {"type": "string"}}
+      },
+      "errores": ["SIN_PESTANA", "ENTRADA_INVALIDA"],
+      "debajo": "arquitectura/registro.py (la pregunta y su respuesta, como un permiso)",
+      "reemplaza": ["`pasos pide` (la acción pide de pasos.py y de reportar_avance)", "la pregunta tecleada en el panel"],
+      "fase": "F6"
+    },
+    {
+      "nombre": "reportar_avance",
+      "area": "skills y pasos",
+      "hace": "Registra el avance de una skill a la vista (la que arrancaste con usar_skill o la que te pidió Workspace: su id de ejecución): el plan, el paso de ahora, lo hecho, lo que pide (con opciones, le salen como botones al socio; archivo si es un archivo) y el fin. La página y el hub lo muestran en su proceso.",
+      "solo_lee": false,
+      "entrada": {
+        "type": "object",
+        "properties": {
+          "ejecucion": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+          "accion": {"type": "string", "enum": ["plan", "ahora", "hecho", "pide", "fin"]},
+          "pasos": {"type": "array", "minItems": 1, "maxItems": 30, "items": {"type": "string"}},
+          "n": {"type": "integer"},
+          "texto": {"type": "string", "maxLength": 2000},
+          "archivo": {"type": "boolean"},
+          "opciones": {"type": "array", "minItems": 2, "maxItems": 12, "items": {"type": "string", "minLength": 1, "maxLength": 200}}
+        },
+        "required": ["ejecucion", "accion"],
+        "additionalProperties": false
+      },
+      "salida": {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]},
+      "errores": ["SIN_PESTANA", "ENTRADA_INVALIDA", "NO_ENCONTRADO"],
+      "debajo": "pasos.aplicar (= `workspace pasos <id> …`)",
+      "reemplaza": ["reportar_avance de memoria_mcp.py", "`python3 pasos.py <id> …` en la terminal", "teclear la instrucción del paso en el panel"],
+      "fase": "F6"
+    },
+    {
+      "nombre": "usar_skill",
+      "area": "skills y pasos",
+      "hace": "Activa una skill del cerebro A LA VISTA del socio, igual que «Usar» en la página: le sale «Empezó …», su proceso y su barra. Úsala en vez de seguir una skill por tu cuenta cuando el socio te pida usarla o tú decidas usarla. Devuelve su id de ejecución y su SKILL.md: síguela en este mismo turno y reporta tu avance con reportar_avance.",
+      "solo_lee": false,
+      "entrada": {
+        "type": "object",
+        "properties": {
+          "skill": {"type": "string", "minLength": 1, "maxLength": 120, "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,119}$"},
+          "texto": {"type": "string", "maxLength": 600}
+        },
+        "required": ["skill"],
+        "additionalProperties": false
+      },
+      "salida": {"type": "object", "properties": {"ejecucion": {"type": "string"}, "skill": {"type": "string"}}},
+      "errores": ["SIN_PESTANA", "ENTRADA_INVALIDA", "NO_ENCONTRADO"],
+      "debajo": "interfaz_agente.usar_skill: la ejecución de pasos.py (= `workspace pasos usar <skill>`)",
+      "reemplaza": ["«este turno no tiene una herramienta para activarla como skill visible»: que el socio la active a mano"],
+      "fase": "agente-interfaz"
+    },
+    {
+      "nombre": "personalizar",
+      "area": "el agente",
+      "hace": "Cambia cómo te ve el socio en la página y el hub, en vivo: tu color (verde, azul, rosa, morado, amarillo o blanco), tu monito (forma: bolita, pico, cuadrito, gatito, fantasma o nube) o el nombre con que te ve en esta computadora (vacío: el tuyo). Antes, pregúntale con preguntar (opciones Sí / No) si quiere el cambio, salvo que te lo haya pedido él.",
+      "solo_lee": false,
+      "entrada": {
+        "type": "object",
+        "properties": {
+          "color": {"type": "string", "minLength": 1, "maxLength": 20},
+          "forma": {"type": "string", "enum": ["bolita", "pico", "cuadrito", "gatito", "fantasma", "nube"]},
+          "nombre": {"type": "string", "maxLength": 40}
+        },
+        "additionalProperties": false
+      },
+      "salida": {"type": "object", "properties": {"ok": {"type": "boolean"}, "color": {"type": "string"}, "forma": {"type": "string"}, "nombre": {"type": "string"}}},
+      "errores": ["SIN_PESTANA", "ENTRADA_INVALIDA", "NO_DISPONIBLE"],
+      "debajo": "interfaz_agente.personalizar: localhost_front.apariencia y .nombre (= `workspace pasos personalizar …`)",
+      "reemplaza": ["cambiar el monito o el nombre a mano en la página"],
+      "fase": "agente-interfaz"
+    },
+    {
+      "nombre": "mostrar_archivo",
+      "area": "el agente",
+      "hace": "Le enseñas un archivo al socio en el chat (la página y el hub): le sale una tarjeta con «Abrir» y «Mostrar en la carpeta». Úsala en vez de escribir la ruta o un enlace file://. Solo archivos que existen dentro de tu carpeta (tu cerebro); la ruta, relativa a ella o completa. titulo: cómo se llama para él (opcional).",
+      "solo_lee": false,
+      "entrada": {
+        "type": "object",
+        "properties": {
+          "ruta": {"type": "string", "minLength": 1, "maxLength": 1000},
+          "titulo": {"type": "string", "maxLength": 120}
+        },
+        "required": ["ruta"],
+        "additionalProperties": false
+      },
+      "salida": {"type": "object", "properties": {"ok": {"type": "boolean"}, "ruta": {"type": "string"}, "titulo": {"type": "string"}}, "required": ["ok"]},
+      "errores": ["SIN_PESTANA", "ENTRADA_INVALIDA", "NO_ENCONTRADO", "NO_DISPONIBLE"],
+      "debajo": "interfaz_agente.mostrar_archivo: arquitectura/registro.py (el archivo, con su ruta dentro del cerebro) y la tarjeta de la página (localhost_front.abrir) (= `workspace pasos archivo <ruta>`)",
+      "reemplaza": ["la ruta cruda o el enlace file:// en el texto", "el menú de archivo de la terminal («1 abrir / 2 revelar / 3 seguir»), en el chat"],
+      "fase": "modo-chat"
+    }
+  ],
+  "fuera": {
+    "tono": "no es herramienta: va en la pieza de sistema de cada motor (D1-a, ficha · nucleo.tono)",
+    "el paquete al abrir": "no es herramienta: lo entrega el hook de inicio o las instrucciones del servidor (ficha · nucleo.al_abrir)",
+    "permisos": "no es herramienta: opciones de sesión y el hook de antes de herramienta",
+    "uso del plan": "no es herramienta: lo leen el hook y la barra de estado de cada motor (ficha · uso_plan)",
+    "la página": "no es herramienta: lee el núcleo",
+    "después": "skill_registrar y skills_revision (la medida del Skill Loop y la revisión de skills) siguen en memoria_mcp y en el hook; salas y decisores, fuera"
+  }
+}

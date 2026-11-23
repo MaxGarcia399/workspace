@@ -4,7 +4,13 @@
 
 An agent is an identity with its **brain**: a folder of Markdown files that lives **outside**
 the Workspace folder. That's why updating or reinstalling Workspace doesn't touch your agents.
-Create or load them from the hub with **Add agent**; look at them with **Agents**.
+Add them from the hub with **+ Agregar** (add: a new one, or one you already have, «Ya tengo un
+agente»); see them in **Agentes** (agents).
+
+## Registered MCP connections
+
+MCPs added with `workspace config mcp set` are registered in Workspace; they do not yet connect automatically to Claude Code. Automatic connection is pending the MCP manager. `workspace config mcp materialize` reports this limitation and the doctor shows it as pending, without changing or deleting existing entries. Registering a tool does not mean it is connected.
+
 
 ## The engine
 
@@ -51,8 +57,9 @@ Workspace passes and writes:
 
 - **On every launch, writing nothing in Copilot:** Workspace's memory tool
   (`--additional-mcp-config=@~/.claude/workspace/copilot-mcp.json`) and permission to use **only**
-  its tools (`--allow-tool=workspace-memoria(guardar_nota)`, `…(guardar_resumen)` and
-  `…(ver_memoria)`): your agent saves its notes without Copilot asking, without going through the
+  its tools (`--allow-tool=workspace-memoria(guardar_nota)`, `…(guardar_resumen)`,
+  `…(ver_memoria)` and `…(reportar_avance)`, the progress of a skill you started from the page):
+  your agent saves its notes without Copilot asking, without going through the
   terminal, and only in its own tab's memory; the terminal and everything else still ask. And `--excluded-tools=session_store_sql`
   (turns off Copilot's search over past conversations: it's one store for your whole account and
   one agent could read another's; the tab's memory covers what it gave). If you pass your own
@@ -75,12 +82,20 @@ Workspace passes and writes:
   `workspace memoria nota` and Copilot asks you. If you pick "Yes, and don't ask again for `workspace` in
   this directory", Copilot approves **every** `workspace` command in that brain, not just notes.
 
-**Versions.** Workspace always uses the newest version of each engine. In **Engines**, OpenCode,
-OpenClaw, Hermes, Kiro, GitHub Copilot and Cursor show theirs: **tested** (Workspace already tested it), **newer** (that's
-normal: each new version is tested daily and, if something breaks, `workspace update` brings the
-fix), **older** or **too old** (update it) or **known bug** (a confirmed problem on your system:
-Enter tells you which and what to do, and you can still open the agent). Claude Code, Codex and
-Antigravity don't depend on the version.
+**Versions.** Workspace always uses the newest version of each engine. In **Engines** (and in
+`workspace doctor`) each engine shows its own: **tested** (it passed its test with Workspace),
+**untested** (no version of that engine has passed yet), **newer** (not the tested one: using the
+newest is normal and, if something breaks, `workspace update` brings the fix), **older** or **too
+old** (update it) or **known bug** (a confirmed problem on your system: Enter tells you which and
+what to do, and you can still open the agent).
+
+Codex, inside Workspace, doesn't offer to update itself when it opens (one key accepted it by
+accident). To find out about a new version and update it, use its official installer (Engines ›
+Codex) or `codex update` outside Workspace; `workspace doctor` tells you whether yours is the tested one.
+
+Claude Code, inside Workspace, doesn't update itself in the background (Workspace opens it with its
+official `DISABLE_AUTOUPDATER=1` variable, without touching your settings). To update it, `claude
+update` still works; `workspace doctor` tells you whether yours is the tested one.
 
 The only thing Workspace keeps in place is what it needs from your **brain** to work. With
 OpenClaw: that it doesn't create files of its own in your brain, that your agent's workspace is
@@ -169,7 +184,8 @@ removed on update (with a copy; `workspace migrate --undo
   and Kiro 3, every launch picks the `workspace` agent (`--agent workspace`), which Workspace
   keeps in your brain (`.kiro/agents/workspace.json`) with those permissions and its memory tool
   approved by name; your agent saves its notes with it, without going through the terminal and
-  without Kiro asking. That agent can't
+  without Kiro asking. On launch, Workspace asks it to read your brain with its file-reading tool
+  and not with the terminal, which would ask you. That agent can't
   write to `.kiro/` (or give itself permissions) and Workspace rebuilds it on every tab launch:
   if someone changed it, it's backed up to `~/.claude/workspace/respaldos/` and you get a note. If you pick Kiro's
   agent or engine yourself (`--agent`, `--v3`, `chat.defaultAgent`…), yours wins and memory asks
@@ -193,9 +209,10 @@ Cursor. It has no profile of its own: it reads the brain's same `AGENTS.md`. Wor
   window, it trusts only if it's the brain of one of your agents. To be asked again:
   `WORKSPACE_CURSOR_NO_AUTOTRUST=1`. Uninstalling removes only the marks Workspace left.
 - **It reads and edits inside your brain without asking** (Cursor's default); terminal commands
-  ask for your approval, except saving memory: your agent saves with Workspace's memory tool,
-  without going through the terminal and only in that window's tab. It lives in your brain's
-  **project** settings: the server in `.cursor/mcp.json`, permission for its three tools in
+  ask for your approval, except saving memory and reporting a skill's progress: your agent does
+  both with Workspace's tool, without going through the terminal and only in that window's tab.
+  It lives in your brain's
+  **project** settings: the server in `.cursor/mcp.json`, permission for its tools in
   `.cursor/cli.json` (`Mcp(workspace-memoria:guardar_nota)`…) and, on launch,
   `cursor-agent mcp enable workspace-memoria`, which approves **only** that server (if someone
   changes its command, Cursor asks again). Those two files are your project settings: Workspace
@@ -235,16 +252,27 @@ In Codex, with access on, commands run without asking **inside its sandbox**, wh
 brain and the system's temporary folders, with no network; anything that needs to leave it asks.
 
 With Claude Code it lands in the brain's `.claude/settings.local.json`: rules that let it read and
-edit its own folder, and nothing else. No option switches off the engine's protections. Your own rules in that file are kept.
+edit its own folder, and nothing else. No option switches off the engine's protections. Your own rules in that file are kept. Every session also opens in the mode that asks
+(`--permission-mode manual`, which exists since 2.1.200: Workspace needs that or newer): per its 2.1.284 notes, an
+interactive session with no permission mode configured opens in auto. If you set your own `defaultMode` in that file,
+yours rules with access on; with access off the mode that asks wins, and the launch tells you Workspace applied
+"ask first".
+
+With Antigravity, with access turned off, every session carries its "Default" mode, the one that asks: since
+1.5.7 it opens in Auto unless told otherwise.
 
 With GitHub Copilot it goes on every launch, without writing its settings: on, it writes in its
 brain without asking (except its Copilot config, see [GitHub Copilot](#the-engine)); outside
 the brain and the terminal it asks you.
 
-With OpenCode, OpenClaw, Hermes, Kiro and Cursor, Workspace **doesn't apply** this switch yet: each asks according to its own
-permissions (its config).
+With Kiro it goes in the Kiro agent Workspace puts in your brain: on, it writes in its brain without
+asking (except its Kiro config); off, it asks you.
 
-**Changing it later:** in the hub, **Agents** → pick the agent → **Enter**. Two switches, per agent, that apply from its next session in Claude Code, Codex, Antigravity and GitHub Copilot:
+With OpenCode, OpenClaw, Hermes and Cursor, Workspace **doesn't apply** this switch: they have no official way to ask
+first, so Agents and the doctor tell you "this engine doesn't ask before acting". Whatever they do ask depends on their
+own config, whether you turn it off or not.
+
+**Changing it later:** in the hub, **Agents** → pick the agent → **Enter**. Two switches, per agent, that apply from its next session in Claude Code, Codex, Antigravity, GitHub Copilot and Kiro:
 
 | Switch | To start with | What it does |
 |---|---|---|
@@ -257,13 +285,35 @@ Without opening the hub (or by asking the agent itself), from the Workspace fold
 If one of your agents comes from an earlier version that let it run any command without asking
 you, updating switches it to this on its own (its previous settings are backed up).
 
+**Workspace's own commands don't ask you for permission.** Saving the tab's memory and reporting
+the progress of a skill you started from the page belong to Workspace, and only those are
+pre-approved:
+- **Claude Code:** in each session's `--settings`: `workspace memoria …` and `workspace pasos …`
+  (on Windows, `workspace.cmd …`). The agent has to use the full command, alone and on one line:
+  that's what the page asks when it starts the skill.
+- **GitHub Copilot, Cursor, Kiro and Antigravity:** with Workspace's tool (`guardar_nota`,
+  `guardar_resumen`, `ver_memoria` and `reportar_avance`), approved by its name and without going
+  through the terminal, on Windows too. In these four, Workspace approves no terminal command:
+  approving one by its path let another one slip through. If your agent uses the terminal anyway
+  (because its brain names the command), that command does ask you.
+- **Codex, OpenCode and OpenClaw** run them without asking, with what Workspace sets up.
+
+If your agent still asks you for permission to report its progress, the page tells you so ("Your
+agent asks for permission to report its progress (a Workspace command)"), with **Allow** and **No**.
+
 ## Skill review (optional)
 
-The other choice: **"Automatic skill review?"**. If you say yes, when each session closes
-Workspace saves a view of what happened and, **when the next one opens**, your agent reviews it
-in that same session, in plain sight, and improves the skills it used with what you corrected.
-New skills are created directly in their category, as it already does during the conversation.
-It reports it in one line of the block at the end of its answer.
+The other choice: **"Automatic skill review?"**. If you say yes, when a session with substance
+closes Workspace saves a view of what was said and, **the next time you open that same tab**,
+your agent reviews it in plain sight and, if there's something to learn, creates or improves a
+skill (new ones go directly in their category, as it already does during the conversation). It
+reports it in one line of the block at the end of its answer.
+
+- **It is checked:** when done, the agent tells Workspace what it left (`workspace revision
+  resultado creada|mejorada|nada`). When that session closes, Workspace cross-checks it: a created
+  or improved skill only counts if THAT file changed after the delivery and that session wrote it.
+  If there was nothing, it asks **once more**. The second one without a result is marked "not
+  done". What nobody reviews expires after 7 days.
 
 - It's a second net: the agent already learns during the conversation (it creates or improves
   skills and says so in the block at the end of each answer). The review catches what it missed.
@@ -271,20 +321,22 @@ It reports it in one line of the block at the end of its answer.
   agent does the review when you open it, in front of you.
 - It reads a neutral copy of the session saved inside your brain, in `.claude/skill-review/`
   (a hidden folder: it isn't synced and stays out of git), and only writes inside `skills/`.
-- Very short sessions aren't reviewed, and it's requested at most once every two hours per brain.
+- Sessions with almost no conversation aren't reviewed (what was said counts, not the file
+  size), and it's requested at most once every two hours per brain.
 - **It uses a little of your subscription** to that engine, in that session.
 - It ships off. It's saved per agent (`"skill_review"` in its `agent.json`) and you turn it on
-  or off in **Agents** (pick the agent and Enter). For agents that didn't choose, the global `hooks.skill_review`
+  or off in the hub, in **Agents › This machine** («Skill review»). For agents that didn't choose, the global `hooks.skill_review`
   setting decides (off); change it from the Workspace folder with
   `python3 settings.py set hooks.skill_review on` (or `off`).
 
 ## Choosing and switching engines
 
-- **Default for everyone:** you choose it on the first run (`workspace onboarding`).
-- **For one agent:** in the hub, point at it and use ← → to cycle through the installed
-  engines. It's saved on this machine.
-- **Each engine's status:** the hub's **Engines** section — installed or not, logged in or
-  not, what it can do, and **account and provider** to open its official setup.
+- **Default for everyone:** in the hub, in **Motores** (engines), «Motor por defecto» (default
+  engine).
+- **For one agent:** in Inicio, ↑ ↓ (or ▲▼ on its card) change its engine; it's saved by itself.
+- **Each engine's status:** the hub's **Motores** section — whether it's ready. «Iniciar sesión»
+  (sign in), «Instalar» (install) and «Reparar» (repair) open that engine's official program in
+  the terminal and, when it finishes, you're back in Motores.
 
 Switching engines does **not** change the agent's identity or brain. The conversation itself
 belongs to each vendor (one started on one engine won't show up on another), but **the tab

@@ -29,6 +29,12 @@ pide permiso para que la terminal entre a esas carpetas. Tus agentes nuevos nace
 tienes una carpeta `~/Workspace` con tus propios archivos, no la toca: te pide elegir otra con
 `WORKSPACE_DIR="$HOME/Workspace-app"` delante del comando.
 
+Mientras instala ves cuatro pasos (revisar tu Mac, descargar, preparar el comando y abrir
+Workspace). Si a tu Mac le faltan las herramientas de Apple, abre su instalador y espera a que
+termine; si se cae el internet, lo vuelve a intentar solo. Para ver todo lo que hace, en
+detalle: `curl -fsSL … | bash -s -- --detalle` (lo mismo queda siempre en
+`~/.claude/workspace/instalar.log`).
+
 ¿Prefieres ver qué corres antes de correrlo? Bien hecho. Haz lo mismo en dos pasos:
 
 ```bash
@@ -38,12 +44,16 @@ python3 ~/Workspace/install.py
 
 ## Windows (PowerShell)
 
+Un comando, en PowerShell:
+
 ```powershell
-irm https://raw.githubusercontent.com/MaxGarcia399/workspace/main/setup.ps1 -OutFile $env:TEMP\workspace-setup.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File $env:TEMP\workspace-setup.ps1
+irm https://workspacecli.ai/install.ps1 | iex
 ```
 
-Lo instala en `%LOCALAPPDATA%\Workspace`. En dos pasos, si prefieres revisar antes:
+Es el `setup.ps1` del repo y corre en tu misma ventana (no pide cambiar la política de
+scripts). Lo instala en `%LOCALAPPDATA%\Workspace`. Si a tu Windows le falta Git o Python (o
+los dos), te ofrece instalarlos con winget (el instalador de Microsoft) y solo lo hace si pulsas Enter.
+En dos pasos, si prefieres revisar antes:
 
 ```powershell
 git clone https://github.com/MaxGarcia399/workspace.git "$env:LOCALAPPDATA\Workspace"
@@ -52,8 +62,8 @@ python "$env:LOCALAPPDATA\Workspace\install.py"
 
 **No lo instales dentro de OneDrive** (tampoco en un Escritorio o Documentos que OneDrive
 sincroniza). El instalador lo rechaza a propósito: la sincronización bloquea archivos y rompe
-Workspace. Al terminar, **abre una terminal nueva** para que el comando `workspace` aparezca
-(funciona en PowerShell, cmd.exe y la terminal de VS Code).
+Workspace. Al terminar, Workspace se abre en la misma ventana y el comando `workspace` ya
+funciona ahí (y en PowerShell, cmd.exe y la terminal de VS Code).
 
 ## Qué toca el instalador
 
@@ -65,4 +75,5 @@ y guarda tu configuración local en `~/.claude/workspace/`. No crea cuentas ni e
 
 ## Siguiente paso
 
-Escribe `workspace` → [Primer arranque](primer-arranque.md).
+Workspace se abre solo al terminar de instalar, en la misma ventana (en Mac y Linux, desde
+entonces, cada terminal nueva lo abre). Si no, escribe `workspace` → [Primer arranque](primer-arranque.md).

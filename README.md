@@ -62,16 +62,15 @@ Esto comparte la memoria guardada. El historial completo del chat y las herramie
 
 | Sección | Para qué la abres |
 |---|---|
-| Agentes | Crear o cargar un agente, elegir su motor y ajustar sus opciones |
-| Motores | Comprobar cuáles tienes instalados y con sesión iniciada, y conectar un modelo de decisión |
-| Conversaciones | Seguir en vivo lo que tus agentes se dicen entre sí, escribirles y cortar cuando quieras |
-| Usuarios | Indicar quién usa un agente en esta computadora |
-| Decisores | Encender, uso por uso, un modelo que elige entre opciones fijas (viene apagado), probarlo y ver su historial |
-| Personalización | Cambiar la apariencia del menú |
-| Actualizaciones | Actualizar, elegir cómo recibir novedades o volver a la versión anterior |
-| Documentación | Entender cada función y ver el mapa de memoria con tus archivos reales |
+| Inicio | Ver a tu agente, elegir su motor, conversar con él y abrir sus sesiones |
+| Agentes | Agregar, archivar o quitar un agente, y cambiar su cara, su tono y quién lo usa |
+| Motores | Comprobar cuáles tienes instalados y con sesión iniciada, y entrar a su cuenta |
+| Skills | Ver los procedimientos de tu agente y arrancarlos en su conversación |
+| Calendario | Ver tus eventos y tareas |
+| Ajustes | Apariencia, permisos, usuarios, uso, actualizaciones y conexiones |
+| Ayuda | Las teclas, los comandos, el manual y lo nuevo |
 
-Dentro de las secciones, la tecla `i` explica su funcionamiento. Para empezar, basta con crear un agente y abrir una pestaña.
+«? Guía» te enseña en cinco pasos dónde está cada cosa. Para empezar, basta con crear un agente y abrir una pestaña.
 
 ### Tus archivos, permisos y costos
 
@@ -81,9 +80,8 @@ Los permisos dependen del motor y de las opciones del agente. Workspace conserva
 
 Tus solicitudes y los archivos que el agente use pueden enviarse al proveedor de IA elegido. Que el cerebro sea local no convierte en local al modelo. Revisa la [guía de privacidad](manual/es/privacidad.md) antes de trabajar con información sensible.
 
-Decisores viene apagado y, así, no envía nada. Los modelos de decisión se conectan una vez en Motores: Jev (de TypeSafe), OpenRouter o Liquid en la nube, cada uno con tu propia llave y su consumo lo pagas a ese proveedor, u Ollama en tu computadora, sin llave. Cada uso que enciendas con un modelo en la nube le manda su pregunta, sus opciones y un contexto mínimo; Preguntar con Memoria o Cerebro le manda contenido de tu cerebro. Antes de salir se quitan llaves y contraseñas, y no salen tus archivos privados ni lo que es de otras personas en un cerebro compartido.
 
-Las llaves de tus modelos de decisión, tu cuenta de Google y la contraseña del correo se guardan en el llavero de tu sistema (en Windows, cifradas con tu cuenta; si no hay llavero, en un archivo que solo tú puedes leer) y tus agentes no las reciben.
+Las llaves de tu cuenta de Google y la contraseña del correo se guardan en el llavero de tu sistema (en Windows, cifradas con tu cuenta; si no hay llavero, en un archivo que solo tú puedes leer) y tus agentes no las reciben.
 
 Workspace se distribuye con licencia MIT. El acceso a los motores y modelos puede requerir suscripciones o consumo de API, que pagas a sus proveedores. La revisión opcional de skills también usa tu motor y puede consumir cuota.
 
@@ -106,11 +104,10 @@ Se instala en `~/Workspace`, fuera de Escritorio y Documentos, para que macOS no
 <summary>Windows, desde PowerShell</summary>
 
 ```powershell
-irm https://raw.githubusercontent.com/MaxGarcia399/workspace/main/setup.ps1 -OutFile $env:TEMP\workspace-setup.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File $env:TEMP\workspace-setup.ps1
+irm https://workspacecli.ai/install.ps1 | iex
 ```
 
-Instala fuera de OneDrive. La ubicación por defecto es `%LOCALAPPDATA%\Workspace`. Abre una terminal nueva al terminar.
+Corre el `setup.ps1` de este repo en tu misma ventana y, al terminar, abre Workspace ahí mismo. Instala fuera de OneDrive. La ubicación por defecto es `%LOCALAPPDATA%\Workspace`.
 
 </details>
 
@@ -118,15 +115,18 @@ Después, escribe `workspace`, crea o carga un agente y abre una pestaña. Si al
 
 Las actualizaciones son automáticas por defecto. Puedes cambiarlas a solo avisar o apagarlas desde Actualizaciones. `workspace update` actualiza cuando tú quieras y `workspace update --rollback` vuelve a la anterior. Los ajustes que una actualización deba hacer en el cerebro llevan respaldo. [Cómo funcionan las actualizaciones](manual/es/actualizaciones.md).
 
-### Novedades de la v0.9.0
+### Novedades de la v0.10.0
 
-- Decisores trae más modelos de decisión: OpenRouter (una llave, muchos modelos) y Liquid en la nube, y Ollama en tu computadora, sin llave. Se eligen de una lista, y solo los de decisión: los de chat no se pueden elegir.
-- Conversaciones, una sección nueva: tus agentes hablan entre sí en salas, cada uno en su pestaña y de cualquier motor, y tú lo sigues en vivo, les escribes y cortas cuando quieras.
-- Tus llaves pasan solas al llavero de tu sistema (en Windows, cifradas con tu cuenta), con respaldo y deshacer. `workspace llaves` dice de dónde sale cada una, sin mostrarla.
-- Tu llave de Jev ya no llega a tus agentes: si la tenías solo como variable de tu sistema, conéctala en Motores → Modelos de decisión.
-- Menos avisos del sistema: en Mac y Linux, una instalación nueva va a `~/Workspace`; Descubrir ya no entra a Escritorio ni Documentos salvo que lo pidas, y una línea te avisa antes de cada permiso que no se puede evitar ([Avisos de tu sistema](manual/es/avisos.md)).
-- El dictado por voz ahora solo copia el texto: si tu Atajo pegaba solo, agrégale `--pegar`.
-- «Un solo color» en Personalización: títulos y adornos con el color principal del tema. Decisores, Tono y Calendario también se ven bien en ventanas chicas.
+- Un hub nuevo: Inicio con la tarjeta de tu agente y las secciones Agentes, Motores, Skills, Calendario, Ajustes y Ayuda. Le escribes a tu agente ahí mismo, y es la misma conversación que ves en el navegador.
+- Pestañas: varias conversaciones por agente, las mismas en el hub y en la página.
+- Agregar agente en una tarjeta, y archivar o quitar agentes sin borrar su carpeta.
+- Permisos por agente en tres niveles. Lo de fábrica pasa a «Automático», el modo automático oficial de cada motor; lo cambias en Configuración → Permisos.
+- Conexiones ya verifica, arregla y deshace, en el hub y en la página.
+- La página recuerda dónde estabas, y una guía de cinco pasos sale una sola vez.
+- Windows: el mouse funciona en el hub y ya no asoman ventanas negras.
+- Antigravity con una cuenta personal de Google: aviso en Motores y, en la página, solo mirar.
+- Conversaciones sale del hub y de la página mientras se rediseña; Decisores sigue en pausa.
+- Trae también lo de la 0.9.1 y la 0.9.2, que no salieron por separado: Workspace en el navegador, la revisión de skills a la vista y las skills con las que tus agentes configuran y reparan Workspace.
 
 ### Historial resumido
 
@@ -134,8 +134,11 @@ Lo que fuimos añadiendo y corrigiendo, de lo más reciente al inicio del proyec
 
 | Versión | Lo que se añadió o cambió | Lo que se corrigió |
 |---|---|---|
-| 0.8.1 | Decisores aparece en el hub, debajo de tus agentes: ← → cambian el modelo activo y Enter o el `0` lo abren | Una pestaña ya no reabre una conversación vieja tras una bifurcación de Claude Code; Memoria marca mejor lo «hecho» y Revisar compara contra lo que pediste |
-| 0.8.0 | Decisores, una sección nueva que viene apagada: un modelo que elige entre opciones fijas (hoy Jev, en la nube), cada uso con su nivel | En Windows: la bóveda con tus llaves solo la lee tu usuario y Ctrl+C dentro de una sección vuelve al menú |
+| 0.10.0 | Hub nuevo, pestañas, Agregar agente en una tarjeta, archivar agentes, permisos en tres niveles y Workspace en el navegador | El mouse y las ventanas en Windows; Conexiones dice la verdad y arregla |
+| 0.9.1 | Revisiones de skills pendientes visibles y lectura comprobada de avisos en Conversaciones | Reparación del hook tras reinstalar; menos CPU y avisos de Windows corregidos |
+| 0.9.0 | Conversaciones y llavero del sistema | Menos avisos y mejor soporte de ventanas chicas |
+| 0.8.1 | Mejoras de Memoria y revisión | Se corrige la reapertura de conversaciones bifurcadas |
+| 0.8.0 | Permisos privados para la bóveda en Windows | Ctrl+C vuelve al menú |
 | 0.7.0 | Registro local de cómo trabajan tus agentes (números de cada sesión, nunca la conversación) y `workspace metricas` | En Windows: la sesión de GitHub Copilot, rutas con acentos o «ñ», barras vacías y cierres simultáneos; Copilot ya no repite el inicio y el cierre |
 | 0.6.0 | Tres motores nuevos (GitHub Copilot, Cursor y Kiro), pestañas iguales en todas tus máquinas y archivar pestañas | Retomar Codex y Hermes 0.22.5, la maleta de Claude Code tras un cierre de golpe e instalar motores en Windows con Defender |
 | 0.5.1 | El mapa de memoria pasa a Documentación; las skills que aprende Hermes se guardan en el cerebro | Memoria entre pestañas, integración con Hermes y OpenClaw, y el cursor de la portada sin agentes |
@@ -209,16 +212,15 @@ This shares saved memory. The full chat history and available tools depend on ea
 
 | Section | Why you open it |
 |---|---|
-| Agents | Create or load an agent, choose its engine and adjust its options |
-| Engines | Check which engines are installed and signed in, and connect a decision model |
-| Conversations | Follow live what your agents tell each other, write to them and cut in anytime |
-| Users | Identify who uses an agent on this computer |
-| Deciders | Turn on, use by use, a model that picks among fixed options (it comes off), try it and see its history |
-| Personalization | Change the menu's appearance |
-| Updates | Update, choose how to receive updates or return to the previous version |
-| Documentation | Understand each feature and see the memory map with your real files |
+| Home | See your agent, choose its engine, chat with it and open its sessions |
+| Agents | Add, archive or remove an agent, and change its face, its tone and who uses it |
+| Engines | Check which ones are installed and signed in, and open their account |
+| Skills | See your agent's procedures and start them in its conversation |
+| Calendar | See your events and tasks |
+| Settings | Appearance, permissions, users, usage, updates and connections |
+| Help | Keys, commands, the manual and what's new |
 
-Inside sections, `i` explains how things work. To get started, create an agent and open a tab.
+"? Guide" shows you in five steps where everything is. To get started, create an agent and open a tab.
 
 ### Your files, permissions and costs
 
@@ -228,9 +230,8 @@ Permissions depend on the engine and agent settings. Workspace keeps the engine'
 
 Your requests and files used by the agent may be sent to your chosen AI provider. A local brain does not make the model local. Read the [privacy guide](manual/en/privacy.md) before using sensitive information.
 
-Deciders comes switched off and, that way, sends nothing. Decision models are connected once in Engines: Jev (by TypeSafe), OpenRouter or Liquid in the cloud, each with your own key and paid to that provider, or Ollama on your computer, with no key. Each use you turn on with a cloud model sends it its question, its options and minimal context; Ask with Memory or Brain sends it content from your brain. Keys and passwords are removed before anything leaves, and your private files and what belongs to other people in a shared brain never leave.
 
-Your decision models' keys, your Google account and your mail password are kept in your system keychain (on Windows, encrypted with your account; with no keychain, in a file only you can read) and your agents don't receive them.
+Your Google account keys and your mail password are kept in your system keychain (on Windows, encrypted with your account; with no keychain, in a file only you can read) and your agents don't receive them.
 
 Workspace is distributed under the MIT license. Engines and models may require subscriptions or API usage paid to their providers. Optional skill review also uses your engine and may consume quota.
 
@@ -253,11 +254,10 @@ It installs into `~/Workspace`, outside Desktop and Documents, so macOS doesn't 
 <summary>Windows, from PowerShell</summary>
 
 ```powershell
-irm https://raw.githubusercontent.com/MaxGarcia399/workspace/main/setup.ps1 -OutFile $env:TEMP\workspace-setup.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File $env:TEMP\workspace-setup.ps1
+irm https://workspacecli.ai/install.ps1 | iex
 ```
 
-Install outside OneDrive. The default location is `%LOCALAPPDATA%\Workspace`. Open a new terminal when installation finishes.
+It runs this repo's `setup.ps1` in your same window and, when it finishes, opens Workspace right there. Install outside OneDrive. The default location is `%LOCALAPPDATA%\Workspace`.
 
 </details>
 
@@ -265,15 +265,18 @@ Then enter `workspace`, create or load an agent and open a tab. If something fai
 
 Updates are automatic by default. Choose notify-only or turn them off in Updates. `workspace update` updates on demand and `workspace update --rollback` returns to the previous version. Changes an update needs to make inside a brain are backed up first. [How updates work](manual/en/updates.md).
 
-### What's new in v0.9.0
+### What's new in v0.10.0
 
-- Deciders brings more decision models: OpenRouter (one key, many models) and Liquid in the cloud, and Ollama on your computer, with no key. You pick them from a list, and only decision models: chat models can't be picked.
-- Conversations, a new section: your agents talk to each other in rooms, each in its own tab and on any engine, and you follow it live, write to them and cut in anytime.
-- Your keys move on their own to your system keychain (on Windows, encrypted with your account), with a backup and undo. `workspace keys` tells where each one comes from, without showing it.
-- Your Jev key no longer reaches your agents: if you only had it as a system variable, connect it in Engines → Decision models.
-- Fewer system notices: on Mac and Linux, a new install goes to `~/Workspace`; Discover no longer goes into Desktop or Documents unless you ask, and one line warns you before each permission that can't be avoided ([Your system's notices](manual/en/system-notices.md)).
-- Voice dictation now only copies the text: if your Shortcut pasted on its own, add `--paste` to it.
-- "Single color" in Personalization: titles and accents in the theme's main color. Deciders, Tone and Calendar also work well in small windows.
+- A new hub: Home with your agent's card and the sections Agents, Engines, Skills, Calendar, Settings and Help. You write to your agent right there, and it is the same conversation you see in the browser. For now the new hub and the page are in Spanish only.
+- Tabs: several conversations per agent, the same in the hub and on the page.
+- Add an agent in one card, and archive or remove agents without deleting their folder.
+- Per-agent permissions in three levels. The default becomes "Automatic", each engine's official automatic mode; change it in Settings → Permissions.
+- Connections now verifies, fixes and undoes, in the hub and on the page.
+- The page remembers where you were, and a five-step guide shows once.
+- Windows: the mouse works in the hub and no more black windows pop up.
+- Antigravity with a personal Google account: a warning in Engines and, on the page, watch only.
+- Conversations leaves the hub and the page while it is redesigned; Deciders is still paused.
+- It also brings 0.9.1 and 0.9.2, which never shipped on their own: Workspace in your browser, skill review you can watch and the skills your agents use to set up and repair Workspace.
 
 ### Release history at a glance
 
@@ -281,8 +284,11 @@ What we added and fixed, from recent releases back to the start. These describe 
 
 | Version | Added or changed | Fixed |
 |---|---|---|
-| 0.8.1 | Deciders appears in the hub, below your agents: ← → switch the active model and Enter or `0` opens it | A tab no longer reopens an old conversation after Claude Code forks it; Memory better marks what's done and Review compares against what you asked for |
-| 0.8.0 | Deciders, a new section that comes switched off: a model that picks among fixed options (today Jev, in the cloud), each use with its level | On Windows: the vault with your keys can be read only by your user, and Ctrl+C inside a section goes back to the menu |
+| 0.10.0 | New hub, tabs, add an agent in one card, archive agents, three permission levels and Workspace in your browser | Mouse and windows on Windows; Connections tells the truth and fixes |
+| 0.9.1 | Visible pending skill reviews and verified notices in Conversations | Hook repair after reinstall; lower CPU and fixed Windows notices |
+| 0.9.0 | Conversations and system keychain | Fewer notices and better small-window support |
+| 0.8.1 | Memory and review improvements | Fixed reopening of forked conversations |
+| 0.8.0 | Private vault permissions on Windows | Ctrl+C returns to the menu |
 | 0.7.0 | A local record of how your agents work (numbers for each session, never the conversation) and `workspace metrics` | On Windows: the GitHub Copilot session, paths with accents or «ñ», empty bars and simultaneous closes; Copilot no longer repeats session start and end |
 | 0.6.0 | Three new engines (GitHub Copilot, Cursor and Kiro), the same tabs on every machine and archiving tabs | Resuming Codex and Hermes 0.22.5, the Claude Code handoff after an abrupt close and installing engines on Windows with Defender |
 | 0.5.1 | The memory map moves to Documentation; skills Hermes learns are saved in the brain | Memory across tabs, Hermes and OpenClaw integration, and the front-page cursor with no agents |

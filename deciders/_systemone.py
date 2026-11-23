@@ -37,6 +37,7 @@ sistema; si este Python no trae ninguno (el de python.org en Mac), certifi o
 máquina: el simulador de la QA). Jamás levanta hacia el decisor que la usa."""
 import base64
 import http.client
+import ipaddress
 import json
 import os
 import platform
@@ -44,6 +45,7 @@ import re
 import socket
 import ssl
 import sys
+import threading
 import time
 import zlib
 from urllib.parse import unquote, urlsplit
@@ -57,8 +59,73 @@ CONNECT_TIMEOUT_S = 3.0
 #: descomprimir (una «bomba» de 4 MB comprimidos se volvía GB).
 _MAX_BODY = 4 * 1024 * 1024
 _MAX_DECODED = 8 * 1024 * 1024
-#: Sin https, la llave solo viaja a esta misma máquina (el simulador de la QA).
-_LOOPBACK = ("localhost", "127.0.0.1", "::1")
+#: Cuánto se espera, como máximo, a que un NOMBRE diga a qué dirección apunta
+#: (para saber si es esta máquina), y cuánto se recuerda la respuesta.
+RESOLVE_TIMEOUT_S = 0.3
+_RESOLVE_TTL_S = 60.0
+_RESUELTOS = {}
+_RESUELTOS_LOCK = threading.Lock()
+
+
+def _ip_loopback(addr):
+    """¿Es una dirección de esta máquina? Todo 127.0.0.0/8, ::1 y su forma
+    ::ffff:127.x.x.x. Una cadena que no es una dirección: False."""
+    try:
+        ip = ipaddress.ip_address(str(addr or "").strip().strip("[]").split("%", 1)[0])
+    except ValueError:
+        return False
+    mapped = getattr(ip, "ipv4_mapped", None)
+    if mapped is not None:
+        ip = mapped
+    return ip.is_loopback
+
+
+def host_literal_loopback(host):
+    """Esta máquina SIN preguntarle a ningún DNS: «localhost» o una dirección
+    de loopback. Lo único a lo que viaja una llave sin https: un nombre puede
+    cambiar de dirección entre el chequeo y la conexión."""
+    h = str(host or "").strip().strip("[]").lower().rstrip(".")
+    return h == "localhost" or _ip_loopback(h)
+
+
+def _resuelve_a_loopback(host):
+    """¿El nombre resuelve SOLO a direcciones de esta máquina? Resolución corta
+    (RESOLVE_TIMEOUT_S, en un hilo: getaddrinfo no tiene tiempo límite) y
+    recordada; si no contesta a tiempo o falla: False (se trata como otra)."""
+    ahora = time.monotonic()
+    with _RESUELTOS_LOCK:
+        hit = _RESUELTOS.get(host)
+        if hit and ahora - hit[0] < _RESOLVE_TTL_S:
+            return hit[1]
+    caja = {}
+
+    def run():
+        try:
+            infos = socket.getaddrinfo(host, None, 0, socket.SOCK_STREAM)
+            addrs = [i[4][0] for i in infos]
+            caja["r"] = bool(addrs) and all(_ip_loopback(a) for a in addrs)
+        except Exception:
+            caja["r"] = False
+    th = threading.Thread(target=run, daemon=True, name="resolve-loopback")
+    th.start()
+    th.join(RESOLVE_TIMEOUT_S)
+    r = bool(caja.get("r", False))
+    with _RESUELTOS_LOCK:
+        _RESUELTOS[host] = (ahora, r)
+    return r
+
+
+def host_es_loopback(host, resolve=True):
+    """¿El host es esta máquina? Todo 127.0.0.0/8, ::1, «localhost» y —con
+    `resolve`— los nombres que resuelven a loopback (resolución corta)."""
+    h = str(host or "").strip().strip("[]").lower().rstrip(".")
+    if not h:
+        return False
+    if host_literal_loopback(h):
+        return True
+    if not resolve:
+        return False
+    return _resuelve_a_loopback(h)
 #: Los campos de la raíz que manda cualquier proveedor System One.
 ROOT_FIELDS = ("state", "model", "questions")
 
@@ -104,7 +171,7 @@ def base_url(spec):
             fabrica = (urlsplit(spec["base_url"]).hostname or "").lower()
         except ValueError:
             return URL_RECHAZADA
-        if host not in _LOOPBACK and host != fabrica:
+        if not host_literal_loopback(host) and host != fabrica:
             return URL_RECHAZADA
     return v.rstrip("/")
 
@@ -297,17 +364,20 @@ def _decode(data, enc):
 
 
 def es_loopback(url):
-    """¿La URL apunta a esta misma máquina (localhost / 127.0.0.1 / ::1)?"""
+    """¿La URL apunta a esta misma máquina (127.0.0.0/8, ::1, localhost o un
+    nombre que resuelve a loopback)?"""
     try:
-        return (urlsplit(url).hostname or "").lower() in _LOOPBACK
+        return host_es_loopback(urlsplit(url).hostname or "")
     except ValueError:
         return False
 
 
 def url_segura(url):
     """¿Se le puede mandar la llave a esta URL? https, o http solo a esta
-    misma máquina (localhost / 127.0.0.1 / ::1: el simulador de la QA). Una
-    URL base con http:// a otro host mandaba la llave en claro."""
+    misma máquina, y SIN preguntar a ningún DNS (localhost o una dirección de
+    loopback: el simulador de la QA). Una URL base con http:// a otro host
+    mandaba la llave en claro, y un nombre que hoy resuelve a loopback mañana
+    puede resolver a otra parte."""
     try:
         u = urlsplit(url)
         host = (u.hostname or "").lower()
@@ -315,7 +385,7 @@ def url_segura(url):
         return False
     if (u.scheme or "").lower() == "https" and host:
         return True
-    return (u.scheme or "").lower() == "http" and host in _LOOPBACK
+    return (u.scheme or "").lower() == "http" and host_literal_loopback(host)
 
 
 def url_valida(url):
@@ -329,27 +399,86 @@ def url_valida(url):
         return False
 
 
+def _conectar(prog, solo_loopback=False):
+    """El socket.create_connection de http.client con el DNS APARTE: resuelve
+    (fase «dns»; si falla, NetFail «connection») y conecta a cada dirección con
+    el tiempo de conexión (fase «connect»), en el orden de getaddrinfo, como la
+    stdlib. `solo_loopback`: el destino se trató como esta máquina (y por eso
+    sin proxy); un nombre puede resolver distinto la segunda vez, así que aquí
+    solo se conecta a las direcciones de loopback y jamás a una externa."""
+    def crear(address, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, source_address=None):
+        host, port = address[0], address[1]
+        prog["phase"] = "dns"
+        try:
+            infos = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)
+        except OSError as e:                                       # gaierror y compañía
+            raise NetFail("connection", type(e).__name__, "dns")
+        if solo_loopback:
+            infos = [i for i in infos if _ip_loopback(i[4][0])]
+            if not infos:
+                raise NetFail("connection", "NotLoopback", "dns")
+        prog["phase"] = "connect"
+        err = None
+        for af, socktype, proto, _canon, sa in infos:
+            sock = None
+            try:
+                sock = socket.socket(af, socktype, proto)
+                if timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:
+                    sock.settimeout(timeout)
+                if source_address:
+                    sock.bind(source_address)
+                sock.connect(sa)
+                prog["tcp"] = True          # el TCP abrió: lo que siga es del otro lado
+                return sock
+            except OSError as e:
+                err = e
+                if sock is not None:
+                    sock.close()
+        raise err if err is not None else OSError("getaddrinfo no devolvió direcciones")
+    return crear
+
+
 def send(req, timeout_s, connect_timeout_s=None, proxy=True):
     """Manda la petición → (status, {header en minúsculas: valor}, cuerpo).
     Conexión con su propio tiempo (corto); la lectura, con lo que quede.
     Levanta NetFail("connection" | "timeout", clase, fase). `proxy=False` =
     directo aunque haya HTTP(S)_PROXY (un servidor en esta misma máquina: el
-    proxy no lo alcanza y vería el contexto)."""
+    proxy no lo alcanza y vería el contexto). `req["progress"]` (opcional, un
+    dict) anota la fase: «dns» mientras se resuelve el nombre, «connect»
+    mientras se abre la conexión (TCP, TLS, túnel del proxy) y «read» después.
+    Resolver no respeta ningún tiempo límite y, sin internet, puede tardar más
+    que la petición entera: quien espera (decisions._call) sabe así qué pasó.
+    Lo que se dice (revisión de 0.9.1): «sin conexión» («connection») solo si
+    el nombre no se resuelve o la conexión se rechaza de inmediato; si se vence
+    a medio conectar, la red está lenta («timeout», fase «connect»)."""
+    prog = req.get("progress") if isinstance(req.get("progress"), dict) else {}
+    prog["phase"] = "dns"
     t0 = time.monotonic()
     total = max(0.2, float(timeout_s))
     ct = min(CONNECT_TIMEOUT_S if connect_timeout_s is None else connect_timeout_s, total * 0.6)
     u = urlsplit(req["url"])
     scheme = (u.scheme or "https").lower()
     host = u.hostname or ""
+    # Un NOMBRE se resuelve (corto, recordado) solo si va en claro (http) o quien
+    # llama pidió directo: a un https de la nube no se le antepone un DNS.
+    destino_local = host_es_loopback(host, resolve=(scheme == "http" or not proxy))
+    prog["local"] = destino_local
+    prog.pop("proxy_local", None)
+    prog.pop("tcp", None)
     port = u.port or (443 if scheme == "https" else 80)
     path = (u.path or "/") + ("?" + u.query if u.query else "")
     try:
         # A esta misma máquina, JAMÁS por un proxy (aunque quien llama lo
         # pida): el http a loopback va en claro y el proxy vería la llave y
         # el contexto (revisión 2026-11-08, reproducido con un proxy de red).
-        proxy = _proxy_for(scheme, host) if proxy and host.lower() not in _LOOPBACK else None
+        proxy = _proxy_for(scheme, host) if proxy and not destino_local else None
     except ProxyInvalid as e:                          # jamás directo saltándose un proxy
         raise NetFail("proxy", e.cls, "config", var=e.var)
+    if proxy and host_es_loopback(proxy[0]):
+        # el destino NO es esta máquina, pero el proxy sí: si algo tarda al
+        # conectar (CONNECT, TLS), tarda el proxy, no «el modelo no está abierto»
+        prog["proxy_local"] = True
+        prog["proxy_var"] = _proxy_var(scheme)
     try:
         if scheme == "https":
             if proxy:
@@ -365,13 +494,27 @@ def send(req, timeout_s, connect_timeout_s=None, proxy=True):
                 conn = http.client.HTTPConnection(host, port, timeout=ct)
     except Exception as e:
         raise NetFail("connection", type(e).__name__, "connect")
+    conn._create_connection = _conectar(prog, solo_loopback=bool(destino_local and not proxy))
     try:
         try:
             conn.connect()
+        except NetFail:
+            raise                                                  # el nombre no se resolvió
         except socket.timeout:
-            raise NetFail("connection", "timeout", "connect")     # el host no contestó
-        except (OSError, http.client.HTTPException) as e:          # rechazo, DNS, TLS…
+            # «Tarda el proxy» solo si el TCP ya abrió y se vence el CONNECT/TLS.
+            # Si ni el TCP abrió, el proxy en esta máquina no está abierto: Windows
+            # tarda ~2 s en rechazar un puerto cerrado de loopback y eso se vence
+            # como timeout; no es un proxy lento.
+            if prog.get("proxy_local") and prog.get("tcp"):
+                raise NetFail("timeout", "ProxySlow", "connect", var=prog.get("proxy_var"))
+            if prog.get("proxy_local"):
+                raise NetFail("connection", "ProxyClosed", "connect", var=prog.get("proxy_var"))
+            raise NetFail("connection" if prog["local"] else "timeout", "timeout", "connect")
+        except (OSError, http.client.HTTPException) as e:          # rechazo, TLS…
+            if prog.get("proxy_local") and not prog.get("tcp"):    # el proxy ni abrió el TCP
+                raise NetFail("connection", "ProxyClosed", "connect", var=prog.get("proxy_var"))
             raise NetFail("connection", type(e).__name__, "connect")
+        prog["phase"] = "read"
         restante = max(0.2, total - (time.monotonic() - t0))
         try:
             conn.sock.settimeout(restante)
@@ -402,15 +545,19 @@ def send(req, timeout_s, connect_timeout_s=None, proxy=True):
             pass
 
 
-def get_json(url, timeout_s, connect_timeout_s=0.3, method="GET", payload=None, proxy=True):
+def get_json(url, timeout_s, connect_timeout_s=0.3, method="GET", payload=None, proxy=True,
+             progress=None):
     """Una consulta chica (JSON) sin llave — el estado de un servidor local:
-    → (status, cuerpo JSON o None). Levanta NetFail como send()."""
+    → (status, cuerpo JSON o None). Levanta NetFail como send(). `progress`
+    (opcional, un dict): send() anota ahí la fase de ESTA consulta."""
     body = b"" if payload is None else json.dumps(payload).encode("utf-8")
     hdrs = {"Accept": "application/json", "User-Agent": "workspace/%s (decisores)" % _version()}
     if payload is not None:
         hdrs["Content-Type"] = "application/json"
-    st, _h, data = send({"method": method, "url": url, "headers": hdrs, "body": body},
-                        timeout_s, connect_timeout_s, proxy=proxy)
+    req = {"method": method, "url": url, "headers": hdrs, "body": body}
+    if isinstance(progress, dict):
+        req["progress"] = progress
+    st, _h, data = send(req, timeout_s, connect_timeout_s, proxy=proxy)
     return st, _json(data)
 
 
@@ -701,6 +848,8 @@ def decide(spec, meta, req, key, url, model, send_fn, extra=None, need_key=True)
         if spec.get("max_body") and len(r["body"]) > int(spec["max_body"]):
             return fail(spec, t0, "context_too_large", key, {"reason": "body_limit",
                                                              "bytes": len(r["body"])})
+        if isinstance(req.get("progress"), dict):  # la fase, para quien espera (send)
+            r["progress"] = req["progress"]
         tmo = max(0.2, float(req.get("timeout_ms") or 1500) / 1000.0)
         try:
             status, hdrs, data = send_fn(r, tmo)

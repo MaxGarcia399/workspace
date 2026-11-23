@@ -379,13 +379,15 @@ def seed_definition(folder, name=None, owner=None, display=None, tagline="",
 
 
 # ── permisos + revisión de skills: las DOS preguntas al crear/cargar ─────────
-#: Contrato común de los motores (agent.json): `autonomy` brain|ask (default
-#: brain = lee y escribe su cerebro sin preguntar; ask = pregunta también
-#: dentro de su cerebro) y `skill_review` (revisión de skills: el agente la hace
-#: al abrir la siguiente sesión, a la vista). Se cambian en Agentes → Enter. "full" (comandos sin preguntar) ya NO
+#: Contrato común de los motores (agent.json): `autonomy` brain|edit|ask (default
+#: brain = «Automático»: el modo automático oficial de su motor, decisión del
+#: 18-nov; edit = lee y escribe su cerebro sin preguntar; ask = pregunta también
+#: dentro de su cerebro; engines/_ui) y `skill_review` (revisión de skills: el agente la hace
+#: al abrir la siguiente sesión, a la vista). Se cambian en Agentes → Enter y en la página (Configuración →
+#: Permisos). "full" (comandos sin preguntar) ya NO
 #: se ofrece (decisión del dueño 2026-10-14: no es tan seguro); los motores lo
 #: siguen entendiendo si un agent.json lo trae escrito a mano.
-AUTONOMY_CHOICES = ("ask", "brain")
+AUTONOMY_CHOICES = ("ask", "brain", "edit")
 _YES = ("s", "si", "sí", "y", "yes")
 
 
@@ -451,9 +453,9 @@ def ask_preferences(autonomy=None, skill_review=None, interactive=None,
     if skill_review is None:
         skill_review = _si(_t(
             "addagent.prefs.q_review",
-            "¿Revisión automática de skills? Al abrir cada sesión, tu agente revisa "
-            "la anterior y mejora sus skills con lo que corriges; usa un poco de tu "
-            "suscripción. [s/N]: "))
+            "¿Revisión automática de skills? Al volver a abrir una pestaña, tu agente "
+            "revisa su sesión anterior y crea o mejora una skill si hay algo que aprender; "
+            "Workspace comprueba si lo hizo; usa un poco de tu suscripción. [s/N]: "))
     return autonomy, skill_review
 
 
@@ -482,6 +484,18 @@ def _set_preferences(folder, autonomy=None, skill_review=None):
 #: quiera pintar el proceso (add_agent_tui los pinta EN VIVO). `create()` los
 #: reporta por el callback `progress(key, st, note)` con st ∈ pend/run/ok/
 #: warn/fail/skip. Fuente única: si create() gana un paso, se agrega AQUÍ.
+def _globales_bloqueadas():
+    """¿Corre desde un worktree sin override? Ahí install no escribe hooks ni lanzadores globales
+    (install.global_writes_blocked): esos pasos se reportan «skip» con su nota, no «ok» (C1-a)."""
+    try:
+        import install
+        return bool(install.running_from_worktree()) and os.environ.get(install.FORCE_ENV) != "1"
+    except Exception:
+        return False
+
+
+NOTA_WORKTREE = "no se escribe desde un worktree (córrelo desde el checkout principal)"
+
 CREATE_STEPS = (
     ("validar", "validar nombre y destino"),
     ("scaffold", "copiar el cerebro (template → carpeta)"),
@@ -804,12 +818,13 @@ def create(name, tagline="", display=None, owner="", scope="", soul="",
         try:
             import install
             _prog(progress, "cableado", "run")
+            bloq = _globales_bloqueadas()
             install.configure_brain(name, defn, dest, owner or "owner",
                                     apply_autonomy=True)
-            _prog(progress, "cableado", "ok")
+            _prog(progress, "cableado", "skip" if bloq else "ok", NOTA_WORKTREE if bloq else "")
             _prog(progress, "launcher", "run")
             install.install_launchers([name])
-            _prog(progress, "launcher", "ok")
+            _prog(progress, "launcher", "skip" if bloq else "ok", NOTA_WORKTREE if bloq else "")
             out("AGENT: CONFIG:%s (hooks · statusline · launcher · tema)" % name)
         except Exception as e:
             warn_cfg = str(e)
@@ -1091,9 +1106,10 @@ def load(folder, name=None, out=print, progress=None, autonomy=None,
         if sin_dueno:
             out("AGENT: WARN: el cerebro de %s %s" % (intended, sin_dueno))
         _prog(progress, "cableado", "run")
+        bloq = _globales_bloqueadas()
         install.configure_brain(intended, cfg, folder, socio,
                                 apply_autonomy=autonomy is not None)
-        _prog(progress, "cableado", "ok")
+        _prog(progress, "cableado", "skip" if bloq else "ok", NOTA_WORKTREE if bloq else "")
         _prog(progress, "launcher", "run")
         # un nombre que ya es otro programa (git, claude…) se carga SIN comando:
         # su lanzador taparía ese programa — se abre desde `workspace`
@@ -1102,8 +1118,8 @@ def load(folder, name=None, out=print, progress=None, autonomy=None,
         for n, hit in sin:
             out("AGENT: WARN: %s — el agente queda cargado pero sin comando en "
                 "la terminal; ábrelo desde `workspace`" % install.conflict_text(n, hit))
-        _prog(progress, "launcher", "warn" if sin else "ok",
-              "choca con un comando" if sin else "")
+        _prog(progress, "launcher", "skip" if bloq else "warn" if sin else "ok",
+              NOTA_WORKTREE if bloq else "choca con un comando" if sin else "")
         out("AGENT: CONFIG:%s (hooks · statusline · launcher · tema)" % intended)
     except Exception as e:
         warn_cfg = str(e)
@@ -1165,6 +1181,47 @@ def load(folder, name=None, out=print, progress=None, autonomy=None,
                 % (intended, ", ".join(hechos)))
     except Exception as e:
         out("AGENT: WARN: textos de aprobación de %s sin cambiar — %s "
+            "(`workspace doctor --fix` lo reintenta)" % (intended, e))
+    # Guía de skills: un cerebro cargado después de la actualización no pasa
+    # por la migración (el sello es por máquina). Solo copia las que faltan.
+    try:
+        import skills_de_plantilla
+        hechos = skills_de_plantilla.actualizar(
+            folder, name=intended, log=lambda m: out("AGENT: WARN: %s" % m))
+        if hechos:
+            out("AGENT: SKILLS:%s — guía copiada (%s); las que ya estaban no se tocaron"
+                % (intended, ", ".join(hechos)))
+        # 202611220230: el bloque largo que la 0.9.2 puso en INDEX-LITE, más corto (después, no dentro: mismo candado)
+        if skills_de_plantilla.acortar(folder, name=intended, log=lambda m: out("AGENT: WARN: %s" % m)):
+            out("AGENT: SKILLS:%s — el renglón de la guía en skills/INDEX-LITE.md quedó más corto, para que quepa "
+                "en su presupuesto (respaldo guardado)" % intended)
+    except Exception as e:
+        out("AGENT: WARN: skills de la guía de %s sin cambiar — %s "
+            "(`workspace doctor` lo reintenta)" % (intended, e))
+    # skills-cierre (202611220100): BRAIN.md §5 e INDEX-LITE.md dicen cómo usar una skill a la vista del socio
+    # (usar_skill). Como la guía: un cerebro cargado después de la actualización solo lo recibe aquí. Mismo candado
+    # que las dos de arriba, una DESPUÉS de la otra.
+    try:
+        import skills_a_la_vista
+        hechos = skills_a_la_vista.actualizar(
+            folder, name=intended, log=lambda m: out("AGENT: WARN: %s — %s" % (intended, m)))
+        if hechos:
+            out("AGENT: SKILLS:%s — el cerebro ya dice cómo usar las skills a la vista (%s; respaldo guardado)"
+                % (intended, ", ".join(hechos)))
+    except Exception as e:
+        out("AGENT: WARN: cómo usar las skills a la vista en %s, sin cambiar — %s "
+            "(`workspace doctor --fix` lo reintenta)" % (intended, e))
+    # puertas nuevas (202611221218): las skills de la guía que ya estaban en el cerebro mandan a las pantallas nuevas
+    # del hub, solo si son una versión anterior intacta. Como las de arriba: mismo candado, una DESPUÉS de la otra.
+    try:
+        import skills_puertas_nuevas
+        hechos = skills_puertas_nuevas.actualizar(
+            folder, name=intended, log=lambda m: out("AGENT: WARN: %s — %s" % (intended, m)))
+        if hechos:
+            out("AGENT: SKILLS:%s — las skills de la guía ya mandan a las pantallas nuevas (%s; respaldo guardado)"
+                % (intended, ", ".join(hechos)))
+    except Exception as e:
+        out("AGENT: WARN: skills de la guía de %s sin poner al día — %s "
             "(`workspace doctor --fix` lo reintenta)" % (intended, e))
     _prog(progress, "verificacion", "run")
     ph = _scan_placeholders(folder)

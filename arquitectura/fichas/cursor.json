@@ -1,0 +1,88 @@
+{
+  "motor": "cursor",
+  "nombre": "Cursor CLI",
+  "binario": "agent",
+  "versiones_probadas": ["2026.11.17-f532c45", "2026.11.19-f005e9d"],
+  "fuente": "B",
+  "via_control": {
+    "tipo": "acp",
+    "detalle": "ACP nativo (`agent acp`) con su login: chat propio en la página (D5-a, F9).",
+    "misma_conversacion": false,
+    "semaforo": "verde",
+    "avisos": {"no_se_usa": "Cursor no corre hooks por ACP: VERIFICADO 2026.11.19-f005e9d (caja negra) en una carpeta de confianza con el mismo .cursor/hooks.json que por -p sí corrió (sessionStart, preToolUse, before/afterShellExecution, postToolUse, sessionEnd); por `agent acp`, ninguno, y la auditoría real lo vio igual con el paquete. Su doc de ACP (cursor.com/docs/cli/acp) no los menciona y `agent acp --help` no trae opciones. La página no los necesita para sus eventos: ACP le da tool_call, tool_call_update, session/request_permission y el fin del turno, y la página los anota en el registro de la pestaña (pagina_v2._Sesion._evento). Lo único del aviso de antes de cada herramienta que por ACP no hay es negar leer llaves y secretos: por ACP eso va por las reglas Read(…) que Workspace pone en el deny del .cursor/cli.json de su carpeta (arquitectura/secretos.cursor_deny) y por la capa de control, que niega sola un permiso que pide leerlos (VERIFICADO 19-nov con un canario: sin las reglas leyó secrets.local; con ellas, «Permission denied»)",
+               "eventos": "ACP: tool_call (pre_tool), tool_call_update completed/failed (post_tool), session/request_permission (permission_request) y stopReason de session/prompt (turn_end)"}
+  },
+  "momentos": {
+    "session_start": {"eventos": ["sessionStart"], "estado": "si", "puede": ["inyectar"], "nota": "additional_context y env"},
+    "user_prompt": {"eventos": ["beforeSubmitPrompt"], "estado": "parcial", "puede": ["bloquear"], "nota": "bloquea pero no inyecta"},
+    "pre_tool": {"eventos": ["preToolUse", "beforeShellExecution", "beforeMCPExecution"], "estado": "si", "puede": ["decidir"], "nota": "ask solo en shell y MCP"},
+    "post_tool": {"eventos": ["postToolUse", "afterShellExecution", "afterMCPExecution", "afterFileEdit"], "estado": "si", "puede": ["inyectar"], "nota": "aquí van las notas pendientes"},
+    "permission_request": {"eventos": ["beforeShellExecution", "beforeMCPExecution"], "estado": "parcial", "puede": ["decidir"], "nota": "no hay evento de permiso: el ask de shell y MCP es lo más cercano"},
+    "turn_end": {"eventos": ["stop", "afterAgentResponse"], "estado": "si", "puede": ["seguir"], "nota": "followup_message (loop_limit 5); afterAgentResponse trae la respuesta"},
+    "compact": {"eventos": ["preCompact"], "estado": "parcial", "puede": ["observar"], "nota": "solo observa"},
+    "session_end": {"eventos": ["sessionEnd"], "estado": "si", "puede": ["observar"]}
+  },
+  "paquete": {
+    "formato": "agent-plugins",
+    "carga_por_sesion": "--plugin-dir {paquete} --trust",
+    "instala": "agent plugin marketplace add",
+    "hooks": {"dialecto": "cursor", "ruta": "cursor/hooks.json", "raiz_var": "CURSOR_PLUGIN_ROOT", "confianza": "carpeta de confianza: --trust"},
+    "mcp": {"declara": "mcp.json del paquete", "preaprueba": "Mcp(workspace:*)"},
+    "skills": ".agents/skills"
+  },
+  "permisos": {"por_sesion": ["--force", "--sandbox", "--mode", "--trust"], "preguntar": "a_verificar", "sandbox": true,
+    "niveles": {
+      "auto": {"bandera": ["--auto-review"], "lanzador": "--auto-review en su terminal (engines/cursor._interactive_argv). Su --help 2026.11.17: «Use Auto-review (Smart Auto): a server classifier auto-runs safe tool calls and prompts for the rest». Nunca su «Run Everything». En la página (ACP), como hoy"}
+    }
+  },
+  "uso_plan": {"tipo": "interactivo", "fuente": "/usage y su web"},
+  "conversacion": {"id": "fijado_antes", "como": "agent create-chat da el id antes"},
+  "tono": "AGENTS.md y reglas",
+  "nucleo": {
+    "mcp": {"declara": "el .cursor/mcp.json del proyecto (por fusión, con el entorno de la pestaña por `${env:…}`) y aprobado SOLO ese servidor con `agent mcp enable workspace`; sus herramientas, permitidas en el .cursor/cli.json del proyecto (sesion.archivos)", "archivos": [{"fundir": "{paquete}/mcp.json", "a": "{cerebro}/.cursor/mcp.json", "clave": "mcpServers", "sustituir": {"{paquete}/lanzador/": "{lanzador}/"}, "env": {"WORKSPACE_ROOT": "${env:WORKSPACE_ROOT}", "WORKSPACE_BRAIN": "${env:WORKSPACE_BRAIN}", "WORKSPACE_WS": "${env:WORKSPACE_WS}", "WORKSPACE_WID": "${env:WORKSPACE_WID}", "WORKSPACE_ENGINE": "${env:WORKSPACE_ENGINE}", "WORKSPACE_PAQUETE": "${env:WORKSPACE_PAQUETE}"}}], "aprobar": ["{binario}", "mcp", "enable", "workspace"], "nota": "cable-cursor (19-nov, 2026.11.19-f005e9d, caja negra y auditoría real): la terminal no llamaba al servidor por DOS causas. (1) Cursor abre sus servidores MCP con un entorno mínimo (HOME, PATH, SHELL, USER…; VERIFICADO con un servidor sonda): sin WORKSPACE_* el servidor no sabía su pestaña ni su raíz. Ahora el mcp.json del proyecto le pasa SOLO esos nombres con `${env:NOMBRE}` (interpolación documentada: cursor.com/docs/context/mcp, «Config interpolation»), como `env_vars` en Codex; un nombre que no existe queda tal cual y memoria_mcp._valor lo trata como vacío. (2) Con su approvalMode de lista (el del socio), en -p cada herramienta MCP sin regla se rechaza («User rejected MCP»): sus herramientas se permiten con `Mcp(workspace:*)` en el .cursor/cli.json del PROYECTO (cursor.com/docs/cli/reference/permissions; solo nuestro servidor). Fuera --approve-mcps: es su «aprobar TODOS los servidores» (también los del socio y lo que alguien agregue al mcp.json). En su lugar `agent mcp enable workspace` («Add an MCP server to the local approved list»), corrido por el lanzador al final de para_lanzar con el entorno FINAL de la sesión: Cursor ata la aprobación a la config ya resuelta, así que vale para esa pestaña y nada más (sin ella, el servidor no carga: VERIFICADO). La aprobación vive en su estado por proyecto (~/.cursor/projects/<carpeta>/), no en la config del socio. La página no escribe el mcp.json: por ACP lo declara en su sesión (session/new)"},
+    "al_abrir": "hook",
+    "tono": {"via": "archivo", "archivos": [{"escribir": "{cerebro}/.cursor/rules/workspace-tono.mdc", "contenido": "---\ndescription: El tono de este agente (Workspace)\nalwaysApply: true\n---\n<!-- workspace: el tono de este agente. Lo escribe Workspace al abrir; no lo edites aquí. -->\n\n{tono}\n"}], "nota": "una regla del proyecto, siempre aplicada; sin tono se borra (solo la nuestra)"},
+    "chat": {"via": "mensaje", "nota": "la página la manda una vez por conexión, antes de tu primer mensaje (el contexto de la sesión, como la nota de la maleta): su tono va en una regla del proyecto, que también lee su terminal"},
+    "verificado": false,
+    "nota": "additional_context del sessionStart"
+  },
+  "sesion": {
+    "argv": ["--plugin-dir", "{paquete}"],
+    "archivos": [{"copiar": "{paquete}/cursor/hooks.json", "a": "{cerebro}/.cursor/hooks.json",
+                  "sustituir": {"${CURSOR_PLUGIN_ROOT}": "{paquete}"}},
+                 {"sumar": {"permissions": {"allow": ["Mcp(workspace:*)"], "deny": ["{secretos:cursor}"]}}, "a": "{cerebro}/.cursor/cli.json",
+                  "nota": "cable-cursor (B08): las herramientas de NUESTRO servidor, sin tarjeta, por su vía oficial (el cli.json del proyecto; doc «permissions»: `Mcp(server:tool)`, comodín por servidor). Lo del socio y las reglas de la memoria quedan; `deny` se crea si falta (sin él Cursor rechaza el archivo). Cierre de la auditoría (19-nov): `deny` lleva las reglas `Read(…)` de lo prohibido de leer (arquitectura/secretos.cursor_deny, de la lista del aviso de antes de cada herramienta), que por ACP es lo único que las niega: Cursor no corre avisos ahí. Caja negra 19-nov por ACP con un canario: sin ellas leyó `secrets.local`; con ellas «Permission denied» (también fuera de la carpeta: su `**/` alcanza todo el disco). Su deny no admite excepciones: niega también `.env.example`. VERIFICADO 2026.11.19: por -p y por ACP lo respeta (una regla `Shell(echo)` quitó su pedido de permiso y una `Read(**/x)` negó la lectura). Va en los dos caminos (la página lo deja con preparar_proyecto). Al desinstalar se quita (memoria_mcp.sin_reglas_cursor)"}],
+    "skills": {"via": "paquete", "nota": "skills/ del Agent Plugin del paquete de ese cerebro (a verificar en su menú /)"},
+    "id": {"flags": ["--resume"], "retoma": "--resume"},
+    "maleta_del_transcript": "sin pantalla (agent -p) solo corre sessionStart y sessionEnd: ni beforeSubmitPrompt ni afterAgentResponse ni stop (caja negra 19-nov con 2026.11.19-f005e9d: una sonda guardó lo que recibió cada aviso), así que sus avisos no dan tu mensaje ni su respuesta. Sigue la de su transcript, como Codex, Kiro, Antigravity y OpenClaw; la de los eventos nunca lee un transcript (F5)",
+    "nota": "un chat nuevo dice su número en el hook de inicio (create-chat, después); sin --trust: si la carpeta no es de confianza, sus hooks no corren (el lanzador ya pone --trust). Los hooks van en el hooks.json del PROYECTO (<cerebro>/.cursor/hooks.json, el lugar que documenta su página de hooks): con solo --plugin-dir no corrió ninguno (probador real 17-nov) y con ese archivo y --trust sí (probador real 3, 18-nov: session_start, pre_tool, post_tool, permission_request y session_end)"
+  },
+  "config_global": [
+    {"ruta": "{home}/.cursor/cli-config.json",
+     "claves": ["permissions", "approvalMode", "sandbox", "hooks", "mcpServers", "mcp"],
+     "nota": "Cursor reescribe este archivo en cada corrida con su propia contabilidad (modelo, historial, avisos): VERIFICADO con el probador real (17-nov). Como ~/.claude.json, la huella cuenta solo las claves que Workspace podría tocar: permisos, sandbox, hooks y MCP."},
+    "{home}/.cursor/hooks.json",
+    "{home}/.cursor/mcp.json",
+    "{home}/.cursor/sandbox.json",
+    "{home}/.cursor/permissions.json",
+    "{home}/.cursor/rules",
+    "{home}/.cursor/skills",
+    "{home}/.cursor/agents"
+  ],
+  "probador": {
+    "env": {"CURSOR_CONFIG_DIR": "{home}/.cursor"},
+    "corrida": ["agent", "-p", "{prompt}", "--plugin-dir", "{paquete}", "--output-format", "stream-json", "--trust"],
+    "timeout_s": 240,
+    "real": {
+      "preparar": [{"copiar": "{paquete}/cursor/hooks.json", "a": "{cerebro}/.cursor/hooks.json",
+                    "sustituir": {"${CURSOR_PLUGIN_ROOT}": "{paquete}"}},
+                   {"fundir": "{paquete}/mcp.json", "a": "{cerebro}/.cursor/mcp.json", "clave": "mcpServers", "sustituir": {"{paquete}/lanzador/": "{lanzador}/"},
+                    "env": {"WORKSPACE_ROOT": "${env:WORKSPACE_ROOT}", "WORKSPACE_BRAIN": "${env:WORKSPACE_BRAIN}", "WORKSPACE_WS": "${env:WORKSPACE_WS}", "WORKSPACE_WID": "${env:WORKSPACE_WID}", "WORKSPACE_ENGINE": "${env:WORKSPACE_ENGINE}", "WORKSPACE_PAQUETE": "${env:WORKSPACE_PAQUETE}"}},
+                   {"sumar": {"permissions": {"allow": ["Mcp(workspace:*)"], "deny": []}}, "a": "{cerebro}/.cursor/cli.json"}],
+      "corrida": ["agent", "-p", "{prompt}", "--plugin-dir", "{paquete}", "--output-format", "stream-json", "--trust"],
+      "nota": "Probador real 17-nov: con solo --plugin-dir la sonda no anotó nada (el formato Agent Plugins deja los hooks fuera del estándar y la ruta cursor/hooks.json dentro del plugin era una suposición). Ahora además el hooks.json del PROYECTO (<proyecto>/.cursor/hooks.json, el lugar que documenta su página de hooks), con --trust (sin confianza no corren), y el MCP del paquete con sus herramientas permitidas en el cli.json del proyecto (cable-cursor, 19-nov: sin --approve-mcps ni --force, que es su «Run Everything»; la aprobación del servidor la da `agent mcp enable workspace`, que el probador con --home-real no corre: la verificación de MCP es la de arquitectura.auditoria). Si con eso anota, la vía por sesión de Cursor es el proyecto; si tampoco, el informe lo dice."
+    },
+    "verificado": false,
+    "nota": "que cada evento corra en la CLI es probable, sin confirmar uno por uno"
+  }
+}

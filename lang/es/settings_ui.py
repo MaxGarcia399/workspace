@@ -18,6 +18,15 @@ STRINGS = {
     'settings_ui.label.agentes.auto_mode': 'Auto-mode en sesiones interactivas',
     'settings_ui.label.ui.anim': 'Animaciones',
     'settings_ui.label.ui.autostart': 'Abrir al abrir la terminal',
+    'settings_ui.label.ui.navegador_al_iniciar': 'Abrir Workspace en el navegador al iniciar',
+    'settings_ui.help.ui.navegador_al_iniciar': ('Al abrir Workspace en una terminal, abre también '
+                                                 'Workspace en el navegador, solo si no hay otro hub '
+                                                 'abierto en esta máquina. Si la página ya está '
+                                                 'corriendo, la reusa.'),
+    'settings_ui.label.arquitectura.paquete': 'Arquitectura nueva: paquete por sesión',
+    'settings_ui.help.arquitectura.paquete': ('Abre cada motor con el paquete de Workspace por sesión '
+                                              '(hooks, MCP y skills por su vía oficial, sin tocar su '
+                                              'config global). Se aplica al abrir el motor.'),
     'settings_ui.label.ui.lang': 'Idioma',
     'settings_ui.label.ui.background': 'Fondo independiente',
     'settings_ui.label.ui.brightness': 'Brillo',
@@ -55,3 +64,5 @@ STRINGS = {
     'settings_ui.choice.ui.background.personalizado': 'personalizado',
     # layout lanzador
 }
+
+STRINGS.update({'settings_ui.label.hooks.skill_review_mode': 'Cuándo revisar skills', 'settings_ui.help.hooks.skill_review_mode': 'Apagado, al abrir, al cerrar o con botón. De fábrica apagado.', 'settings_ui.label.hooks.skill_review_engine': 'Motor para revisar skills', 'settings_ui.help.hooks.skill_review_engine': 'session usa el de la sesión; un motor fijo se elige entre los instalados.'})

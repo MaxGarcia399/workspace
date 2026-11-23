@@ -46,7 +46,7 @@ VERSION = "claude-code/4"     # /4: del shell, solo cuentan las skills que se LE
 _LECTORES = ("cat", "head", "tail", "sed", "less", "more", "bat", "nl")
 _SEPARADORES = re.compile(r"\|\||&&|[|;\n]")
 #: Versiones exactas verificadas con golden (tests/fixtures/metricas/claude-code/<v>/).
-VERIFIED_VERSIONS = ("2.1.310", "2.1.311")
+VERIFIED_VERSIONS = ("2.1.310", "2.1.311", "2.1.326")
 #: Claude Code publica casi a diario: una versión no listada se vigila por
 #: canarios (`metricas salud`) en vez de marcarse «no verificada».
 CANARIOS = True
@@ -94,7 +94,8 @@ _TIPOS = frozenset((
     "last-prompt", "agent-name", "mode", "permission-mode", "atis-latch",
     "file-history-snapshot", "file-history-delta", "queue-operation", "ai-title",
     "summary", "progress", "tag",
-    "tools-used"))     # 2.1.311: qué herramientas había (se reconoce, no se guarda)
+    "tools-used",      # 2.1.311: qué herramientas había (se reconoce, no se guarda)
+    "session-owner"))  # 2.1.326: ids de cuenta y organización (se reconoce, no se guarda)
 
 _ESCRITURA = ("Write", "Edit", "MultiEdit", "NotebookEdit")
 #: Mensajes del usuario que empiezan con una etiqueta y SÍ son del usuario

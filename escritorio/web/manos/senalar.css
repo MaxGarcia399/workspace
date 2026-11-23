@@ -1,0 +1,62 @@
+/* ===== señalar (F1): la capa de una pantalla =====
+   Transparente y sin clics (la app deja pasar el mouse). Lo que entra va con resorte (cubic-bezier(.2,.9,.25,1.15));
+   lo pixel (estela, esquinas, «puf», la salida recortada y el cursor de la etiqueta) va en escalón (steps). */
+html.wss-app,html.wss-app body{height:100%;margin:0;background:transparent;overflow:hidden;-webkit-user-select:none;user-select:none}
+#wss{--c:#ffffff;--acx:#151518;position:fixed;inset:0;pointer-events:none;overflow:hidden;font:14px/1.45 var(--sans);color:var(--tx);
+  -webkit-font-smoothing:antialiased}
+#wss [hidden]{display:none!important}
+.wss-yo{position:absolute;left:0;top:0;z-index:5;line-height:0;will-change:transform}
+.wss-cuerpo{transform-origin:50% 88%;will-change:transform}
+.wss-yo .mono{filter:drop-shadow(0 10px 18px rgba(0,0,0,.45)) drop-shadow(0 0 14px color-mix(in srgb,var(--c) 35%,transparent))}
+
+/* la estela: cuadritos de su color que se apagan en 4 escalones */
+.wss-px{position:absolute;z-index:4;border-radius:1px;background:var(--c);animation:wss-px .44s steps(4) forwards}
+@keyframes wss-px{0%{opacity:.9;transform:scale(1)}100%{opacity:0;transform:scale(.25) translateY(6px)}}
+
+/* el «puf» al entrar o salir por otra pantalla */
+.wss-puf{position:absolute;z-index:6;width:6px;height:6px;margin:-3px 0 0 -3px;background:var(--c);animation:wss-puf .5s steps(5) forwards}
+@keyframes wss-puf{0%{opacity:1;transform:translate(0,0) scale(1.2)}100%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(.4)}}
+
+/* el anillo: brillo suave que respira, con cuatro esquinas pixel que se acomodan en escalón */
+.wss-anillo{position:absolute;z-index:3;border-radius:12px;
+  box-shadow:0 0 0 2px var(--c),0 0 0 7px color-mix(in srgb,var(--c) 20%,transparent),0 0 30px color-mix(in srgb,var(--c) 45%,transparent);
+  background:color-mix(in srgb,var(--c) 7%,transparent);
+  animation:wss-entra .44s cubic-bezier(.2,.9,.25,1.15) both,wss-respira 1.6s ease-in-out .44s infinite}
+.wss-anillo.punto{border-radius:50%;border:2px dashed var(--c);box-shadow:0 0 26px color-mix(in srgb,var(--c) 35%,transparent);
+  background:color-mix(in srgb,var(--c) 10%,transparent);animation:wss-entra .44s cubic-bezier(.2,.9,.25,1.15) both}
+@keyframes wss-entra{0%{opacity:0;transform:scale(.6)}60%{opacity:1;transform:scale(1.06)}100%{opacity:1;transform:scale(1)}}
+@keyframes wss-respira{0%,100%{box-shadow:0 0 0 2px var(--c),0 0 0 7px color-mix(in srgb,var(--c) 20%,transparent),0 0 30px color-mix(in srgb,var(--c) 45%,transparent)}
+  50%{box-shadow:0 0 0 2px var(--c),0 0 0 12px color-mix(in srgb,var(--c) 9%,transparent),0 0 40px color-mix(in srgb,var(--c) 60%,transparent)}}
+.wss-esq{position:absolute;width:11px;height:11px;border:0 solid var(--c);animation:wss-esq .36s steps(4) .12s both}
+.wss-esq.a{left:-9px;top:-9px;border-width:3px 0 0 3px;--ex:-9px;--ey:-9px}
+.wss-esq.b{right:-9px;top:-9px;border-width:3px 3px 0 0;--ex:9px;--ey:-9px}
+.wss-esq.c{right:-9px;bottom:-9px;border-width:0 3px 3px 0;--ex:9px;--ey:9px}
+.wss-esq.d{left:-9px;bottom:-9px;border-width:0 0 3px 3px;--ex:-9px;--ey:9px}
+.wss-anillo.punto .wss-esq{display:none}
+@keyframes wss-esq{from{opacity:0;transform:translate(var(--ex),var(--ey))}to{opacity:1;transform:none}}
+
+/* la etiqueta: píldora de su color; el texto se escribe solo con cursor bloque (como los títulos del sitio) */
+.wss-etq{position:absolute;z-index:6;display:flex;align-items:center;gap:8px;max-width:340px;padding:6px 13px 6px 11px;border-radius:999px;
+  background:var(--c);color:var(--acx);font:650 13.5px/1.35 var(--sans);white-space:nowrap;box-shadow:0 12px 30px rgba(0,0,0,.38);
+  transform-origin:20% 0;animation:wss-pop .42s cubic-bezier(.2,.9,.25,1.15) .08s both}
+/* una frase larga no se corta: baja de renglón (hasta 3) dentro de la misma píldora */
+.wss-etq.larga{white-space:normal;border-radius:16px;align-items:flex-start;padding:8px 14px 8px 12px}
+.wss-etq.larga .n{margin-top:5px}
+.wss-etq .t{min-width:0}
+.wss-etq .n{display:flex;gap:3px;flex:none}
+.wss-etq .n i{width:6px;height:6px;border-radius:1px;background:color-mix(in srgb,var(--acx) 28%,transparent)}
+.wss-etq .n i.h{background:color-mix(in srgb,var(--acx) 70%,transparent)}
+.wss-etq .n i.a{background:var(--acx);animation:wss-late 1s steps(2) infinite}
+.wss-etq .cur{width:7px;height:14px;margin-left:-5px;border-radius:1px;background:var(--acx);flex:none;animation:wss-late .9s steps(2) infinite}
+.wss-etq .cur.fin{display:none}
+@keyframes wss-pop{0%{opacity:0;transform:translateY(6px) scale(.6)}60%{opacity:1;transform:translateY(0) scale(1.06)}100%{opacity:1;transform:none}}
+@keyframes wss-late{50%{opacity:.15}}
+
+/* salen recortados en 5 escalones (como los avisos del sitio) */
+.wss-anillo.sale,.wss-etq.sale{animation:wss-sale .28s steps(5) forwards}
+@keyframes wss-sale{from{clip-path:inset(0 0 0 0);opacity:1}to{clip-path:inset(0 0 100% 0);opacity:0}}
+
+@media (prefers-reduced-motion:reduce){
+  .wss-anillo,.wss-etq,.wss-esq{animation:none!important}
+  .wss-anillo.sale,.wss-etq.sale{animation:none!important;opacity:0}
+}

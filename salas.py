@@ -15,10 +15,10 @@ Archivos (todos .md, ASCII en el nombre, ninguno se edita jamás):
                                          defecto, tope de turnos, quién abrió
                                          (su sobre) e invitados
     m-<aammddThhmmss>-<azar>.md          un mensaje: pide | responde | info
-    e-<aammddThhmmss>-<azar>-<accion>.md un evento: unirse, invitar, pausa,
-                                         reanudar, cierre, archivar, espera,
-                                         espera_pedido, mas_tiempo, cancelar,
-                                         soltar, delegar, tope, lapida
+    e-<aammddThhmmss>-<azar>-<accion>.md un evento: unirse, salir, invitar,
+                                         pausa, reanudar, cierre, archivar,
+                                         espera, espera_pedido, mas_tiempo,
+                                         cancelar, soltar, delegar, tope, lapida
 
 El estado de la sala (en pausa, cerrada, la espera, quién debe qué) NO se
 guarda: se DERIVA de esos archivos, igual en todas las máquinas. Archivar es
@@ -31,6 +31,10 @@ messages.py). El mismo agente en dos pestañas son dos participantes; una
 pestaña reanudada hereda su lugar; un fork (otra pestaña) entra como nuevo.
 Hasta MAX_PARTICIPANTES. Solo quien abrió o el socio suman gente (invitados
 y el evento `invitar`); cualquier pestaña de un agente invitado se puede unir.
+Quien ya terminó se sale con `salir` (deja un evento visible y libera su lugar):
+antes tiene que soltar o responder los pedidos abiertos a su nombre, y quien
+abrió no sale (cierra la sala). Lo que quiera publicar después lo frena su
+propia CLI; vuelve con `conversar unirse` (ver «Pertenencia» más abajo).
 
 Menciones (`para`): una clave de participante, o el nombre del agente. El
 nombre va a la ÚLTIMA pestaña de ese agente que habló en la sala (antes de ese
@@ -62,6 +66,19 @@ pintar: el orden en pantalla es (turno, participante, id) y lo que llegó tarde
 por el sync se marca, nunca se pierde. Un archivo a medias (el sync aún lo
 escribe) no se lee: se reintenta en el siguiente sondeo (`largo` del cuerpo).
 
+Pertenencia (0.9.2, decisión de diseño): al derivar NADA se revoca. Un mensaje
+cuenta si su autor fue participante alguna vez (el agente abrió la sala o está
+invitado): no depende del orden en que el sync entregue los archivos ni del
+reloj de ninguna máquina. `salir` libera el lugar ACTIVO y nunca invalida lo
+que la pestaña ya dijo. Lo que esa pestaña publique después de salir se frena
+AL ESCRIBIR (su propia máquina ve su `salir`); vuelve con `conversar unirse`.
+Activa = apareció y su último `unirse`/`salir`, en SU propia secuencia, no
+es un `salir`. Esa secuencia es un contador de la pestaña (`seq` en sus
+eventos: uno más que lo último suyo que vio), no una hora: vale aunque la
+pestaña se reanude en otra máquina con el reloj corrido. El cupo se revisa al unirse,
+con la vista de quien se une; si una carrera entre dos máquinas deja uno de
+más, se muestra así (tope blando): al derivar no se expulsa a nadie.
+
 `esperar` es long-poll por archivos, sin daemon: un stat por carpeta en
 reposo, solo se lee lo nuevo. Sale 0 si llegó algo, 3 si no (timeout), 4 si
 un pedido tuyo venció o quien te debe respuesta está cerrado DE VERDAD (esta
@@ -85,6 +102,9 @@ rechaza con un error que dice cómo mandarlo (en PowerShell «`f» es U+000C).
     ver [<sala>] [--completo]
     soltar <sala> --a <pedido> [--motivo "…"]
     delegar <sala> --a <pedido> --en <agente[:Pestaña]> --resumen "…"
+    salir <sala> [--motivo "…"]   (suelta tu lugar; antes, suelta o responde tus pedidos)
+    unirse <sala>   (entrar, o volver después de salir; el cupo se mira aquí)
+    cancelar <sala> --a <pedido> [--motivo "…"]   (solo quien lo pidió)
     pausar | reanudar | cerrar | archivar <sala> [--resumen "…"]   (solo quien abrió)
 Las acciones del socio (pausar, reanudar, cerrar, archivar, la espera, más
 tiempo, cancelar un pedido, borrar) salen del hub › Conversaciones.
@@ -109,7 +129,7 @@ import messages as M                                            # noqa: E402
 SALAS_DIR = "conversaciones"
 SALA_MD = "sala.md"
 TIPOS = ("pide", "responde", "info")
-ACCIONES = ("unirse", "invitar", "pausa", "reanudar", "cierre", "archivar", "espera",
+ACCIONES = ("unirse", "salir", "invitar", "pausa", "reanudar", "cierre", "archivar", "espera",
             "espera_pedido", "mas_tiempo", "cancelar", "soltar", "delegar", "tope", "lapida")
 #: Lo que solo pueden el socio (desde el hub) o quien abrió la sala.
 DE_DUENO = ("invitar", "pausa", "reanudar", "cierre", "archivar", "espera")
@@ -497,7 +517,8 @@ def _registro(nombre, pares, cuerpo, yo, mtime=0.0):
         reg.update(kind="evento", accion=fm.get("accion") or (m.group(4) or ""),
                    sala=fm.get("sala", ""), pedido=fm.get("pedido", ""),
                    minutos=_int(fm.get("minutos"), 0), en=fm.get("en", ""),
-                   motivo=fm.get("motivo", ""), por=fm.get("por", ""))
+                   motivo=fm.get("motivo", ""), por=fm.get("por", ""),
+                   seq=_int(fm.get("seq"), 0))
     return reg
 
 
@@ -818,23 +839,41 @@ def derivar(regs, carpeta="", hogar=""):
         k = "%s--%s" % (a, w) if (a and w) else ""
         if k and k not in parts and len(parts) < MAX_PARTICIPANTES:
             parts[k] = nuevo(k, {"de_sesion": w}, sala["creada"], unido=False)
-    llegadas = sorted([(e["t"], e["id"], e) for e in eventos if e["accion"] == "unirse"]
-                      + [(m["t"], m["id"], m) for m in msgs if not es_socio(m["de"])],
-                      key=lambda x: (x[0], x[1]))
-    for t, _i, r in llegadas:
+    # Cada pestaña, con lo SUYO: sus unirse/salir y su primer mensaje. Nunca se
+    # compara con otra pestaña ni con el reloj de otra máquina.
+    propio = {}
+    for r in [e for e in eventos if e["accion"] in ("unirse", "salir") and e["valido"]] + \
+            [m for m in msgs if not es_socio(m["de"])]:
         k = r.get("de") or ""
         if not k or "--" not in k or r.get("de_agente") != agente_de(k):
             continue
-        p = parts.get(k)
-        if p is not None:
-            if not p["unido"]:
-                p.update(nuevo(k, r, t))
-            continue
-        if agente_de(k) in permitidos and sum(1 for x in parts.values()) < MAX_PARTICIPANTES:
-            parts[k] = nuevo(k, r, t)
-        else:
+        if agente_de(k) not in permitidos:
             rechazados.add(k)
+            continue
+        propio.setdefault(k, []).append(r)
+    salidos = {}
+    for k, regs_k in propio.items():
+        # Su secuencia: `seq` (contador de ESTA pestaña, sin reloj) y, para lo de
+        # antes de 0.9.2 (sin seq), el orden de la máquina que lo escribió.
+        regs_k.sort(key=lambda r: (int(r.get("seq") or 0), r["t"], r["id"]))
+        ultimo_ev = None
+        for r in regs_k:
+            if r["kind"] == "evento":
+                if r["accion"] == "salir" and k == sala["creador"]:
+                    continue                       # quien abrió no sale: cierra
+                if r["accion"] == "salir":
+                    r["efectivo"] = True           # salió de verdad (se pinta y se avisa)
+                ultimo_ev = r
+        if ultimo_ev is not None and ultimo_ev["accion"] == "salir":
+            salidos[k] = ultimo_ev                 # fuera AHORA; lo que dijo sigue valiendo
+            parts.pop(k, None)
+            continue
+        p = parts.get(k)
+        if p is None or not p["unido"]:
+            primero = regs_k[0]
+            parts[k] = nuevo(k, primero, primero["t"])
     sala["participantes"] = parts
+    sala["salidos"] = salidos
     sala["rechazados"] = rechazados
     sala["invitados"] = [a for a, w in invitados if a and not w]
     sala["permitidos"] = permitidos
@@ -872,7 +911,7 @@ def derivar(regs, carpeta="", hogar=""):
         motivo = ""
         if m["firma"] == "alterado":
             motivo = "alterado"
-        elif not socio and m["de"] not in parts:
+        elif not socio and not _de_miembro(m, permitidos):
             motivo = "no_participa"
         elif t_cierre is not None and m["t"] > t_cierre:
             motivo = "despues_del_cierre"
@@ -898,6 +937,14 @@ def derivar(regs, carpeta="", hogar=""):
     sala["turno_max"] = max([m.get("turno") or 0 for m in msgs] or [0])
     sala["pedidos"] = _pedidos(sala, msgs, eventos)
     return sala
+
+
+def _de_miembro(m, permitidos):
+    """¿El autor fue participante alguna vez? Su agente abrió la sala o está
+    invitado, con una clave de pestaña que es de ese agente. No depende del
+    orden de llegada ni del reloj: lo que valía al llegar vale siempre."""
+    k = m.get("de") or ""
+    return "--" in k and m.get("de_agente") == agente_de(k) and agente_de(k) in permitidos
 
 
 def _spec(texto):
@@ -1021,6 +1068,8 @@ def _pedidos(sala, msgs, eventos):
                 sin_deuda.append(x)
             continue
         e = x
+        if e["accion"] == "salir":
+            continue                               # la deuda con quien salió va al final
         p = out.get(e.get("pedido"))
         if p is None:
             continue
@@ -1059,6 +1108,21 @@ def _pedidos(sala, msgs, eventos):
             p["mas"] += e["minutos"]
     for r in sin_deuda:
         _responder(r)
+    # La deuda con una pestaña que está FUERA (su último evento propio es
+    # `salir`) queda soltada, sin importar en qué orden llegaron los archivos:
+    # nadie espera a quien ya no está. A quien pidió se le dice (para_mi). Si
+    # esa pestaña vuelve a unirse, vuelve a deberla.
+    for e in (sala.get("salidos") or {}).values():
+        e["pedidos_soltados"] = []
+    for p in out.values():
+        if p["estado"] != "esperando":
+            continue
+        for d in [x for x in p["a"] if x not in p["listos"]]:
+            e = (sala.get("salidos") or {}).get(d)
+            if e is not None:
+                p["listos"].append(d)
+                p["soltados"].append(d)
+                e["pedidos_soltados"].append(p["id"])
     for p in out.values():
         p["vence"] = p["t"] + (p["espera"] + p["mas"]) * 60
         p["pendientes"] = [d for d in p["a"] if d not in p["listos"]]
@@ -1197,7 +1261,8 @@ def abrir(agente, titulo, objetivo, con=(), espera=None, hecho_cuando="", max_tu
     if not invitados:
         raise Error("falta --con <agente>: una sala es para conversar con alguien")
     if len(invitados) + 1 > MAX_PARTICIPANTES:
-        raise Error("máximo %d participantes por sala" % MAX_PARTICIPANTES)
+        raise Error("máximo %d participantes por sala: invita a menos (quien termina su parte "
+                    "se sale después con conversar salir)" % MAX_PARTICIPANTES)
     esp = espera if isinstance(espera, int) else (minutos(espera) if espera else ESPERA_DEFAULT)
     if not esp:
         raise Error("no entiendo la espera «%s» (ej.: 15m, 30m, 1h, 2h, 8h, 24h)" % espera)
@@ -1225,6 +1290,11 @@ def abrir(agente, titulo, objetivo, con=(), espera=None, hecho_cuando="", max_tu
              ("invitados", ", ".join(invitados)), ("t", "%.3f" % t), ("ts", _iso(t))]
     pares += _pares_sobre(yo["key"], yo["sobre"], yo["agente"])
     _crear(carpeta, lambda: SALA_MD, pares, texto)
+    try:                                # Decisores «Repartir»: ¿se mandó al elegido?
+        import decision_visible
+        decision_visible.tras_mandar(list(con or ()))
+    except Exception:
+        pass
     return sid
 
 
@@ -1232,10 +1302,25 @@ def _escribir_evento(sala, accion, de, sob, agente="", **extra):
     t = _ahora()
     pares = [("tipo", "evento"), ("accion", accion), ("sala", sala["id"]),
              ("t", "%.3f" % t), ("ts", _iso(t))] + _pares_sobre(de, sob, agente)
+    if accion in ("unirse", "salir"):
+        # la secuencia PROPIA de esta pestaña (no un reloj, no el turno de la sala):
+        # uno más que lo último suyo que ve. Así su `salir` va después de su
+        # `unirse` aunque el reloj de la máquina donde se reanudó vaya atrás.
+        prev = [int(e.get("seq") or 0) for e in sala.get("eventos") or ()
+                if e.get("de") == de and e.get("accion") in ("unirse", "salir")]
+        pares.append(("seq", str((max(prev) if prev else 0) + 1)))
     for k in ("pedido", "minutos", "en", "motivo", "por"):
         if extra.get(k) not in (None, ""):
             pares.append((k, _linea(extra[k]) if k == "motivo" else str(extra[k])))
     ruta = _crear(sala["dir"], _nombre_evento(accion), pares, "")
+    if accion == "cierre":
+        # Decisores (C3, «¿pasó?»): la sala que «parecía cumplida» se cerró —
+        # desde el CLI de quien la abrió o desde el hub (accion_socio)
+        try:
+            import decision_visible as V
+            V.sala_cerrada(sala["id"])
+        except Exception:
+            pass
     return os.path.basename(ruta)[:-3]
 
 
@@ -1249,12 +1334,16 @@ def _candado(sala):
         return None
 
 
-def unirse(sala, yo):
+def unirse(sala, yo, explicito=False):
     """Deja el evento `unirse` de esta pestaña si todavía no está (bajo el
     candado de la sala: dos pestañas de esta máquina no se unen dos veces).
-    True si quedó dentro."""
+    True si quedó dentro. Una pestaña que SALIÓ solo vuelve con un unirse
+    explícito (`conversar unirse`): publicar, soltar o esperar no la meten de
+    nuevo. El cupo se mira aquí, con la vista de quien se une."""
     if yo["key"] in sala["participantes"] and sala["participantes"][yo["key"]]["unido"]:
         return True
+    if yo["key"] in (sala.get("salidos") or {}) and not explicito:
+        return False
     lk = _candado(sala)
 
     def _hacer():
@@ -1264,7 +1353,9 @@ def unirse(sala, yo):
             return True
         if yo["agente"] not in s["permitidos"]:
             return False
-        if p is None and len(s["participantes"]) >= MAX_PARTICIPANTES:
+        if yo["key"] in (s.get("salidos") or {}) and not explicito:
+            return False
+        if (p is None or not p["unido"]) and _activos(s) >= MAX_PARTICIPANTES:
             return False
         _escribir_evento(s, "unirse", yo["key"], yo["sobre"], yo["agente"])
         return True
@@ -1275,6 +1366,35 @@ def unirse(sala, yo):
             return _hacer()
     except Exception:
         return _hacer()
+
+
+def _activos(sala):
+    """Cuántas pestañas están dentro AHORA (unidas y sin salir)."""
+    return sum(1 for p in sala["participantes"].values() if p.get("unido"))
+
+
+def unirse_cli(sala_id, agente, brains=None, sesion=None, _sobre=None):
+    """`conversar unirse <sala>`: entrar (o volver tras salir). El cupo se mira
+    con la vista de esta máquina. Devuelve un texto. Levanta Error."""
+    yo = identidad(agente, brains, sesion, _sobre)
+    if yo is None:
+        raise Error("%s no tiene cerebro en esta máquina" % (agente or "?"))
+    sala = encontrar(sala_id, yo["cerebros"])
+    if sala is None:
+        raise Error("no encuentro la sala %s" % sala_id)
+    _puede_hablar(sala, yo)
+    if yo["agente"] not in sala["permitidos"]:
+        raise Error("no estás invitado a esta sala; quien la abrió o el socio pueden sumarte")
+    p = sala["participantes"].get(yo["key"])
+    if p is not None and p["unido"]:
+        return "ya estás en la sala «%s»" % sala["titulo"]
+    if _activos(sala) >= MAX_PARTICIPANTES:
+        raise Error("la sala ya tiene el tope de %d participantes activos: espera a que alguien "
+                    "salga (%s salir %s)" % (MAX_PARTICIPANTES, _cmd(), sala["id"]))
+    if not unirse(sala, yo, explicito=True):
+        raise Error("no pude unirte a la sala: ya tiene el tope de %d participantes activos"
+                    % MAX_PARTICIPANTES)
+    return "te uniste a la sala «%s»" % sala["titulo"]
 
 
 def _resolver_para(sala, yo, tokens):
@@ -1401,10 +1521,14 @@ def publicar(sala_id, agente, tipo, cuerpo, resumen, para=(), a="", espera=None,
                         % (len(deudas), ", ".join(x["id"] for x in deudas)))
         en_resp = p["id"]
         destinos = [p["de"]]
+    if yo["key"] in (sala.get("salidos") or {}):
+        raise Error("saliste de esta sala; para volver: %s unirse %s" % (_cmd(), sala["id"]))
     if M._bus_secret_block(res, texto):
         raise Error("el gate de secretos bloqueó el mensaje (mira el aviso de arriba)")
     if not unirse(sala, yo):
-        raise Error("no pude unirte a la sala (¿tope de %d participantes?)" % MAX_PARTICIPANTES)
+        raise Error("no pude unirte a la sala: ya tiene el tope de %d participantes (espera un "
+                    "lugar, o que alguien salga con %s salir %s)"
+                    % (MAX_PARTICIPANTES, _cmd(), sala["id"]))
     sala = encontrar(sala_id, yo["cerebros"]) or sala
     t = _ahora()
     pares = [("tipo", tipo), ("sala", sala["id"]), ("turno", str(sala["turno_max"] + 1)),
@@ -1542,7 +1666,7 @@ def mencion_defecto(sala):
 def accion_socio(sala_id, accion, socio=None, brains=None, **extra):
     """Pausa, reanudar, cierre, archivar, espera, mas_tiempo, cancelar,
     espera_pedido, tope o lapida desde el hub. Devuelve el id del evento."""
-    if accion not in ACCIONES or accion in ("unirse", "soltar", "delegar"):
+    if accion not in ACCIONES or accion in ("unirse", "salir", "soltar", "delegar"):
         raise Error("acción desconocida")
     sala = encontrar(sala_id, brains)
     if sala is None:
@@ -1599,6 +1723,63 @@ def soltar(sala_id, agente, pedido, motivo="", brains=None, sesion=None, _sobre=
     unirse(sala, yo)
     return _escribir_evento(sala, "soltar", yo["key"], yo["sobre"], yo["agente"], pedido=pedido,
                             motivo=motivo, por=POR_DECISOR if _por == POR_DECISOR else "")
+
+
+def salir(sala_id, agente, motivo="", brains=None, sesion=None, _sobre=None):
+    """Quien ya terminó se sale de la sala (0.9.2): deja un evento visible y su
+    lugar se libera (la sala tiene un tope de MAX_PARTICIPANTES). Antes tiene
+    que soltar o responder lo que se le pidió: si no, quien pidió se quedaría
+    esperando a alguien que ya no está. Quien abrió no sale (cierra la sala).
+    Devuelve el id del evento. Levanta Error."""
+    yo = identidad(agente, brains, sesion, _sobre)
+    if yo is None:
+        raise Error("%s no tiene cerebro en esta máquina" % (agente or "?"))
+    sala = encontrar(sala_id, yo["cerebros"])
+    if sala is None:
+        raise Error("no encuentro la sala %s" % sala_id)
+    _sin_control([("el motivo", motivo)])
+    p = sala["participantes"].get(yo["key"])
+    if p is None or not p["unido"]:
+        raise Error("no estás en esta sala (o ya saliste)")
+    if sala["borrada"] or sala["archivada"] or sala["cerrada"]:
+        raise Error("la sala ya está cerrada: no hace falta salir")
+    if sala["pausada"]:
+        raise Error("la sala está en pausa (el socio la pausó): no actúes hasta que la reanude")
+    if yo["key"] == sala["creador"] or (yo["agente"] == sala["creador_agente"]
+                                        and not sala["creador_sesion"]):
+        raise Error("quien abrió la sala no sale: ciérrala con `%s cerrar %s --resumen \"…\"` "
+                    "(o pídele al socio que lo haga desde el hub)" % (_cmd(), sala["id"]))
+    abiertos = [d["id"] for d in deudas_de(sala, yo["key"], yo["agente"])]
+    if abiertos:
+        raise Error("tienes %d pedido(s) abierto(s) a tu nombre (%s): respóndelos o suéltalos con "
+                    "`%s soltar %s --a <id>` antes de salir"
+                    % (len(abiertos), ", ".join(abiertos), _cmd(), sala["id"]))
+    return _escribir_evento(sala, "salir", yo["key"], yo["sobre"], yo["agente"], motivo=motivo)
+
+
+def cancelar(sala_id, agente, pedido, motivo="", brains=None, sesion=None, _sobre=None):
+    """Quien PIDIÓ cancela su pedido desde el CLI (0.9.1): el mismo evento
+    firmado que escribe el hub, con la misma regla de validez (_evento_valido,
+    DEL_PEDIDO: el socio o quien lo pidió). A quien se le debía le llega «X
+    canceló el pedido…» y deja de atenderlo."""
+    yo = identidad(agente, brains, sesion, _sobre)
+    if yo is None:
+        raise Error("%s no tiene cerebro en esta máquina" % (agente or "?"))
+    sala = encontrar(sala_id, yo["cerebros"])
+    if sala is None:
+        raise Error("no encuentro la sala %s" % sala_id)
+    p = sala["pedidos"].get(pedido)
+    if p is None:
+        raise Error("no encuentro el pedido %s en esta sala" % pedido)
+    if p["de"] != yo["key"]:
+        raise Error("solo quien lo pidió (%s) lo puede cancelar; el socio, desde el hub"
+                    % nombre_de(sala, p["de"]))
+    if sala["cerrada"]:
+        raise Error("la sala ya está cerrada")
+    if p["estado"] != "esperando" or not p["pendientes"]:
+        raise Error("ese pedido ya no espera a nadie (%s)" % p["estado"])
+    return _escribir_evento(sala, "cancelar", yo["key"], yo["sobre"], yo["agente"], pedido=pedido,
+                            motivo=motivo)
 
 
 def delegar(sala_id, agente, pedido, en, resumen="", brains=None, sesion=None, _sobre=None):
@@ -2136,6 +2317,13 @@ def para_mi(sala, yo):
             if ped is not None and ped["de"] == key and antes_del_cierre(m):
                 out.append((m["id"], m, "responde"))
     for e in sala["eventos"]:
+        if e["valido"] and e["accion"] == "salir" and e.get("efectivo") and antes_del_cierre(e):
+            if e["de"] == key:                      # su `esperar` de fondo termina aquí
+                out.append((e["id"], e, "salir"))
+            elif any((sala["pedidos"].get(i) or {}).get("de") == key
+                     for i in e.get("pedidos_soltados", ())):
+                out.append((e["id"], e, "salir_pedido"))   # quien pidió se entera
+            continue
         if not e["valido"] or e["de"] == key or not antes_del_cierre(e):
             continue
         p = sala["pedidos"].get(e.get("pedido"))
@@ -2513,6 +2701,9 @@ def _decisiones():
 
 def decisor_encendido(punto=DECISOR):
     """¿Ese uso pregunta? (barato: lee los ajustes). False sin Decisores."""
+    from decisions import decisores_activos
+    if not decisores_activos():
+        return False
     D = _decisiones()
     try:
         return bool(D and D.enabled(punto))
@@ -2651,6 +2842,9 @@ def _marcar_delicado(m, v):
 
 def linea_decisor(v, sub):
     """La línea ◆ de un veredicto, en el formato de Decisores (o '')."""
+    from decisions import decisores_activos
+    if not decisores_activos():
+        return ""
     try:
         import decision_visible as V
         if sub == "seguridad":
@@ -2705,6 +2899,7 @@ def decidir_entregas(items, yo):
             v = preguntar("c3", contexto_c3(s, r))
             if sugiere(v, "sí"):
                 lst.append(linea_decisor(v, "c3"))
+                _comprobar_cierre(v, s["id"])       # «¿pasó?»: ¿quien abrió la cierra?
         out.append(it)
     if conv:
         vistas = []
@@ -2735,6 +2930,7 @@ def _c1(s, r, yo, lst):
             try:
                 soltar(s["id"], yo["agente"], r["id"], "◆ solo informa", brains=yo["cerebros"],
                        _sobre=yo["sobre"], _por=POR_DECISOR)
+                _resultado(v, "pedido_soltado")     # «¿pasó?»: sí, en el acto
                 return "callado"            # no despierta: lo verá en «mientras tanto»
             except Exception:
                 return "entrega" if _sigue_siendo_mio(s["id"], r["id"], yo) else "fuera"
@@ -2779,10 +2975,31 @@ def _c2(s, yo, notas):
         try:
             accion_creador(s["id"], yo["agente"], "pausa", "◆ " + v["choice"],
                            brains=yo["cerebros"], _sobre=yo["sobre"])
+            _resultado(v, "sala_pausada")           # «¿pasó?»: sí, en el acto
         except Exception:
             v = dict(v, mode="suggest")
     if sugiere(v, "en bucle", "se desvió"):
         notas.setdefault((s["id"], ""), []).append(linea_decisor(v, "c2"))
+
+
+def _resultado(v, resultado):
+    """Decisores: lo que pasó con un veredicto aplicado (la bitácora, «¿pasó?»)."""
+    try:
+        D = _decisiones()
+        if D is not None and v and v.get("id"):
+            D.record_result(v["id"], resultado)
+    except Exception:
+        pass
+
+
+def _comprobar_cierre(v, sala_id):
+    """«Parece cumplido» (C3): se comprueba después si quien abrió la cierra."""
+    try:
+        if v and v.get("id"):
+            import decision_visible as V
+            V.por_comprobar(v["id"], "c3", sala_id)
+    except Exception:
+        pass
 
 
 def c1_corre(sala, m, yo, delicado=False):
@@ -2949,7 +3166,7 @@ def ver_texto(sala, yo=None, completo=False, ahora=None):
         for e in eventos:
             out.append("   %s · %s · %s%s%s" % (
                 _hora(e["t"]), _quien(sala, e["de"], key), e["accion"],
-                " (lo soltó el decisor)" if e.get("por") == POR_DECISOR else "",
+                " (lo soltó el decisor)" if e.get("por") == POR_DECISOR and decisor_encendido() else "",
                 (" · " + e["motivo"]) if e.get("motivo") else ""))
     return "\n".join(out)
 
@@ -3000,13 +3217,22 @@ def _texto_item(sala, item, yo, ahora):
             return ("── la sala «%s» quedó CERRADA por %s%s: deja de esperarla y avísale al socio"
                     % (sala["titulo"], _quien(sala, r["de"], key),
                        (" · " + r["motivo"]) if r.get("motivo") else ""))
+        if a == "salir" and r["de"] == key:
+            return ("── saliste de la sala «%s»%s: este esperar termina aquí"
+                    % (sala["titulo"], (" · " + r["motivo"]) if r.get("motivo") else ""))
+        if a == "salir":
+            mios = [i for i in r.get("pedidos_soltados", ())
+                    if (sala["pedidos"].get(i) or {}).get("de") == key]
+            return ("── %s salió de la sala «%s» sin responder tu pedido %s%s: ya no lo atiende"
+                    % (_quien(sala, r["de"], key), sala["titulo"], ", ".join(mios),
+                       (" · " + r["motivo"]) if r.get("motivo") else ""))
         if a == "pausa":
             return ("── la sala «%s» está EN PAUSA (%s): no actúes en ella; termina tu turno y "
                     "dile al socio" % (sala["titulo"], _quien(sala, r["de"], key)))
         if a == "reanudar":
             return "── la sala «%s» SIGUE (la reanudó %s): retoma lo pendiente" % (
                 sala["titulo"], _quien(sala, r["de"], key))
-        if a == "soltar" and r.get("por") == POR_DECISOR:
+        if a == "soltar" and r.get("por") == POR_DECISOR and decisor_encendido():
             return ("── ◆ el decisor soltó tu pedido %s %s (solo informa): no lo va a "
                     "responder; si sí pedía algo, vuelve a pedírselo" % (
                         r.get("pedido"), _prep("a", _quien(sala, r["de"], key))))
@@ -3058,10 +3284,10 @@ def _bus():
     """El comando del bus como lo imprime el CLI: con la ruta RESUELTA (así
     el agente copia uno que su motor puede tener aprobado:
     memoria.permisos_bus_claude) y la forma de la plataforma — en Windows
-    `python "C:\\…\\messages.py"`: allí `$WORKSPACE_ROOT` no se expande en
-    PowerShell y `python3` puede abrir la Microsoft Store. La raíz: la de la
-    pestaña (WORKSPACE_ROOT) o, si no la hay (el hub, que también escribe el
-    aviso en el panel: aviso_panel.linea), la de este mismo código, como
+    `<python> "C:\\…\\messages.py"` (ver _python_win): allí `$WORKSPACE_ROOT`
+    no se expande en PowerShell. La raíz: la de la pestaña (WORKSPACE_ROOT)
+    o, si no la hay (el hub, que también escribe el aviso en el panel:
+    aviso_panel.linea), la de este mismo código, como
     memoria.permisos_bus_claude. La variable, solo si ninguna sirve."""
     import ntpath
     import posixpath
@@ -3069,8 +3295,53 @@ def _bus():
     for raiz in (os.environ.get("WORKSPACE_ROOT", "").strip(), ROOT):
         if raiz and '"' not in raiz and "$" not in raiz:
             ruta = (ntpath if win else posixpath).join(raiz, "messages.py")
-            return ('python "%s"' if win else 'python3 "%s"') % ruta
+            return ('%s "%s"' % (_python_win(), ruta)) if win else ('python3 "%s"' % ruta)
     return 'python3 "$WORKSPACE_ROOT/messages.py"'
+
+
+#: Lo que puede ir SIN comillas en el primer token de un comando y se lee igual
+#: en PowerShell (5.1 y 7), cmd y Git Bash: nada de espacios, comillas, $, %,
+#: &, ;, (), comas ni acentos.
+_TOKEN_LLANO = re.compile(r"[A-Za-z]:/[A-Za-z0-9_./~+-]*\Z")
+
+
+def _ruta_corta(ruta):
+    """La ruta 8.3 de Windows (GetShortPathNameW: «…\\ANAMAR~1\\…»), o
+    la misma si el disco no guarda nombres cortos. Falla-suave."""
+    try:
+        import ctypes
+        n = ctypes.windll.kernel32.GetShortPathNameW(ruta, None, 0)
+        if not n:
+            return ruta
+        buf = ctypes.create_unicode_buffer(n)
+        return buf.value if ctypes.windll.kernel32.GetShortPathNameW(ruta, buf, n) else ruta
+    except Exception:
+        return ruta
+
+
+def _python_win():
+    """El Python con que el agente corre el bus en Windows. `python` a secas
+    no sirve en toda PC: con el instalador de python.org sin «Add to PATH»
+    (setup.ps1 lo acepta y usa `py -3`), `python` es el atajo que abre la
+    Microsoft Store. La elección (probada en PowerShell 7 y 5.1, cmd y Git
+    Bash, 0.9.1):
+      1. el MISMO intérprete de Workspace (sys.executable; pythonw → python),
+         SIN comillas y con «/»: con comillas, PowerShell pide `&` delante (y
+         `&` rompe cmd y Git Bash); con «\\», Git Bash se come las barras.
+         `C:/…/python.exe "C:\\…\\messages.py"` corre en las tres;
+      2. con espacios u otros caracteres en la ruta, su forma corta 8.3;
+      3. si tampoco, `py -3` (el lanzador de python.org, en el PATH);
+      4. y si no hay lanzador, `python`."""
+    exe = str(getattr(sys, "executable", "") or "")
+    if exe.lower().endswith("pythonw.exe"):     # el de las ventanas no escribe en la terminal
+        hermano = exe[:-len("pythonw.exe")] + "python.exe"
+        exe = hermano if os.path.isfile(hermano) else ""
+    for ruta in ((exe, _ruta_corta(exe)) if exe else ()):
+        llano = ruta.replace("\\", "/")
+        if _TOKEN_LLANO.match(llano):
+            return llano
+    import shutil
+    return "py -3" if shutil.which("py") else "python"
 
 
 def _err(texto):
@@ -3146,6 +3417,16 @@ def main(argv=None):
     so.add_argument("sala")
     so.add_argument("--a", required=True)
     so.add_argument("--motivo", default="")
+    un = con_from(sub.add_parser("unirse", help="entrar a la sala (o volver después de salir)"))
+    un.add_argument("sala")
+    sa = con_from(sub.add_parser("salir", help="salir de la sala (libera tu lugar; antes, "
+                                               "suelta o responde tus pedidos)"))
+    sa.add_argument("sala")
+    sa.add_argument("--motivo", default="")
+    ca = con_from(sub.add_parser("cancelar", help="cancelar un pedido tuyo (solo quien lo pidió)"))
+    ca.add_argument("sala")
+    ca.add_argument("--a", required=True, help="el pedido")
+    ca.add_argument("--motivo", default="")
     de = con_from(sub.add_parser("delegar", help="pasar un pedido a otro participante"))
     de.add_argument("sala")
     de.add_argument("--a", required=True)
@@ -3262,7 +3543,8 @@ def _correr(a):
             for t in r.avisos:
                 print("esperar: " + t)
             print("Para de esperar ese pedido y díselo al socio: desde el hub › Conversaciones "
-                  "puede abrir a quien falta, darle más tiempo o cancelarlo.")
+                  "puede abrir a quien falta, darle más tiempo o cancelarlo. Si ya no lo "
+                  "necesitas, cancélalo tú: %s cancelar <sala> --a <pedido>" % _cmd())
             return SALIDA_AVISO
         yo = identidad(agente)
         ahora = _ahora()
@@ -3333,6 +3615,15 @@ def _correr(a):
     if cmd == "delegar":
         print(delegar(a.sala, _yo_cli(a), a.a, a.en, a.resumen))
         return 0
+    if cmd == "cancelar":
+        print(cancelar(a.sala, _yo_cli(a), a.a, a.motivo))
+        return 0
+    if cmd == "salir":
+        print(salir(a.sala, _yo_cli(a), a.motivo))
+        return 0
+    if cmd == "unirse":
+        print(unirse_cli(a.sala, _yo_cli(a)))
+        return 0
     accion = {"pausar": "pausa", "reanudar": "reanudar", "cerrar": "cierre",
               "archivar": "archivar"}[cmd]
     print(accion_creador(a.sala, _yo_cli(a), accion, a.resumen))
@@ -3361,7 +3652,9 @@ def memoria_al_cerrar(sala_id, resumen):
         return ""
     D = _decisiones()
     try:
-        v = D.gate("workspace.memory", context=str(resumen), al_agente=True)
+        # solo SUGIERE (imprime un comando): se anota como sugerencia, nunca
+        # «aplicó: nota → hecho» (diagnóstico 9-nov, 4.3)
+        v = D.gate("workspace.memory", context=str(resumen), al_agente=True, solo_sugiere=True)
         if not v or v.get("mode") not in ("suggest", "apply"):
             return ""
         import memoria

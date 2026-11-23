@@ -171,7 +171,11 @@ def main():
 
     # F3 · early-warning de secretos en el working tree del cerebro (WARN-only,
     # falla-suave). Solo emitimos si hay hallazgo, para no ensuciar el arranque.
-    warn = _secret_warning(brain)
+    # No en las sesiones que abre la página (WORKSPACE_DESDE_WEB=1): escanear el
+    # cerebro entero era casi todo su arranque (5,6 s de 5,7 s con 3443 archivos)
+    # y el aviso no se ve en el navegador; la terminal, el doctor y el gate de
+    # escritura lo siguen dando.
+    warn = "" if os.environ.get("WORKSPACE_DESDE_WEB") == "1" else _secret_warning(brain)
     if warn:
         try:
             print(json.dumps({"hookSpecificOutput": {

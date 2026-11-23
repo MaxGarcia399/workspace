@@ -1,0 +1,44 @@
+/* ---------- la voz (28_voz.js): el micrófono grande de la caja, la onda del nido y su tarjeta ----------
+   Pieza suelta: no cambia ninguna regla de la caja ni del nido; solo pinta lo suyo (.wsmv-*). */
+.wsm .wsmv-mic,.wsmv-mic{position:relative;width:40px;height:40px;margin:-3px 0;border-radius:50%;display:grid;place-items:center;flex:none;
+  background:var(--card2);color:var(--tx);transition:transform .2s var(--ease),background-color .15s,color .15s,box-shadow .2s}
+.wsmv-mic svg{width:21px;height:21px}
+.wsmv-mic:hover{transform:scale(1.06);background:color-mix(in srgb,var(--c) 22%,var(--card2))}
+.wsmv-mic:focus-visible{outline:2px solid var(--c);outline-offset:2px}
+.wsmv-mic[hidden]{display:none}
+.wsmv-mic .wsmv-barras{display:none;position:absolute;inset:0;align-items:center;justify-content:center;gap:3px}
+.wsmv-mic .wsmv-barras i{width:3px;height:16px;border-radius:2px;background:currentColor;transform:scaleY(calc(.25 + var(--n,0)*.75));
+  transition:transform .09s linear}
+.wsmv-mic .wsmv-barras i:nth-child(1),.wsmv-mic .wsmv-barras i:nth-child(5){height:9px}
+.wsmv-mic .wsmv-barras i:nth-child(2),.wsmv-mic .wsmv-barras i:nth-child(4){height:13px}
+.wsmv-mic.on{background:color-mix(in srgb,var(--bad) 26%,#202024);color:#f2a39a;box-shadow:0 0 0 4px color-mix(in srgb,var(--bad) 16%,transparent)}
+.wsmv-mic.on svg{opacity:0}.wsmv-mic.on .wsmv-barras{display:flex}
+.wsmv-mic.espera{color:var(--tx3);cursor:default}
+.wsmv-mic.espera svg{animation:wsmv-late 1.1s ease-in-out infinite}
+@keyframes wsmv-late{50%{opacity:.35}}
+
+/* la tarjeta: la frase de la primera vez, «está apagado», preparando (con su barra) o una nota */
+.wsmv-tarjeta{margin:0 0 8px;padding:11px 13px;border-radius:14px;background:var(--card);border:1px solid #2b2b31;font-size:13.5px;line-height:1.5;color:var(--tx)}
+.wsmv-tarjeta[hidden]{display:none}
+.wsmv-tarjeta p{margin:0}
+.wsmv-tarjeta .wsmv-botones{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.wsmv-tarjeta .wsmv-b{padding:8px 16px;border-radius:999px;font:650 13.5px var(--sans);background:var(--card2);color:var(--tx);transition:transform .15s var(--ease)}
+.wsmv-tarjeta .wsmv-b:hover{transform:translateY(-1px)}
+.wsmv-tarjeta .wsmv-b.p{background:var(--c);color:var(--acx)}
+.wsmv-tarjeta.nota{color:var(--tx2);font-size:12.5px;padding:8px 12px}
+.wsmv-avance{height:6px;margin-top:9px;border-radius:3px;background:#26262b;overflow:hidden}
+.wsmv-avance i{display:block;height:100%;width:0;border-radius:3px;background:var(--c);transition:width .3s var(--ease)}
+.wsmv-avance.sin i{width:35%;animation:wsmv-va 1.2s ease-in-out infinite}
+@keyframes wsmv-va{0%{transform:translateX(-110%)}100%{transform:translateX(300%)}}
+.wsmv-pie{padding:6px 6px 0;font-size:11.5px;color:#f2a39a}
+.wsmv-pie[hidden]{display:none}
+
+/* el monito escucha: una onda en su nido (en vez de su rayita) mientras oye */
+.wsmv-onda{position:absolute;left:0;right:0;bottom:11px;height:14px;display:none;align-items:center;justify-content:center;gap:3px;pointer-events:none}
+.wsmv-onda i{width:3px;height:14px;border-radius:2px;background:var(--c);transform:scaleY(calc(.2 + var(--n,0)*.8));transition:transform .09s linear}
+.wsmv-onda i:nth-child(1),.wsmv-onda i:nth-child(7){height:5px}
+.wsmv-onda i:nth-child(2),.wsmv-onda i:nth-child(6){height:8px}
+.wsmv-onda i:nth-child(3),.wsmv-onda i:nth-child(5){height:11px}
+.wsmv-oye .wsmv-onda{display:flex}
+.wsmv-oye .ray7,.wsmv-oye .wsm-pista{visibility:hidden}
+@media (prefers-reduced-motion:reduce){.wsmv-mic,.wsmv-mic .wsmv-barras i,.wsmv-onda i{transition:none}.wsmv-mic.espera svg,.wsmv-avance.sin i{animation:none}}

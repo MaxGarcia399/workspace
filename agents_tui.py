@@ -24,6 +24,7 @@ import time
 import hublayout as HL
 import section_box as SB
 import section_frame as SF
+from engines import NO_PREGUNTAN
 from theme import screen as _theme_screen  # fondo/tinta del tema
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -187,9 +188,18 @@ def options(S, cfg):
                     cfg.get("engine") or "—"))
         pr = prefs_of(S, cfg)
         if pr.get("ok"):
-            out.append(("perm", _t("agentes.o.perm", "su cerebro sin preguntar",
-                                   "its brain without asking"),
-                        pr.get("autonomy") == "brain"))
+            if cfg.get("engine") in NO_PREGUNTAN:
+                # M3: el interruptor no aplica en este motor; se dice en una línea
+                # entera (Enter no hace nada)
+                out.append(("noask", _t("engines.no_pregunta",
+                                        "este motor no pregunta antes de actuar",
+                                        "this engine doesn't ask before acting"), ""))
+            else:
+                # «automático» (brain), «editar sin preguntar» (edit) y sandbox escriben su
+                # cerebro sin preguntar: ON; solo «preguntar» (ask) es OFF
+                out.append(("perm", _t("agentes.o.perm", "su cerebro sin preguntar",
+                                       "its brain without asking"),
+                            pr.get("autonomy") != "ask"))
             out.append(("review", _t("agentes.o.review", "revisión de skills",
                                      "skill review"), bool(pr.get("skill_review"))))
     out.append(("brain", _t("agentes.o.brain", "cambiar la ruta del cerebro",
@@ -271,7 +281,7 @@ def _detalle(S, K, cfg, iw):
     activo = S.get("focus") == "detail"
     ops = options(S, cfg)
     S["opt"] = max(0, min(S.get("opt", 0), len(ops) - 1))
-    lab_w = max(HL.vis(o[1]) for o in ops if o[0] not in _ACCIONES) + 2
+    lab_w = max(HL.vis(o[1]) for o in ops if o[0] not in _ACCIONES + ("noask",)) + 2
     out, fila = [], 0
     for n, (key, lab, val) in enumerate(ops):
         if key in _ACCIONES and (n == 0 or ops[n - 1][0] not in _ACCIONES):
@@ -285,7 +295,11 @@ def _detalle(S, K, cfg, iw):
                      "Enter again removes · nothing is deleted")
             out.append(HL.clip("%s%s%s%s%s" % (cur, K["ERR"] + K["BO"], lab, K["R"], ""), iw))
             continue
-        tinta = (K["WH"] + K["BO"]) if on else (K["ERR"] if key == "repair" else K["GREY"])
+        tinta = (K["WH"] + K["BO"]) if on else (K["ERR"] if key in ("repair", "noask")
+                                                else K["GREY"])
+        if key == "noask":
+            out.append(HL.clip("%s%s%s%s" % (cur, tinta, lab, K["R"]), iw))
+            continue
         if key in _ACCIONES:
             flecha = "%s›%s" % ((K["C"] + K["BO"]) if on else K["DK"], K["R"])
             hueco = max(1, iw - 2 - HL.vis(lab) - 1)
@@ -512,7 +526,7 @@ def _change(S):
     elif key == "repair":
         _repair(S)
     elif key == "perm":
-        on = prefs_of(S, cfg).get("autonomy") == "brain"
+        on = prefs_of(S, cfg).get("autonomy") != "ask"     # OFF → «automático», el de fábrica
         _manage(S, "set_autonomy", "ask" if on else "brain")
     elif key == "review":
         _manage(S, "set_skill_review", not prefs_of(S, cfg).get("skill_review"))
@@ -765,4 +779,7 @@ def _mk(K, w, h):
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # ARCHIVO MÍNIMO por una versión (se borra en la versión 2): esta pantalla ya no se abre. Quien la corre
+    # directo, o un hub que quedó abierto durante la actualización, llega a lo nuevo (puertas.redirigir).
+    import puertas
+    sys.exit(puertas.redirigir('agentes', sys.argv[1:]))

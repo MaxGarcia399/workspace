@@ -1,0 +1,13 @@
+/* archivar un agente o quitarlo de Workspace (72_apartar.js) */
+.apartar{background:#202024;border:1px solid #2a2a30;border-radius:16px;overflow:hidden;margin-bottom:10px}
+.apartar .apf{display:flex;align-items:center;gap:12px;padding:12px 14px}
+.apartar .apf+.apf{border-top:1px solid #2a2a30}
+.apartar .t{flex:1;min-width:0}
+.apartar .t b,.apartar .apq b{display:block;font-size:14px;font-weight:600}
+.apartar p{margin:3px 0 0;font-size:12.5px;line-height:1.4;color:var(--tx3)}
+.apartar .apq{padding:14px}
+.apartar .apq .apav{color:#e7a43a}
+.apartar .apq .apdonde{color:var(--tx2);overflow-wrap:anywhere}
+.apartar .apbs{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.apartar .apbs .btc{flex:1;justify-content:center;min-height:42px}
+.nota.deshacer.apartado{max-width:min(92vw,720px);border-radius:18px}

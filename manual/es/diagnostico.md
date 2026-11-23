@@ -33,7 +33,7 @@ que sugiere.
 | Síntoma | Qué hacer |
 |---|---|
 | `workspace` no existe tras instalar | abre una **terminal nueva**; si sigue, corre de nuevo el instalador |
-| El menú se ve descuadrado | agranda la ventana; en Windows usa Windows Terminal |
+| El hub se ve descuadrado | agranda la ventana; en Windows usa Windows Terminal |
 | Un agente no encuentra su cerebro | `workspace doctor` te dice dónde lo buscó y cómo indicarle la ruta |
 | El doctor dice que falta el CLI de un motor | instala su programa oficial y entra con tu cuenta ([Motores](motores.md)) |
 | Moviste o reinstalaste Workspace y un agente falla al abrir | `workspace doctor` vuelve a apuntar sus *hooks* a esta instalación |

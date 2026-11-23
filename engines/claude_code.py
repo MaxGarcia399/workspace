@@ -58,24 +58,131 @@ def _utf8_env():
     return {**os.environ, "PYTHONUTF8": "1"}
 
 
-def auto_mode_args(passthrough, cfg=None):
-    """AUTO-MODE opcional: con settings `agentes.auto_mode` ON, las sesiones
-    interactivas arrancan con `--permission-mode acceptEdits`, el mecanismo
-    OFICIAL de Claude Code (el mismo "accept edits on" del shift+tab).
-    JAMÁS bypassPermissions ni --dangerously-skip-permissions desde aquí.
+#: Modo de una sesión con autonomía «edit» (Editar sin preguntar) y
+#: agentes.auto_mode apagado: el que pregunta. Es el contrato de «edit»: su
+#: cerebro sin preguntar (reglas Edit del settings.local.json), la terminal y lo
+#: de fuera preguntan. Va explícito porque el CHANGELOG oficial de 2.1.284 dice
+#: «Changed interactive terminal and VS Code sessions to start in auto mode when
+#: no permission mode is configured». Se pasa «manual», el que lista el --help:
+#: el de 2.1.200 dice «Changed the "default" permission mode to "Manual" …
+#: `--permission-mode manual` … accepted alongside `default`» («default» ya es un
+#: alias oculto). Antes de 2.1.200: MIN_SUPPORTED.
+BRAIN_PERMISSION_MODE = "manual"
+#: Decisión del dueño (18-nov-2026, reemplaza a M1 del 16-nov): el modo automático
+#: de Claude Code de fábrica, con interruptor en Configuración → Permisos. Es el de
+#: la autonomía «brain» (la de fábrica, «Automático»): `--permission-mode auto`,
+#: en la terminal y en las corridas de la página (`claude -p`). Su --help (2.1.326)
+#: lo lista entre las opciones de --permission-mode; la doc (permission-modes): «A
+#: separate classifier model reviews actions before they run, blocking anything that
+#: escalates beyond your request…», las reglas deny siguen en todos los modos, y si
+#: el plan o el modelo no lo tienen «Claude Code starts the session in Manual
+#: instead» (sin error). Existe desde antes de MIN_SUPPORTED (la doc: `--enable-
+#: auto-mode` «Removed in v2.1.111 … use `--permission-mode auto`»). Nunca
+#: bypassPermissions.
+AUTO_PERMISSION_MODE = "auto"
+#: «manual» existe desde 2.1.200 (nota oficial): una más vieja no abre.
+MIN_SUPPORTED = "2.1.200"
+UPGRADE_HINT = ("tu Claude Code es muy viejo para Workspace (necesita 2.1.200+): "
+                "actualízalo con `claude update`")
+#: Decisión del dueño (M5, 16-nov-2026): dentro de Workspace, Claude Code no se
+#: actualiza solo. Camino oficial (code.claude.com/docs/en/env-vars): «Set to `1`
+#: to disable automatic background updates. Manual `claude update` still works».
+#: Va en el entorno de cada lanzamiento (aquí y en headless.py), sin tocar la
+#: config global del socio. Avisar de una versión nueva probada es del Vigía.
+SIN_AUTOUPDATE = {"DISABLE_AUTOUPDATER": "1"}
 
-    De fábrica está OFF: mandan los permisos del cerebro (la autonomía del
-    agente, ver install.render_permissions). Reversible: aplica al siguiente
-    lanzamiento, sin reinstalar. Un --permission-mode (o un
-    --dangerously-skip-permissions) EXPLÍCITO del socio en el comando siempre
-    gana → no se agrega nada encima. Un agente con autonomía "ask" (el usuario
-    apagó su acceso automático en Agentes → Enter) nunca recibe acceptEdits.
-    Falla-suave: sin settings.py o store ilegible → OFF."""
-    if str((cfg or {}).get("autonomy") or "").strip().lower() == "ask":
-        return []
-    for a in passthrough or []:
+
+def _modo_del_socio(brain):
+    """El defaultMode que eligió el socio en el settings.local.json del cerebro,
+    o "": en «brain» gana como su --permission-mode (install.render_permissions
+    lo respeta; el «dontAsk» de antes era de Workspace y se quita); en «ask»
+    no gana (M2)."""
+    if not brain:
+        return ""
+    try:
+        import json
+        with open(os.path.join(str(brain), ".claude", "settings.local.json"),
+                  encoding="utf-8-sig") as fh:          # con BOM, si lo escribió Windows
+            mode = ((json.load(fh) or {}).get("permissions") or {}).get("defaultMode")
+        return mode if isinstance(mode, str) and mode != "dontAsk" else ""
+    except Exception:
+        return ""
+
+
+def nivel(cfg):
+    """La autonomía del agente en Claude Code: "ask" | "edit" | "auto". «brain» (la
+    de fábrica, la que guarda cada agente al crearse), una que falta, un "full" de
+    antes o un valor raro → "auto" (el de fábrica). «sandbox» → "edit": sin el
+    paquete, como antes; con él, arquitectura/permisos lo cambia por su sandbox."""
+    v = str((cfg or {}).get("autonomy") or "").strip().lower()
+    if v == "ask":
+        return "ask"
+    if v in ("edit", "sandbox"):
+        return "edit"
+    return "auto"
+
+
+#: Los modos de Claude Code que no son «sandbox»: el automático (su clasificador) y el que no pregunta nada.
+MODOS_AUTO = (AUTO_PERMISSION_MODE, "bypassPermissions")
+
+
+def en_sandbox(cfg):
+    """¿La autonomía del agente es «sandbox» (sin permisos SOLO dentro de su sandbox)? Regla del dueño (18-nov):
+    un agente en sandbox (uno que trabaja solo) NUNCA abre en modo automático: el sandbox manda sobre el
+    auto de fábrica, sobre un defaultMode «auto» de su cerebro y sobre un `--permission-mode auto` en el comando."""
+    return str((cfg or {}).get("autonomy") or "").strip().lower() == "sandbox"
+
+
+def sin_auto(cfg, passthrough):
+    """El passthrough sin un `--permission-mode auto` (o bypassPermissions) si el agente va en sandbox (en_sandbox);
+    tal cual en otro caso. El modo de la sesión lo pone entonces su nivel (modo_permisos / arquitectura/permisos)."""
+    args = [str(a) for a in passthrough or []]
+    if not en_sandbox(cfg):
+        return args
+    out, saltar = [], False
+    for i, a in enumerate(args):
+        if saltar:
+            saltar = False
+            continue
+        if a == "--permission-mode" and args[i + 1:i + 2] and args[i + 1] in MODOS_AUTO:
+            saltar = True
+            continue
+        if a in ("--permission-mode=%s" % m for m in MODOS_AUTO):
+            continue
+        out.append(a)
+    return out
+
+
+def modo_permisos(cfg=None, passthrough=()):
+    """El `--permission-mode` de una sesión de este agente ('' = no se pasa: manda
+    lo del socio). Lo usan la terminal (auto_mode_args) y las corridas de la página
+    (pagina_v2), para que las dos hagan lo mismo:
+      · un --permission-mode (o un --dangerously-skip-permissions) EXPLÍCITO del
+        socio en el comando → '' (el suyo gana);
+      · «ask» (Preguntar) → `manual`: pregunta antes de editar, también en el
+        cerebro; gana sobre un defaultMode suyo (M2);
+      · un defaultMode suyo en el settings.local.json del cerebro → '' (gana en
+        «Automático» y en «Editar sin preguntar»: decisión M2);
+      · «edit» (Editar sin preguntar) → BRAIN_PERMISSION_MODE, o `acceptEdits` con
+        el ajuste `agentes.auto_mode` ON (el "accept edits on" del shift+tab);
+      · «brain» (Automático, el de fábrica) → AUTO_PERMISSION_MODE;
+      · «sandbox» (en_sandbox): como «edit», y NUNCA auto: un defaultMode «auto» del cerebro o un
+        --permission-mode auto en el comando no cuentan (regla del dueño: en sandbox, nunca en auto);
+        con el paquete, arquitectura/permisos le pone su sandbox.
+    JAMÁS bypassPermissions ni --dangerously-skip-permissions desde aquí.
+    Falla-suave: sin settings.py o store ilegible → agentes.auto_mode OFF."""
+    sandbox = en_sandbox(cfg)
+    for a in sin_auto(cfg, passthrough):
         if str(a).startswith(("--permission-mode", "--dangerously-skip-permissions")):
-            return []
+            return ""
+    n = nivel(cfg)
+    if n == "ask":
+        return "manual"
+    suyo = _modo_del_socio((cfg or {}).get("_brain"))
+    if suyo and not (sandbox and suyo in MODOS_AUTO):
+        return ""
+    if n == "auto":
+        return AUTO_PERMISSION_MODE
     on = False
     try:
         import settings as _settings
@@ -84,7 +191,17 @@ def auto_mode_args(passthrough, cfg=None):
             on = v
     except Exception:
         pass
-    return ["--permission-mode", "acceptEdits"] if on else []
+    return "acceptEdits" if on else BRAIN_PERMISSION_MODE
+
+
+def auto_mode_args(passthrough, cfg=None):
+    """El `--permission-mode` de la sesión interactiva, SIEMPRE explícito
+    (Claude Code 2.1.284+ abre en «auto» si no recibe uno; «Automático» lo pide
+    igual, por nombre): ["--permission-mode", modo_permisos(…)], o [] si manda lo
+    del socio (su flag en el comando, o su defaultMode en el cerebro fuera de
+    «ask»). Reversible: aplica al siguiente lanzamiento, sin reinstalar."""
+    modo = modo_permisos(cfg, passthrough)
+    return ["--permission-mode", modo] if modo else []
 
 
 def escribe_sin_preguntar(cfg, passthrough=()):
@@ -353,6 +470,13 @@ def launch(cfg, passthrough, plan=False, preselect=None, show_banner=True):
     dashboard = scripts.get("dashboard")
     session_env, wid_env = session_env_names(cfg)
     py = _py()
+    # Regla del dueño: un agente en sandbox nunca abre en modo automático, ni con un --permission-mode auto
+    # en el comando (en_sandbox / sin_auto); se dice en una línea.
+    _sin = sin_auto(cfg, passthrough)
+    if len(_sin) != len(list(passthrough or [])):
+        print("WORKSPACE: este agente va en sandbox: no abre en modo automático (quité --permission-mode del "
+              "comando)")
+        passthrough = _sin
 
     # Utilidades passthrough: `<agente> ls` / `<agente> migrar`
     if passthrough and passthrough[0] in ("ls", "list", "migrar", "migracion"):
@@ -373,15 +497,16 @@ def launch(cfg, passthrough, plan=False, preselect=None, show_banner=True):
         print(line)
         print(f"  motor       : claude-code  (Anthropic vía suscripción, sin API key)")
         auto = auto_mode_args(passthrough, cfg)
-        try:
-            import install as _inst
-            _aut = _inst.autonomy_of(cfg)
-        except Exception:
-            _aut = "brain"
-        print(f"  permisos    : " + ("auto-mode (--permission-mode acceptEdits) — "
-                                     "settings agentes.auto_mode on" if auto
-                                     else "los del cerebro — autonomía '%s' (.claude/"
-                                          "settings.local.json)" % _aut))
+        # la autonomía guardada (install.autonomy_of lee «edit» como «brain»: sus permisos del cerebro son los mismos)
+        _aut = {"ask": "ask", "edit": "edit"}.get(nivel(cfg), "brain")
+        print(f"  permisos    : " + ("modo automático (--permission-mode auto) — «Automático», "
+                                     "el de fábrica; se cambia en Configuración → Permisos"
+                                     if AUTO_PERMISSION_MODE in auto else
+                                     "auto-mode (--permission-mode acceptEdits) — "
+                                     "settings agentes.auto_mode on" if "acceptEdits" in auto
+                                     else "los del cerebro — autonomía '%s' (%s.claude/"
+                                          "settings.local.json)"
+                                          % (_aut, " ".join(auto) + " + " if auto else "")))
         ma = model_args(cfg, passthrough)
         print(f"  modelo      : " + (f"override --model {ma[1]} (settings "
                                      f"agentes.{cfg.get('name','?')}.model)" if ma
@@ -419,40 +544,27 @@ def launch(cfg, passthrough, plan=False, preselect=None, show_banner=True):
         print(line)
         return
 
+    # Antes del banner (limpia la pantalla): una Claude anterior a MIN_SUPPORTED no
+    # entiende `--permission-mode manual`; mejor el aviso que su error crudo (como opencode).
+    try:
+        import engine_versions as _ev
+        if _ev.drift(sys.modules[__name__], _ev.installed_version(
+                shutil.which("claude") or "claude"))[0] == "unsupported":
+            print("WORKSPACE: " + UPGRADE_HINT)
+            if not _ev.allow_anyway():
+                sys.exit(1)
+    except Exception:              # falla-suave: si no se lee la versión, no se bloquea
+        pass
+
     # 1) Banner (best-effort, hereda la tty). Se omite en modo directo (tmux).
     #    Limpia ANTES del banner para que SIEMPRE salga pegado arriba — entres por el
     #    menú `workspace` (que ya limpia) o escribiendo el agente directo (`zenith`), donde
     #    antes no limpiaba nada y el banner salía cortado. Orden 2J→3J→H (ver front.py).
     #    Si el banner del cerebro NO existe (cerebro incompleto / copia vieja), cae a un
     #    banner GENÉRICO desde la def del agente → SIEMPRE hay un arranque visible.
-    if show_banner:
-        sys.stdout.write("\033[2J\033[3J\033[H"); sys.stdout.flush()
-        cols = shutil.get_terminal_size((80, 24)).columns
-        shown = False
-        if banner and os.path.exists(banner):
-            try:
-                # Render a buffer + medir: el banner tiene ancho fijo (~114 col); si la
-                # ventana es más chica NO lo mostramos roto → mensaje 'agranda' (como el hub).
-                rendered = subprocess.run([py, banner], capture_output=True,
-                                          text=True, encoding="utf-8",
-                                          errors="replace", env=_utf8_env()).stdout
-                if rendered.strip():
-                    need = _max_visual_width(rendered)
-                    if need <= cols:
-                        # CENTRADO horizontal (regla del greeter unificado):
-                        # el banner no se pega a la izquierda.
-                        pad = " " * max(0, (cols - need) // 2)
-                        sys.stdout.write("\n".join(
-                            (pad + ln if ln.strip() else ln)
-                            for ln in rendered.split("\n")))
-                        sys.stdout.flush()
-                    else:
-                        _too_narrow_banner(cfg, cols, need)
-                    shown = True
-            except Exception:
-                shown = False
-        if not shown:
-            _generic_banner(cfg)
+    if show_banner:                        # I11: la tarjeta H-1 del hub (engines._ui.letrero), no el letrero de antes
+        from engines import _ui as _letrero_ui
+        _letrero_ui.letrero(cfg)
 
     # 2) Elegir pestaña: preselección (tmux) o menú interactivo.
     if preselect and preselect.get("wid"):
@@ -465,23 +577,32 @@ def launch(cfg, passthrough, plan=False, preselect=None, show_banner=True):
     env = _utf8_env()   # B2 · PYTHONUTF8=1 lo hereda el hijo `claude` y todo lo que
                         # spawnea (hooks, statusline) → UTF-8 de punta a punta en Windows.
     env["CLAUDE_CODE_HIDE_CWD"] = "1"
+    env.update(SIN_AUTOUPDATE)       # M5: no se actualiza solo dentro de Workspace
     env["WORKSPACE_BRAIN"] = brain   # explícito: la statusline (hija de claude) lo lee
     import engines                            # memoria v1: el motor de cada nota
     engines.mark_session_engine(env, "claude-code")
     # which() resuelve la ruta completa del binario: imprescindible en Windows, donde
     # el shim de npm es `claude.cmd` y CreateProcess no lo encuentra por nombre pelado.
     # En Mac/Linux devuelve el mismo binario que el PATH lookup (no cambia nada).
-    # auto_mode_args: opcional (settings agentes.auto_mode, OFF de fábrica)
-    # — con ON la sesión interactiva arranca en acceptEdits.
+    # auto_mode_args: el --permission-mode de su autonomía (modo_permisos): «Automático»
+    # (de fábrica) → auto; «Editar sin preguntar» → manual (acceptEdits con el ajuste
+    # agentes.auto_mode); «Preguntar» → manual.
     # model_args: override de modelo por agente (settings agentes.<n>.model;
     # un --model explícito del socio o ANTHROPIC_MODEL ganan — ver docstring).
     # memoria v1: `--settings` con autoMemoryDirectory → la memoria propia de
     # Claude Code se guarda en el cerebro (motores/claude-code/memoria/<socio>/,
     # una carpeta por persona), viaja con él a otras máquinas; opción
     # documentada, sin escribir su config.
+    _perm = auto_mode_args(passthrough, cfg)
+    _modo = _modo_del_socio(brain)
+    if _modo not in ("", "default", "manual") and _perm == ["--permission-mode", "manual"] \
+            and str(cfg.get("autonomy") or "").strip().lower() == "ask":
+        # M2: en «ask» gana «ask» sobre el defaultMode del cerebro; se dice.
+        print("WORKSPACE: Workspace aplicó «preguntar antes» (ask) sobre tu defaultMode %s"
+              % _modo)
     import memoria as _memoria
     cmd = ([shutil.which("claude") or "claude"]
-           + auto_mode_args(passthrough, cfg) + model_args(cfg, passthrough)
+           + _perm + model_args(cfg, passthrough)
            + _memoria.claude_settings_args(brain, passthrough,
                                            protegidas=escribe_sin_preguntar(cfg, passthrough))
            + list(passthrough))
@@ -512,7 +633,22 @@ def launch(cfg, passthrough, plan=False, preselect=None, show_banner=True):
         except Exception:
             pass
         if os.path.exists(jsonl):
-            cmd += ["--resume", wid]
+            # Si la sesión SIGUE viva en segundo plano, `--resume` se niega y el
+            # cliente queda en la shell: se conecta a ella con `claude attach`.
+            bg = sesion_en_segundo_plano(cmd[0], wid)
+            if bg:
+                try:
+                    import workspace_status as _ws
+                    sys.stdout.write("WORKSPACE: %s\n" % _ws.t(
+                        "claude.bg_attach",
+                        "esta pestaña sigue trabajando en segundo plano: te conecto a ella",
+                        "this tab is still working in the background: connecting you to it"))
+                    sys.stdout.flush()
+                except Exception:
+                    pass
+                cmd = [cmd[0], "attach", bg]
+            else:
+                cmd += ["--resume", wid]
         else:
             # Un claude instalado por npm en Windows es `claude.cmd`: el nombre
             # de la pestaña (puede venir de otra máquina) pasa por cmd.exe.
@@ -534,6 +670,14 @@ def launch(cfg, passthrough, plan=False, preselect=None, show_banner=True):
     try:
         from engines import _ui
         _ui.soltar_avisos()
+    except Exception:
+        pass
+    # Arquitectura nueva (F1, encendida de fábrica): el paquete de Workspace por
+    # sesión (--plugin-dir) y el número de la pestaña guardado en su registro.
+    try:
+        from arquitectura import sesion as _sesion
+        cmd, env, _info = _sesion.para_lanzar(
+            "claude-code", brain, env.get("WORKSPACE_WID") or env.get("WORKSPACE_WS"), cmd, env)
     except Exception:
         pass
     os.chdir(brain)
@@ -578,6 +722,42 @@ def session_active(runner=None):
         return v if isinstance(v, bool) else None
     except Exception:
         return None
+
+
+#: Cuánto se espera a `claude agents --json` antes de reanudar como siempre.
+AGENTS_TIMEOUT_S = 3
+_ID_SEGURO = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def sesion_en_segundo_plano(exe, wid, runner=None):
+    """El id corto (`claude attach <id>`) de la sesión `wid` SI sigue viva en
+    segundo plano; si no, None. Vía el comando documentado `claude agents
+    --json` (sesiones activas, interactivas y en segundo plano): solo cuenta
+    una entrada con sessionId == wid y kind == "background". Falla-suave: sin
+    el comando (Claude Code viejo), con JSON roto, código ≠ 0, tiempo vencido
+    o un id con forma rara → None, y el llamador hace el resume de siempre."""
+    if not exe or not wid:
+        return None
+    run = runner or arbol_procesos.run
+    extra = {} if runner else {"env": _env_motor()}
+    try:
+        r = run([exe, "agents", "--json"], capture_output=True, text=True,
+                timeout=AGENTS_TIMEOUT_S, encoding="utf-8", errors="replace",
+                **_DETACHED, **extra)
+        if getattr(r, "returncode", 1) != 0:
+            return None
+        import json as _json
+        data = _json.loads(getattr(r, "stdout", "") or "null")
+        if isinstance(data, dict):                 # por si algún día envuelve la lista
+            data = data.get("agents") or data.get("sessions")
+        for a in data if isinstance(data, list) else ():
+            if (isinstance(a, dict) and a.get("sessionId") == wid
+                    and a.get("kind") == "background"
+                    and _ID_SEGURO.match(str(a.get("id") or ""))):
+                return str(a["id"])
+    except Exception:
+        return None
+    return None
 
 
 def _exec(cmd, env):

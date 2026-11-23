@@ -4,7 +4,7 @@ Capacidades operacionales de {{AGENT_DISPLAY}}, organizadas por categoría. **An
 tarea no trivial, revisar `skills/INDEX-LITE.md`** (tier 1) y, si la categoría aplica, este
 catálogo. El protocolo completo del Skill Loop está en `BRAIN.md §6`.
 
-**Total: 7 skills**
+**Total: 12 skills**
 
 ## {{SKILL_CATS}} (0) — el dominio de {{AGENT_DISPLAY}}
 
@@ -18,7 +18,7 @@ no por scaffold. Crear las carpetas de categoría con la primera skill de cada u
 | `investigación/deep-research/` | El motor: descomponer → abanico → verificación adversarial → síntesis citada. |
 | `investigación/research-session/` | Flujo completo: acotar → investigar → documento citado → catalogar. Incluye la regla "¿mío o del agente bibliotecario?". |
 
-## meta (5) — el sistema de skills y el trabajo con otros agentes
+## meta (10) — el sistema de skills y el trabajo con otros agentes
 
 | Skill | Qué hace |
 |---|---|
@@ -27,6 +27,11 @@ no por scaffold. Crear las carpetas de categoría con la primera skill de cada u
 | `meta/skill-curator/` | Poda y consolidación semanal, sola: copia previa, protegidas, never-delete. |
 | `meta/reload-brain/` | Recargar mis archivos core a mitad de sesión + reportar cambios del pipeline. |
 | `meta/colaborar-por-bus/` | Conversar con otro agente (u otra máquina) por el bus para sacar una tarea entre los dos, a la vista del socio. |
+| `meta/configurar-workspace/` | Motores, llaves y actualizaciones: los comandos reales y lo que no se toca. |
+| `meta/personalizar-workspace/` | Tema, tono e idioma del hub, con el comando que de verdad los guarda. |
+| `meta/reparar-workspace/` | Doctor, pestañas, hooks y el aviso de una sesión que sigue en segundo plano. |
+| `meta/calendario-y-tareas/` | Calendario, agenda y la cola de tareas. |
+| `meta/memoria-de-la-pestana/` | Notas, vigente, maleta y resumen de la pestaña. |
 
 ---
 

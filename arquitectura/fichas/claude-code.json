@@ -1,0 +1,81 @@
+{
+  "motor": "claude-code",
+  "nombre": "Claude Code",
+  "binario": "claude",
+  "versiones_probadas": ["2.1.326"],
+  "fuente": "A",
+  "via_control": {
+    "tipo": "sin-pantalla",
+    "detalle": "La página chatea con `claude -p --resume <id>` y la suscripción del socio (D2-c, uso personal). Los channels se vigilan para pasarse a ellos cuando salgan de vista previa.",
+    "misma_conversacion": false,
+    "semaforo": "gris"
+  },
+  "momentos": {
+    "session_start": {"eventos": ["SessionStart"], "estado": "si", "puede": ["inyectar"], "nota": "additionalContext hasta 10 000 caracteres; source startup | resume | compact | clear"},
+    "user_prompt": {"eventos": ["UserPromptSubmit"], "estado": "si", "puede": ["inyectar", "bloquear"]},
+    "pre_tool": {"eventos": ["PreToolUse"], "estado": "si", "puede": ["decidir", "bloquear"], "nota": "allow | deny | ask | defer, más updatedInput"},
+    "post_tool": {"eventos": ["PostToolUse", "PostToolUseFailure"], "estado": "si", "puede": ["inyectar"]},
+    "permission_request": {"eventos": ["PermissionRequest"], "estado": "si", "puede": ["decidir"]},
+    "turn_end": {"eventos": ["Stop"], "estado": "si", "puede": ["seguir", "inyectar"], "nota": "trae last_assistant_message (engines/EVENTS.md)"},
+    "compact": {"eventos": ["PreCompact", "PostCompact"], "estado": "si", "puede": ["observar", "bloquear"], "nota": "la identidad se reentrega en SessionStart con source compact"},
+    "session_end": {"eventos": ["SessionEnd"], "estado": "si", "puede": ["observar"]}
+  },
+  "paquete": {
+    "formato": "claude",
+    "carga_por_sesion": "--plugin-dir {paquete}",
+    "instala": "claude plugin install (marketplace de Workspace, D8-a)",
+    "hooks": {"dialecto": "claude", "ruta": "hooks/hooks.json", "raiz_var": "CLAUDE_PLUGIN_ROOT", "confianza": "ninguna para un plugin instalado; nunca en .claude/settings.json del cerebro (Copilot y Cursor también lo leen)"},
+    "mcp": {"declara": ".mcp.json del plugin", "preaprueba": "mcp__plugin_workspace_workspace__*"},
+    "skills": "skills/ del plugin; no .claude/skills del cerebro"
+  },
+  "permisos": {"por_sesion": ["--permission-mode", "--settings", "--allowedTools", "--disallowedTools"], "preguntar": "si", "sandbox": true,
+    "niveles": {
+      "auto": {"bandera": ["--permission-mode", "auto"], "lanzador": "--permission-mode auto (engines/claude_code.modo_permisos), en la terminal y en las corridas de la página (claude -p, pagina_v2). Su --help 2.1.326 lo lista; doc permission-modes: un clasificador revisa cada acción y frena lo que va más allá del pedido; las reglas deny siguen en todos los modos; sin plan o modelo que lo tenga, abre en Manual (sin error). Un defaultMode del socio en el cerebro gana (M2)"},
+      "preguntar": {"lanzador": "--permission-mode manual (engines/claude_code.auto_mode_args)"},
+      "editar": {"lanzador": "--permission-mode acceptEdits (agentes.auto_mode) o manual con las reglas Edit del cerebro; el defaultMode del socio gana (decisión M2)"},
+      "sin_permisos": {"argv": ["--permission-mode", "dontAsk"], "reemplaza": {"--permission-mode": ["manual", "default", "acceptEdits", "dontAsk"]},
+                       "ajustes": {"sandbox": {"enabled": true, "autoAllowBashIfSandboxed": true, "allowUnsandboxedCommands": false, "failIfUnavailable": true},
+                                   "permissions": {"disableAutoMode": "disable", "allow": ["Edit(/{cerebro}/**)"]}},
+                       "sandbox_os": ["darwin", "linux"],
+                       "nota": "sin preguntas dentro del sandbox y nada fuera (18-nov: un agente que trabaja solo, sin nadie que conteste):dontAsk niega sin preguntar todo lo que no esté preaprobado (code.claude.com/docs/en/permission-modes; acceptEdits pregunta fuera de la carpeta); los comandos van solos dentro del sandbox (autoAllowBashIfSandboxed «works independently of your permission mode», docs/en/sandboxing) y nunca fuera (allowUnsandboxedCommands false; si no arranca, no abre); edita sin preguntar en su cerebro (la regla Edit). Nunca el modo auto: disableAutoMode lo quita de Shift+Tab y un --permission-mode auto arranca en Manual (permission-modes). En Windows nativo no hay sandbox: queda en editar"},
+      "verificado": false
+    }},
+  "uso_plan": {"tipo": "statusline", "fuente": "barra de estado oficial: rate_limits de 5 h y de 7 días"},
+  "conversacion": {"id": "fijado_antes", "como": "--session-id <uuid>"},
+  "tono": "estilo de salida, dentro del plugin",
+  "nucleo": {
+    "mcp": {"declara": "el .mcp.json del plugin (--plugin-dir)", "argv": ["--allowedTools=mcp__plugin_workspace_workspace__*"], "nota": "las herramientas de un servidor de plugin se llaman mcp__plugin_<plugin>_<servidor>__<herramienta> y la regla de allow de todo el servidor es mcp__plugin_<plugin>_<servidor>__* (code.claude.com/docs/en/permissions, /mcp); mcp__workspace no las alcanza y pedía permiso (prueba real 18-nov)"},
+    "al_abrir": "hook",
+    "tono": {"via": "argv", "argv": ["--append-system-prompt={tono}"], "nota": "pieza de sistema por sesión. El estilo de salida del plugin (D1-a) queda para cuando el probador diga si conserva las instrucciones de programar"},
+    "chat": {"via": "argv", "nota": "con el tono, en su --append-system-prompt de la sesión (claude -p): llega en cada turno"},
+    "verificado": false,
+    "nota": "additionalContext del SessionStart, también al retomar y después de compactar (source compact)"
+  },
+  "sesion": {
+    "argv": ["--plugin-dir", "{paquete}"],
+    "skills": {"via": "paquete", "nota": "skills/ del plugin del paquete de ese cerebro: en el menú como /workspace:<skill> (code.claude.com/docs/en/skills)"},
+    "id": {"flags": ["--session-id", "--resume"], "fija": ["--session-id"], "crea": "--session-id", "retoma": "--resume"},
+    "salvo": ["attach"],
+    "nota": "el lanzador ya fija el número de la pestaña (--session-id la primera vez, --resume después)"
+  },
+  "config_global": [
+    "{home}/.claude/settings.json",
+    "{home}/.claude/CLAUDE.md",
+    {"ruta": "{home}/.claude/skills", "excluir": ["synced"], "nota": "skills/synced la reescribe Claude Code al sincronizar las skills de la nube (.last-complete-round), en cualquier corrida suya"},
+    "{home}/.claude/agents",
+    "{home}/.claude/commands",
+    "{home}/.claude/output-styles",
+    {"ruta": "{home}/.claude.json", "claves": ["mcpServers"]}
+  ],
+  "probador": {
+    "env": {"CLAUDE_CONFIG_DIR": "{home}/.claude"},
+    "corrida": ["claude", "-p", "{prompt}", "--plugin-dir", "{paquete}", "--output-format", "json", "--session-id", "{uuid}", "--allowedTools", "Bash(echo:*)"],
+    "timeout_s": 240,
+    "real": {
+      "corrida": ["claude", "--allowedTools=mcp__plugin_workspace_workspace__*", "-p", "{prompt}", "--plugin-dir", "{paquete}", "--output-format", "json", "--session-id", "{uuid}", "--allowedTools", "Bash(echo:*)"],
+      "nota": "--plugin-dir vale solo para esta sesión. ~/.claude.json lo reescribe Claude Code en cada corrida: se mira solo su mcpServers"
+    },
+    "verificado": false,
+    "nota": "con CLAUDE_CONFIG_DIR aparte puede pedir login: usar --home-aislado con un login hecho a mano una vez"
+  }
+}

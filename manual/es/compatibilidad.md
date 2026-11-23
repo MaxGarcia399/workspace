@@ -91,7 +91,7 @@ que se saltan todos los permisos.
 | Codex | `-s workspace-write -a on-request`, con la red apagada | `-s read-only -a on-request`: pide aprobación para editar o correr algo |
 | Antigravity | `--mode accept-edits` y la regla `write_file(<cerebro>)` | sin `--mode`; la regla queda en `read_file(<cerebro>)` |
 
-Se cambia en **Agentes** (elige el agente y Enter) (ver [Permisos](motores.md#permisos)).
+Se cambia en el hub, en **Ajustes › Permisos** (ver [Permisos](motores.md#permisos)).
 
 - En una tarea sin ventana, lo que pediría permiso se niega.
 - **Codex:** con *cerebro*, sus comandos corren sin preguntar **dentro de su caja**: solo pueden
@@ -107,7 +107,7 @@ Se cambia en **Agentes** (elige el agente y Enter) (ver [Permisos](motores.md#pe
 
 ## Tus llaves: qué motor puede leerlas
 
-Workspace guarda las llaves que le das (por ejemplo, la de un modelo de decisión) en su bóveda,
+Workspace guarda las llaves que le das en su bóveda,
 fuera de tu cerebro (ver [Privacidad](privacidad.md#credenciales)). Ningún motor la recibe por
 entorno. Además, a los motores que tienen reglas para eso, Workspace les niega **leer la
 bóveda** (el archivo `~/.claude/workspace/secrets.local` y la carpeta

@@ -21,6 +21,11 @@ algo fuera del árbol aún tuviera las tuberías, se rinde en vez de colgarse.
     las excepciones de arranque (`FileNotFoundError`, …).
   · `matar_arbol(p)` — mata a un `Popen` y a sus descendientes (Windows:
     taskkill /T /F; después `p.kill()` por si taskkill no pudo).
+  · `hay_consola()` / `consola_oculta()` — Windows: un proceso SIN consola (la
+    página `front.py web --fondo`, lanzada DETACHED) le abre a cada programa de
+    consola que lance una ventana propia, que asoma un instante. `run()` los
+    lanza sin ventana ahí, y `consola_oculta()` le da al proceso una consola
+    oculta que todos sus hijos heredan.
 
 macOS / Linux: `run` le pasa la llamada TAL CUAL a `subprocess.run` (mismos
 argumentos, mismo comportamiento que antes). En Windows también, si no hay
@@ -46,6 +51,79 @@ _WINDOWS = os.name == "nt"
 
 def _sin_ventana():
     return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)} if _WINDOWS else {}
+
+
+def sin_ventana():
+    """Las opciones de Popen para un programa de consola que no debe abrir ventana en Windows (un proceso sin
+    consola, como el servidor de la página, le abriría una visible); {} en Mac y Linux."""
+    return _sin_ventana()
+
+
+def hay_consola():
+    """¿Este proceso tiene consola? Solo cuenta en Windows: sin consola (DETACHED_PROCESS, pythonw) cada programa
+    de consola que lance abre la suya, VISIBLE, aunque dure un instante. Mac y Linux: True (no aplica). Si no se
+    puede saber, True (como siempre)."""
+    if not _WINDOWS:
+        return True
+    try:
+        import ctypes
+        return ctypes.WinDLL("kernel32").GetConsoleCP() != 0     # 0 = sin consola
+    except Exception:
+        return True
+
+
+def consola_oculta(espera=2.0):
+    """Windows, en un proceso SIN consola: se pega a una consola nueva y OCULTA, para que cada programa de consola
+    que lance la herede en vez de abrir una ventana propia (así ninguna asoma, ni la de un `.cmd`, ni la de un
+    nieto que el motor lance). Es lo mismo que haberlo lanzado con CREATE_NO_WINDOW en vez de DETACHED_PROCESS.
+    Cómo: un cmd.exe con CREATE_NO_WINDOW (consola sin ventana) que espera en su entrada; se le pega con
+    AttachConsole y se le cierra la entrada (sale, y la consola sigue mientras este proceso la use). Los std
+    handles de este proceso quedan como estaban (un hijo que lee la entrada heredada sigue leyendo NUL, no la
+    consola). → True si ahora tiene consola; False fuera de Windows, si ya tenía o si no se pudo (falla suave:
+    entonces `run()` sigue lanzando sin ventana)."""
+    if not _WINDOWS or hay_consola():
+        return False
+    try:
+        import ctypes
+        import time
+        from ctypes import wintypes
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.GetStdHandle.restype = wintypes.HANDLE
+        k32.SetStdHandle.argtypes = (wintypes.DWORD, wintypes.HANDLE)
+        cmd = os.path.join(os.environ.get("SystemRoot") or os.environ.get("windir") or r"C:\Windows",
+                           "System32", "cmd.exe")
+        p = subprocess.Popen([cmd, "/d", "/q", "/k"], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, **_sin_ventana())
+    except Exception:
+        return False
+    estandar = [wintypes.DWORD(n & 0xFFFFFFFF) for n in (-10, -11, -12)]
+    antes = [k32.GetStdHandle(n) for n in estandar]
+    pegado = False
+    try:
+        fin = time.monotonic() + espera
+        while time.monotonic() < fin and p.poll() is None:
+            if k32.AttachConsole(wintypes.DWORD(p.pid)):     # su consola aún se está creando: se reintenta
+                pegado = True
+                break
+            time.sleep(0.01)
+        if pegado:
+            for n, h in zip(estandar, antes):               # pythonw no tenía: que siga sin (un hijo no lee la consola)
+                k32.SetStdHandle(n, h)
+    except Exception:
+        pass
+    finally:
+        try:
+            p.stdin.close()
+        except Exception:
+            pass
+        try:
+            p.wait(timeout=ESPERA_TRAS_MATAR)
+        except Exception:
+            try:
+                p.kill()
+            except Exception:
+                pass
+    return pegado
 
 
 def _taskkill():
@@ -89,7 +167,13 @@ def matar_arbol(p):
 def run(*popenargs, **kwargs):
     """`subprocess.run` que en Windows, al vencer `timeout`, mata el árbol de
     procesos y no se cuelga recogiendo la salida. En macOS/Linux (o sin
-    timeout) es exactamente `subprocess.run(*popenargs, **kwargs)`."""
+    timeout) es exactamente `subprocess.run(*popenargs, **kwargs)`.
+    Windows, en un proceso SIN consola (la página): sin `creationflags` del que
+    llama, el programa va sin ventana (CREATE_NO_WINDOW): los `auth status`,
+    `--version` y demás sondas de los motores asomaban una consola cada uno. Con
+    consola (el hub en su terminal) nada cambia: el hijo usa la misma."""
+    if _WINDOWS and "creationflags" not in kwargs and not hay_consola():
+        kwargs.update(_sin_ventana())
     if not _WINDOWS or kwargs.get("timeout") is None or not _es_de_la_biblioteca():
         return subprocess.run(*popenargs, **kwargs)
     return _run_windows(popenargs, dict(kwargs))

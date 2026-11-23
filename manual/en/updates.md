@@ -16,11 +16,8 @@
   [doctor](troubleshooting.md), which repairs whatever needs it. If something can't be updated
   (no internet, half-saved changes of yours), it tells you and carries on with the rest.
 
-- **From the hub:** the **Updates** section. It shows your version, whether a new one is out and
-  only what you can do right then: **update to vX** (when a new version is out), **check and
-  repair**, **check only**, **go back to vX** (when there is a previous version to go back to;
-  asks for Enter again) and the **automatic** setting. When it finishes you see what arrived and
-  what is pending. The full explanation is behind the `i` key.
+- **From the hub:** **Ajustes › Actualizaciones** (settings › updates). There you check, repair
+  or update Workspace, with the steps live.
 
 ## The safety net
 
@@ -31,8 +28,8 @@ Python. If it doesn't:
 2. it keeps that version **pinned** (it won't retry the same broken version every 6 hours);
 3. the pin is released automatically when we publish a newer version.
 
-Nothing for you to do. You'll see one line when opening an agent and "version pinned" at the
-bottom right of the hub. To retry anyway: `workspace update --force`.
+Nothing for you to do. You'll see one line when opening an agent. To retry anyway:
+`workspace update --force`.
 
 ## What is left alone
 
@@ -68,7 +65,7 @@ workspace version
 ```
 
 Shows your version, when your last update was and what's new in this version. The version also
-shows at the bottom right of the hub. The full history is in **`CHANGELOG.en.md`**, in the
+shows in the hub, in Ajustes › Actualizaciones. The full history is in **`CHANGELOG.en.md`**, in the
 Workspace folder.
 
 ## Going back
@@ -79,7 +76,6 @@ If a new version starts but you don't like it:
 workspace update --rollback
 ```
 
-In the hub it is the **go back to vX** option in Updates (it only shows up when there is one).
 It shows which version you go back to and asks for confirmation. The previous version's
 code comes back; your agents, brains and settings are not touched. The new version stays paused until we
 publish a newer one. Adjustments the new version already applied are designed so the previous
@@ -95,12 +91,8 @@ Automatic updates are **optional**. There are three modes:
 | `notify` | once a day it tells you "a new version is out" and installs nothing | yes, at most once a day |
 | `off` | checks nothing | no |
 
-To change it:
-
-- in the hub: **Updates** section, **automatic** row (Enter moves to the next mode: yes · notify
-  only · off);
-- in the terminal: `workspace update --auto notify` (or `auto`, `off`); with no mode it tells
-  you which one you have.
+To change it, in the terminal: `workspace update --auto notify` (or `auto`, `off`); with no
+mode it tells you which one you have.
 
 In all three modes, `workspace update` installs when you ask and `workspace update --rollback`
 takes you back. With `notify` or `off`, `workspace doctor` respects your choice too: it tells

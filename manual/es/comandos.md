@@ -6,7 +6,7 @@ Todo lo que puedes escribir en la terminal. Cada comando acepta su nombre en esp
 
 ### `workspace`
 
-Abre el hub: tus agentes y el menú; escribe para buscar.
+Abre el hub: tus agentes y sus secciones; escribe para buscar.
 
 **Cuándo:** Para empezar a trabajar.
 
@@ -18,7 +18,7 @@ Abre ese agente directo, sin pasar por el hub.
 
 ### `workspace agentes [descubrir | reubicar | estado]`
 
-Tus agentes y su estado; descubrir busca cerebros, reubicar repara una ruta.
+Sin nada más, abre el hub en Agentes; estado los lista, descubrir busca cerebros, reubicar repara una ruta.
 
 **Cuándo:** Si un agente no aparece o dice que no encuentra su cerebro.
 
@@ -31,7 +31,7 @@ _también: `agents`_
 
 ### `workspace tono`
 
-Ajusta cómo te hablan tus agentes (diales del 1 al 5).
+Cómo te hablan tus agentes (diales del 1 al 5). Sin nada más, abre el hub en Agentes › Tono; con argumentos, en texto.
 
 **Cuándo:** Si quieres respuestas más cortas, más cálidas, más técnicas…
 
@@ -39,9 +39,9 @@ _también: `tone`, `personalidad`_
 
 ### `workspace bienvenida`
 
-Vuelve a correr la configuración guiada (continúa donde quedó).
+Abre el hub con la tarjeta para agregar tu primer agente.
 
-**Cuándo:** Si quedó algo pendiente al instalar.
+**Cuándo:** Si todavía no tienes un agente.
 
 _también: `onboarding`_
 
@@ -55,7 +55,7 @@ Tu agenda local: eventos con fecha y hora.
 
 ### `workspace calendario`
 
-Editor del calendario: mes, altas, cambios y bajas.
+Abre el hub en Calendario, con tu agenda.
 
 **Cuándo:** Para organizar la semana o el mes.
 
@@ -81,6 +81,20 @@ _también: `eval`, `evals`_
 
 ## esta máquina
 
+### `workspace conexiones [--counts]`
+
+Abre el hub en Ajustes › Conexiones: qué conecta Workspace en cada motor; --counts, el conteo en JSON.
+
+**Cuándo:** Para ver qué conecta Workspace en cada motor.
+
+_también: `connections`_
+
+### `workspace web`
+
+Abre Workspace en tu navegador: una página local, solo en esta computadora.
+
+**Cuándo:** Para ver y hablar con tus agentes sin la terminal; se cierra con Ctrl+C.
+
 ### `workspace actualizar [--check | --rollback | --force | --auto auto|notify|off]`
 
 Actualiza Workspace y tus cerebros, y repara lo necesario.
@@ -94,7 +108,7 @@ _también: `update`, `up`_
     workspace actualizar --rollback
     workspace actualizar --auto notify
 
-> Pide confirmación en la pantalla Comandos.
+> Cambia cosas en esta máquina.
 
 ### `workspace version`
 
@@ -115,6 +129,19 @@ _también: `migrate`_
 **Ejemplos:**
 
     workspace migrar --run
+
+### `workspace sistema-nuevo [on | off]`
+
+Enciende o apaga el sistema nuevo: los hooks, el MCP y las skills de Workspace por sesión en tus motores.
+
+**Cuándo:** Si quieres que tus motores abran como antes, o volver al sistema nuevo.
+
+_también: `new-system`_
+
+**Ejemplos:**
+
+    workspace sistema-nuevo off
+    workspace sistema-nuevo on
 
 ### `workspace doctor [--check | --remote | --bundle]`
 
@@ -186,11 +213,11 @@ Desinstala Workspace de esta máquina (tus cerebros se quedan).
 
 _también: `uninstall`, `remove`_
 
-> Pide confirmación en la pantalla Comandos.
+> Cambia cosas en esta máquina.
 
 ### `workspace comandos [--json | --markdown | --check]`
 
-Esta lista de comandos; --json para agentes, --markdown para el manual.
+Sin nada más, abre el hub en Ayuda › Comandos; --json para agentes, --markdown para el manual.
 
 **Cuándo:** Cuando quieres ver o exportar todos los comandos.
 

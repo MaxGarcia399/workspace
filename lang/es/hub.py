@@ -59,6 +59,7 @@ STRINGS = {
     "hub.pin.un_color": "un color",
     "hub.pin.tema_herdr": "seguir a herdr",
     "hub.pin.autostart": "auto-abrir",
+    "hub.pin.navegador": "navegador al iniciar",
     "hub.pin.heartbeat": "latido",
     "hub.pin.split": "split",
     "hub.pin.anim": "animación",
@@ -166,6 +167,41 @@ STRINGS = {
     'hub.deci.badge_new': 'nuevo',
     'hub.deci.setup': 'configurar',
     'hub.deci.off': 'apagado',
+    'hub.deci.offline': 'sin conexión',
     'hub.deci.none_ready': 'conecta un modelo en Motores → Modelos de decisión (Enter)',
     'hub.deci.uses_hint': 'elige sus usos en Decisores (Enter)',
+    'hub.skills_pend.one': '1 revisión de skills pendiente',
+    'hub.skills_pend.of': 'revisión de skills · {q}',
+    'hub.skills_pend.waiting': '{q}: la tarea le llega con tu próximo mensaje ahí',
+    'hub.skills_pend.why': '{q}: la revisión de {o} no dejó resultado · Enter la hace ahora',
+    'hub.skills_pend.do': 'Hacer ahora',
+    'hub.skills_pend.fail': 'no pude: {e}',
+    'hub.skills_pend.written': 'le escribí la tarea a {q} en su panel',
+    'hub.skills_pend.next_msg': '{q} tiene la pestaña abierta: la tarea le llega con tu próximo mensaje ahí',
+    'hub.skills_pend.yesterday': 'ayer {h}',
+    'hub.deci.own_models': '{n} usos siguen con su propio modelo (Enter: Decisores)',
+    'hub.deci.today': 'Decisores hoy: ',
+    'hub.skills_pend.many': '{k} revisiones de skills pendientes',
+    'hub.skills_pend.gone': 'ya no está pendiente',
+    'hub.skills_pend.unreadable': 'no pude leer la entrega anterior: queda pendiente',
+    'hub.skills_pend.unrecorded': 'le escribí la tarea a {q}, pero no pude registrar la entrega: la revisión puede repetirse',
+    'hub.skills_pend.no_view': 'su vista ya no está: queda pendiente',
+    'hub.skills_pend.no_task': 'no pude escribir la tarea: queda pendiente',
+    'hub.skills_pend.typed': '{q} tiene algo escrito en su panel: ábrela tú; la revisión sigue pendiente',
+    'hub.skills_pend.unsure': '{q} no está quieta o no puedo ver si tiene algo escrito: ábrela tú; la revisión sigue pendiente',
+    'hub.skills_pend.herdr': 'herdr no aceptó el texto: ábrela tú; la revisión sigue pendiente',
+    'hub.skills_pend.busy': 'otro proceso la está entregando: prueba en un momento',
+    'hub.skills_pend.monito': 'es de su conversación de Compañero: la recibe la próxima vez que lo abras en su terminal o en la página',
+    'hub.skills_pend.active': 'esta pestaña ya tiene una revisión por terminar: la siguiente espera',
+    'hub.skills_pend.other_engine': '{q} está abierta en {m}: la recibe al volver a abrirla (ciérrala y pulsa Hacer ahora)',
+    'hub.skills_pend.opening': 'abriendo {q} con la tarea',
+    'hub.skills_pend.from_agents': 'ábrela desde Agentes: la tarea le llega al arrancar',
 }
+
+STRINGS.update({'hub.skills_pend.unreadable_queue': 'Revisión de skills: no se pudo leer un pendiente; los demás siguen.', 'hub.skills_pend.lock_failed': 'Revisión de skills: no se pudo guardar una revisión porque la cola estaba ocupada.'})
+
+STRINGS.update({'hub.skills_pend.launch_failed': 'Revisión de skills: no se pudo abrir la pestaña; la revisión sigue pendiente.', 'hub.skills_pend.review_now': 'Revisar ahora'})
+
+STRINGS.update({'hub.skills_pend.batch_why': '{q}: revisión acumulada · Enter abre la tanda'})
+
+STRINGS.update({'hub.skills_pend.history': 'resultados · Ver · Deshacer'})

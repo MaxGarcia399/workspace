@@ -162,6 +162,17 @@ def human(err, decider=None, sent_tokens=None, timeout_ms=None, where="ask", det
     menos) · "probe" (Motores → Probar). `elapsed_ms`: lo que de verdad se
     esperó (un decisor que se rinde solo al instante no «tardó más de 10 s»)."""
     code = normalize(err)
+    if code == "timeout" and isinstance(detail, dict) and detail.get("class") == "ProxySlow":
+        # un proxy en esta computadora tarda en conectar: lo que es, dicho así
+        return _t("decisores.err.proxy_slow", "El proxy de {var} (en esta computadora) tarda en "
+                  "responder · revisa que esté funcionando e intenta de nuevo",
+                  var=detail.get("var") or "HTTPS_PROXY")
+    if code == "connection" and isinstance(detail, dict) and detail.get("class") == "ProxyClosed":
+        # el proxy de esta computadora no abrió: no es internet ni el decisor (cualquiera)
+        return _t("decisores.err.proxy_closed", "El proxy de {var} (en esta computadora) no está "
+                  "abierto · ábrelo o quítalo e intenta de nuevo", var=detail.get("var") or "HTTPS_PROXY")
+    if code == "timeout" and isinstance(detail, dict) and detail.get("phase") == "connect" and _local(decider):
+        code = "connection"
     m, p, site = _names(decider)
     status = (detail or {}).get("status") if isinstance(detail, dict) else None
     if isinstance(detail, dict) and detail.get("breaker"):
@@ -170,8 +181,11 @@ def human(err, decider=None, sent_tokens=None, timeout_ms=None, where="ask", det
             seg = max(1, int(detail.get("retry_s") or 0))
         except (TypeError, ValueError):
             seg = 60
+        if code == "connection":          # sin internet: dicho así, y que vuelve a probar solo
+            return _t("decisores.err.breaker_offline", "Sin conexión con {p} · reintento solo en "
+                      "~{s} s", p=p, s=seg)
         return _t("decisores.err.breaker", "{m} está en pausa ~{s} s tras un fallo de red · "
-                  "reintenta en un momento", m=m, s=seg)
+                  "reintento solo", m=m, s=seg)
     if code == "context_too_large":
         lim = _limit_txt(decider)
         if lim is None:
@@ -202,6 +216,11 @@ def human(err, decider=None, sent_tokens=None, timeout_ms=None, where="ask", det
                   "recárgala en su sitio", p=p)
     if code == "rate_limit":
         return _t("decisores.err.rate_limit", "Demasiadas preguntas seguidas · espera unos segundos")
+    if code == "timeout" and isinstance(detail, dict) and detail.get("phase") == "connect" \
+            and not _local(decider):
+        # hay red (el nombre se resolvió) pero no terminó de conectar a tiempo
+        return _t("decisores.err.slow_network", "La red está lenta: no terminé de conectar con {p} · "
+                  "intenta de nuevo", p=p)
     if code == "timeout":
         if where == "probe":
             paso = _t("decisores.err.next_retry", "intenta de nuevo")
@@ -231,6 +250,10 @@ def human(err, decider=None, sent_tokens=None, timeout_ms=None, where="ask", det
         x = (detail or {}).get("model") if isinstance(detail, dict) else None
         return _t("decisores.err.not_decision", "{x} no es un modelo de decisión · elige uno de "
                   "decisión en Motores → Modelos de decisión", x=x or m)
+    if code == "connection" and isinstance(detail, dict) and detail.get("class") == "NotLoopback":
+        # el nombre configurado dejó de apuntar a esta computadora entre la revisión y la
+        # conexión: no se conecta sin proxy a otra dirección (ni es «cerrado» ni «internet»)
+        return _t("decisores.err.not_loopback", "La dirección de {p} ya no apunta a esta computadora, así que no me conecto sin el proxy · revisa la dirección configurada (por ejemplo OLLAMA_HOST)", p=p)
     if code == "connection" and _local(decider):
         return _t("decisores.err.connection_local", "{p} no está abierto en esta computadora · "
                   "ábrelo e intenta de nuevo", p=p)
@@ -353,7 +376,8 @@ def detail_lines(detail, err=None):
     code = normalize(err) if err else ""
     if code:
         out.append((_t("decisores.det.code", "código"), code))
-    fases = {"connect": _t("decisores.det.phase_connect", "al conectar"),
+    fases = {"dns": _t("decisores.det.phase_dns", "al buscar la dirección"),
+             "connect": _t("decisores.det.phase_connect", "al conectar"),
              "read": _t("decisores.det.phase_read", "esperando la respuesta"),
              "config": _t("decisores.det.phase_config", "al leer la configuración")}
     for k, lab in (("class", _t("decisores.det.class", "clase")),

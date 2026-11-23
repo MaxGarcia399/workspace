@@ -2566,7 +2566,7 @@ def _nombres_de_entorno(env):
     return out
 
 
-def fuentes(env=None, probar=False):
+def fuentes(env=None, probar=False, incluir_decisores=True):
     """[{"nombre", "fuente", "tambien"}] — de dónde sale HOY cada llave:
     "entorno" (exportada en tu sistema: manda), "llavero" | "dpapi" |
     "secret-tool" (el llavero del sistema) o "archivo" (texto plano 0600).
@@ -2583,6 +2583,8 @@ def fuentes(env=None, probar=False):
     nombres = set(plano) | set(indice) | {n for n in _nombres_de_entorno(env) if del_entorno(n)}
     out = []
     for n in sorted(nombres):
+        if not incluir_decisores and es_solo_workspace(n):
+            continue
         donde = []
         if del_entorno(n):
             donde.append("entorno")
@@ -2766,6 +2768,10 @@ def cli(args=None):
     accion = (pal[0] if pal else "estado").lower()
     if accion in ("auditar", "audit"):
         r = auditar()
+        from decisions import decisores_activos
+        if not decisores_activos():
+            r["hallazgos"] = [dict(h, nombres=[n for n in h["nombres"] if not es_solo_workspace(n)])
+                              for h in r["hallazgos"]]
         if como_json:
             print(json.dumps(r, ensure_ascii=False))
             return 0 if r["limpio"] else 1
@@ -2790,7 +2796,8 @@ def cli(args=None):
         print("uso: workspace llaves [estado | auditar] [--json]" if not en
               else "usage: workspace keys [status | audit] [--json]")
         return 2
-    fs = fuentes(probar=True)
+    from decisions import decisores_activos
+    fs = fuentes(probar=True, incluir_decisores=decisores_activos())
     if como_json:
         print(json.dumps({"modo": modo_guardado(), "sistema": sistema(), "llaves": fs},
                          ensure_ascii=False))

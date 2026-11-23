@@ -563,6 +563,37 @@ def _decisor(file_path, findings, content):
         return None
 
 
+def _decisores_visible():
+    """decision_visible (raíz de Workspace) o None."""
+    try:
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if root not in sys.path:
+            sys.path.insert(0, root)
+        import decision_visible
+        return decision_visible
+    except Exception:
+        return None
+
+
+def _reedicion(file_path):
+    """«¿Pasó?» de Seguridad: si este archivo tuvo un aviso con el decisor en
+    los últimos 30 min, el agente lo volvió a tocar. Sin nada por comprobar
+    (Decisores apagado): un `exists` y nada más."""
+    V = _decisores_visible()
+    if V is not None and file_path:
+        V.archivo_editado(file_path)
+
+
+def _por_comprobar(v, file_path):
+    """Con el veredicto visible (sugiere o decide), queda la huella de la ruta
+    (nunca su contenido) para ver si el agente vuelve a tocar el archivo."""
+    if not v or v.get("mode") not in ("suggest", "apply") or not file_path:
+        return
+    V = _decisores_visible()
+    if V is not None:
+        V.por_comprobar(v.get("id"), "seguridad", file_path)
+
+
 def _con_decisor(msg, v, file_path, findings):
     """El aviso según el decisor. Complementa, nunca sustituye NI SUAVIZA: el
     decisor puede SUBIR el riesgo, nunca bajarlo (el aviso del escáner queda
@@ -572,6 +603,9 @@ def _con_decisor(msg, v, file_path, findings):
       · lo demás (suggest; «decide» bajo el umbral; «medio»/«bajo», que nunca
         se aplican) → el aviso de siempre + la línea ◆, marcada como solo una
         sugerencia."""
+    from decisions import decisores_activos
+    if not decisores_activos():
+        return msg
     if not v or v.get("mode") not in ("suggest", "apply"):
         return msg
     try:
@@ -647,12 +681,14 @@ def main():
         content = _extract_content(tool_name, tool_input)
         if not content:
             return
+        file_path = _file_path(tool_input)
+        _reedicion(file_path)               # Decisores: ¿retocó un archivo con aviso?
         findings = scan(content)
         if not findings:
             return
-        file_path = _file_path(tool_input)
         msg = _format_warning(file_path, findings)
         v = _decisor(file_path, findings, content)
+        _por_comprobar(v, file_path)
         msg = _con_decisor(msg, v, file_path, findings)
         # PostToolUse: el ÚNICO shape que Claude Code entrega al modelo es
         # hookSpecificOutput.additionalContext (mismo mecanismo que SessionStart).

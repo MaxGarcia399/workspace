@@ -7,13 +7,12 @@ it ignores a dark background picked separately (it would make the text invisible
 
 ## Changing the theme
 
-- On the **first run**, the *Appearance* step (repeat it with `workspace onboarding`).
-- Any time, in the hub: go into **Personalization ›** (or type "theme"), pick the **theme**
-  or **background** row and press Enter to move to the next one. The change is saved right
-  away.
+- The first run no longer asks: you start with the default theme.
+- Any time, in the hub: **Ajustes › Apariencia** (settings › appearance), rows **Tema del hub**
+  (hub theme) and **Fondo independiente** (separate background).
 
-<!-- Verified against front.py (cycle_pin), settings.py (ui.theme default "bruma",
-ui.background, ui.background_custom, ui.hub_pins) and onboarding_tui.py (appearance step). -->
+<!-- Verified against hub_secciones_r2.py (ajustes_filas: General and Apariencia groups) and
+settings.py (ui.theme default "bruma", ui.background, ui.background_custom, pin_label). -->
 
 The **background** can change without changing the theme: negro (black), grafito (graphite),
 azul (blue), verde (green) or violeta (violet); **tema** goes back to the active theme's
@@ -24,8 +23,10 @@ the Workspace folder (on Windows, `python` instead of `python3`):
 python3 settings.py set ui.background_custom "#1a1b26"
 ```
 
-Personalization also has **brightness** (livelier or dimmer), **red light** (night
-mode) and **auto-open** (the hub shows up when you open the terminal).
+Ajustes › Apariencia also has **Brillo** (brightness: livelier or dimmer) and **Luz roja (modo
+noche)** (red light, night mode). Ajustes › General has **Abrir al abrir la terminal** (the hub
+shows up when you open the terminal) and **Abrir Workspace en el navegador al iniciar** (the
+page opens along with the hub, if no other hub is open).
 
 ## What changes and what doesn't
 

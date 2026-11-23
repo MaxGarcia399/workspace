@@ -54,6 +54,8 @@ def _D():
 def encendido():
     """¿Decisores está prendido? Un modelo activo y al menos un uso que no esté
     apagado. Sin eso, nada de lo de este módulo se ve ni se escribe."""
+    if not _D().decisores_activos():
+        return False
     try:
         D = _D()
         if D.global_model() == D.OFF:
@@ -72,6 +74,24 @@ def _nombre(did):
         return D.decider_label(did) if did and did != D.OFF else "Decisores"
     except Exception:
         return str(did or "Decisores").capitalize()
+
+
+def sin_conexion(did):
+    """¿Este decisor en la nube se quedó SIN CONEXIÓN hace un momento? (la pausa
+    tras un fallo de red con el código «connection»: decisions.breaker_open).
+    Es el estado de la RED, no el del modelo: la llave sigue guardada y el
+    modelo sigue listo; Workspace vuelve a probar solo al vencer la pausa.
+    Falla-suave: False."""
+    try:
+        p = _D().breaker_open(did)
+        return bool(p) and p[0] == "connection"
+    except Exception:
+        return False
+
+
+def sin_conexion_txt():
+    """«sin conexión · reintento solo» — lo mismo en el hub, Decisores y Motores."""
+    return _t("decisores.st.offline", "sin conexión · reintento solo")
 
 
 def _pct(p):
@@ -123,6 +143,8 @@ def formato(m, que, p, modo):
     """«◆ <modelo>: <qué hizo> · <NN %> · <aplicado|sugerido>» — el MISMO
     formato en el chat (display, Memoria, Seguridad, la última sesión, lo que
     el agente no vio). Sin el %, si el modelo no dio su probabilidad."""
+    if not _D().decisores_activos():
+        return ""
     if p is None:
         return _t("decisores.visible.line_nop", "{s} {m}: {que} · {q}", s=SIMBOLO, m=m, que=que,
                   q=_modo(modo))
@@ -134,7 +156,9 @@ def formato(m, que, p, modo):
 def linea_agente(out):
     """«◆ <modelo>: tabla · 87 % · sugerido» / «… · aplicado» para la respuesta de
     `workspace decidir` / `decidir` (el agente se la muestra al socio). '' en
-    observe (decide en silencio), con el uso apagado o si no se mandó nada."""
+    observe (solo se anota), con el uso apagado o si no se mandó nada."""
+    if not _D().decisores_activos():
+        return ""
     try:
         if not isinstance(out, dict):
             return ""
@@ -142,9 +166,16 @@ def linea_agente(out):
         if not out.get("ok"):
             if out.get("mode") != "error" or out.get("error_code") in _SIN_LINEA:
                 return ""
+            sin_red = out.get("error_code") == "connection"
             if (out.get("error_detail") or {}).get("breaker"):     # ni se le preguntó
+                if sin_red:
+                    return _t("decisores.visible.agent_offline_paused", "{s} {m}: sin conexión · "
+                              "reintento solo · decide el agente", s=SIMBOLO, m=m)
                 return _t("decisores.visible.agent_paused", "{s} {m}: en pausa tras un fallo de "
                           "red · decide el agente", s=SIMBOLO, m=m)
+            if sin_red:                  # la red, no el modelo (ni la llave)
+                return _t("decisores.visible.agent_offline", "{s} {m}: sin conexión · decide el "
+                          "agente", s=SIMBOLO, m=m)
             return _t("decisores.visible.agent_failed", "{s} {m}: no respondió · decide el agente",
                       s=SIMBOLO, m=m)
         modo = out.get("mode")
@@ -161,6 +192,8 @@ def linea_seguridad(v):
     o «◆ <modelo>: ve riesgo bajo; el aviso no cambia · 97 % · sugerido» (todo lo
     demás: el decisor puede subir el riesgo, nunca bajarlo). '' en observe o
     apagado."""
+    if not _D().decisores_activos():
+        return ""
     try:
         if not v or v.get("mode") not in ("suggest", "apply"):
             return ""
@@ -183,8 +216,9 @@ def _que(point, c, aplicado, nota=""):
         return (_t("decisores.visible.q_security_apply", "subió el aviso a riesgo alto") if aplicado
                 else _t("decisores.visible.q_security", "ve riesgo {c}; el aviso no cambia", c=c))
     if point == "workspace.evals":
-        return (_t("decisores.visible.q_evals_apply", "tu última sesión quedó «{c}»", c=c) if aplicado
-                else _t("decisores.visible.q_evals", "tu última sesión parece «{c}»", c=c))
+        # nada cambia con la respuesta (solo se anota para la sección Evals):
+        # «parece» en todos los niveles, nunca «quedó» (0.9.1)
+        return _t("decisores.visible.q_evals", "tu última sesión parece «{c}»", c=c)
     if point == "workspace.conversations":
         if c == "solo informa":
             return (_t("decisores.visible.q_conv_info_apply", "lo tomé como aviso: no despertó a nadie")
@@ -209,6 +243,8 @@ def _que(point, c, aplicado, nota=""):
 
 def linea_entrada(e):
     """La línea de una decisión de la bitácora (lo que el agente no vio)."""
+    if not _D().decisores_activos():
+        return ""
     try:
         c = e.get("choice")
         modo = e.get("mode")
@@ -218,58 +254,507 @@ def linea_entrada(e):
         if point == "workspace.security":
             aplicado = aplicado and str(c or "").strip().lower() == "alto"
             modo = "apply" if aplicado else "suggest"
-        que = (_que(point, c, aplicado) if point.startswith("workspace.")
+        nota = ""
+        if point == "workspace.skills":
+            # lo que de verdad pasó con la revisión (resultado), no solo la
+            # opinión: «no amerita» mientras la revisión se pidió igual era
+            # una contradicción (W6, 8-nov)
+            r = e.get("resultado")
+            si = str(c or "").strip().lower() in ("sí", "si", "yes")
+            if r == "frenada":
+                nota = "throttled"
+            elif r in ("pendiente", "entregada") and not si:
+                nota = "delivered"
+        que = (_que(point, c, aplicado, nota=nota) if point.startswith("workspace.")
                else _eleccion(c, _indice(e)))
         return formato(_nombre(e.get("decider")), que, p, modo)
     except Exception:
         return ""
 
 
+# ── (d) «¿pasó?»: qué pasó DESPUÉS de cada decisión (0.9.1) ─────────────────
+#: Cuánto se espera un resultado antes de darlo por no ocurrido (lo que se
+#: comprueba solo) o por no reportado (lo que reporta el agente).
+VENTANA_S = {"workspace.security": 30 * 60, "agents.route": 3600, "c3": 30 * 60,
+             "agents": 24 * 3600}
+
+
+#: Los textos de cada resultado, por idioma (se arman UNA vez: antes eran ~20
+#: búsquedas de i18n por cada fila del Historial — revisor 0.9.1, costo).
+_TEXTOS = {}
+
+
+def _idioma():
+    try:
+        import i18n
+        return i18n.lang()
+    except Exception:
+        return "es"
+
+
+def texto_resultado(r, detalle=None):
+    """El resultado en palabras del socio («skill mejorada», «nota → hecho»…)."""
+    d = " ".join(str(detalle or "").split())
+    if r == "sin_comprobar" and d == "sin_autoria":
+        return _t("decisores.paso.sin_autoria", "sin comprobar: este motor no deja ver quién escribió")
+    lg = _idioma()
+    textos = _TEXTOS.get(lg)
+    if textos is None:
+        textos = _TEXTOS[lg] = _textos_resultado()
+    t = textos.get(r)
+    if t is None:
+        t = str(r or "")
+    t = t.replace("{d}", d or "?")
+    if r in ("skill_creada", "skill_mejorada", "pendiente", "entregada", "no_se_hizo") and d:
+        t += " (%s)" % d
+    return t
+
+
+def _textos_resultado():
+    return {
+        "skill_creada": _t("decisores.paso.skill_creada", "skill creada"),
+        "skill_mejorada": _t("decisores.paso.skill_mejorada", "skill mejorada"),
+        "nada_que_aprender": _t("decisores.paso.nada_que_aprender", "nada que aprender"),
+        "pendiente": _t("decisores.paso.pendiente2", "pendiente"),
+        "entregada": _t("decisores.paso.entregada2", "entregada"),
+        "no_se_hizo": _t("decisores.paso.no_se_hizo", "no se hizo"),
+        "perdida": _t("decisores.paso.perdida", "se perdió"),
+        "frenada": _t("decisores.paso.frenada", "frenada: hubo otra hace poco"),
+        "saltada": _t("decisores.paso.saltada", "revisión saltada"),
+        "vencida": _t("decisores.paso.vencida", "venció sin revisarse"),
+        "sin_comprobar": _t("decisores.paso.sin_comprobar", "sin comprobar"),
+        "frenada_regla": _t("decisores.paso.frenada_regla", "la frenó la regla de 2 h"),
+        "tipo_cambiado": _t("decisores.paso.tipo_cambiado", "nota → {d}"),
+        "archivo_retocado": _t("decisores.paso.archivo_retocado", "archivo retocado"),
+        "pedido_soltado": _t("decisores.paso.pedido_soltado", "no despertó a nadie"),
+        "sala_pausada": _t("decisores.paso.sala_pausada", "sala en pausa"),
+        "sala_cerrada": _t("decisores.paso.sala_cerrada", "sala cerrada"),
+        "usada": _t("decisores.paso.usada", "la usó"),
+        "descartada": _t("decisores.paso.descartada", "la descartó"),
+        "mandado": _t("decisores.paso.mandado", "mandado a {d}"),
+        "se_anota": _t("decisores.paso.se_anota", "se anota"),
+        "opinion": _t("decisores.paso.opinion", "solo una opinión"),
+    }
+
+
+def _t_de(e):
+    try:
+        return float(e.get("t"))
+    except (TypeError, ValueError):
+        try:
+            return time.mktime(time.strptime(str(e.get("ts") or "")[:19], "%Y-%m-%dT%H:%M:%S"))
+        except (ValueError, OverflowError):
+            return None
+
+
+def paso(e, ahora=None):
+    """«¿Pasó?» de una decisión de la bitácora → (clase, texto). clase: «si»
+    (pasó y se comprobó) · «no» (tenía que pasar y no pasó) · «espera»
+    (todavía no se puede saber) · «na» (no había nada que comprobar). ('',
+    '') si no aplica (un fallo, una pregunta a mano). Un resultado anotado
+    manda; si no hay, se deduce SOLO en las decisiones de la 0.9.1 en
+    adelante (`rv`): las de antes dicen «sin dato», nunca «aplicó»."""
+    try:
+        if not isinstance(e, dict) or not e.get("ok"):
+            return "", ""
+        D = _D()
+        point, modo = str(e.get("point") or ""), e.get("mode")
+        if point == D.MANUAL or modo not in ("observe", "suggest", "apply"):
+            return "", ""
+        r = e.get("resultado")
+        if r in D.RESULTADOS:
+            return D.RESULTADOS[r], texto_resultado(r, e.get("resultado_detalle"))
+        if modo == "observe":
+            return "na", _t("decisores.paso.observado", "solo se anotó")
+        if point == "workspace.evals":
+            return "na", texto_resultado("se_anota")
+        if not e.get("rv"):
+            return "na", _t("decisores.paso.sin_dato", "sin dato")
+        ahora = time.time() if ahora is None else float(ahora)
+        t0 = _t_de(e)
+        edad = (ahora - t0) if t0 is not None else 1e12
+        c = " ".join(str(e.get("choice") or "").split()).lower()
+        if point == "workspace.security":
+            if edad < VENTANA_S[point]:
+                return "espera", _t("decisores.paso.espera_archivo", "¿lo retoca?")
+            return "no", _t("decisores.paso.sin_cambios", "sin cambios")
+        if point in D.AGENT_POINTS:
+            vent = VENTANA_S.get(point, VENTANA_S["agents"])
+            if edad < vent:
+                return "espera", _t("decisores.paso.espera_agente", "espera aviso")
+            return "na", _t("decisores.paso.sin_aviso", "sin aviso")
+        if point == "workspace.skills" or (point == "workspace.memory" and modo == "apply"):
+            # su resultado lo anota quien actúa (el hook de la revisión, la
+            # nota guardada); sin él no se adivina
+            return "na", _t("decisores.paso.sin_dato", "sin dato")
+        if point == "workspace.conversations" and c == "sí":
+            if edad < VENTANA_S["c3"]:
+                return "espera", _t("decisores.paso.espera_cierre", "¿la cierra?")
+            return "no", _t("decisores.paso.sigue_abierta", "sigue abierta")
+        return "na", texto_resultado("opinion")
+    except Exception:
+        return "", ""
+
+
+# ── lo que se comprueba después (archivo de estado local, no viaja) ─────────
+#: Una decisión cuyo resultado se ve más tarde: la sala que «parece cumplida»
+#: (¿quien la abrió la cierra?) y el archivo con aviso de Seguridad (¿el
+#: agente lo vuelve a tocar?). Solo huellas: el id de la sala y la huella de
+#: la ruta del archivo, nunca su contenido.
+COMPROBAR_MAX = 200
+
+
+def _comprobar_path():
+    return _dir("por-comprobar.json")
+
+
+def por_comprobar(eid, tipo, clave):
+    """Anota que la decisión `eid` se comprueba después (tipo «c3» con el id
+    de la sala, «seguridad» con la ruta del archivo). Solo con Decisores
+    encendido y un id. Falla-suave."""
+    try:
+        if not eid or not encendido():
+            return False
+        k = _clave(os.path.normcase(str(clave))) if tipo == "seguridad" else str(clave)[:80]
+
+        def anotar(d):
+            d = d if isinstance(d, dict) else {}
+            d[str(eid)] = {"tipo": tipo, "clave": k, "t": round(time.time(), 3)}
+            if len(d) > COMPROBAR_MAX:
+                for x, _v in sorted(d.items(), key=lambda kv: kv[1].get("t", 0))[:len(d) - COMPROBAR_MAX]:
+                    d.pop(x, None)
+            return d
+        return _D()._actualizar_estado(_comprobar_path(), anotar)
+    except Exception:
+        return False
+
+
+def _comprobado(tipo, clave, resultado, ventana):
+    """Anota `resultado` en las decisiones de `tipo` con esa `clave` que aún
+    estaban dentro de su ventana, y las quita. Sin el archivo (Decisores
+    apagado, o nada por comprobar): no lee ni escribe nada más."""
+    path = _comprobar_path()
+    if not os.path.exists(path):
+        return []
+    hechos = []
+
+    def ver(d):
+        if not isinstance(d, dict):
+            return None
+        ahora = time.time()
+        cambio = False
+        for eid, v in list(d.items()):
+            if not isinstance(v, dict):
+                d.pop(eid, None)
+                cambio = True
+                continue
+            edad = ahora - float(v.get("t") or 0)
+            if edad > ventana:
+                d.pop(eid, None)                # su ventana pasó: «¿pasó?» lo deduce
+                cambio = True
+            elif v.get("tipo") == tipo and v.get("clave") == clave and edad > 1:
+                hechos.append(eid)
+                d.pop(eid, None)
+                cambio = True
+        return d if cambio else None
+    try:
+        _D()._actualizar_estado(path, ver)
+        for eid in hechos:
+            _D().record_result(eid, resultado)
+    except Exception:
+        return []
+    return hechos
+
+
+def archivo_editado(file_path):
+    """Seguridad: el agente volvió a escribir `file_path`. Si tenía un aviso
+    en los últimos 30 min, su decisión queda «archivo retocado». Barato:
+    sin nada por comprobar, solo un `exists`."""
+    try:
+        if not file_path:
+            return []
+        return _comprobado("seguridad", _clave(os.path.normcase(str(file_path))),
+                           "archivo_retocado", VENTANA_S["workspace.security"])
+    except Exception:
+        return []
+
+
+def sala_cerrada(sala_id):
+    """Conversaciones: quien abrió la sala la cerró. Las «parece cumplido» de
+    esa sala en los últimos 30 min quedan «sala cerrada»."""
+    try:
+        return _comprobado("c3", str(sala_id)[:80], "sala_cerrada", VENTANA_S["c3"])
+    except Exception:
+        return []
+
+
+def _destino_reparto(destino):
+    """Referencia local estable: nunca el índice opaco agente·N del modelo."""
+    agente, sep, pestana = str(destino).strip().partition(":")
+    agente = agente.lower()
+    if not sep:
+        return agente
+    try:
+        import agentsreg
+        import messages
+        brain = next((a.get("brain") for a in agentsreg.agents()
+                      if str(a.get("name") or "").lower() == agente), "")
+        estable, _nombre, _aviso = messages.resolver_pestana(brain, agente, pestana)
+        if estable:
+            pestana = estable
+    except Exception:
+        pass
+    return agente + ":" + " ".join(pestana.split()).lower()
+
+
+def guardar_destino_reparto(eid, destino):
+    """Guarda solo la huella del destino elegido, fuera de la bitácora."""
+    try:
+        if not eid or not encendido():
+            return False
+        huella = _clave(_destino_reparto(destino))
+        def guardar(d):
+            d = d if isinstance(d, dict) else {}
+            d[eid] = {"destino": huella, "t": time.time()}
+            for k in sorted(d, key=lambda k: float(d[k].get("t") or 0))[:-COMPROBAR_MAX]:
+                d.pop(k, None)
+            return d
+        return _D()._actualizar_estado(_dir("repartos.json"), guardar)
+    except Exception:
+        return False
+
+
+def tras_mandar(destinos):
+    """Repartir: esta pestaña le mandó algo (un mensaje del bus, una sala) a
+    `destinos` (agentes o «agente:pestaña»). Las decisiones de «Repartir» de
+    la última hora, de ESTA pestaña, sin resultado y cuyo elegido es uno de
+    ellos quedan «mandado a <elegido>». Apagado: nada."""
+    try:
+        if not destinos or not encendido():
+            return []
+        D = _D()
+        quien = {str(x).strip().lower() for x in destinos if str(x).strip()}
+        referencias = {_clave(_destino_reparto(x)) for x in quien}
+        agentes = {x.split(":", 1)[0] for x in quien}
+        elegidos = _leer_json(_dir("repartos.json")) or {}
+        tab, cerebro = lugar_actual()
+        ahora = time.time()
+        hechos = []
+        for e in D._entries():
+            if (e.get("point") != "agents.route" or not e.get("ok") or e.get("resultado")
+                    or e.get("mode") not in ("suggest", "apply")
+                    or (e.get("tab") or "") != tab or (e.get("cerebro") or "") != cerebro):
+                continue
+            t0 = _t_de(e)
+            if t0 is None or ahora - t0 > VENTANA_S["agents.route"]:
+                continue
+            c = " ".join(str(e.get("choice") or "").split()).lower()
+            referencia = (elegidos.get(e["id"]) or {}).get("destino")
+            # Las decisiones antiguas sin referencia de pestaña no demuestran
+            # un envío a ella. Un agente sin pestaña sí permite cualquier tab.
+            coincide = (referencia in referencias if ":" in c or "·" in c else c in agentes)
+            if coincide:
+                if D.record_result(e["id"], "mandado", detalle=c.split("·", 1)[0]):
+                    hechos.append(e["id"])
+        return hechos
+    except Exception:
+        return []
+
+
+# ── el resumen honesto de hoy (Historial, ventanita y la portada) ───────────
+#: Las cifras que se cuentan como «pasó», en este orden: (resultado, uno, varios).
+_RESUMEN = (
+    ("skill_creada", "decisores.hoy.skill_creada", "{n} skill creada", "{n} skills creadas"),
+    ("skill_mejorada", "decisores.hoy.skill_mejorada", "{n} skill mejorada", "{n} skills mejoradas"),
+    ("nada_que_aprender", "decisores.hoy.nada_que_aprender", "{n} revisión sin cambios",
+     "{n} revisiones sin cambios"),
+    ("saltada", "decisores.hoy.saltada", "{n} revisión saltada", "{n} revisiones saltadas"),
+    ("tipo_cambiado", "decisores.hoy.tipo_cambiado", "{n} nota con su tipo", "{n} notas con su tipo"),
+    ("archivo_retocado", "decisores.hoy.archivo_retocado", "{n} aviso atendido",
+     "{n} avisos atendidos"),
+    ("mandado", "decisores.hoy.mandado", "{n} tarea repartida", "{n} tareas repartidas"),
+    ("usada", "decisores.hoy.usada", "{n} respuesta usada", "{n} respuestas usadas"),
+    ("pedido_soltado", "decisores.hoy.pedido_soltado", "{n} despertar evitado",
+     "{n} despertares evitados"),
+    ("sala_pausada", "decisores.hoy.sala_pausada", "{n} sala en pausa", "{n} salas en pausa"),
+    ("sala_cerrada", "decisores.hoy.sala_cerrada", "{n} sala cerrada", "{n} salas cerradas"),
+)
+
+
+def cifra(r, n):
+    """«1 nota con su tipo», «2 skills mejoradas»…: n resultados `r` en palabras."""
+    for res, key, uno, varios in _RESUMEN:
+        if res == r:
+            return _t(key + (".one" if n == 1 else ".many"), uno if n == 1 else varios, n=n)
+    return "%d %s" % (n, texto_resultado(r))
+
+
+def etiqueta_resultado(r):
+    """El nombre de una cifra del resumen, sin el número («notas con su tipo»)
+    — lo que dice el filtro del Historial."""
+    for res, key, _uno, varios in _RESUMEN:
+        if res == r:
+            return " ".join(_t(key + ".many", varios, n="").split())
+    return texto_resultado(r)
+
+
+def _de_hoy(e, dia):
+    """¿Cuenta para hoy? Un resultado, por el día en que se comprobó; lo
+    demás, por el día de la decisión."""
+    t = e.get("resultado_t") if e.get("resultado") else None
+    if t:
+        try:
+            return time.strftime("%Y-%m-%d", time.localtime(float(t))) == dia
+        except (TypeError, ValueError, OverflowError):
+            pass
+    return str(e.get("ts") or "").startswith(dia)
+
+
+_RESUMEN_CACHE = {"k": None, "v": None}
+
+
+def resumen_hoy(ahora=None):
+    """(cacheado) ver _resumen_hoy: misma firma de la bitácora, mismo minuto y
+    mismo idioma → la misma respuesta (el hub lo pide cada 5 s)."""
+    try:
+        if not encendido():
+            return []
+        D = _D()
+        D._entries()                                  # refresca la firma si cambió
+        t = time.time() if ahora is None else float(ahora)
+        k = (D._CACHE.get("key"), int(t // 60), _idioma())
+        if ahora is None and _RESUMEN_CACHE["k"] == k and _RESUMEN_CACHE["v"] is not None:
+            return [dict(x) for x in _RESUMEN_CACHE["v"]]
+        v = _resumen_hoy(ahora)
+        if ahora is None:
+            _RESUMEN_CACHE.update(k=k, v=v)
+        return [dict(x) for x in v]
+    except Exception:
+        return []
+
+
+def _resumen_hoy(ahora=None):
+    """Las cifras de HOY, hechas SOLO con «¿pasó?» (nunca con decisiones
+    sueltas) → [{"texto", "clase", "filtro"}]: primero lo que pasó (clase
+    «si»), luego lo que espera, lo que no pasó y las opiniones. Sin nada que
+    haya pasado: «nada aplicado (N opiniones)». [] con Decisores apagado (la
+    portada queda igual)."""
+    try:
+        if not encendido():
+            return []
+        ahora = time.time() if ahora is None else float(ahora)
+        dia = time.strftime("%Y-%m-%d", time.localtime(ahora))
+        D = _D()
+        cuenta, clases = {}, {"espera": 0, "no": 0, "na": 0}
+        total = 0
+        for e in D._entries():
+            if not e.get("ok") or e.get("point") == D.MANUAL or not _de_hoy(e, dia):
+                continue
+            clase, _txt = paso(e, ahora)
+            if not clase:
+                continue
+            total += 1
+            if clase == "si":
+                cuenta[e.get("resultado")] = cuenta.get(e.get("resultado"), 0) + 1
+            else:
+                clases[clase] += 1
+        out = []
+        for r, key, uno, varios in _RESUMEN:
+            n = cuenta.get(r, 0)
+            if n:
+                out.append({"texto": _t(key + (".one" if n == 1 else ".many"),
+                                        uno if n == 1 else varios, n=n),
+                            "clase": "si", "filtro": {"resultado": r, "hoy": True}})
+        if not out:
+            if not total:
+                return [{"texto": _t("decisores.hoy.nada_todavia", "nada todavía"), "clase": "na",
+                         "filtro": None}]
+            return [{"texto": _t("decisores.hoy.nada_aplicado", "nada aplicado ({n} {o})",
+                                 n=clases["na"] + clases["espera"] + clases["no"],
+                                 o=_plural(clases["na"] + clases["espera"] + clases["no"],
+                                           _t("decisores.hoy.opinion", "opinión"),
+                                           _t("decisores.hoy.opiniones", "opiniones"))),
+                     "clase": "na", "filtro": {"hoy": True}}]
+        for clase, key, uno, varios in (
+                ("espera", "decisores.hoy.espera", "{n} por comprobar", "{n} por comprobar"),
+                ("no", "decisores.hoy.no", "{n} no pasó", "{n} no pasaron"),
+                ("na", "decisores.hoy.na", "{n} opinión", "{n} opiniones")):
+            n = clases[clase]
+            if n:
+                out.append({"texto": _t(key + (".one" if n == 1 else ".many"),
+                                        uno if n == 1 else varios, n=n),
+                            "clase": clase, "filtro": {"paso": clase, "hoy": True}})
+        return out
+    except Exception:
+        return []
+
+
+def linea_resumen(items=None, etiqueta=True):
+    """«◆ Decisores hoy: 1 skill mejorada · 1 nota con su tipo» (texto plano). ''
+    si no hay cifras (Decisores apagado)."""
+    items = resumen_hoy() if items is None else items
+    if not items:
+        return ""
+    cuerpo = " · ".join(x["texto"] for x in items)
+    if not etiqueta:
+        return cuerpo
+    return _t("decisores.hoy.linea", "{s} Decisores hoy: {c}", s=SIMBOLO, c=cuerpo)
+
+
+def filtrar(entradas, filtro, ahora=None):
+    """Las decisiones que caben en `filtro` ({"resultado"|"paso"|"point", "hoy"})."""
+    if not filtro:
+        return list(entradas)
+    ahora = time.time() if ahora is None else float(ahora)
+    dia = time.strftime("%Y-%m-%d", time.localtime(ahora))
+    out = []
+    for e in entradas:
+        if filtro.get("hoy") and not _de_hoy(e, dia):
+            continue
+        if filtro.get("point") and e.get("point") != filtro["point"]:
+            continue
+        if filtro.get("resultado") and e.get("resultado") != filtro["resultado"]:
+            continue
+        if filtro.get("paso") and paso(e, ahora)[0] != filtro["paso"]:
+            continue
+        out.append(e)
+    return out
+
+
 # ── (d) Historial: qué cambió cada decisión ─────────────────────────────────
 def efecto(e, corto=False):
-    """Lo que hizo una decisión de la bitácora, en palabras cortas (cabe junto
-    al «¿acertó?» del Historial): «aplicó: nota → hecho», «aplicó: aviso subió
-    a alto», «el agente recibió opción B», «sugirió «hecho»», «observó · no
-    cambió nada». `corto` = el cambio de una APLICADA, para la fila («nota →
-    hecho», «aviso → alto», «al agente: opción B»); '' si no aplicó. '' si no
-    aplica (un fallo, una pregunta a mano)."""
+    """Lo que hizo una decisión de la bitácora Y lo que pasó después, en
+    palabras cortas (cabe junto al «¿acertó?» del Historial): «decidió «sí» ·
+    pasó: skill mejorada», «sugirió «hecho»», «observó · no cambia nada».
+    Nunca «aplicó» sin un resultado comprobado (0.9.1: el Historial decía
+    «revisión entregada» cuando el piso la frenaba). `corto` = lo que PASÓ de
+    verdad, para la fila («nota → hecho»); '' si no hay nada comprobado. ''
+    si no aplica (un fallo, una pregunta a mano)."""
     try:
         if not isinstance(e, dict) or not e.get("ok"):
             return ""
-        modo, point = e.get("mode"), str(e.get("point") or "")
-        c = " ".join(str(e.get("choice") or "").split())
-        si = c.lower() in ("sí", "si", "yes")
+        modo = e.get("mode")
+        clase, txt = paso(e)
         if corto:
-            if modo != "apply":
-                return ""
-            return {"workspace.memory": _t("decisores.visible.row_memory", "nota → {c}", c=c),
-                    "workspace.security": _t("decisores.visible.row_security", "aviso → alto"),
-                    "workspace.evals": _t("decisores.visible.row_evals", "sesión → {c}", c=c),
-                    "workspace.conversations": _t("decisores.visible.row_conv", "sala → {c}", c=c),
-                    "workspace.skills": (_t("decisores.visible.row_skills_yes", "revisión entregada")
-                                         if si else
-                                         _t("decisores.visible.row_skills_no", "revisión omitida")),
-                    }.get(point) or _t("decisores.visible.row_agent", "al agente: {c}",
-                                       c=_eleccion(c, _indice(e), tope=9))
+            return txt if clase == "si" else ""
+        c = " ".join(str(e.get("choice") or "").split())
         if modo == "observe":
-            return _t("decisores.visible.fx_observe", "observó · no cambió nada")
-        if modo == "suggest":
-            return _t("decisores.visible.fx_suggest", "sugirió «{c}»", c=_eleccion(c, _indice(e), tope=24))
-        if modo != "apply":
+            que = _t("decisores.visible.fx_observe", "observó · no cambia nada")
+        elif modo == "suggest":
+            que = _t("decisores.visible.fx_suggest", "sugirió «{c}»", c=_eleccion(c, _indice(e), tope=24))
+        elif modo == "apply":
+            que = _t("decisores.visible.fx_apply", "decidió «{c}»", c=_eleccion(c, _indice(e), tope=24))
+        else:
             return ""
-        if point == "workspace.memory":
-            return _t("decisores.visible.fx_memory", "aplicó: nota → {c}", c=c)
-        if point == "workspace.security":
-            return _t("decisores.visible.fx_security", "aplicó: aviso subió a alto")
-        if point == "workspace.evals":
-            return _t("decisores.visible.fx_evals", "aplicó: sesión «{c}»", c=c)
-        if point == "workspace.conversations":
-            return _t("decisores.visible.fx_conv", "aplicó: sala «{c}»", c=c)
-        if point == "workspace.skills":
-            return (_t("decisores.visible.fx_skills_yes", "aplicó: revisión entregada") if si else
-                    _t("decisores.visible.fx_skills_no", "aplicó: revisión omitida"))
-        return _t("decisores.visible.fx_agent", "el agente recibió {c}",
-                  c=_eleccion(c, _indice(e), tope=24) if len(c) > 24 else "«%s»" % c)
+        if clase == "si":
+            que += " · " + _t("decisores.visible.fx_paso_si", "pasó: {t}", t=txt)
+        elif clase == "no":
+            que += " · " + _t("decisores.visible.fx_paso_no", "no pasó: {t}", t=txt)
+        elif clase == "espera":
+            que += " · " + _t("decisores.visible.fx_paso_espera", "espera: {t}", t=txt)
+        elif clase == "na" and modo != "observe" and txt != texto_resultado("opinion"):
+            que += " · " + txt
+        return que
     except Exception:
         return ""
 
@@ -301,7 +786,7 @@ def hoy(ahora=None):
     """{"n", "apply", "suggest", "mas"} de HOY (hora local), de la cola de la
     bitácora. `mas` = la cola no alcanzó (hubo más). Barato: sin caché, para
     un proceso nuevo en cada refresco de la barra."""
-    res = {"n": 0, "apply": 0, "suggest": 0, "mas": False}
+    res = {"n": 0, "apply": 0, "suggest": 0, "pasaron": 0, "mas": False}
     try:
         dia = time.strftime("%Y-%m-%d", time.localtime(ahora) if ahora else time.localtime())
         path = _D().ledger_path()
@@ -314,7 +799,21 @@ def hoy(ahora=None):
         if desde > 0 and lineas:
             lineas = lineas[1:]
         primera = None
+        si = {k for k, v in _D().RESULTADOS.items() if v == "si"}
+        pasaron, ids = set(), set()
         for ln in lineas:
+            if '"resultado"' in ln and '"decision"' not in ln:
+                try:
+                    r = json.loads(ln)
+                except ValueError:
+                    continue
+                if (isinstance(r, dict) and r.get("type") == "resultado"
+                        and str(r.get("ts") or "").startswith(dia)):
+                    if r.get("resultado") in si:
+                        pasaron.add(r.get("ref"))
+                    else:
+                        pasaron.discard(r.get("ref"))      # el último resultado gana
+                continue
             if '"decision"' not in ln:
                 continue
             try:
@@ -329,10 +828,12 @@ def hoy(ahora=None):
             if not ts.startswith(dia):
                 continue
             res["n"] += 1
+            ids.add(e.get("id"))
             if e.get("mode") == "apply":
                 res["apply"] += 1
             elif e.get("mode") == "suggest":
                 res["suggest"] += 1
+        res["pasaron"] = len(pasaron & ids)
         res["mas"] = bool(desde > 0 and primera and primera.startswith(dia))
     except Exception:
         pass
@@ -344,20 +845,18 @@ def _plural(n, uno, varios):
 
 
 def linea_hoy(ahora=None):
-    """Historial: «hoy: 7 consultas · 1 aplicada · 3 sugeridas». '' apagado."""
+    """«hoy: 7 consultas · 2 pasaron» (lo que PASÓ, comprobado; nunca «aplicadas»
+    por el nivel). '' apagado."""
     try:
         if not encendido():
             return ""
         h = hoy(ahora)
         n = "%d%s" % (h["n"], "+" if h["mas"] else "")
-        return _t("decisores.visible.today", "hoy: {n} {c} · {a} {ap} · {s} {sg}", n=n,
+        return _t("decisores.visible.today2", "hoy: {n} {c} · {a} {ap}", n=n,
                   c=_plural(h["n"], _t("decisores.visible.query", "consulta"),
                             _t("decisores.visible.queries", "consultas")),
-                  a=h["apply"], ap=_plural(h["apply"], _t("decisores.visible.applied_one", "aplicada"),
-                                           _t("decisores.visible.applied_many", "aplicadas")),
-                  s=h["suggest"], sg=_plural(h["suggest"],
-                                             _t("decisores.visible.suggested_one", "sugerida"),
-                                             _t("decisores.visible.suggested_many", "sugeridas")))
+                  a=h["pasaron"], ap=_plural(h["pasaron"], _t("decisores.visible.passed_one", "pasó"),
+                                             _t("decisores.visible.passed_many", "pasaron")))
     except Exception:
         return ""
 
@@ -372,11 +871,13 @@ def segmento_hoy(ahora=None):
         h = hoy(ahora)
         m = _t("decisores.visible.all_models", "Decisores")
         n = "%d%s" % (h["n"], "+" if h["mas"] else "")
-        if h["apply"]:
-            return _t("decisores.visible.bar_applied", "{s} {m}: hoy {n} · {a} {ap}", s=SIMBOLO, m=m,
-                      n=n, a=h["apply"],
-                      ap=_plural(h["apply"], _t("decisores.visible.applied_one", "aplicada"),
-                                 _t("decisores.visible.applied_many", "aplicadas")))
+        if h["pasaron"]:
+            # solo lo que PASÓ de verdad (un resultado comprobado), nunca el
+            # nivel: «aplicada» contaba decisiones que no cambiaron nada (0.9.1)
+            return _t("decisores.visible.bar_passed", "{s} {m}: hoy {n} · {a} {ap}", s=SIMBOLO, m=m,
+                      n=n, a=h["pasaron"],
+                      ap=_plural(h["pasaron"], _t("decisores.visible.passed_one", "pasó"),
+                                 _t("decisores.visible.passed_many", "pasaron")))
         return _t("decisores.visible.bar", "{s} {m}: hoy {n}", s=SIMBOLO, m=m, n=n)
     except Exception:
         return ""
@@ -432,6 +933,8 @@ def anotar_cierre(brain, point, v, sesion="", tab="", nota=""):
     abrir la siguiente sesión de ese cerebro (al agente y en el hub). Solo
     suggest/apply (observe es en silencio). Los usos de un mismo cierre se
     juntan por `sesion`. → True si quedó anotado."""
+    if not _D().decisores_activos():
+        return False
     try:
         if not brain or not isinstance(v, dict) or v.get("mode") not in ("suggest", "apply"):
             return False
@@ -464,7 +967,7 @@ def _uso_ultima(point, u):
 
 def linea_ultima(brain, canal):
     """AL ABRIR, una línea por uso (con el modelo que respondió en cada uno):
-    «◆ <modelo>: tu última sesión quedó «resuelta»
+    «◆ <modelo>: tu última sesión parece «resuelta»
     · 88 % · aplicado» — UNA vez por canal («agente»: el contexto de arranque,
     con el pedido de mostrarlo en su primera respuesta; «hub»: el aviso del
     hub). '' si no hay, ya se vio o Decisores está apagado."""
@@ -566,6 +1069,8 @@ def cambio_en_sesion(sesion, motor="claude-code"):
     UNA vez — la instrucción nueva, o que ya no consulte si se apagaron — y
     queda como nueva base. '' si nada cambió (apagado de punta a punta: ni un
     archivo)."""
+    if not _D().decisores_activos():
+        return ""
     try:
         if not sesion:
             return ""
@@ -741,14 +1246,33 @@ def _nuevo_vigente(ahora):
         return False
 
 
+def modelo_que_decide():
+    """El nombre del modelo que DE VERDAD decide en los usos encendidos (#3:
+    arriba decía el general y cada uso tenía fijado otro): «Jev»; con
+    varios, el de más usos y «+N»; sin usos encendidos, el general."""
+    try:
+        D = _D()
+        deciden = D.modelos_que_deciden()
+        if not deciden:
+            g = D.global_model()
+            return D.decider_label(g) if g != D.OFF else ""
+        orden = sorted(deciden.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+        nom = D.decider_label(orden[0][0])
+        return nom + (" +%d" % (len(orden) - 1) if len(orden) > 1 else "")
+    except Exception:
+        return ""
+
+
 def boton_hub(ahora=None):
     """Los datos de la fila de Decisores de la portada:
         {"activo": id del modelo general u «off», "modelo": su nombre (META
-         label, jamás uno fijo), "estado": listo · sin_llave · no_listo · pausa ('' sin
+         label, jamás uno fijo), "estado": listo · sin_llave · no_listo · sin_red · pausa ('' sin
          modelo), "listos": [(id, nombre)] de los modelos LISTOS que se ven
          (←→ cicla entre ellos y «apagado»), "configurado": hay modelo activo
          o alguno listo, "nuevo": el «nuevo» va (sin nada configurado), "usos"}
     `ahora` (epoch) es para las pruebas. None si Decisores no carga (sin fila)."""
+    if not _D().decisores_activos():
+        return None
     try:
         D = _D()
         ahora = time.time() if ahora is None else float(ahora)
@@ -769,11 +1293,14 @@ def boton_hub(ahora=None):
             estado = "sin_llave"
         elif not D.decider_status(g).get("ready"):
             estado = "no_listo"           # uno local: Ollama apagado, sin modelo…
+        elif sin_conexion(g):
+            estado = "sin_red"            # sin internet: la llave y el modelo siguen bien
         elif D.breaker_open(g):
             estado = "pausa"
         else:
             estado = "listo"
-        return {"activo": g, "modelo": D.decider_label(g), "estado": estado, "listos": listos,
-                "configurado": True, "nuevo": False, "usos": usos}
+        return {"activo": g, "modelo": modelo_que_decide(), "estado": estado, "listos": listos,
+                "configurado": True, "nuevo": False, "usos": usos,
+                "propios": len(D.usos_con_modelo_propio())}
     except Exception:
         return None

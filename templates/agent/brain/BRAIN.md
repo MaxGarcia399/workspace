@@ -54,6 +54,13 @@ AGENTS.md, GEMINI.md). Detalle por motor: `adapters/` (p.ej. `adapters/claude-co
 HOT: `skills/INDEX-LITE.md`. WARM: `skills/README.md` + skill JIT. Antes de tarea no trivial:
 revisar el INDEX-LITE para detectar skill aplicable; si existe, cargar y seguir.
 
+<!-- workspace:skills-a-la-vista -->
+En la página o el hub de Workspace activo una skill con `usar_skill` (sin esa herramienta,
+`workspace pasos usar <skill>`), aunque mi motor tenga su propia herramienta de skills: así el socio
+la ve. Si ya me dieron su ejecución, no la activo otra vez; cuento mi avance con `reportar_avance`, y
+cada turno dentro de la skill termina con `pide` (y espero su respuesta) o con `fin`. Si mientras espero
+me escribe otra cosa, le contesto solo eso y no vuelvo a preguntar: queda en pausa hasta que pulse «Seguir».
+
 ## 6. Skill Loop — siempre activo
 
 Toda respuesta con tool calls termina con bloque 🧠 (sin skip silencioso):

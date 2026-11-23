@@ -33,7 +33,7 @@ suggested action.
 | Symptom | What to do |
 |---|---|
 | `workspace` doesn't exist after installing | open a **new terminal**; if it persists, run the installer again |
-| The menu looks misaligned | make the window bigger; on Windows use Windows Terminal |
+| The hub looks misaligned | make the window bigger; on Windows use Windows Terminal |
 | An agent can't find its brain | `workspace doctor` tells you where it looked and how to point it to the right folder |
 | The doctor says an engine's CLI is missing | install its official program and log in ([Engines](engines.md)) |
 | You moved or reinstalled Workspace and an agent fails to open | `workspace doctor` points its *hooks* back to this install |

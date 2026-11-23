@@ -1,0 +1,189 @@
+/* ===== skills v11 · el proceso de una skill (P-1, 60_skills.js · construirProceso), la barra sobre la caja, las marcas del
+   chat y la pregunta por la caja de escribir (Q-2, 55_caja.js). Medido en Prototipo_Skills_v11.html ===== */
+.bt5{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 11px;border-radius:8px;border:1px solid #33333a;font-size:12.5px;font-weight:600;color:var(--tx2);white-space:nowrap;transition:background-color .15s,border-color .15s,color .15s,transform .12s ease-out}
+.bt5:hover{color:var(--tx);border-color:#45454d;background:#232328}
+.bt5.ac{border-color:transparent;background:#2c2c33;color:var(--tx)}
+.bt5.ac:hover{background:#36363e}
+.bt5:active{transform:scale(.95)}
+/* ---------- el proceso: una tarjeta tranquila; arriba camina el monito ---------- */
+.pr3{padding:46px 16px 16px}
+.p1v{display:flex;flex-direction:column;min-height:100%}
+.hero3{position:relative;border-radius:14px;padding:13px 14px 12px 16px;background:#1d1d21;border:1px solid var(--borde)}
+.h5{display:flex;align-items:center;gap:8px}
+.h5 .emb7{margin-right:2px}
+.nm5{flex:1;min-width:0;font-size:15px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ic5{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;color:var(--tx3);margin:-4px -6px -4px 0;flex:none;transition:color .15s,background-color .15s,transform .12s ease-out}
+.ic5:hover{color:var(--tx);background:#26262c}
+.ic5:active{transform:scale(.92)}
+.pista3{height:3px;border-radius:2px;background:#2a2a30;margin:11px 0 12px;overflow:hidden}
+.pista3 i{display:block;height:100%;border-radius:2px;background:var(--ac);transition:width .8s var(--ease),background-color .4s}
+.hero3.fin .pista3 i{background:var(--ok)}
+.pasos3{list-style:none;display:flex;flex-direction:column;gap:1px;margin:0;padding:0}
+.pasos3 li{display:flex;gap:10px;align-items:flex-start;padding:4px 0;margin:0;background:none;border-radius:0;font-size:13.5px;color:var(--tx3);transition:color .35s}
+.pasos3 .mk{flex:none;width:14px;height:20px;display:grid;place-items:center;color:var(--tx3);font-style:normal}
+.pasos3 li.luego .mk::after{content:"";width:7px;height:7px;border-radius:50%;box-shadow:inset 0 0 0 1.5px #4a4a52}
+.pasos3 li.ahora .mk::after{content:"";width:7px;height:7px;border-radius:50%;background:var(--ac);animation:pulso3 1.6s ease-in-out infinite}
+.pasos3 li.hecho{color:var(--tx2)}
+.pasos3 li.ahora{color:var(--tx)}
+.pasos3 .tx{flex:1;min-width:0;line-height:20px}
+.pasos3 .vv{font-size:12.5px;line-height:18px;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pasos3 .vv:empty{display:none}
+@keyframes pulso3{0%,100%{opacity:1}50%{opacity:.35}}
+/* el paso en pausa: un aro que late y «Necesita tu respuesta»; el reloj se detiene */
+.pasos3 li.pide{color:var(--tx)}
+.pasos3 li.pide .mk::after{content:"";width:9px;height:9px;border-radius:50%;box-shadow:inset 0 0 0 2px var(--ac);animation:pausa10 2.2s ease-in-out infinite}
+.pasos3 li.pide .vv{color:color-mix(in srgb,var(--ac) 62%,#ededf0);font-weight:600}
+/* skills-cierre: el paso donde se detuvo (sin «fin»): quieto, sin latido */
+.pasos3 li.pausa{color:var(--tx)}
+.pasos3 li.pausa .mk::after{content:"";width:8px;height:8px;border-radius:2px;background:#6a6a73}
+.pasos3 li.pausa .vv{color:var(--tx2);font-weight:600}
+.pie5 .pausa6{flex:1;display:flex;align-items:center;gap:7px;font-size:13px;color:var(--tx2);min-width:0}
+.pie5 .pausa6 span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@keyframes pausa10{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.82)}}
+/* el aviso bajo la tarjeta: «Esperando tu respuesta abajo ↓» */
+.pq10{display:grid;grid-template-rows:0fr;transition:grid-template-rows .45s var(--ease),margin-top .45s var(--ease),opacity .3s;margin-top:0;opacity:0}
+.pq10.on{grid-template-rows:1fr;margin-top:12px;opacity:1}
+.pq10>div{overflow:hidden}
+.esp10{display:flex;align-items:center;gap:9px;width:100%;padding:12px 14px;border-radius:12px;background:#1d1d21;border:1px dashed color-mix(in srgb,var(--ac) 45%,#33333a);font-size:13px;color:var(--tx2);text-align:left;transition:border-color .2s,color .2s}
+.esp10:hover{color:var(--tx);border-color:var(--ac)}
+.esp10 svg{color:var(--ac);flex:none;margin-left:auto}
+.lb6{display:flex;justify-content:space-between;align-items:baseline;margin:20px 4px 8px;font-size:11px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--tx3)}
+/* lo que va haciendo: las últimas líneas, la más nueva resaltada */
+.feed6{display:flex;flex-direction:column;gap:1px}
+.feed6 div{display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:8px;font-size:13px;color:var(--tx3);max-height:34px;overflow:hidden}
+.feed6 div i{width:6px;height:6px;border-radius:50%;background:#3d3d45;flex:none}
+.feed6 div span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.feed6 div small{flex:none;font-size:11.5px;color:#5c5c66;font-variant-numeric:tabular-nums}
+.feed6 div.uno{background:rgba(255,255,255,.035);color:var(--tx)}
+.feed6 div.uno i{background:var(--ac)}
+.feed6 div.nuevo{animation:feed6 .55s var(--ease)}
+@keyframes feed6{from{opacity:0;max-height:0;padding-top:0;padding-bottom:0}}
+.feed6 div.tu{color:var(--tx)}
+.feed6 div.tu span b{font-weight:600;color:var(--tx3);margin-right:5px}
+.feed6 div.tu i{background:var(--tx2)}
+/* el resultado: una página chiquita que se arma (esqueleto con brillo suave) y al final toma color */
+.res8{padding:10px;border-radius:14px;background:#1d1d21;border:1px solid var(--borde)}
+.mini8{position:relative;height:96px;border-radius:9px;background:#232328;overflow:hidden;display:flex;flex-direction:column}
+.mini8 .bar8{flex:none;height:14px;display:flex;align-items:center;padding:0 7px;background:#26262c}
+.mini8 .bar8 i{width:38%;height:5px;border-radius:3px;background:#34343b}
+.mini8 .pg8{flex:1;display:grid;grid-template-columns:1.1fr 1fr;grid-template-rows:auto auto 1fr;gap:5px 8px;padding:8px 10px 9px}
+.mini8 .pg8 i{display:block}
+.mini8 .pg8 .tl{grid-column:1/-1;height:7px;width:62%;border-radius:3px;background:#3a3a42;transition:background-color .6s}
+.mini8 .pg8 .st{grid-column:1/-1;height:4px;width:40%;border-radius:2px;background:#33333a}
+.mini8 .pg8 .im{border-radius:5px;background:#2d2d34;transition:background-color .6s}
+.mini8 .pg8 .tx{display:flex;flex-direction:column;gap:5px;padding-top:2px}
+.mini8 .pg8 .tx i{height:3px;border-radius:2px;background:#34343b}
+.mini8 .pg8 .tx i:nth-child(2){width:84%}.mini8 .pg8 .tx i:nth-child(4){width:58%}
+.mini8::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent 35%,rgba(255,255,255,.055) 50%,transparent 65%);transform:translateX(-100%);animation:barre8 1.9s ease-in-out infinite}
+@keyframes barre8{to{transform:translateX(100%)}}
+.res8.on .mini8::after{display:none}
+.res8.on .mini8 .pg8 .tl{background:color-mix(in srgb,var(--ac) 55%,#3a3a42)}
+.res8.on .mini8 .pg8 .im{background:color-mix(in srgb,var(--ac) 22%,#2d2d34)}
+.ro8{display:flex;align-items:center;gap:10px;margin-top:10px;padding:0 2px}
+.ro8 .tt6{flex:1;min-width:0}
+.ro8 b{display:block;font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ro8 small{display:block;font-size:12px;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt8p{flex:none;height:32px;padding:0 16px;border-radius:9px;background:var(--ac);color:var(--acx);font-size:13px;font-weight:650;transition:filter .15s,transform .12s ease-out}
+.bt8p:hover{filter:brightness(1.07)}
+.bt8p:active{transform:scale(.95)}
+/* «Qué hace esta skill», plegado */
+.qh6{display:flex;align-items:center;gap:8px;width:100%;margin-top:16px;padding:10px 4px;border-top:1px solid #222227;font-size:13px;font-weight:600;color:var(--tx2);text-align:left;transition:color .15s}
+.qh6:hover{color:var(--tx)}
+.qh6 .fl{margin-left:auto;display:inline-flex;transition:transform .3s var(--ease);color:var(--tx3)}
+.qh6.on .fl{transform:rotate(180deg)}
+.qb6{display:grid;grid-template-rows:0fr;transition:grid-template-rows .4s var(--ease)}
+.qb6.on{grid-template-rows:1fr}
+.qb6>div{overflow:hidden}
+.qb6 p{font-size:13px;line-height:1.55;color:var(--tx2);padding:0 6px}
+.qb6 .meta3{padding:6px 6px 4px}
+.pie5{display:flex;align-items:center;justify-content:flex-end;gap:6px;margin-top:10px;padding-top:11px;border-top:1px solid #26262b}
+.pie5.suelto{border-top:0;margin-top:auto;padding-top:16px}
+.pie5 .hecho6{flex:1;display:flex;align-items:center;gap:7px;font-size:13px;color:var(--tx2)}
+.pie5 .hecho6 svg{color:var(--ok)}
+@media (max-height:860px){.mini8{height:72px}.lb6{margin:13px 4px 6px}.qh6{margin-top:8px;padding:8px 4px}.p1v .pie5.suelto{padding-top:8px}.pr3{padding-top:40px}}
+/* ---------- la barra sobre la caja: la misma tarjeta, encogida ---------- */
+#activa{width:min(760px,100% - 40px);margin:0 auto;position:relative}
+.pa3{display:flex;align-items:center;gap:12px;height:48px;margin-bottom:8px;padding:0 8px 0 16px;border-radius:14px;background:#1d1d21;border:1px solid var(--borde);cursor:pointer;transition:border-color .2s}
+.pa3:hover{border-color:#36363e}
+.pa3 .nm5{flex:none;max-width:38%;font-size:14px}
+.pa3 .v5{flex:1;min-width:0;font-size:13px;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mini5{flex:none;width:64px;height:3px;border-radius:2px;background:#2a2a30;overflow:hidden}
+.mini5 i{display:block;height:100%;border-radius:2px;background:var(--ac);transition:width .8s var(--ease)}
+.pa3.fin .mini5 i{background:var(--ok)}
+.pa3 .acts3{display:flex;gap:6px;flex:none}
+.pa3.pide{animation:atiende10 2.6s ease-in-out infinite}
+@keyframes atiende10{0%,100%{border-color:#2a2a30}50%{border-color:color-mix(in srgb,var(--ac) 75%,#2a2a30)}}
+.pa3.pide .v5{color:var(--tx)}
+/* ---------- en el chat: la marca chiquita y la tarjeta «Terminó» ---------- */
+.mslot{position:relative;display:grid;place-items:end center;flex:none}
+.marca3{align-self:center;display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 13px 0 7px;border-radius:999px;font-size:12.5px;color:var(--tx3);transition:background-color .2s,color .2s;animation:entra .45s var(--ease) both}
+.marca3:hover{background:#1c1c20;color:var(--tx2)}
+.marca3 b{color:var(--tx2);font-weight:600}
+.marca3 .mslot{width:22px;height:22px}
+.marca3.alto .mslot{place-items:center;color:var(--tx3)}
+.fin3{align-self:flex-start;display:flex;align-items:center;gap:10px;padding:6px 16px 8px 6px;border-radius:18px;background:var(--card);animation:entra .45s var(--ease) both}
+.fin3 .mslot{width:60px;height:64px}
+.fin3 .tt b{display:block;font-size:14.5px;font-weight:600}
+.res3{display:flex;align-items:center;gap:8px;margin-top:5px;font-size:13px;color:var(--tx2)}
+.res3 svg{flex:none;color:var(--tx3)}
+.res3 span{margin-right:4px}
+/* ---------- el vuelo: la fila, la tarjeta y la barra ---------- */
+.morfo{position:fixed;z-index:58;border-radius:14px;background:#1d1d21;border:1px solid var(--borde);overflow:hidden;pointer-events:none;box-shadow:0 12px 30px rgba(0,0,0,.28);transition:background-color .3s,border-color .3s}
+.morfo.desdeFila{background:var(--lit-row);border-color:transparent;box-shadow:none}
+.morfo .clon{position:absolute;left:0;top:0}
+.morfo .cara{position:absolute;left:16px;display:flex;align-items:center;white-space:nowrap;font-weight:650;font-size:14.5px}
+/* el monito que acompaña el proceso */
+#deco{position:fixed;left:0;right:0;top:0;bottom:0;pointer-events:none;z-index:59;overflow:hidden}
+.actor{position:absolute;left:0;top:0;width:180px;height:140px;overflow:hidden;opacity:0;transition:opacity .35s;will-change:transform}
+.actor .mono{position:absolute;left:60px}
+/* ---------- la pregunta por la caja de escribir (Q-2) ---------- */
+.box{position:relative;flex-wrap:wrap;transition:border-color .22s,box-shadow .22s,border-radius .35s var(--ease)}
+.box.pregunta11{border-radius:20px}
+/* el marco de color: mientras espera la respuesta, toda la caja con un contorno de 1.5 px en el color del agente (fondo
+   neutro, sin brillos); con la píldora, el mismo contorno más tenue */
+.box.responde11{border-color:var(--ac);box-shadow:0 0 0 .5px var(--ac)}
+.box.espera11{border-color:color-mix(in srgb,var(--ac) 50%,#2c2c32);box-shadow:0 0 0 .5px color-mix(in srgb,var(--ac) 50%,#2c2c32)}
+.box>.cb:not(.send),.box>.ajb{transition:opacity .25s ease}
+.box.responde11>.cb:not(.send),.box.responde11>.ajb{opacity:.38}
+.qz11{position:relative;flex:0 0 calc(100% + 18px);order:-1;margin:-8px -8px 0 -10px;overflow:hidden;min-width:0}
+.qzc11{position:relative;padding:12px 14px 12px 16px;border-bottom:1px solid var(--line);margin-bottom:6px}
+.qzc11::before{content:"";position:absolute;left:0;top:14px;height:22px;width:3px;border-radius:0 3px 3px 0;background:var(--ac)}
+.qzh11{display:flex;align-items:center;gap:10px;min-width:0}
+.qzm11{position:relative;width:24px;height:24px;flex:none;display:grid;place-items:center}
+.qb11{position:absolute;right:-9px;top:-11px;color:var(--ac);animation:bob11 2.2s ease-in-out infinite}
+@keyframes bob11{0%,100%{transform:translateY(0) rotate(-6deg)}50%{transform:translateY(-2px) rotate(6deg)}}
+.qzt11{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:baseline;column-gap:6px;font-size:14px;line-height:1.35}
+.qzt11 span{color:var(--tx3)}
+.qzt11 b{color:var(--tx);font-weight:650}
+.qzd11{flex:none;font-size:12.5px;font-weight:600;color:var(--tx3);padding:5px 8px;border-radius:8px;transition:color .15s,background-color .15s}
+.qzd11:hover{color:var(--tx);background:var(--chip-hover)}
+.qzo11{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;padding-left:34px}
+.op10{height:32px;padding:0 13px;border-radius:999px;border:1px solid var(--chip-line);font-size:13px;font-weight:600;color:var(--tx);transition:background-color .15s,border-color .15s,color .15s,transform .12s ease-out}
+.op10:hover{background:var(--chip-hover);border-color:color-mix(in srgb,var(--ac) 70%,var(--chip-line))}
+.op10:active{transform:scale(.95)}
+.op10.elegida,.op10.elegida:hover{background:var(--ac);border-color:var(--ac);color:var(--acx)}
+.qzp11{display:inline-flex;align-items:center;gap:8px;height:28px;margin:8px 0 2px 12px;padding:0 12px 0 10px;border-radius:999px;background:var(--card2);font-size:12.5px;color:var(--tx2);transition:background-color .15s}
+.qzp11:hover{background:#2d2d33}
+.qzp11 b{color:var(--ac);font-weight:650;margin-left:2px}
+/* skills-cierre: la pastilla «Quedó pendiente: ¿…? · Seguir / Cerrar» (cambiaste de tema a media pregunta) */
+.qzpe11{display:flex;align-items:center;gap:8px;min-height:30px;margin:8px 12px 2px;padding:3px 6px 3px 12px;border-radius:12px;background:var(--card2);font-size:12.5px;color:var(--tx2)}
+.qzpe11>span{flex:none;color:var(--tx3)}
+.qzpe11>b{flex:1;min-width:0;font-weight:600;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qzpe11 .bt5{height:24px;padding:0 9px}
+.pulso10{width:7px;height:7px;border-radius:50%;background:var(--ac);flex:none;animation:pausa10 2.2s ease-in-out infinite}
+/* en el chat: la línea «te preguntó» (sin botones) y tu respuesta como tu burbuja */
+.pc10{align-self:flex-start;animation:entra .4s var(--ease) both;max-width:100%}
+.pc10.linea{align-self:center;display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:center;font-size:12.5px;color:var(--tx3)}
+.pc10.linea b{color:var(--tx2);font-weight:600}
+.pc10.linea .mslot{width:20px;height:20px}
+.grupo-resp{align-self:stretch;display:flex;flex-direction:column;gap:12px}
+.grupo-resp .m.yo{align-self:flex-end}
+.resp11 small{display:block;font-size:11.5px;font-weight:600;color:var(--tx3);margin-bottom:2px;white-space:nowrap}
+.resp11 span{display:block}
+.vuela11{position:fixed;z-index:60;pointer-events:none;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;justify-content:center;white-space:pre-wrap;word-wrap:break-word}
+.vuela11 small{display:block;font-size:11.5px;font-weight:600;color:var(--tx3);margin-bottom:2px;white-space:nowrap;overflow:hidden}
+@media (prefers-reduced-motion:reduce){
+  .pasos3 li.ahora .mk::after,.pasos3 li.pide .mk::after,.pa3.pide,.pulso10,.qb11,.mini8::after{animation:none}
+  .box,.pq10,.qb6,.det3,.pista3 i,.mini5 i{transition:none}
+  .pr3{padding-top:16px}                  /* sin movimiento no camina el monito: sin su espacio arriba */
+}

@@ -30,6 +30,7 @@ STRINGS = {
     "updater.auto.rolled_back": "⚠ Llegó una versión nueva de Workspace que no arranca en esta máquina; sigues en la anterior. No tienes que hacer nada.",
     # ── workspace update ─────────────────────────────────────────────────────
     "update.harness.updated": "actualizado",
+    "update.harness.pagina": "Workspace se actualizó: reinicié la página",
     "update.harness.uptodate": "ya al día",
     "update.harness.rolled_back": "la versión nueva no arrancó en esta máquina: volví a la anterior",
     "update.harness.held_hint": "Se queda así hasta que publiquemos un arreglo; no tienes que hacer nada.",

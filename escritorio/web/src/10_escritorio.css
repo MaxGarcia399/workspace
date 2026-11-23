@@ -1,0 +1,219 @@
+/* ===== monito de escritorio (escritorio/web/src) =====
+   El monito, su rayita y su brillo son los de la página (arriba, tal cual). Aquí va lo del escritorio: su nido en la
+   esquina, la burbuja, la barra de ⌥ Espacio, las tarjetas de pregunta y de permiso, y el anillo de «señalar».
+   Mismas reglas de la página: el color lo pone el personaje; la interfaz va en grises.
+   Movimiento: entrar y salir es de la clase de cada pieza (transform y opacidad); recorrerse y cambiar de alto, de
+   `acomodar` (translate y height, en 20_escritorio.js). Con «reducir movimiento», nada se anima. */
+html.wsm-app,html.wsm-app body{height:100%;margin:0;background:transparent;overflow:hidden}
+html.wsm-app body{-webkit-user-select:none;user-select:none}
+.wsm,.wsm *{box-sizing:border-box;margin:0;padding:0}
+.wsm button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+.wsm textarea{font:inherit;color:inherit;background:none;border:0;outline:0;resize:none}
+.wsm{--c:#ffffff;position:absolute;right:14px;bottom:14px;z-index:20;display:flex;flex-direction:column;align-items:flex-end;gap:12px;
+  max-width:calc(100% - 28px);max-height:calc(100% - 28px);font:14.5px/1.5 var(--sans);color:var(--tx);-webkit-font-smoothing:antialiased;pointer-events:none}
+.wsm>*{pointer-events:auto;flex:none}
+.wsm>.wsm-globo{flex:0 1 auto;min-height:0}
+.wsm [hidden]{display:none!important}
+/* un solo par de animaciones para los dos lados (--dy: hacia dónde): cambiar de lado no las vuelve a empezar */
+@keyframes wsm-pop{from{opacity:0;transform:translateY(calc(12px * var(--dy,1))) scale(.9)}}
+@keyframes wsm-sale{to{opacity:0;transform:translateY(calc(8px * var(--dy,1))) scale(.95)}}
+@keyframes wsm-entra{from{opacity:0;transform:translateY(5px)}}
+@keyframes wsm-pulso{0%,100%{box-shadow:0 0 0 2px var(--c),0 0 0 6px color-mix(in srgb,var(--c) 22%,transparent),0 0 26px color-mix(in srgb,var(--c) 40%,transparent)}
+  50%{box-shadow:0 0 0 2px var(--c),0 0 0 11px color-mix(in srgb,var(--c) 10%,transparent),0 0 34px color-mix(in srgb,var(--c) 55%,transparent)}}
+@keyframes wsm-tecla{0%,100%{transform:translateY(0)}40%{transform:translateY(2px);box-shadow:0 0 0 #000}}
+
+/* ---------- el nido: un pedacito del riel de la página, en la esquina ---------- */
+.wsm-nido{position:relative;width:100px;height:118px;border-radius:28px;background:linear-gradient(180deg,#141417,var(--rail) 60%);
+  border:1px solid rgba(255,255,255,.075);
+  /* UX (22-nov): filo de medio punto, sombra corta y pareja que CABE en el margen del panel (14 pt): la de antes (44 pt)
+     se cortaba en línea recta donde acaba la ventana del monito y se veía sucia sobre fondos claros */
+  box-shadow:0 0 0 .5px rgba(0,0,0,.6),0 1px 2px rgba(0,0,0,.32),0 5px 12px -3px rgba(0,0,0,.36),inset 0 1px 0 rgba(255,255,255,.07);
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:flex-end;padding-bottom:12px;cursor:grab;touch-action:none;
+  transition:transform .35s var(--rebote),box-shadow .2s}
+.wsm-nido:hover{transform:translateY(-2px)}
+/* agarrarlo (la app lo arrastra, nativo): se levanta, un poco más grande y con más sombra (que cabe en los 14 pt de
+   margen del panel: crece hacia arriba), y lo que tiene abierto se va con él; al soltarlo baja con su rebote */
+.wsm.agarrado .wsm-nido{cursor:grabbing;transform:translateY(-4px) scale(1.06);transform-origin:50% 85%;
+  transition:transform .2s var(--rebote),box-shadow .18s;
+  box-shadow:0 0 0 .5px rgba(0,0,0,.6),0 3px 5px rgba(0,0,0,.28),0 7px 12px -5px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.09)}
+.wsm.agarrado .wsm-pista{opacity:0!important}
+/* la mudanza de lado: el nido se esconde (la app lo tapa con su foto) y lo que tiene abierto se va y vuelve del lado nuevo */
+.wsm.mudando .wsm-nido{visibility:hidden}
+.wsm.mudando>.wsm-globo,.wsm.mudando>.wsm-barra,.wsm.mudando>.wsmm{filter:opacity(0);pointer-events:none}
+/* el arrastre de antes (una app que no lo hace nativo): el nido se levanta un poco y lo demás se aparta */
+.wsm.arrastrando .wsm-nido{cursor:grabbing;transform:translateY(-3px);box-shadow:0 0 0 .5px rgba(0,0,0,.6),0 2px 3px rgba(0,0,0,.3),0 6px 12px -4px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.08)}
+.wsm.arrastrando .wsm-pista{opacity:0!important}
+/* (con filter: la opacidad es de sus animaciones de entrar y salir; así no se pelean) */
+.wsm>.wsm-globo,.wsm>.wsm-barra,.wsm>.wsmm{transition:filter .14s}
+.wsm.arrastrando>.wsm-globo,.wsm.arrastrando>.wsm-barra,.wsm.arrastrando>.wsmm{filter:opacity(0);pointer-events:none}
+.wsm-yo{position:relative;z-index:3;line-height:0;will-change:transform}
+.wsm-nido .ray7{margin-top:8px;height:6px}            /* par: su puntito de 4 cae en píxel entero (nítido en 1× y 2×) */
+/* su brillo de elegido, corto y solo con color (un fantasma blanco dejaba un halo lechoso): --brillo lo pone ponerMonito */
+.wsm-yo .mono{filter:drop-shadow(0 3px 4px var(--brillo,transparent))}
+.wsm-nido.vacio::before{content:"";position:absolute;left:24px;right:24px;top:30px;bottom:30px;border-radius:50%;border:1.5px dashed #2c2c33}
+.wsm-pista{position:absolute;right:calc(100% + 10px);bottom:14px;white-space:nowrap;padding:6px 10px;border-radius:10px;background:#26262c;
+  border:1px solid #33333a;font-size:12.5px;font-weight:600;color:var(--tx);opacity:0;transform:translateX(6px);pointer-events:none;
+  transition:opacity .18s,transform .25s var(--ease)}
+.wsm-pista small{font-weight:500;color:var(--tx3);margin-left:6px}
+.wsm-nido:hover .wsm-pista{opacity:1;transform:none}
+
+/* ---------- la burbuja ---------- */
+.wsm-globo{position:relative;width:min(356px,calc(100vw - 28px));max-height:min(64vh,540px);display:flex;flex-direction:column;
+  background:var(--card);border:1px solid var(--line);border-radius:20px;border-bottom-right-radius:8px;
+  box-shadow:0 0 0 .5px rgba(0,0,0,.45),0 2px 6px rgba(0,0,0,.26),0 8px 18px -12px rgba(0,0,0,.55);padding:12px 15px 12px;transform-origin:100% 100%;animation:wsm-pop .42s var(--rebote) both}
+.wsm-globo.sale{animation:wsm-sale .2s var(--sale) forwards;pointer-events:none}
+.wsm .midiendo{overflow:hidden}
+.wsm .saliendo{pointer-events:none;margin:0!important;z-index:1}
+.wsm-fantasma{position:absolute;margin:0!important;pointer-events:none;z-index:2}
+.wsm .entra{animation:wsm-entra .26s var(--ease) both}
+.wsm-ext.entra>*{animation:wsm-entra .26s var(--ease) both}.wsm-ext.entra>*:nth-child(2){animation-delay:.05s}.wsm-ext.entra>*:nth-child(3){animation-delay:.1s}
+.wsm-ext.entra{animation:none}
+.wsm-globo.mal{border-color:color-mix(in srgb,var(--bad) 45%,var(--line))}
+.wsm-cab{display:flex;align-items:center;gap:8px;min-height:24px;padding-right:26px;font-size:12.5px;color:var(--tx3)}
+.wsm-cab b{color:var(--tx);font-weight:650;font-size:13.5px}
+.wsm-cab .pt{width:8px;height:8px;border-radius:50%;background:var(--c);flex:none}
+.wsm-cab .estado{font-style:normal}
+.wsm-x{position:absolute;top:9px;right:9px;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;color:var(--tx3)}
+.wsm-x:hover{background:#2a2a30;color:var(--tx)}
+/* lo tuyo de ahora: el mismo globo lavanda que en la plática (11_conversacion.css), entero (antes se cortaba en un renglón) */
+.wsm-tu{margin:2px 0;align-self:flex-end;max-width:88%}
+.wsm-txt{min-height:0;word-wrap:break-word;font-size:14.5px;line-height:1.55}
+.wsm-txt:empty{display:none}
+/* el ▮ de «escribiendo», al final de lo último que lleva escrito */
+.wsm-txt.vivo>:last-child::after{content:"";display:inline-block;width:7px;height:14px;margin-left:3px;border-radius:2px;background:var(--c);vertical-align:-2px;animation:lat 1s steps(2) infinite}
+.wsm-pasos{margin-top:10px}
+.wsm-pasos .barras{display:flex;gap:4px}
+.wsm-pasos .barras b{flex:1;height:5px;border-radius:999px;background:color-mix(in srgb,var(--c) 20%,#2a2a30);transition:background-color .3s}
+.wsm-pasos .barras b.h{background:var(--c)}.wsm-pasos .barras b.a{background:var(--c);animation:lat 1s ease-in-out infinite}
+.wsm-pasos small{display:block;margin-top:6px;font-size:12.5px;color:var(--tx2)}
+.wsm-uso{margin-top:10px;padding-top:8px;border-top:1px solid #2a2a30;font-size:11.5px;color:var(--tx3);font-variant-numeric:tabular-nums}
+.wsm-uso:empty{display:none}
+
+/* ---------- lo que el texto escondía: «aprendió» y las tarjetas de archivo (las de la página, en chico) ---------- */
+.wsm-ext{display:flex;flex-direction:column;gap:7px;margin-top:9px}
+.wsm-aprendio{align-self:flex-start;display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:3px 10px 3px 7px;border-radius:999px;
+  background:color-mix(in srgb,var(--c) 14%,#202024);border:1px solid color-mix(in srgb,var(--c) 30%,#2c2c33);font-size:12px;font-weight:600;
+  color:color-mix(in srgb,var(--c) 70%,#fff)}
+.wsm-aprendio svg{width:14px;height:14px;flex:none}
+.wsm-aprendio small{font-weight:500;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wsm-arch{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:6px 10px;padding:9px 10px 9px 11px;border-radius:14px;
+  background:#1d1d21;border:1px solid #2c2c33}
+.wsm-arch>svg{width:18px;height:18px;color:var(--tx3)}
+.wsm-arch .tx{min-width:0}
+.wsm-arch b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wsm-arch small{display:block;color:var(--tx3);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wsm-arch .chips{grid-column:1 / -1;display:flex;gap:6px}
+.wsm-arch .chip{padding:5px 12px;font-size:12.5px}
+
+/* ---------- «Seguir en la página» ---------- */
+.wsm-sigue{display:flex;justify-content:flex-end;margin-top:9px}
+.wsm .wsm-ir{display:inline-flex;align-items:center;gap:5px;padding:4px 6px 4px 10px;border-radius:999px;font-size:12px;font-weight:600;color:var(--tx3);
+  transition:background-color .15s,color .15s}
+.wsm .wsm-ir:hover{background:#26262c;color:var(--tx)}
+.wsm .wsm-ir:disabled{opacity:.5;cursor:default}
+.wsm-ir svg{width:11px;height:11px}
+
+/* ---------- la barra: lo que tienes enfrente (D3-a) y lo que soltaste, con su ✕ ---------- */
+.wsm-chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 2px 8px}
+.wsm-chip{display:inline-flex;align-items:center;gap:6px;height:28px;max-width:100%;padding:0 4px 0 10px;border-radius:999px;background:#202024;
+  border:1px solid #2c2c33;font-size:12.5px;color:var(--tx2)}
+.wsm-chip span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wsm-chip .pt{width:7px;height:7px;border-radius:50%;background:var(--c);flex:none}
+.wsm-chip .ico{width:16px;height:16px;flex:none;border-radius:4px}
+.wsm-chip.ctx .tx small{font-size:12px;font-weight:500;color:var(--tx3)}
+.wsm-chip.ctx .tx{color:var(--tx)}
+/* la primera vez: qué es el chip, en una línea tranquila */
+.wsm-pista1{padding:0 6px 8px;font-size:12px;line-height:1.4;color:var(--tx3)}
+.wsm-chip.sub{opacity:.6}.wsm-chip.mal{border-color:color-mix(in srgb,var(--bad) 50%,transparent);color:#f2a39a}
+.wsm .wsm-cx{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;color:var(--tx3);flex:none}
+.wsm .wsm-cx:hover{background:#2e2e35;color:var(--tx)}
+.wsm-cx svg{width:12px;height:12px}
+.wsm-sin{padding:2px 6px 10px;font-size:13px;line-height:1.45;color:var(--tx2)}
+.wsm textarea:disabled{opacity:.5}
+
+/* ---------- soltar un archivo en el monito ---------- */
+.wsm.soltar .wsm-nido{border-color:var(--c);box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 35%,transparent),0 5px 12px -3px rgba(0,0,0,.36)}
+
+/* ---------- pregunta y permiso: las tarjetas de la página, en chico ---------- */
+.wsm-tarjeta{margin-top:8px;padding-top:2px}
+.wsm-tarjeta>small{display:block;font-size:12px;font-weight:650;color:var(--tx2);margin-bottom:3px}
+.wsm-tarjeta.perm>small{color:var(--warn)}
+.wsm-tarjeta p{font-size:14.5px;line-height:1.5;word-wrap:break-word}
+.wsm-tarjeta .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:11px}
+.wsm-tarjeta .chip{padding:7px 15px;font-size:13.5px}
+.wsm-tarjeta .chip.si{box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 30%,transparent)}
+.wsm-quien{margin-top:9px;font-size:11.5px;color:var(--tx3)}
+.wsm-hecho{margin-top:10px;font-size:13px;font-weight:650}
+.wsm-hecho.si{color:var(--ok)}.wsm-hecho.no{color:var(--bad)}
+details.wsm-det{margin-top:6px}
+details.wsm-det summary{display:inline-block;font-size:12px;color:var(--tx3);cursor:pointer;list-style:none}
+details.wsm-det summary::-webkit-details-marker{display:none}
+details.wsm-det summary:hover{color:var(--tx2)}
+details.wsm-det pre{margin-top:6px;white-space:pre-wrap;word-break:break-word;font:11.5px/1.45 var(--mono);color:var(--tx3);background:#18181b;
+  border-radius:9px;padding:8px 10px;max-height:140px;overflow:auto}
+
+/* ---------- la barra (⌥ Espacio) ---------- */
+.wsm-barra{position:relative;width:min(456px,calc(100vw - 28px));background:var(--panel);border:1px solid var(--line);border-radius:22px;
+  box-shadow:0 0 0 .5px rgba(0,0,0,.45),0 2px 6px rgba(0,0,0,.26),0 8px 18px -12px rgba(0,0,0,.55);padding:9px 9px 8px;transform-origin:100% 100%;animation:wsm-pop .38s var(--rebote) both}
+.wsm-barra.sale{animation:wsm-sale .18s var(--sale) forwards}
+/* su motor no puede mirar tu pantalla desde el monito (todavía): una línea, sin chip */
+.wsm-nomira{padding:0 6px 8px;font-size:12.5px;line-height:1.45;color:var(--tx3)}
+/* la marca de «leyó tu pantalla en este turno» en la tarjeta de permiso */
+.wsm-leyo{display:inline-flex;align-items:center;gap:6px;margin-top:7px;padding:2px 9px 2px 7px;border-radius:999px;
+  background:color-mix(in srgb,var(--warn) 12%,#1d1d21);border:1px solid color-mix(in srgb,var(--warn) 30%,#2c2c33);
+  font-size:11.5px;font-weight:600;color:color-mix(in srgb,var(--warn) 75%,#fff)}
+.wsm-leyo .ojo{flex:none;fill:currentColor;shape-rendering:crispEdges}
+.wsm-ags{display:flex;gap:3px;padding:0 2px 8px;overflow-x:auto;scrollbar-width:none}
+.wsm-ags::-webkit-scrollbar{display:none}
+.wsm-ag{display:flex;align-items:center;gap:7px;height:40px;padding:0 8px 0 6px;border-radius:999px;color:var(--tx2);font-size:13px;font-weight:650;
+  flex:none;transition:background-color .15s,color .15s}
+.wsm-ag:hover{background:#222226;color:var(--tx)}
+.wsm-ag.on{background:var(--card2);color:var(--tx);padding-right:13px}
+.wsm-ag span{display:none;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.wsm-ag.on span{display:inline}
+.wsm-caja{display:flex;align-items:flex-end;gap:8px;background:var(--card);border:1px solid #2b2b31;border-radius:16px;padding:7px 7px 7px 14px;
+  transition:border-color .15s}
+.wsm-caja:focus-within{border-color:#3a3a42}
+/* la caja crece hasta 5 renglones (22 pt cada uno) y luego se recorre, sin barra */
+.wsm-caja textarea{flex:1;min-width:0;height:28px;max-height:116px;font-size:15px;line-height:22px;padding:3px 0;-webkit-user-select:text;user-select:text;
+  overflow-y:hidden;scrollbar-width:none}
+.wsm-caja textarea.tope{overflow-y:auto}
+.wsm-caja textarea::-webkit-scrollbar{display:none}
+/* el sitio del micrófono (bloque V): entre el texto y «Mandar»; vacío no ocupa lugar */
+.wsm-mic{flex:none;display:flex;align-items:center;min-height:34px}
+.wsm-mic:empty{display:none}
+.wsm-caja textarea::placeholder{color:var(--tx3)}
+.wsm .wsm-send{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:var(--c);color:var(--acx);flex:none;
+  transition:transform .2s var(--ease),opacity .15s}
+.wsm .wsm-send:hover{transform:scale(1.06)}
+.wsm .wsm-send:disabled{opacity:.3;transform:none;cursor:default}
+.wsm-pie{display:flex;flex-wrap:wrap;gap:4px 12px;justify-content:space-between;padding:7px 6px 0;font-size:11.5px;color:var(--tx3)}
+.wsm-pie kbd{font:650 10.5px var(--sans);padding:1px 5px;border-radius:5px;border:1px solid #33333a;color:var(--tx2)}
+
+/* ---------- señalar (F1): el anillo y su etiqueta, encima de lo que enseña ---------- */
+.wsm-anillo{position:absolute;z-index:19;border-radius:10px;pointer-events:none;animation:wsm-pop .3s var(--rebote) both,wsm-pulso 1.3s ease-in-out .3s infinite}
+.wsm-anillo.sale{animation:wsm-sale .2s var(--sale) forwards}
+.wsm-etq{position:absolute;z-index:19;padding:4px 10px;border-radius:999px;background:var(--c);color:var(--acx);font:650 12.5px/1.4 var(--sans);
+  white-space:nowrap;pointer-events:none;animation:wsm-pop .35s var(--rebote) .1s both}
+.wsm-etq.sale{animation:wsm-sale .2s var(--sale) forwards}
+
+/* ---------- hacia dónde abre: el nido a la izquierda (abre a la derecha) o arriba (abre hacia abajo) ---------- */
+.wsm.izq{right:auto;left:14px;align-items:flex-start}
+.wsm.izq .wsm-globo{border-bottom-right-radius:20px;border-bottom-left-radius:8px;transform-origin:0 100%}
+.wsm.izq .wsm-barra{transform-origin:0 100%}
+.wsm.izq .wsm-pista{right:auto;left:calc(100% + 10px);transform:translateX(-6px)}
+.wsm.izq .wsmm{align-items:flex-start}
+.wsm.arriba{bottom:auto;top:14px;flex-direction:column-reverse}
+.wsm.arriba{--dy:-1}
+.wsm.arriba .wsm-globo{border-bottom-right-radius:20px;border-top-right-radius:8px;transform-origin:100% 0}
+.wsm.arriba.izq .wsm-globo{border-top-right-radius:20px;border-top-left-radius:8px;transform-origin:0 0}
+.wsm.arriba .wsm-barra{transform-origin:100% 0}
+.wsm.arriba.izq .wsm-barra{transform-origin:0 0}
+.wsm.arriba .wsmm{flex-direction:column-reverse}
+
+/* ---------- reducir movimiento: aparece y desaparece, sin moverse ---------- */
+@media (prefers-reduced-motion:reduce){
+  .wsm-globo,.wsm-barra,.wsm-globo.sale,.wsm-barra.sale,.wsm .entra,.wsm-ext.entra>*,.wsm-anillo,.wsm-etq{animation:none!important}
+  .wsm-nido,.wsm>.wsm-globo,.wsm>.wsm-barra,.wsm>.wsmm{transition:none!important}
+  .wsm-nido:hover,.wsm.arrastrando .wsm-nido,.wsm.agarrado .wsm-nido{transform:none}
+}

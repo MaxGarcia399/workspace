@@ -553,7 +553,8 @@ def main():
                 wid = add_workspace(name)   # → crear el workspace per-máquina
             else:
                 mark_opened(wid)         # interacción humana real (Y10)
-        tout.write(f"\r\n  {CARET}▸{R} {NAME}{name}{R}  {MUTE}— {_t('banner.dash.loading', 'cargando…')}{R}\r\n\r\n"); tout.flush()
+        if os.environ.get("WORKSPACE_HUB_S1") != "1":   # el hub de prueba ya lo dice con su piel (S-1)
+            tout.write(f"\r\n  {CARET}▸{R} {NAME}{name}{R}  {MUTE}— {_t('banner.dash.loading', 'cargando…')}{R}\r\n\r\n"); tout.flush()
         sys.stdout.write(f"WS\t{wid}\t{name}")     # el motor lo parsea
         return
     print("\n".join(header_lines()))

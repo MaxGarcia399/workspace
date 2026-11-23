@@ -157,6 +157,39 @@ Schema por línea (vocabulario SSE de **Odysseus**, probado — no inventado):
 4. `workspace doctor` re-siembra el bloque `hooks` en los cerebros — install y doctor ya derivan
    del contrato, no hay segundo lugar que tocar.
 
+## Arquitectura nueva: los 8 momentos del hook (F0)
+
+El plan de arquitectura nueva conecta el hook a los 9 motores por sus piezas oficiales
+(plugin, hooks, MCP, skills). Su contrato son **8 momentos** con nombre neutral, montados
+sobre este vocabulario N9: `session_start`, `user_prompt`, `pre_tool`, `post_tool`,
+`permission_request` (nuevo: hoy no tiene evento N9), `turn_end`, `compact` (antes y
+después; hoy cae en `pre_compact`) y `session_end`.
+
+- **Qué trae y qué devuelve cada uno (JSON):** `arquitectura/momentos.json`.
+- **Qué evento oficial de cada motor cae en cada momento:** la ficha de cada motor,
+  `arquitectura/fichas/<motor>.json`. Sale de la documentación oficial (investigaciones A, B y C);
+  el probador de caja negra (`python3 -m arquitectura.probador`) la confirma o la corrige.
+- Esta tabla se genera de las fichas (`python3 -m arquitectura.contrato --tabla`);
+  `tests/test_arq_f0.py` falla si se aleja de ellas.
+
+(parcial) = existe con límites · (sin doc) = la documentación no lo dice ·
+(por servidor) = llega por el servidor del motor, no por un hook · lo ve herdr = el motor
+no lo avisa y se nota porque el panel se cierra.
+
+| Momento | Claude Code | Codex CLI | GitHub Copilot CLI | Cursor CLI | Kiro CLI (V3) | Antigravity CLI | OpenCode | OpenClaw | Hermes Agent |
+|---|---|---|---|---|---|---|---|---|---|
+| `session_start` (Inicio) | `SessionStart` | `SessionStart` | `sessionStart` | `sessionStart` | `SessionStart` | `SessionStart` | `session.created` (parcial) | `session_start` | `on_session_start` |
+| `user_prompt` (Mensaje) | `UserPromptSubmit` | `UserPromptSubmit` | `userPromptSubmitted` (parcial) | `beforeSubmitPrompt` (parcial) | `UserPromptSubmit` | `PreInvocation` | `session.prompt` · `session.context` | `before_prompt_build` | `pre_llm_call` |
+| `pre_tool` (Antes de herramienta) | `PreToolUse` | `PreToolUse` (parcial) | `preToolUse` | `preToolUse` · `beforeShellExecution` · `beforeMCPExecution` | `PreToolUse` | `PreToolUse` | `tool.execute.before` | `before_tool_call` | `pre_tool_call` |
+| `post_tool` (Después de herramienta) | `PostToolUse` · `PostToolUseFailure` | `PostToolUse` | `postToolUse` · `postToolUseFailure` | `postToolUse` · `afterShellExecution` · `afterMCPExecution` · `afterFileEdit` | `PostToolUse` | `PostToolUse` | `tool.execute.after` | `after_tool_call` | `post_tool_call` |
+| `permission_request` (Permiso pedido) | `PermissionRequest` | `PermissionRequest` | `permissionRequest` | `beforeShellExecution` · `beforeMCPExecution` (parcial) | `PermissionRequest` (parcial) | parcial | `permission.evaluate` · `permission.asked` | `exec.approval.requested` (por servidor) | `pre_approval_request` |
+| `turn_end` (Fin de turno) | `Stop` | `Stop` | `agentStop` | `stop` · `afterAgentResponse` | `Stop` (sin doc) | `Stop` · `PostInvocation` | `session.execution.succeeded` | `agent_end` | `post_llm_call` |
+| `compact` (Compactado) | `PreCompact` · `PostCompact` | `PreCompact` · `PostCompact` | `preCompact` (parcial) | `preCompact` (parcial) | `PreCompact` · `PostCompact` | sin doc | `session.compaction` | `before_compaction` · `after_compaction` | `post_compaction` |
+| `session_end` (Cierre) | `SessionEnd` | `SessionEnd` | `sessionEnd` | `sessionEnd` | `SessionEnd` | lo ve herdr | lo ve herdr | `session_end` | `on_session_finalize` |
+
+Mientras dure la migración, el `ENGINE_MAP` de arriba sigue siendo el cableado de hoy; los
+momentos no cambian nada hasta F1.
+
 ---
 *N9 · corrida N-2 (2026-06-10). Spec antes que código (regla 10-bis.5.3). El vocabulario crece
 solo cuando un consumidor real lo necesita — no inventar eventos especulativos.*

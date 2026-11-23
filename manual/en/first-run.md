@@ -1,27 +1,28 @@
 # First run
 
-The first time you type `workspace` (and have no agents yet) a **guided welcome** opens.
-The steps are short; you can **skip** any of them and come back later.
+When the install finishes, Workspace opens by itself in the same terminal (you can also open it
+with `workspace`). There is no separate wizard: the first time, the hub opens with its **short
+guide** and the **card to add your first agent**: a new one, or one you already have («Ya tengo
+un agente», I already have an agent).
 
-1. **Language** — Spanish or English.
-2. **Engines** — Workspace looks for the engines you have (Claude Code, Codex, Antigravity,
-   OpenCode, OpenClaw, Hermes, Kiro, GitHub Copilot, Cursor), whether you're logged in, and, if
-   one is missing, tells you how to install it. You pick the default engine.
-3. **Appearance** — color theme and background.
-4. **Startup** (optional) — whether the menu shows up when you open a terminal.
-5. **Agent** — create your first agent (or load one you already have) and, if you like,
-   tune its tone. You choose two things: whether it reads and writes its brain without asking
-   you (**yes** to start with) and whether you want automatic skill review when each session
-   closes (**no** to start with). What each one means: [Permissions](engines.md#permissions).
-   Change them anytime in **Agents** (pick the agent and Enter).
-6. **Summary** — what's ready and what's still pending.
+The hub's screens are in Spanish for now; this manual gives each label as it appears, with its
+meaning.
 
-To repeat it or finish what's pending:
+The guide is five steps over Inicio (home): your agents, their engine, how to talk to them, the
+sections and what's at the top. Enter goes to the next one and Esc closes it. See it again with
+`?` or with **Guía** (guide), at the top of Inicio.
+
+If an engine isn't signed in yet, go to **Motores** (engines): «Iniciar sesión» (sign in) opens
+that engine's official program in the terminal and, when it finishes, you're back in Motores.
+
+Theme and background, the language, opening Workspace when you open a terminal (out of the box:
+yes) and tone stay as they come. Change them anytime in the hub: **Ajustes › Apariencia**
+(settings › appearance), **Ajustes › General** and **Agentes › Tono** (agents › tone).
+
+To open the first agent's card again:
 
 ```bash
 workspace onboarding
 ```
-
-Anything you skip shows up in the hub as **pending**; nothing is forced.
 
 Next: [The hub and its keys](hub.md).

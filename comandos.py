@@ -116,10 +116,23 @@ def _c(name, usage, group, es, en, when_es, when_en):
 
 COMMANDS = (
     cmd("workspace", "workspace", "workspace", "agentes",
-        "Abre el hub: tus agentes y el menú; escribe para buscar.",
-        "Opens the hub: your agents and the menu; type to search.",
+        "Abre el hub: tus agentes y sus secciones; escribe para buscar.",
+        "Opens the hub: your agents and its sections; type to search.",
         "Para empezar a trabajar.", "To start working.",
         usage="workspace", dispatch=False),
+    cmd("conexiones", "conexiones", "connections", "maquina",
+        "Abre el hub en Ajustes › Conexiones: qué conecta Workspace en cada motor; "
+        "--counts, el conteo en JSON.",
+        "Opens the hub in Settings › Connections: what Workspace connects in each engine; "
+        "--counts, the counts as JSON.",
+        "Para ver qué conecta Workspace en cada motor.",
+        "To see what Workspace connects in each engine.",
+        args="[--counts]"),
+    cmd("web", "web", "web", "maquina",
+        "Abre Workspace en tu navegador: una página local, solo en esta computadora.",
+        "Opens Workspace in your browser: a local page, only on this computer.",
+        "Para ver y hablar con tus agentes sin la terminal; se cierra con Ctrl+C.",
+        "To see and talk to your agents without the terminal; close it with Ctrl+C."),
     cmd("<agente>", "<agente>", "<agent>", "agentes",
         "Abre ese agente directo, sin pasar por el hub.",
         "Opens that agent directly, skipping the hub.",
@@ -128,21 +141,25 @@ COMMANDS = (
         usage={"es": "<agente>   (p. ej. el nombre de tu agente)",
                "en": "<agent>   (e.g. your agent's name)"}, dispatch=False),
     cmd("agentes", "agentes", "agents", "agentes",
-        "Tus agentes y su estado; descubrir busca cerebros, reubicar repara una ruta.",
-        "Your agents and their status; descubrir finds brains, reubicar fixes a path.",
+        "Sin nada más, abre el hub en Agentes; estado los lista, descubrir busca cerebros, "
+        "reubicar repara una ruta.",
+        "With nothing else, opens the hub in Agents; estado lists them, descubrir finds "
+        "brains, reubicar fixes a path.",
         "Si un agente no aparece o dice que no encuentra su cerebro.",
         "If an agent is missing or says its brain cannot be found.",
         args="[descubrir | reubicar | estado]", examples=("descubrir", "estado")),
     cmd("tono", "tono", "tone", "agentes",
-        "Ajusta cómo te hablan tus agentes (diales del 1 al 5).",
-        "Adjust how your agents talk to you (dials from 1 to 5).",
+        "Cómo te hablan tus agentes (diales del 1 al 5). Sin nada más, abre el hub en "
+        "Agentes › Tono; con argumentos, en texto.",
+        "How your agents talk to you (dials from 1 to 5). With nothing else, opens the hub in "
+        "Agents › Tone; with arguments, as text.",
         "Si quieres respuestas más cortas, más cálidas, más técnicas…",
         "If you want shorter, warmer, more technical answers…",
         aliases=("personalidad",)),
     cmd("onboarding", "bienvenida", "onboarding", "agentes",
-        "Vuelve a correr la configuración guiada (continúa donde quedó).",
-        "Runs the guided setup again (resumes where it stopped).",
-        "Si quedó algo pendiente al instalar.", "If something was left pending at install."),
+        "Abre el hub con la tarjeta para agregar tu primer agente.",
+        "Opens the hub with the card to add your first agent.",
+        "Si todavía no tienes un agente.", "If you do not have an agent yet."),
     cmd("agenda", "agenda", "agenda", "dia",
         "Tu agenda local: eventos con fecha y hora.",
         "Your local agenda: events with date and time.",
@@ -150,8 +167,8 @@ COMMANDS = (
         "To jot something down without opening the calendar.",
         args="[add | rm]"),
     cmd("calendario", "calendario", "calendar", "dia",
-        "Editor del calendario: mes, altas, cambios y bajas.",
-        "Calendar editor: month, add, edit, delete.",
+        "Abre el hub en Calendario, con tu agenda.",
+        "Opens the hub in Calendar, with your agenda.",
         "Para organizar la semana o el mes.", "To plan the week or the month.",
         aliases=("cal",)),
     # Oculto desde la 0.5 (paso 1 de 2; la app ya había salido del menú del
@@ -217,6 +234,12 @@ COMMANDS = (
         "Si el doctor dice que un ajuste quedó pendiente o falló.",
         "If the doctor says an adjustment is pending or failed.",
         args="[--run | --pending | --offer <id> | --decline <id>]", examples=("--run",)),
+    cmd("sistema-nuevo", "sistema-nuevo", "new-system", "maquina",
+        "Enciende o apaga el sistema nuevo: los hooks, el MCP y las skills de Workspace por sesión en tus motores.",
+        "Turns the new system on or off: Workspace hooks, MCP and skills per session in your engines.",
+        "Si quieres que tus motores abran como antes, o volver al sistema nuevo.",
+        "If you want your engines to open as before, or to go back to the new system.",
+        args="[on | off]", examples=("off", "on")),
     cmd("doctor", "doctor", "doctor", "maquina",
         "Revisa que todo esté bien; sin --check también repara. --bundle arma un "
         "ZIP de diagnóstico sin datos personales para pedir ayuda.",
@@ -281,8 +304,10 @@ COMMANDS = (
         hidden_aliases=("--uninstall",),
         dangerous=True),
     cmd("comandos", "comandos", "commands", "maquina",
-        "Esta lista de comandos; --json para agentes, --markdown para el manual.",
-        "This list of commands; --json for agents, --markdown for the manual.",
+        "Sin nada más, abre el hub en Ayuda › Comandos; --json para agentes, --markdown para "
+        "el manual.",
+        "With nothing else, opens the hub in Help › Commands; --json for agents, --markdown "
+        "for the manual.",
         "Cuando quieres ver o exportar todos los comandos.",
         "When you want to see or export every command.",
         args="[--json | --markdown | --check]", examples=("--json",),
@@ -314,6 +339,11 @@ COMMANDS = (
         "La usa el agente (nota, checkpoint); a mano, para ver o depurar.",
         "Used by the agent (nota, checkpoint); by hand, to view or debug.",
         args="nota|ver|vigente|maleta|checkpoint|status …", hidden=True, requires_args=True),
+    cmd("pasos", "pasos", "steps", "agentes",
+        "El agente cuenta su avance en una skill que arrancaste desde el navegador.",
+        "The agent reports its progress on a skill you started from the browser.",
+        "Lo usa el agente; la página lo pinta en vivo.", "Used by the agent; the page shows it live.",
+        args="<ejecución> plan|ahora|hecho|pide|fin …", hidden=True, requires_args=True),
     cmd("decidir", "decidir", "decide", "agentes",
         "Pregúntale al decisor de Workspace entre opciones fijas (usos de agentes); responde JSON.",
         "Ask the Workspace decider among fixed options (agent uses); answers JSON.",
@@ -321,6 +351,14 @@ COMMANDS = (
         "Used by the agent when the user turned on an agent use in Deciders.",
         args={"es": "--stdin  (un JSON por la entrada estándar; ver --help)",
               "en": "--stdin  (a JSON on standard input; see --help)"},
+        hidden=True, requires_args=True),
+    cmd("revision", "revision", "review", "agentes",
+        "El agente le dice a Workspace qué dejó la revisión de skills (creada, mejorada o nada).",
+        "The agent tells Workspace what the skill review left (created, improved or nothing).",
+        "Lo usa el agente al terminar la revisión de skills que le pidió Workspace.",
+        "Used by the agent when it finishes the skill review Workspace asked for.",
+        args={"es": "resultado creada|mejorada|nada [<categoría>/<skill>] | ahora | ver <tanda> [índice] | deshacer <tanda> [índice]",
+              "en": "resultado creada|mejorada|nada [<category>/<skill>] | ahora | ver <batch> [index] | deshacer <batch> [index]"},
         hidden=True, requires_args=True),
     cmd("sesiones", "sesiones", "sessions", "agentes",
         "Pestañas de los agentes: listar, archivar y recuperar (nada se borra); y si la "
@@ -351,27 +389,29 @@ COMMANDS = (
 #: MAPS es la FUENTE en español; MAPS_EN (abajo) su traducción con la MISMA
 #: forma (nodos, colores y tramos) — tests/test_comandos_catalog lo exige.
 MAPS = {
+    "conexiones": ([("terminal", "wh"), ("hub", "c"), ("Ajustes › Conexiones|Conexiones", "ok")], ["workspace conexiones", "abre"], "--counts: el conteo en JSON, sin abrir el hub"),
+    "web": ([("terminal", "wh"), ("página local", "c"), ("tu navegador", "ok")], ["abre", "Ctrl+C cierra"], "solo en esta computadora; la llave cambia en cada arranque"),
     "workspace": ((("terminal", "wh"), ("hub", "c"), ("tu agente", "ok")),
                   ("workspace", "Enter"),
-                  "el hub muestra tus agentes y el menú; escribe para buscar"),
+                  "el hub muestra tus agentes y sus secciones; escribe para buscar"),
     "<agente>": ((("terminal", "wh"), ("pestañas|sesión", "c"), ("tu agente", "ok")),
                  ("nombre del agente", "eliges o creas"),
                  "salta el hub · cada pestaña guarda su propia memoria"),
     "agentes": ((("tus agentes", "c"), ("estado", "wh"), ("reparado", "ok")),
                 ("revisa", "descubrir · reubicar"),
-                "solo lee y sugiere; reubicar cambia la ruta en esta máquina"),
+                "sin nada: el hub en Agentes · reubicar cambia la ruta en esta máquina"),
     "tono": ((("diales 1-5", "c"), ("tu agente", "wh"), ("respuestas", "ok")),
              ("se guarda", "siguiente mensaje"),
              "3 = neutro · solo estilo, jamás identidad ni reglas"),
-    "onboarding": ((("motores", "c"), ("apariencia", "wh"), ("agente", "wh"), ("listo", "ok")),
-                   ("", "", ""),
-                   "continúa donde quedó · listo = motor y agente verificados"),
+    "onboarding": ((("terminal", "wh"), ("hub", "c"), ("tu primer agente|agente", "ok")),
+                   ("abre", "+ Agregar"),
+                   "no hay un asistente aparte: el hub trae su guía corta"),
     "agenda": ((("evento", "c"), ("agenda local|agenda", "wh"), ("hub", "ok")),
                ("add", "aparece en"),
                "se guarda en tu máquina · rm lo quita"),
     "calendario": ((("mes", "c"), ("eventos", "wh"), ("hub", "ok")),
                    ("altas · cambios", "aparece en"),
-                   "editor a pantalla completa"),
+                   "en el hub, en Calendario · en texto: workspace agenda"),
     "proyectos": ((("proyectos", "c"), ("app local|app", "wh"), ("navegador", "ok")),
                   ("workspace proyectos", "abre"),
                   "corre en tu máquina · stop la cierra"),
@@ -397,6 +437,9 @@ MAPS = {
     "migrate": ((("actualización", "c"), ("ajustes", "wh"), ("aplicados", "ok")),
                 ("trae", "una vez, a la vista|una vez"),
                 "cada ajuste corre una vez y queda anotado · --offer / --decline: opcionales"),
+    "sistema-nuevo": ((("tus motores", "c"), ("sistema nuevo", "wh"), ("al abrir", "ok")),
+                      ("on / off", "su próxima sesión|próxima"),
+                      "sin nada, dice cómo está · no toca la config de ningún motor"),
     "doctor": ((("revisión", "c"), ("reparación", "wh"), ("todo bien", "ok")),
                ("encuentra", "corrige"),
                "--check solo mira · --bundle: ZIP sin tus datos personales"),
@@ -434,27 +477,29 @@ MAPS = {
 #: Traducción EN de MAPS (misma forma; colores idénticos). Nombres de comando,
 #: flags y subcomandos (descubrir, --json…) se quedan literales: así se teclean.
 MAPS_EN = {
+    "conexiones": ([("terminal", "wh"), ("hub", "c"), ("Settings › Connections|Connections", "ok")], ["workspace connections", "opens"], "--counts: the counts as JSON, without opening the hub"),
+    "web": ([("terminal", "wh"), ("local page", "c"), ("your browser", "ok")], ["opens", "Ctrl+C closes"], "only on this computer; the key changes on every start"),
     "workspace": ((("terminal", "wh"), ("hub", "c"), ("your agent", "ok")),
                   ("workspace", "Enter"),
-                  "the hub shows your agents and the menu; type to search"),
+                  "the hub shows your agents and its sections; type to search"),
     "<agente>": ((("terminal", "wh"), ("tabs|session", "c"), ("your agent", "ok")),
                  ("agent name", "pick or create"),
                  "skips the hub · each tab keeps its own memory"),
     "agentes": ((("your agents", "c"), ("status", "wh"), ("repaired", "ok")),
                 ("checks", "descubrir · reubicar"),
-                "only reads and suggests; reubicar changes the path on this machine"),
+                "with nothing: the hub in Agents · reubicar changes the path on this machine"),
     "tono": ((("dials 1-5", "c"), ("your agent", "wh"), ("answers", "ok")),
              ("saved", "next message"),
              "3 = neutral · style only, never identity or rules"),
-    "onboarding": ((("engines", "c"), ("appearance", "wh"), ("agent", "wh"), ("ready", "ok")),
-                   ("", "", ""),
-                   "resumes where it stopped · ready = engine and agent verified"),
+    "onboarding": ((("terminal", "wh"), ("hub", "c"), ("your first agent|agent", "ok")),
+                   ("opens", "+ Agregar"),
+                   "there is no separate wizard: the hub brings its short guide"),
     "agenda": ((("event", "c"), ("local agenda|agenda", "wh"), ("hub", "ok")),
                ("add", "shows up in"),
                "saved on your machine · rm removes it"),
     "calendario": ((("month", "c"), ("events", "wh"), ("hub", "ok")),
                    ("add · edit", "shows up in"),
-                   "full-screen editor"),
+                   "in the hub's Calendar · as text: workspace agenda"),
     "proyectos": ((("projects", "c"), ("local app|app", "wh"), ("browser", "ok")),
                   ("workspace projects", "opens"),
                   "runs on your machine · stop closes it"),
@@ -480,6 +525,9 @@ MAPS_EN = {
     "migrate": ((("update", "c"), ("adjustments", "wh"), ("applied", "ok")),
                 ("brings", "once, in plain sight|once"),
                 "each adjustment runs once and is logged · --offer / --decline: optional ones"),
+    "sistema-nuevo": ((("your engines", "c"), ("new system", "wh"), ("on open", "ok")),
+                      ("on / off", "their next session|next"),
+                      "with nothing, says how it is · never touches an engine's config"),
     "doctor": ((("check", "c"), ("repair", "wh"), ("all good", "ok")),
                ("finds", "fixes"),
                "--check only looks · --bundle: ZIP without your personal data"),
@@ -575,13 +623,25 @@ def names_of(c, hidden=True):
 def shown_aliases(c, lg=None):
     """Los otros nombres VISIBLES (todos menos el del idioma activo)."""
     me = display_name(c, lg)
-    return [n for n in names_of(c, hidden=False) if n != me]
+    out = [n for n in names_of(c, hidden=False) if n != me]
+    if (lg or lang()) == "en":
+        # «versión» es la escritura en español: sigue ruteando, pero no se lista en inglés
+        out = [n for n in out if n.isascii()]
+    return out
 
 
 def examples_of(c, lg=None):
     lg = lg or lang()
     name = display_name(c, lg)
     return ["workspace %s %s" % (name, _pick(e, lg)) for e in c.get("examples", ())]
+
+
+def _decidir_visible():
+    try:
+        from decisions import decisores_activos
+        return decisores_activos()
+    except (ImportError, SyntaxError):
+        return False
 
 
 def resolve(word, dev=True):
@@ -591,6 +651,8 @@ def resolve(word, dev=True):
         return None
     for c in all_commands(dev):
         if c["dispatch"] and word in names_of(c):
+            if c["id"] == "decidir" and not _decidir_visible():
+                return None
             return c["id"]
     return None
 
@@ -598,7 +660,9 @@ def resolve(word, dev=True):
 def visible(dev=False, hidden=False):
     """Comandos que se muestran: producto (+ dev si `dev`), sin ocultos
     salvo `hidden`."""
-    return [c for c in all_commands(dev) if hidden or not c["hidden"]]
+    return [c for c in all_commands(dev)
+            if (hidden or not c["hidden"]) and c["id"] != "memoria"
+            and (c["id"] != "decidir" or _decidir_visible())]
 
 
 def groups(dev=False):
@@ -630,19 +694,19 @@ def command_map(name, lg=None):
 
 _TXT = {
     "es": {"usage": "uso: workspace [comando]", "use": "uso", "nocmd": "(sin comando)",
-           "hub": "abre el hub (tus agentes y el menú)",
+           "hub": "abre el hub (tus agentes y sus secciones)",
            "also": "también", "when": "Cuándo", "ex": "Ejemplos",
-           "danger": "Pide confirmación en la pantalla Comandos.",
-           "more": "detalle de cada uno: workspace comandos  ·  para agentes de IA: "
+           "danger": "Cambia cosas en esta máquina.",
+           "more": "detalle de cada uno: workspace <comando> --help  ·  para agentes de IA: "
                    "workspace comandos --json",
            "title": "Comandos de Workspace",
            "intro": "Todo lo que puedes escribir en la terminal. Cada comando "
                     "acepta su nombre en español y en inglés."},
     "en": {"usage": "usage: workspace [command]", "use": "usage", "nocmd": "(no command)",
-           "hub": "opens the hub (your agents and the menu)",
+           "hub": "opens the hub (your agents and its sections)",
            "also": "also", "when": "When", "ex": "Examples",
-           "danger": "Asks for confirmation in the Commands screen.",
-           "more": "details for each: workspace commands  ·  for AI agents: "
+           "danger": "It changes things on this machine.",
+           "more": "details for each: workspace <command> --help  ·  for AI agents: "
                    "workspace commands --json",
            "title": "Workspace commands",
            "intro": "Everything you can type in the terminal. Every command "

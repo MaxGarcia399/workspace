@@ -132,11 +132,15 @@ CAPABILITIES = {
 }
 
 BINARY = "copilot"
+#: Tecla(s) de herdr con que la página detiene un turno (sin esto, `esc`): un
+#: Esc solo avisa; Ctrl+C «stops the turn» (`copilot help input`). UNA
+#: pulsación: la segunda, con la caja vacía, cierra Copilot.
+TECLAS_PARAR = ["c-c"]
 
 #: Versiones del CLI con las que se VERIFICARON las lecturas de este adapter
-#: (engine_versions: doctor avisa si la instalada es de otra línea; lo exige
-#: tests/test_engine_versions.py). 1.0.105 = npm @github/copilot, macOS.
-VERIFIED_VERSIONS = ("1.0.105",)
+#: (historial): 1.0.105 = npm @github/copilot, macOS.
+#: La lista de versiones PROBADAS es una sola: la del parser de este motor
+#: (engine_versions.verified); lo de arriba es el historial de este adapter.
 
 #: Variables de credencial que Copilot mira, en su orden (`copilot login
 #: --help`). Solo se mira si EXISTEN (nombre), jamás su valor.
@@ -284,6 +288,106 @@ def _autonomia(cfg):
     except Exception:
         v = str((cfg or {}).get("autonomy") or "").strip().lower()
         return "ask" if v == "ask" else "brain"
+
+
+#: «Automático» (autonomía brain, la de fábrica; decisión del dueño 18-nov): su modo
+#: automático oficial. Su --help (1.0.113): «--assisted-approval  Review tool
+#: permission requests with the assisted-approval safety judge instead of approving
+#: them outright. The judge is probabilistic and not a security boundary. Equivalent
+#: to the `assisted` mode of /permissions… Ignored, with a warning, when
+#: AUTO_APPROVAL is explicitly disabled or managed policy blocks it». No es
+#: `--autopilot` (seguir solo sin el socio, no permisos) ni `--allow-all*`/`--yolo`.
+ASSISTED = "--assisted-approval"
+
+
+def auto_args(cfg, passthrough=(), env=None):
+    """Solo para corridas con -p (Copilot 1.0.114 rechaza el juez en interactivo: el
+    lanzador de la terminal ya no lo usa). [ASSISTED] con «Automático»; nada con
+    «Editar sin preguntar» o «Preguntar», si
+    el socio ya decidió sus permisos (_socio_elige_escritura: --allow-all, --yolo…) o
+    pasó el suyo, o si COPILOT_ASSISTED_APPROVAL ya está en el entorno."""
+    if _autonomia(cfg) != "brain":
+        return []
+    args = [str(a) for a in passthrough or ()]
+    if any(a == ASSISTED or a.startswith(ASSISTED + "=") for a in args) \
+            or _socio_elige_escritura(args, env):
+        return []
+    if str((os.environ if env is None else env).get("COPILOT_ASSISTED_APPROVAL") or "").strip():
+        return []
+    return [ASSISTED]
+
+
+#: Lo que contesta Copilot 1.0.114 al abrir en interactivo con el juez (VERIFICADO 18-nov y en la auditoría del 19).
+RECHAZO_INTERACTIVO = "only supported in non-interactive prompt mode"
+
+
+def juez_en_interactivo(exe=None, tope=8.0, cwd=None):
+    """Cierre de la auditoría (19-nov) · ¿Copilot abre su terminal interactiva con ASSISTED? Caja negra: lo abre en
+    una pty propia (sin escribirle nada) en una carpeta temporal y mira lo que imprime. → (acepta, salida):
+    False si contestó RECHAZO_INTERACTIVO (sale solo, sin abrir sesión); True si siguió abierto hasta `tope` (se
+    cierra: entonces su lanzador podría volver a pasarlo); None si no se pudo probar (Windows, sin binario).
+    Es la prueba de que en su terminal «Automático» no se usa (ficha · permisos.niveles.auto.no_se_usa)."""
+    exe = exe or shutil.which("copilot")
+    if os.name == "nt" or not exe:
+        return None, ""
+    import pty
+    import select
+    import signal
+    import tempfile
+    import time
+    carpeta = cwd or tempfile.mkdtemp(prefix="workspace-copilot-juez-")
+    salida, acepta = b"", None
+    try:
+        pid, fd = pty.fork()
+        if pid == 0:                                         # el hijo: Copilot, en su carpeta
+            try:
+                os.chdir(carpeta)
+                os.execvp(exe, [exe, ASSISTED])
+            finally:
+                os._exit(127)
+        fin = time.monotonic() + float(tope)
+        while time.monotonic() < fin:
+            listo, _w, _x = select.select([fd], [], [], 0.25)
+            if listo:
+                try:
+                    trozo = os.read(fd, 4096)
+                except OSError:
+                    trozo = b""
+                if not trozo:
+                    break
+                salida += trozo
+                if RECHAZO_INTERACTIVO.encode() in salida:
+                    break
+            if os.waitpid(pid, os.WNOHANG)[0]:
+                pid = 0
+                break
+        if pid:                                              # su salida se cerró: ¿ya salió? (un momento)
+            hasta = time.monotonic() + 1.0
+            while time.monotonic() < hasta:
+                if os.waitpid(pid, os.WNOHANG)[0]:
+                    pid = 0
+                    break
+                if time.monotonic() >= fin:
+                    break
+                time.sleep(0.05)
+        texto = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", salida.decode("utf-8", "replace"))
+        acepta = False if RECHAZO_INTERACTIVO in texto else (True if pid else None)
+        if pid:
+            try:
+                os.kill(pid, signal.SIGTERM)
+                os.waitpid(pid, 0)
+            except OSError:
+                pass
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        return acepta, " ".join(texto.split())[-300:]
+    except Exception:
+        return None, ""
+    finally:
+        if not cwd:
+            shutil.rmtree(carpeta, ignore_errors=True)
 
 
 def brain_write_args(cfg, brain, passthrough=(), windows=None, env=None, exe=None):
@@ -877,8 +981,8 @@ def _interactive_argv(cfg, passthrough, session_id="", boot="", extra=()):
 
 def boot_message(cfg):
     """Mensaje de arranque de una sesión NUEVA (como codex/opencode)."""
-    return ("Lee %s e inicia el cerebro. Al terminar, confirma en una línea breve."
-            % _identity_doc(cfg))
+    import memoria
+    return "Lee %s e inicia el cerebro. %s" % (_identity_doc(cfg), memoria.fin_arranque())
 
 
 def _plan(cfg, passthrough, brain, exe):
@@ -999,6 +1103,11 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
         extra = list(extra) + _lectura_que_cabe(extra, passthrough, exe)
     except Exception:
         pass
+    # «Automático» NO va en la terminal: desde Copilot 1.0.114, --assisted-approval (y
+    # COPILOT_ASSISTED_APPROVAL) solo valen con -p; la sesión interactiva se niega a
+    # arrancar con «--assisted-approval is only supported in non-interactive prompt mode
+    # or direct workflow mode» (VERIFICADO 18-nov con 1.0.114). En la terminal queda
+    # como «Editar sin preguntar»: escribe en su cerebro y pregunta lo demás.
 
     tab, session_id, session_blk, resumed = None, "", "", False
     agent = str(cfg.get("name") or "")

@@ -1,7 +1,7 @@
 {
  "motor": "cursor",
- "version": "2026.11.5",
- "actualizado": "2026-11-06",
+ "version": "2026.11.13",
+ "actualizado": "2026-11-16",
  "nota": "Cédula de conformidad de las métricas: `version` es la versión certificada (con golden en tests/fixtures/metricas/cursor/2026.11.5/ y en VERIFIED_VERSIONS). El historial registra cada verificación: nivel kit (fixture), mínimo (headless real) o completo (consola real con la X). runbooks/agregar-motor.md §3b.",
  "historial": [
   {
@@ -50,6 +50,29 @@
    "fuente": "tests/e2e/metricas_viva.py",
    "fallos": [],
    "notas": "Segunda corrida viva con cursor/2: 5 herramientas (el modelo hizo un paso de más); tramo 2 con respaldo_reescrito y 6 duplicadas, como la golden. Uso incluido en el plan de Cursor."
+  },
+  {
+   "version": "2026.11.13",
+   "so": "mac",
+   "nivel": "minimo",
+   "veredicto": "pasa",
+   "fecha": "2026-11-16",
+   "costo_usd_aprox": 0,
+   "intentos": 1,
+   "modelo": "grok-4.7-low",
+   "parser": "cursor/2",
+   "fuente": "tests/e2e/metricas_viva.py",
+   "fallos": []
+  },
+  {
+   "version": "2026.11.13",
+   "so": "mac",
+   "nivel": "kit",
+   "veredicto": "pasa",
+   "fecha": "2026-11-16",
+   "costo_usd_aprox": 0,
+   "fuente": "tests/fixtures/metricas/cursor/2026.11.13 (captura real G1 nivel mínimo, dos respaldos)",
+   "parser": "cursor/2"
   }
  ]
 }

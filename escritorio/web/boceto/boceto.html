@@ -1,0 +1,42 @@
+<header class="bc-top" id="bcTop">
+  <div class="bc-ceja">Workspace · boceto v1 · F0 en la Mac</div>
+  <h1>Monitos de escritorio</h1>
+  <p class="bc-lead">Tu monito, el mismo del navegador, vive en una esquina de la Mac, animado y quieto. Lo llamas con
+    <span class="bc-nw"><kbd>⌥</kbd> <kbd>Espacio</kbd></span>, le escribes y te contesta ahí mismo, con sus preguntas y los permisos de su motor.
+    En F0 solo conversa; señalar llega en F1 y hacer, siempre con tu OK, en F2.</p>
+  <nav class="bc-estados" id="bcEstados" aria-label="Estados del monito"></nav>
+</header>
+
+<main class="bc-esc" id="bcEsc" aria-label="Escritorio de ejemplo">
+  <div class="bc-menu">
+    <span class="bc-app">Hoja de cálculo</span><span>Archivo</span><span class="bc-ocultable">Edición</span><span class="bc-ocultable">Formato</span><span class="bc-ocultable">Datos</span><span class="bc-ocultable">Ventana</span>
+    <span class="bc-der"><span class="bc-kbd" id="bcKbd"><kbd>⌥</kbd><kbd>Espacio</kbd></span><span class="bc-hora">vie 21 nov 10:24</span></span>
+  </div>
+  <section class="bc-ventana" id="bcVentana">
+    <div class="bc-tit"><i></i><i></i><i></i><b>Ventas_noviembre.xlsx</b></div>
+    <div class="bc-herr">
+      <button>Inicio</button><button>Insertar</button><button id="bcFormato">Formato</button><button>Datos</button><button class="bc-ocultable">Revisar</button>
+    </div>
+    <div class="bc-formula"><span>C2</span><code>=B2*1.16</code></div>
+    <div class="bc-hoja" id="bcHoja"></div>
+  </section>
+  <div class="wsm" id="wsm"></div>
+</main>
+
+<section class="bc-sec">
+  <h2>Sus estados</h2>
+  <p class="bc-sub">Los mismos monitos y la misma animación que el riel de la página: cada agente con su forma y su color.</p>
+  <div class="bc-gal" id="bcGal"></div>
+</section>
+
+<section class="bc-sec">
+  <h2>También en la terminal</h2>
+  <p class="bc-sub">La terminal primero y la ventanita es opcional: <code>ws "…"</code> le manda a tu agente y te deja su
+    respuesta, sus preguntas y sus permisos ahí mismo.</p>
+  <div class="bc-term" id="bcTerm"><div class="bc-term-t"><i></i><i></i><i></i><span>Terminal</span></div><pre id="bcTermTxt"></pre></div>
+</section>
+
+<footer class="bc-pie">
+  El monito de este boceto es el componente de la página del navegador (<code>web/front/src/10_monitos.js</code>), cargado
+  tal cual. La app de la Mac (<code>escritorio/mac</code>) carga esta misma pieza, sin el escritorio de ejemplo.
+</footer>

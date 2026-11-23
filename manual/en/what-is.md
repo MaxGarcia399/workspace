@@ -18,11 +18,11 @@ Agent = identity + brain + engine
 
 - **Sets up and opens your official engines**, with your account. The engine is still what
   talks to the model.
-- A **menu (the hub)** to pick an agent and jump in with one key.
+- The **hub**, to pick an agent and talk to it with one key.
 - Hands each agent its memory when it starts, so it doesn't start from zero every time.
 - Lets you **switch engines** without rebuilding the agent.
 - **Checks and repairs itself** (`workspace doctor`) and **updates itself**.
-- Tools around it: calendar, agent tone, shortcuts.
+- Tools around it: calendar and agent tone.
 
 ## What it does NOT do
 

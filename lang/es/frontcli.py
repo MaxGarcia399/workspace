@@ -34,6 +34,7 @@ STRINGS = {
     'cli.repair.failed': '{n} con error: {names}',
     'cli.repair.head': 'hooks recableados (settings.local.json)',
     'cli.repair.none': 'No hay cerebros resueltos que recablear. Corre `workspace doctor` para resolverlos.',
+    'cli.repair.unreadable': 'el settings.local.json de {name} no se pudo leer y NO se tocó · revísalo o restáuralo y vuelve a correr `workspace repair`',
     'cli.repair.registry_fail': 'no pude leer el registry de agentes ({err}) — corre `workspace doctor`',
     'cli.repo.branch': 'rama {branch}',
     'cli.repo.dirty': 'cambios locales sin commitear',

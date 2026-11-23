@@ -1,0 +1,10 @@
+{
+  "_doc": "LA fuente del paquete Workspace. arquitectura/generar.py arma desde aquí los 3 formatos (plugin de Claude Code, Agent Plugins 1.0, plugin JS de OpenCode). La versión sale de VERSION en la raíz.",
+  "nombre": "workspace",
+  "descripcion": "Workspace: memoria de la pestaña, estado en vivo y skills del cerebro, por las piezas oficiales del motor.",
+  "autor": "Workspace",
+  "servidor_mcp": "workspace",
+  "python": "python3",
+  "lanzador_hook": "lanzador/hook.py",
+  "lanzador_mcp": "lanzador/mcp.py"
+}

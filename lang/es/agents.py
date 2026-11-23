@@ -187,9 +187,14 @@ STRINGS.update({
     "agentes.mg.bad_level": "nivel desconocido: {v}",
     "agentes.mg.auto_ask": "{n} preguntará antes de escribir en su cerebro · desde su "
                            "próxima sesión",
-    "agentes.mg.auto_brain": "{n} lee y escribe en su cerebro sin preguntar · desde su "
-                             "próxima sesión",
-    "agentes.mg.review_on": "revisión de skills prendida para {n} · la hace al abrir la "
-                            "siguiente sesión, a la vista",
+    "agentes.mg.auto_brain": "{n} trabaja en automático: su motor revisa cada paso y solo te "
+                             "pregunta lo arriesgado · desde su próxima sesión",
+    "agentes.mg.auto_edit": "{n} lee y escribe en su cerebro sin preguntar · desde su "
+                            "próxima sesión",
+    "agentes.mg.auto_sandbox": "{n} trabaja sin preguntar, pero solo dentro del sandbox de su "
+                               "motor (sin red, solo su carpeta); donde no hay sandbox, edita "
+                               "sin preguntar · desde su próxima sesión",
+    "agentes.mg.review_on": "revisión de skills prendida para {n} · la hace al volver a abrir "
+                            "la pestaña, a la vista; si no, la ves en el hub",
     "agentes.mg.review_off": "revisión de skills apagada para {n}",
 })

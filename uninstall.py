@@ -41,7 +41,7 @@ try:    # acento/tenue del TEMA del hub (el mismo de cada pantalla); sin tema, l
 except Exception:
     pass
 if IS_WIN:
-    os.system("")  # habilita ANSI en Windows 10+
+    import _console; _console.ansi()  # ANSI en Windows 10+ (solo con consola: sin ella, os.system abría una ventana)
 
 
 def ok(m):  print(f"  {C}✓{R} {m}")
@@ -926,6 +926,17 @@ def _read_text(path):
         return None
 
 
+def _candado_de(path):
+    """El candado común de un settings.local.json de cerebro (olock.local_lock,
+    el mismo de install, doctor y repair); para cualquier otro archivo, ninguno.
+    Sin --dry-run no se escribe, así que tampoco se toma."""
+    import contextlib
+    if DRY or os.path.basename(path) != "settings.local.json":
+        return contextlib.nullcontext()
+    import olock
+    return olock.local_lock(path, timeout=5)
+
+
 def _rewrite(path, text, stamp):
     """Respaldo al lado (copia exacta, legible solo por el dueño: la config de
     un motor puede traer datos de la cuenta, como `authInfo` de Cursor) +
@@ -1025,12 +1036,13 @@ def _plan_memoria_mcp(mm, n, b, json_item, rm_item):
         else:
             json_item(p, label, lambda d, quitar=quitar: (
                 quitar(d)[0], [mm.SERVIDOR] if quitar(d)[1] else []))
-    kp = mm.kiro_agente_path(b)
-    data = None if enlace(kp) else _read_json_strict(kp)
-    if data is not None and mm._kiro_es_nuestro(data):
-        rm_item(kp, _t("uninstall.clean.kiro_agent", "Kiro: agente de Workspace {p}", p=kp),
-                check=lambda kp=kp: mm._kiro_es_nuestro(_read_json_strict(kp)),
-                vaciar=(os.path.dirname(kp), os.path.dirname(os.path.dirname(kp))))
+    # el agente de la terminal y el de la página (cierre de la auditoría: mm.kiro_pagina_path)
+    for kp in (mm.kiro_agente_path(b), mm.kiro_pagina_path(b)):
+        data = None if enlace(kp) else _read_json_strict(kp)
+        if data is not None and mm._kiro_es_nuestro(data):
+            rm_item(kp, _t("uninstall.clean.kiro_agent", "Kiro: agente de Workspace {p}", p=kp),
+                    check=lambda kp=kp: mm._kiro_es_nuestro(_read_json_strict(kp)),
+                    vaciar=(os.path.dirname(kp), os.path.dirname(os.path.dirname(kp))))
     # Antigravity: el servidor en `.agents/mcp_config.json` (los del socio quedan)
     ap = mm.agy_mcp_path(b)
     data = None if enlace(ap) else _read_json_strict(ap)
@@ -1046,6 +1058,13 @@ def _plan_memoria_mcp(mm, n, b, json_item, rm_item):
         else:
             json_item(ap, label, lambda d: (
                 mm.sin_servidor(d)[0], [mm.SERVIDOR] if mm.sin_servidor(d)[1] else []))
+
+
+def _plugin_openclaw_nuestro(carpeta):
+    """¿`carpeta` es el plugin de Workspace para OpenClaw que dejó Workspace (arquitectura/generar, formato
+    «openclaw»)? Su manifiesto con id workspace y su package.json workspace-openclaw; un enlace, nunca."""
+    from engines import openclaw as oc
+    return oc.plugin_owned(carpeta)
 
 
 def plan_clean_all(cerebros, stamp=None):
@@ -1074,11 +1093,16 @@ def plan_clean_all(cerebros, stamp=None):
             return
 
         def act():
-            cur = _read_json_strict(path)
-            new, again = transform(cur) if cur is not None else (None, [])
-            if again:
-                return _rewrite(path, json.dumps(new, indent=2, ensure_ascii=False) + "\n",
-                                stamp)
+            # el settings.local.json de un cerebro lo escriben también install,
+            # doctor y repair: se relee y reescribe bajo el MISMO candado (olock.
+            # local_lock). Ocupado → LockTimeout, que apply_clean_all anota
+            # («no pude limpiar») sin tocar el archivo; los demás ítems siguen.
+            with _candado_de(path):
+                cur = _read_json_strict(path)
+                new, again = transform(cur) if cur is not None else (None, [])
+                if again:
+                    return _rewrite(path, json.dumps(new, indent=2, ensure_ascii=False) + "\n",
+                                    stamp)
             return ""
         items.append(("%s → %s" % (label, ", ".join(gone)), path, "edit", act))
 
@@ -1129,6 +1153,13 @@ def plan_clean_all(cerebros, stamp=None):
                               "cerebro «{n}»: {f} generado por Workspace ({p})",
                               n=n, f=fn, p=p),
                         check=lambda p=p, marks=marks: _generated_doc(p, marks))
+        # OpenClaw: el plugin de Workspace en la carpeta de plugins del workspace de su agente (solo el nuestro)
+        op = os.path.join(b, ".openclaw", "extensions", "workspace")
+        if _plugin_openclaw_nuestro(op):
+            rm_item(op, _t("uninstall.clean.openclaw_plugin", "cerebro «{n}»: plugin de Workspace para OpenClaw ({p})",
+                           n=n, p=op),
+                    check=lambda op=op: _plugin_openclaw_nuestro(op),
+                    vaciar=(os.path.dirname(op), os.path.dirname(os.path.dirname(op))))
     # Codex: confianza de los cerebros y sus temas workspace-*.tmTheme
     codex_dir = os.environ.get("CODEX_HOME") or os.path.join(HOME, ".codex")
     cfg = os.path.join(codex_dir, "config.toml")
@@ -1261,6 +1292,10 @@ def plan_clean_all(cerebros, stamp=None):
     try:
         from engines import openclaw as _oc
         prof = _oc._profile()
+        fijo = _oc.plugin_dir(home=HOME)
+        if _plugin_openclaw_nuestro(fijo):
+            rm_item(fijo, "OpenClaw: plugin compartido de Workspace",
+                    check=lambda fijo=fijo: _plugin_openclaw_nuestro(fijo))
         oc = os.path.join(HOME, ".openclaw-" + prof)
         if prof and os.path.isdir(oc) and not os.path.islink(oc):
             def act_oc(oc=oc, prof=prof):
@@ -1270,6 +1305,15 @@ def plan_clean_all(cerebros, stamp=None):
                         _gw.shutdown(_which("openclaw"), prof)
                 except Exception:
                     pass
+                conf = os.path.join(oc, "openclaw.json")
+                if not os.path.islink(conf):
+                    d = _read_json_strict(conf)
+                    paths = _oc._get_path(d, _oc.PLUGIN_PATHS)
+                    if isinstance(paths, list):
+                        restantes = [p for p in paths if not _oc._same_path(p, fijo)]
+                        if restantes != paths:
+                            d["plugins"]["load"]["paths"] = restantes
+                            _rewrite(conf, json.dumps(d, indent=2, ensure_ascii=False) + "\n", stamp)
                 bak = _apartar(oc, stamp)
                 ok(_t("uninstall.clean.moved", "{label} apartado con sus conversaciones (no se "
                       "borró): {p} → {b}", label=_t("uninstall.clean.oc_label",
@@ -1284,36 +1328,45 @@ def plan_clean_all(cerebros, stamp=None):
         pass
     try:
         from engines import hermes as _hm
-        prof, hp = _hm._profile(), _hm.profile_dir()
-        if (prof and os.path.basename(hp) == prof
-                and os.path.basename(os.path.dirname(hp)) == "profiles"
-                and os.path.isdir(hp) and not os.path.islink(hp)):
-            def act_hm(hp=hp, prof=prof):
-                exe = _which("hermes")
-                # Primero el respaldo comprobado; con Hermes instalado, una copia
-                # para que su borrado OFICIAL (suelta su gateway e identidad) siga.
-                bak = _apartar(hp, stamp, copiar=bool(exe))
-                if exe:
-                    try:
-                        _run_quiet([exe, "profile", "delete", prof, "-y"])
-                    except Exception:
-                        pass
-                    if os.path.isdir(hp):    # la copia ya está a salvo en `bak`
-                        shutil.rmtree(hp, ignore_errors=True)
-                    if os.path.lexists(hp):
-                        raise OSError(_t("uninstall.clean.hm_left",
-                                         "el perfil sigue ahí; su copia quedó en {b}", b=bak))
-                ok(_t("uninstall.clean.moved", "{label} apartado con sus conversaciones (no se "
-                      "borró): {p} → {b}", label=_t("uninstall.clean.hm_label",
-                                                     "perfil de Hermes"), p=hp, b=bak))
-                return bak
-            items.append((_t("uninstall.clean.hermes",
-                             "Hermes: perfil de Workspace {p} → se aparta (no se borra) a {b}, "
-                             "con sus conversaciones y el proveedor que conectaste ahí; tu "
-                             "Hermes personal no se toca", p=hp, b=hp + _BAK + stamp),
-                          hp, "move", act_hm))
+        # el de Workspace y, cable-hermes, el propio de cada agente (solo los que llevan su marca)
+        perfiles = [(_hm._profile(), _hm.profile_dir())]
+        try:
+            perfiles += [(p, _hm.carpeta_perfil(p)) for p in _hm.perfiles_de_agente()]
+        except Exception:
+            pass
     except Exception:
-        pass
+        perfiles = []
+    for prof, hp in perfiles:
+        try:
+            if (prof and os.path.basename(hp) == prof
+                    and os.path.basename(os.path.dirname(hp)) == "profiles"
+                    and os.path.isdir(hp) and not os.path.islink(hp)):
+                def act_hm(hp=hp, prof=prof):
+                    exe = _which("hermes")
+                    # Primero el respaldo comprobado; con Hermes instalado, una copia
+                    # para que su borrado OFICIAL (suelta su gateway e identidad) siga.
+                    bak = _apartar(hp, stamp, copiar=bool(exe))
+                    if exe:
+                        try:
+                            _run_quiet([exe, "profile", "delete", prof, "-y"])
+                        except Exception:
+                            pass
+                        if os.path.isdir(hp):    # la copia ya está a salvo en `bak`
+                            shutil.rmtree(hp, ignore_errors=True)
+                        if os.path.lexists(hp):
+                            raise OSError(_t("uninstall.clean.hm_left",
+                                             "el perfil sigue ahí; su copia quedó en {b}", b=bak))
+                    ok(_t("uninstall.clean.moved", "{label} apartado con sus conversaciones (no se "
+                          "borró): {p} → {b}", label=_t("uninstall.clean.hm_label",
+                                                         "perfil de Hermes"), p=hp, b=bak))
+                    return bak
+                items.append((_t("uninstall.clean.hermes",
+                                 "Hermes: perfil de Workspace {p} → se aparta (no se borra) a {b}, "
+                                 "con sus conversaciones y el proveedor que conectaste ahí; tu "
+                                 "Hermes personal no se toca", p=hp, b=hp + _BAK + stamp),
+                              hp, "move", act_hm))
+        except Exception:
+            pass
     return items, kept
 
 
@@ -1506,7 +1559,7 @@ def main():
             print(_t("uninstall.clean.final_moved", "  {dim}Las conversaciones de {p} siguen en {b}{r}", dim=DIM, p=_p, b=bak, r=R))
     else:
         print(_t("uninstall.x.main.7", "  {dim}Los CEREBROS (carpetas de agentes) y los transcripts NO se tocaron.{r}", dim=DIM, r=R))
-    print(_t("uninstall.x.main.9", "  {dim}Si vuelves a instalar Workspace, carga de nuevo cada agente (Agregar agente → cargar su carpeta) para que apunte a la instalación nueva; si restauraste tu respaldo, basta con `workspace doctor`.{r}", dim=DIM, r=R))
+    print(_t("uninstall.x.main.9", "  {dim}Si vuelves a instalar Workspace, carga de nuevo cada agente (en el hub, «+ Agregar» › «Ya tengo un agente») para que apunte a la instalación nueva; si restauraste tu respaldo, basta con `workspace doctor`.{r}", dim=DIM, r=R))
     if backup and not DRY:
         print(f"  {DIM}" + _t("uninstall.backup_where", "Tu respaldo: {p}").replace(
             "{p}", backup) + R)

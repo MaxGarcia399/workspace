@@ -42,7 +42,7 @@ from metricas_motores.claude_code import _rutas_leidas  # misma regla de lectore
 MOTOR = "kiro"
 VERSION = "kiro/1"
 #: Versiones EXACTAS verificadas con su golden (tests/fixtures/metricas/kiro/<versión>/).
-VERIFIED_VERSIONS = ("3.1.0",)
+VERIFIED_VERSIONS = ("3.1.0", "3.3.0")
 _SIN = "messages.jsonl no lo trae (3.1.0)"
 COBERTURA = {
     "motor_version": ("parcial", "el respaldo no la trae: la caché de engine_versions al "

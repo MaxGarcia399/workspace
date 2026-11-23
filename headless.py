@@ -199,6 +199,7 @@ def _invoke_claude_code(prompt, *, model, timeout, cwd, tools, exe_override,
     env = secret_store.engine_env()   # el motor no hereda la bóveda
     env["WORKSPACE_REVIEW_RUNNING"] = "1"    # anti-recursión (no review del review)
     env["WORKSPACE_NO_AUTOUPDATE"] = "1"
+    env["DISABLE_AUTOUPDATER"] = "1"  # M5: ver engines/claude_code.SIN_AUTOUPDATE
     if env_extra:                     # p.ej. TMPDIR dentro del clon (write-scoped)
         env.update({str(k): str(v) for k, v in env_extra.items()})
     if cwd:

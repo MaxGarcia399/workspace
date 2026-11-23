@@ -67,11 +67,11 @@ CAPABILITIES = {
 BINARY = "opencode"
 
 #: Versiones del CLI oficial con las que se VERIFICARON las lecturas de este
-#: adapter (engine_versions: doctor avisa si la instalada es de otra línea).
-#: Al verificar una versión nueva, agrégala aquí (runbooks/agregar-motor.md).
+#: adapter (historial).
 #: 2.0.29 (macOS) · 2.0.30 (Windows, npm @opencode/cli) · 1.19.3 (Windows,
 #: npm `opencode-ai`, la que instala opencode.ai/install).
-VERIFIED_VERSIONS = ("1.19.3", "2.0.29", "2.0.30")
+#: La lista de versiones PROBADAS es una sola: la del parser de este motor
+#: (engine_versions.verified); lo de arriba es el historial de este adapter.
 #: opencode tiene DOS líneas vivas (2026-10-16): la 1 (`opencode-ai`,
 #: opencode.ai/install, 1.19.x) y la 2 (`@opencode/cli`, opencode.ai/v2). Las
 #: dos sirven con el MISMO método: la pestaña nueva abre sin id, opencode crea
@@ -900,9 +900,10 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
     # prompt/flag del socio manda. VERIFICADO 2.0.29 (TUI real en un pty):
     # `--prompt` ENVÍA el mensaje al abrir (la sesión recibe turno + respuesta).
     if "--prompt" not in [str(a) for a in argv]:
+        import memoria
         boot = first_prompt or ("" if (passthrough or resumed) else
-                                "Lee %s e inicia el cerebro. Al terminar, confirma "
-                                "en una línea breve." % _identity_doc(cfg))
+                                "Lee %s e inicia el cerebro. %s"
+                                % (_identity_doc(cfg), memoria.fin_arranque()))
         if boot and os.name == "nt":  # viaja como argumento: el lanzador .cmd pasa por
             import memoria            # cmd.exe (la marca ya viene saneada)
             boot = memoria.argv_seguro(boot)
@@ -942,11 +943,29 @@ def launch(cfg, passthrough, *, plan=False, preselect=None, show_banner=True):
         except Exception:
             pass
 
+    def _atar(sid):
+        # F4: la conversación de la pestaña nueva la creó su servidor (control/compartido): se
+        # ata YA y la captura de cierre exporta esa, sin buscarla.
+        if not (tab and _valid_session_id(sid)):
+            return
+        import sessions_registry as _reg
+        _reg.bind(brain, agent, tab[1], "opencode", sid)
+        os.environ["WORKSPACE_OPENCODE_SESSION"] = sid
+        os.environ.pop("WORKSPACE_OPENCODE_FIND", None)
+
+    def _al_lanzar(cmd, env):
+        # F4: con el paquete encendido, la TUI abre con un servidor ENCONTRABLE de esta pestaña
+        # (`--server`, clave local en el estado de Workspace): la página entra a la misma sesión.
+        from control import compartido
+        return compartido.servidor_opencode(brain, env.get("WORKSPACE_WID") or "", cmd, env,
+                                            al_crear=_atar)
+
     try:
         import interactive
         rc = interactive.run_official_cli_interactive(
             "opencode", brain=brain or None, argv=argv, context_sink=_ctx_sink,
-            pending={"tab": tab[1] if tab else "", "agent": agent, "resume_id": session_id})
+            pending={"tab": tab[1] if tab else "", "agent": agent, "resume_id": session_id},
+            al_lanzar=_al_lanzar if brain else None)
     except Exception as e:
         print("WORKSPACE: no pude lanzar opencode interactivo (%s: %s)"
               % (type(e).__name__, e))

@@ -807,7 +807,8 @@ def _console_guard(run_id, cli, brain):
 
 def run_official_cli_interactive(cli, brain=None, argv=None, behaviors=None,
                                  exe_override=None, runner=None, context_sink=None,
-                                 pending=None, console_guard=None, guardando=False):
+                                 pending=None, console_guard=None, guardando=False,
+                                 al_lanzar=None):
     """Lanza un CLI oficial en modo INTERACTIVO envuelto en el ciclo de vida
     neutral: on_session_start → el binario corre con la tty → on_session_end
     al salir. Devuelve el returncode. El contexto de arranque va al
@@ -870,6 +871,16 @@ def run_official_cli_interactive(cli, brain=None, argv=None, behaviors=None,
     import engines                   # memoria v1: `workspace memoria nota` sabe el motor
     engines.mark_session_engine(env, cli)
     cmd = [exe] + list(argv if argv is not None else info["argv"][1:])
+    if brain:
+        # Arquitectura nueva (F1, encendida de fábrica): el paquete de Workspace por
+        # sesión según la ficha del motor, y el número de la pestaña en su registro.
+        try:
+            from arquitectura import sesion as _sesion
+            cmd, env, _info = _sesion.para_lanzar(
+                cli, brain, env.get("WORKSPACE_WID") or env.get("WORKSPACE_WS"), cmd, env)
+        except Exception:
+            pass
+    al_salir = None
     # Los avisos de una línea que dispatch juntó al abrir: salen aquí, justo
     # antes del chat, cuando el adaptador ya pintó su banner o su menú (los
     # dos limpian la pantalla y los borraban). Vale para todos los motores
@@ -892,11 +903,26 @@ def run_official_cli_interactive(cli, brain=None, argv=None, behaviors=None,
     try:
         run = runner or call_motor
         try:
+            # F4: lo del adaptador justo antes de abrir, con la corrida ya preparada (OpenCode: el
+            # servidor de esta pestaña, que comparte con la página). `al_salir` corre al cerrar,
+            # pase lo que pase (también con la X o una señal).
+            if al_lanzar is not None:
+                try:
+                    cmd, env, al_salir = al_lanzar(cmd, env)
+                except _SessionSignal:
+                    raise
+                except Exception:
+                    al_salir = None
             rc = run(cmd, env=env, cwd=str(brain) if brain else None)
         except _SessionSignal as sig:
             ended_by = int(sig.args[0]) if sig.args else 0
             rc = 128 + ended_by
     finally:
+        if al_salir is not None:
+            try:
+                al_salir()
+            except Exception:
+                pass
         _shield_cleanup(prev)
         try:
             import signal as _signal

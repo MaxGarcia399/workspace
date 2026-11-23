@@ -1,383 +1,171 @@
 """WORKSPACE · lang/es/onboarding — el primer arranque guiado (onboarding_tui).
 
-Subtítulo, fila de etapas, paso 0 (idioma), bienvenida, y los pasos MOTORES /
-APARIENCIA / AGENTE / RESUMEN completos: títulos de caja, divisores, labels,
-estados de motor, copy por motor, mensajes y hints del pie por vista. `es` es la
-FUENTE: cada cadena es byte-idéntica a la que mostraba el código hardcodeado.
+Fila de etapas, paso 0 (idioma, solo si el del sistema no se pudo leer), bienvenida, MOTORES,
+AGENTE y RESUMEN: títulos de caja, divisores, labels, estados de motor, copy por motor,
+mensajes y pistas del pie. `es` es la FUENTE: cada cadena es idéntica al texto del código.
+F0 (19-nov): sin pasos de tema, arranque, tono ni Google Calendar, y sin jerga en pantalla.
 """
 
 STRINGS = {
-    "onboarding.subtitle": "primer arranque — deja tu Workspace listo en 3 pasos",
-
-    # fila de etapas (1 motores ── 2 apariencia ── 3 agente)
+    # fila de etapas (1 motores ── 2 agente)
     "onboarding.etapa.motores": "motores",
-    "onboarding.etapa.apariencia": "apariencia",
     "onboarding.etapa.agente": "agente",
-    'onboarding.reanudado': 'continuando donde lo dejaste',
+    "onboarding.reanudado": "continuando donde lo dejaste",
 
     # divisores compartidos entre pasos
     "onboarding.div.tu_eleccion": "tu elección",
     "onboarding.div.que_cambia": "qué cambia",
     "onboarding.continuar": "✦ continuar",
+    "onboarding.continuar_sin_agente": "✦ continuar sin agente",
 
     # línea de ACCIÓN PRIMARIA (P0-B) — por foco, corta y brillante
     "onboarding.action.idioma": "Enter elige el idioma",
     "onboarding.action.bienvenida": "Enter para empezar",
     "onboarding.action.motores_opt": "espacio marca · Enter continúa",
     "onboarding.action.continuar": "Enter continúa al siguiente paso",
-    "onboarding.action.apariencia_opt": "Enter aplica «{lbl}»",
-    "onboarding.action.autostart": "Enter elige «{lbl}» · Esc salta",
     "onboarding.action.agente": "Enter abre «{lbl}»",
-    "onboarding.action.gcal": "Esc salta · Enter conecta",
-    "onboarding.action.gcal_done": "Enter te lleva al resumen",
-    "onboarding.action.resumen": "Enter abre el hub",
+    "onboarding.action.resumen": "Enter abre Workspace",
+    "onboarding.action.sin_agente": "Enter continúa sin agente (lo agregas después)",
 
-    # paso 0: idioma
+    # paso 0: idioma (solo si el del sistema no se pudo leer)
     "onboarding.idioma.divisor": "idioma",
     "onboarding.idioma.heading": "Elige el idioma de Workspace.",
-    "onboarding.idioma.body": "Puedes cambiarlo cuando quieras desde el hub "
-                              "(«Idioma»). Las pantallas de desarrollo "
-                              "quedan en español.",
+    "onboarding.idioma.body": "Puedes cambiarlo cuando quieras desde el hub («Idioma»). Las pantallas de desarrollo quedan en español.",
 
     # bienvenida
     "onboarding.welcome.title_l": "QUÉ ES WORKSPACE",
     "onboarding.welcome.title_r": "EL PLAN",
-    "onboarding.welcome.p1": "Workspace es un hub local para tus agentes de "
-                             "IA: cada agente vive en su propio cerebro (una "
-                             "carpeta de archivos tuya) y corre sobre un motor "
-                             "CLI que ya tengas instalado — Claude Code, Codex, "
-                             "Antigravity, OpenCode, OpenClaw, Hermes, Kiro, "
-                             "GitHub Copilot o Cursor.",
-    "onboarding.welcome.p2": "Todo pasa en tu máquina: cero dependencias, sin "
-                             "cuentas nuevas, y Workspace nunca ve ni guarda "
-                             "tus credenciales (el login es de cada CLI).",
+    "onboarding.welcome.p1": "Workspace junta a tus agentes de IA en un solo lugar. Cada agente guarda lo que aprende en una carpeta tuya y piensa con un motor de IA que ya tienes, como Claude Code o Codex.",
+    "onboarding.welcome.p2": "Todo pasa en tu computadora: no hay cuentas nuevas y Workspace nunca ve tus contraseñas.",
     "onboarding.welcome.plan_title": "qué viene ahora",
     "onboarding.welcome.step1_t": "1 motores",
-    "onboarding.welcome.step1_d": "detecto qué CLIs tienes y eliges cuáles usar",
-    "onboarding.welcome.step2_t": "2 apariencia",
-    "onboarding.welcome.step2_d": "tema y fondo del hub — se ven al instante",
-    "onboarding.welcome.step3_t": "3 agente",
-    "onboarding.welcome.step3_d": "crear uno nuevo, cargar uno existente o "
-                                  "buscar en tu disco (y afinar su tono)",
+    "onboarding.welcome.step1_d": "reviso qué motores de IA tienes y si ya entraste a tu cuenta",
+    "onboarding.welcome.step2_t": "2 agente",
+    "onboarding.welcome.step2_d": "creas tu primer agente (o conectas uno que ya tengas)",
     "onboarding.welcome.transparency_title": "transparencia",
-    "onboarding.welcome.transparency_p": "Al final: un resumen de lo elegido y "
-                                         "dónde quedó guardado. Puedes saltarte "
-                                         "esto con q y repetirlo cuando quieras "
-                                         "con `workspace onboarding`.",
+    "onboarding.welcome.transparency_p": "Al final ves un resumen. Tema, arranque y tono quedan como vienen y los cambias cuando quieras en Workspace. Puedes saltarte esto con q y repetirlo con «workspace onboarding».",
 
-    # paso 1: MOTORES
-    "onboarding.motores.title_l": "MOTORES DETECTADOS",
+    # paso 1: MOTORES (estados en palabras simples; «listo» solo con el sí oficial)
+    "onboarding.motores.title_l": "TUS MOTORES",
     "onboarding.motores.title_r": "EL MOTOR",
     "onboarding.motores.div_listo": "listo",
     "onboarding.motores.marcados": "{n} motor(es) marcados",
     "onboarding.motores.estado": "estado",
     "onboarding.motores.div_honesto": "honesto",
-    "onboarding.motores.honesto_p": "El estado de sesión se lee del propio CLI "
-                                    "de cada motor; Workspace no guarda ni ve "
-                                    "credenciales.",
-    "onboarding.motores.default_p": "Los motores marcados son tu set de "
-                                    "trabajo. «{motor}» queda como default "
-                                    "(modelos.default_engine) para los agentes "
-                                    "que no declaren el suyo — cada agente "
-                                    "puede fijar otro después.",
-    "onboarding.motores.none_p": "Sin ningún motor marcado no se puede lanzar "
-                                 "agentes. Puedes continuar igual, instalar un "
-                                 "CLI después y repetir esto con "
-                                 "`workspace onboarding`.",
-    # estado de motor (línea completa)
+    "onboarding.motores.honesto_p": "«Listo» solo sale cuando el propio motor confirma que ya entraste. Workspace nunca ve tus contraseñas.",
+    "onboarding.motores.default_p": "Tu primer agente usará «{motor}». Cada agente puede usar otro después.",
+    "onboarding.motores.none_p": "Sin un motor tus agentes no pueden pensar. Puedes seguir igual e instalar uno después.",
     "onboarding.motores.st.unavailable": "no disponible en esta instalación",
-    "onboarding.motores.st.not_installed": "no instalado — falta {falta} en "
-                                           "PATH",
-    "onboarding.motores.st.cli": "CLI",
-    "onboarding.motores.st.checking": "binario ✓ · checando sesión…",
-    "onboarding.motores.st.session_ok": "binario ✓ · sesión activa ✓",
-    "onboarding.motores.st.login_needed": "binario ✓ · falta login — {det}",
-    "onboarding.motores.st.no_session": "sin sesión",
-    # estado compacto (resumen)
+    "onboarding.motores.st.not_installed": "no instalado",
+    "onboarding.motores.st.checking": "revisando si ya entraste…",
+    "onboarding.motores.st.session_ok": "listo ✓ · ya entraste a tu cuenta",
+    "onboarding.motores.st.session_unknown": "instalado · no pude comprobar si ya entraste",
+    "onboarding.motores.st.login_needed": "instalado · falta entrar a tu cuenta",
     "onboarding.motores.short.not_installed": "no instalado",
-    "onboarding.motores.short.binary": "binario ✓",
-    "onboarding.motores.short.session": "sesión ✓",
-    "onboarding.motores.short.login": "falta login",
-    # copy honesto por motor: (qué es · cómo se entra · qué cambia)
-    "onboarding.motor.claude-code.what": "Claude Code — el CLI oficial de "
-                                         "Anthropic (binario `claude`).",
-    "onboarding.motor.claude-code.login": "Entra con tu suscripción: corre "
-                                          "`claude` una vez y sigue el login.",
-    "onboarding.motor.claude-code.changes": "Es el motor con más integración "
-                                            "en Workspace: hooks reales, "
-                                            "avisos en vivo y su memoria "
-                                            "propia dentro del cerebro.",
-    "onboarding.motor.codex.what": "Codex — el CLI de OpenAI (binario "
-                                   "`codex`), con tu suscripción de ChatGPT.",
-    "onboarding.motor.codex.login": "Entra con `codex login` en tu terminal.",
-    "onboarding.motor.codex.changes": "Workspace lo envuelve; nunca lee ni "
-                                      "toca tu token (~/.codex/).",
-    "onboarding.motor.antigravity.what": "Antigravity — el CLI `agy` de Google "
-                                         "(Gemini).",
-    "onboarding.motor.antigravity.login": "La sesión se abre con tu cuenta "
-                                          "Google desde el propio CLI.",
-    "onboarding.motor.antigravity.changes": "Workspace lo envuelve igual que a "
-                                            "los demás motores.",
-    "onboarding.motor.opencode.what": "OpenCode — CLI de código abierto (binario "
-                                      "`opencode`), agnóstico de modelo.",
-    "onboarding.motor.opencode.login": "Conecta tu proveedor con `opencode auth "
-                                       "login` (OpenRouter, Anthropic, OpenAI u "
-                                       "otros).",
-    "onboarding.motor.opencode.changes": "Workspace lo envuelve; el modelo es el "
-                                         "que elijas en tu config de opencode y "
-                                         "nunca lee tu credencial.",
-    "onboarding.motor.openclaw.what": "OpenClaw — agente personal de código abierto "
-                                      "(binario `openclaw`), en su modo terminal "
-                                      "local.",
-    "onboarding.motor.openclaw.login": "Conecta tu proveedor y elige tu modelo desde "
-                                       "Motores › cuenta y proveedor (abre el setup "
-                                       "oficial de OpenClaw).",
-    "onboarding.motor.openclaw.changes": "Workspace usa un perfil propio de OpenClaw "
-                                         "sobre tu mismo cerebro: no crea archivos "
-                                         "extra, no fija modelo y nunca lee tu "
-                                         "credencial.",
-    "onboarding.motor.hermes.what": "Hermes — agente de código abierto de Nous "
-                                    "Research (binario `hermes`), en su terminal.",
-    "onboarding.motor.hermes.login": "Conecta tu proveedor y elige tu modelo desde "
-                                     "Motores › cuenta y proveedor (abre el setup "
-                                     "oficial de Hermes).",
-    "onboarding.motor.hermes.changes": "Workspace usa un perfil propio de Hermes "
-                                       "(con tu modelo, sin copiar tus llaves; tu "
-                                       "Hermes personal no cambia) con la identidad "
-                                       "de tu agente y sin la memoria propia de "
-                                       "Hermes; nunca lee tu credencial.",
-    "onboarding.motor.kiro.what": "Kiro — el agente de terminal de AWS (binario "
-                                  "`kiro-cli`), antes Amazon Q Developer CLI.",
-    "onboarding.motor.kiro.login": "Entra con tu cuenta de Kiro: `kiro-cli login` "
-                                   "(Builder ID, Identity Center, Google o GitHub).",
-    "onboarding.motor.kiro.changes": "Workspace lo envuelve sobre tu mismo cerebro: el modelo es el que "
-                                     "elijas en Kiro y nunca lee tu credencial. Su config va en el cerebro "
-                                     "(.kiro/agents/workspace.json): nada en tu ~/.kiro.",
-    "onboarding.motor.copilot.what": "GitHub Copilot — el CLI oficial de GitHub "
-                                     "(binario `copilot`), con tu suscripción de "
-                                     "Copilot.",
-    "onboarding.motor.copilot.login": "Entra con `copilot login` en tu terminal (o "
-                                      "desde Motores › cuenta y proveedor).",
-    "onboarding.motor.copilot.changes": "Workspace lo envuelve: el modelo es el de tu cuenta y nunca lee tu "
-                                        "token. Escribe solo su barra en ~/.copilot/settings.json; la memoria y "
-                                        "el aislamiento entre agentes van en cada arranque.",
-    "onboarding.motor.cursor.what": "Cursor — el CLI de Cursor (binario "
-                                    "`cursor-agent`), con tu cuenta de Cursor.",
-    "onboarding.motor.cursor.login": "Entra con `cursor-agent login` (o desde "
-                                     "Motores › cuenta y proveedor).",
-    "onboarding.motor.cursor.changes": "Workspace lo envuelve: el modelo es el que elijas en Cursor y nunca "
-                                       "lee tu credencial. En ~/.cursor/cli-config.json escribe su barra y el "
-                                       "permiso de guardar la memoria, y confía en la carpeta de tu cerebro.",
+    "onboarding.motores.short.binary": "instalado",
+    "onboarding.motores.short.session": "listo ✓",
+    "onboarding.motores.short.unknown": "sin comprobar",
+    "onboarding.motores.short.login": "falta entrar",
+    "onboarding.motores.ninguno_instalado": "No encontré ningún motor de IA en esta computadora. Puedes seguir e instalar uno después.",
+    "onboarding.motores.no_instalados": "no instalados: {lista}",
 
-    # paso 2: APARIENCIA
-    "onboarding.apariencia.title_l": "TEMA Y FONDO",
-    "onboarding.apariencia.title_r": "LA APARIENCIA",
-    "onboarding.apariencia.group.tema": "tema",
-    "onboarding.apariencia.group.fondo": "fondo",
-    "onboarding.apariencia.activo": "activo",
-    "onboarding.apariencia.div_donde": "dónde queda",
-    "onboarding.apariencia.herdr_manda": "dentro de herdr manda {tema}; esto vale fuera de herdr",
-    "onboarding.apariencia.changes_p1": "El tema pinta todo el hub — wordmark, "
-                                        "cajas, sliders — y se guarda al "
-                                        "instante: esta pantalla YA está "
-                                        "pintada con él; eso es la vista "
-                                        "previa.",
-    "onboarding.apariencia.changes_p2": "El fondo es un eje independiente: "
-                                        "cambia solo el color de fondo de la "
-                                        "terminal y combina con cualquier "
-                                        "tema.",
-    "onboarding.apariencia.donde_p": "ui.theme y ui.background en "
-                                     "~/.claude/workspace/settings.json. "
-                                     "Brillo y luz roja: en «Personalización» "
-                                     "del hub.",
-    # etiquetas de fondo (el id se queda; traducimos el texto visible)
-    "onboarding.fondo.tema": "el del tema",
-    "onboarding.fondo.negro": "negro puro",
-    "onboarding.fondo.grafito": "grafito",
-    "onboarding.fondo.azul": "azul noche",
-    "onboarding.fondo.verde": "verde bosque",
-    "onboarding.fondo.violeta": "violeta",
+    # copy por motor: qué es · cómo se entra · qué cambia
+    "onboarding.motor.claude-code.what": "Claude Code, de Anthropic.",
+    "onboarding.motor.claude-code.login": "Entras con tu cuenta de Claude la primera vez que abres a tu agente.",
+    "onboarding.motor.claude-code.changes": "Es el motor que Workspace conoce mejor: te enseña en vivo lo que hace tu agente.",
+    "onboarding.motor.codex.what": "Codex, de OpenAI, con tu cuenta de ChatGPT.",
+    "onboarding.motor.codex.login": "Para entrar: escribe «codex login» en tu terminal.",
+    "onboarding.motor.codex.changes": "Workspace nunca ve tu contraseña.",
+    "onboarding.motor.antigravity.what": "Antigravity, de Google (Gemini).",
+    "onboarding.motor.antigravity.login": "Entras con tu cuenta de Google desde el propio Antigravity.",
+    "onboarding.motor.antigravity.changes": "Workspace lo usa igual que a los demás motores.",
+    "onboarding.motor.opencode.what": "OpenCode, de código abierto: funciona con el modelo que elijas.",
+    "onboarding.motor.opencode.login": "Para conectar tu cuenta: escribe «opencode auth login» en tu terminal.",
+    "onboarding.motor.opencode.changes": "Usa el modelo que elijas en OpenCode; Workspace nunca ve tu llave.",
+    "onboarding.motor.openclaw.what": "OpenClaw, un agente personal de código abierto.",
+    "onboarding.motor.openclaw.login": "Conecta tu cuenta y elige tu modelo desde Motores › cuenta y proveedor.",
+    "onboarding.motor.openclaw.changes": "Workspace le da su propio espacio: no fija modelo y nunca ve tu llave.",
+    "onboarding.motor.hermes.what": "Hermes, de Nous Research, de código abierto.",
+    "onboarding.motor.hermes.login": "Conecta tu cuenta y elige tu modelo desde Motores › cuenta y proveedor.",
+    "onboarding.motor.hermes.changes": "Workspace usa su propia copia (tu Hermes no cambia) y nunca ve tu llave.",
+    "onboarding.motor.kiro.what": "Kiro, el agente de AWS (antes Amazon Q).",
+    "onboarding.motor.kiro.login": "Para entrar: escribe «kiro-cli login» en tu terminal.",
+    "onboarding.motor.kiro.changes": "Usa el modelo que elijas en Kiro; Workspace nunca ve tu llave ni toca tu configuración de Kiro.",
+    "onboarding.motor.copilot.what": "GitHub Copilot, con tu cuenta de Copilot.",
+    "onboarding.motor.copilot.login": "Para entrar: escribe «copilot login» en tu terminal (o desde Motores › cuenta y proveedor).",
+    "onboarding.motor.copilot.changes": "Usa el modelo de tu cuenta. Workspace solo agrega su barra en la configuración de Copilot y nunca ve tu contraseña.",
+    "onboarding.motor.cursor.what": "Cursor, con tu cuenta de Cursor.",
+    "onboarding.motor.cursor.login": "Para entrar: escribe «cursor-agent login» en tu terminal (o desde Motores › cuenta y proveedor).",
+    "onboarding.motor.cursor.changes": "Usa el modelo que elijas en Cursor. Workspace agrega su barra y el permiso de guardar la memoria, y nunca ve tu contraseña.",
 
-    # paso 3: AGENTE (las vías vienen de add_agent_tui.MENU_OPTS; el literal es
-    # byte-idéntico a esa fuente para que `es` no cambie)
+    # paso 2: AGENTE (las vías vienen de add_agent_tui.MENU_OPTS)
     "onboarding.agente.title_l": "TU PRIMER AGENTE",
     "onboarding.agente.title_r": "EL CAMINO",
     "onboarding.agente.div_que_pasa": "qué pasa",
     "onboarding.agente.div_siguiente": "siguiente paso",
-    "onboarding.agente.siguiente_p": "Se abre la pantalla real del hub "
-                                     "(«Agregar agente») en ese camino. Si "
-                                     "queda un agente nuevo conectado, al "
-                                     "volver podrás afinar su TONO; después, el "
-                                     "resumen.",
-    "onboarding.agente.crear.label": "crear agente nuevo",
-    "onboarding.agente.crear.desc": "Un agente desde cero: formulario corto → "
-                                    "ves el CEREBRO que va a nacer y el motor "
-                                    "con el que corre → se crea EN VIVO, paso "
-                                    "por paso. Nace autocontenido en su "
-                                    "propia carpeta (Mac y Linux: "
-                                    "~/Workspace/Cerebros/<NOMBRE>), usable al "
-                                    "terminar.",
-    "onboarding.agente.cargar.label": "cargar agente existente",
-    "onboarding.agente.cargar.desc": "Conecta un cerebro que ya existe (una "
-                                     "carpeta): ves QUÉ trae (identidad, marcas "
-                                     "de cerebro, colisiones) antes de "
-                                     "conectar, y el cableado (hooks · "
-                                     "statusline · launcher · tema) corre EN "
-                                     "VIVO, paso por paso.",
-    "onboarding.agente.descubrir.label": "descubrir cerebros en el disco",
-    "onboarding.agente.descubrir.desc": "Busca carpetas con "
-                                        ".workspace/agent.json (vaults de "
-                                        "Obsidian, ~/Workspace/Cerebros, tus "
-                                        "carpetas comunes) y te deja "
-                                        "conectarlas — ves cuáles son nuevas y "
-                                        "cuáles ya están. Acción MANUAL — "
-                                        "Workspace jamás conecta nada solo.",
+    "onboarding.agente.siguiente_p": "Se abre el formulario; al terminar vuelves aquí y ves el resumen.",
+    "onboarding.agente.crear.label": "crear mi primer agente",
+    "onboarding.agente.crear.desc": "Un formulario: solo el nombre es obligatorio y también eliges su cara y su color. Se crea paso a paso, en su propia carpeta en tu computadora.",
+    "onboarding.agente.cargar.label": "ya tengo uno: conectar su carpeta",
+    "onboarding.agente.cargar.desc": "Si ya tienes un agente de Workspace (por ejemplo, de otra computadora), escribe dónde está su carpeta y lo conecto.",
+    "onboarding.agente.descubrir.label": "buscar los que ya tengo en esta computadora",
+    "onboarding.agente.descubrir.desc": "Busco carpetas de agentes de Workspace en esta computadora y tú eliges cuáles conectar. Nada se conecta solo.",
     "onboarding.agente.ninguno.label": "terminar sin agente",
-    "onboarding.agente.ninguno.desc": "También puedes agregarlo cuando quieras "
-                                      "desde el hub (Agentes › «+ agregar agente») — "
-                                      "crear, cargar o descubrir siguen ahí, "
-                                      "idénticos.",
-
-    # paso NUEVO (opcional): AUTOSTART — ¿abre al abrir la terminal o solo
-    # con el comando?
-    "onboarding.autostart.title_l": "ARRANQUE",
-    "onboarding.autostart.title_r": "CÓMO ABRE",
-    "onboarding.autostart.div": "arranque",
-    "onboarding.autostart.heading": "¿Cuándo abre Workspace?",
-    "onboarding.autostart.opt_on": "al abrir la terminal",
-    "onboarding.autostart.opt_off": "solo con el comando workspace",
-    "onboarding.autostart.on_p": "Cada terminal nueva abre el menú de "
-                                 "Workspace: eliges un agente o sigues con una "
-                                 "terminal normal (q). Cómodo para entrar "
-                                 "directo al hub.",
-    "onboarding.autostart.off_p": "La terminal arranca como siempre; escribes "
-                                  "`workspace` cuando quieras el hub. Menos "
-                                  "invasivo — ideal si compartes la máquina o "
-                                  "corres scripts en ella.",
-    "onboarding.autostart.div_donde": "dónde queda",
-    "onboarding.autostart.donde_p": "ui.autostart en settings.json + un bloque "
-                                    "en ~/.zshrc (o tu $PROFILE de "
-                                    "PowerShell). Cambiarlo luego: repite "
-                                    "`workspace onboarding` o edita ese bloque.",
-
-    # paso NUEVO (opcional): GOOGLE CALENDAR
-    "onboarding.gcal.title_l": "GOOGLE CALENDAR",
-    "onboarding.gcal.title_r": "OPCIONAL",
-    "onboarding.gcal.div_pasos": "cómo",
-    "onboarding.gcal.already": "Ya tienes Google Calendar conectado ✓",
-    "onboarding.gcal.step1": 'Pulsa Enter y elige «Conectar con Google en el navegador».',
-    "onboarding.gcal.step2": 'Elige tu cuenta de Google y autoriza leer los eventos.',
-    "onboarding.gcal.step3": 'Vuelve a Workspace: la sesión se renueva automáticamente.',
-    "onboarding.gcal.step4": 'También puedes conectar con una URL iCal.',
-    "onboarding.gcal.step5": 'La primera conexión necesita el cliente OAuth de Workspace.',
-    "onboarding.gcal.changes_p": "Workspace LEE tus eventos (solo lectura) y "
-                                 "los muestra en el calendario del hub. Nunca "
-                                 "escribe en tu agenda.",
-    "onboarding.gcal.div_seguro": "seguro",
-    "onboarding.gcal.seguro_p": 'La sesión de Google o la URL iCal se guarda en tu máquina. Puedes quitar la conexión desde el calendario.',
-    "onboarding.gcal.prompt_url": "Pega la «Dirección secreta en formato iCal» "
-                                  "(Enter vacío = cancelar):",
-    "onboarding.gcal.prompt_label": "Etiqueta (opcional, Enter = auto): ",
-    "onboarding.gcal.connected": "conectado ✓ · {n} eventos",
-    "onboarding.gcal.failed": "no se pudo conectar ({err})",
-    "onboarding.gcal.cancelled": "conexión cancelada",
-    "onboarding.gcal.unavailable": "Google Calendar no está disponible aquí",
+    "onboarding.agente.ninguno.desc": "También puedes agregarlo cuando quieras desde Workspace (Agentes › «+ agregar agente»).",
 
     # paso final: RESUMEN
     "onboarding.resumen.title_l": "LO QUE QUEDÓ",
     "onboarding.resumen.title_r": "DÓNDE Y QUÉ SIGUE",
     "onboarding.resumen.div_motores": "motores",
-    "onboarding.resumen.div_apariencia": "apariencia",
     "onboarding.resumen.div_agentes": "agentes",
     "onboarding.resumen.div_donde": "dónde quedó",
     "onboarding.resumen.div_adelante": "de aquí en adelante",
-    "onboarding.resumen.default": "default: {engine}",
-    "onboarding.resumen.sin_cambio": "sin cambio",
-    "onboarding.resumen.ninguno_marcado": "ninguno marcado — instala un CLI y "
-                                          "repite con `workspace onboarding`",
+    "onboarding.resumen.ninguno_marcado": "ninguno marcado — instala uno y repite con «workspace onboarding»",
     "onboarding.resumen.y_mas": "… y {n} más",
-    "onboarding.resumen.sin_agentes": "sin agentes aún — «Agregar agente» en "
-                                      "el hub cuando quieras",
-    "onboarding.resumen.tono_ok": "tono ajustado para {agente} ✓",
-    "onboarding.resumen.fila_config": "config (tema, fondo, motor)",
-    "onboarding.resumen.fila_agentes": "agentes registrados",
+    "onboarding.resumen.sin_agentes": "sin agentes aún — «Agregar agente» en Workspace cuando quieras",
+    "onboarding.resumen.fila_config": "tus ajustes",
+    "onboarding.resumen.fila_agentes": "tus agentes",
     "onboarding.resumen.fila_onboarding": "este onboarding",
-    "onboarding.resumen.adelante_p1": "Enter te deja en el hub: ahí lanzas "
-                                      "agentes y en el Menú tienes Agentes "
-                                      "(a = agregar), Motores, Usuarios y Tono.",
-    "onboarding.resumen.adelante_p2": "Repetir este flujo: "
-                                      "`workspace onboarding`.",
+    "onboarding.resumen.adelante_p1": "Enter te lleva a Workspace: ahí abres a tus agentes. El tema y el arranque están en Personalización, y el tono, en Tono.",
+    "onboarding.resumen.adelante_p2": "Repetir este flujo: «workspace onboarding».",
     "onboarding.resumen.div_teclas": "las teclas que importan",
-    "onboarding.resumen.tecla_abrir": "abre el hub desde cualquier "
-                                      "terminal",
-    "onboarding.resumen.tecla_buscar": "escribe para buscar un agente o "
-                                       "una sección",
-    "onboarding.resumen.tecla_agentes": "apunta a tu agente; la misma tecla "
-                                        "otra vez lo abre",
-    "onboarding.resumen.tecla_salir": "sale del hub a tu terminal",
+    "onboarding.resumen.tecla_abrir": "abre Workspace en cualquier terminal",
+    "onboarding.resumen.tecla_buscar": "escribe para buscar un agente o una sección",
+    "onboarding.resumen.tecla_agentes": "elige a tu agente; la misma tecla lo abre",
+    "onboarding.resumen.tecla_salir": "sale a tu terminal",
+    "onboarding.resumen.tecla.abc": "letras",
 
     # mensajes efímeros (pie, S["msg"])
-    "onboarding.msg.default_saved": "motor default: {motor} · guardado ✓",
-    "onboarding.msg.default_fail": "no pude guardar el default ({err}) — sigue "
-                                   "igual",
-    "onboarding.msg.not_installable": "{eid} no está instalado — no se puede "
-                                      "marcar",
-    "onboarding.msg.applied": "{tipo} «{lbl}» · guardado ✓",
-    "onboarding.msg.apply_fail": "no se pudo aplicar {tipo} ({err})",
-    "onboarding.msg.autostart_on": "Workspace abrirá al abrir la terminal · "
-                                   "guardado ✓",
-    "onboarding.msg.autostart_off": "Workspace abrirá solo con el comando · "
-                                    "guardado ✓",
-    "onboarding.msg.autostart_saved": "preferencia guardada (ajusta el rc a "
-                                      "mano si hace falta)",
+    "onboarding.msg.default_saved": "tu primer agente usará {motor} · guardado ✓",
+    "onboarding.msg.default_fail": "no pude guardar el motor ({err}) — sigue igual",
+    "onboarding.msg.not_installable": "{eid} no está instalado — no se puede marcar",
 
-    # hints del pie (por vista)
+    # pistas del pie (por vista)
     "onboarding.hints.idioma": "↑↓ idioma · Enter elige · Esc/q salta",
-    "onboarding.hints.welcome": "Enter empieza · q al hub (vuelve con "
-                                "`workspace onboarding`)",
-    "onboarding.hints.motores": "↑↓ motor · espacio marca/quita · Enter "
-                                "continúa · Esc atrás · q salta",
-    "onboarding.hints.apariencia": "↑↓ opción · Enter/espacio aplica (guarda "
-                                   "ya) · Esc atrás · q salta",
-    "onboarding.hints.autostart": "↑↓ opción · Enter elige · Esc salta · q "
-                                  "sale",
-    "onboarding.hints.agente": "↑↓ camino · 1-4 directo · Enter abre · Esc "
-                               "atrás · q salta",
-    "onboarding.hints.gcal": "Enter conecta · Esc salta · q sale",
-    "onboarding.hints.resumen": "Enter — al hub",
+    "onboarding.hints.welcome": "Enter empieza · q salta (vuelve con «workspace onboarding»)",
+    "onboarding.hints.motores": "↑↓ motor · espacio marca/quita · Enter continúa · Esc atrás · q salta",
+    "onboarding.hints.agente": "↑↓ camino · 1-4 directo · Enter abre · Esc atrás · q salta",
+    "onboarding.hints.resumen": "Enter — a Workspace",
 
-    # valor mostrado de ui.background + avisos de CLI (auditoría i18n)
-    'onboarding.fondo_val.tema': 'tema',
-    'onboarding.fondo_val.negro': 'negro',
-    'onboarding.fondo_val.grafito': 'grafito',
-    'onboarding.fondo_val.azul': 'azul',
-    'onboarding.fondo_val.verde': 'verde',
-    'onboarding.fondo_val.violeta': 'violeta',
-    'onboarding.fondo_val.personalizado': 'personalizado',
-    'onboarding.cli.ya_corrio': 'el onboarding ya corrió aquí — repetir: workspace onboarding',
-    'onboarding.cli.no_tty': 'el onboarding necesita una terminal interactiva.',
-    'onboarding.cli.no_tty2': 'abre `workspace` en una terminal y corre: workspace onboarding',
-    'onboarding.probe_fail': 'probe falló: {err}',
+    # avisos de terminal
+    "onboarding.cli.ya_corrio": "el onboarding ya corrió aquí — repetir: workspace onboarding",
+    "onboarding.cli.no_tty": "el onboarding necesita una terminal interactiva.",
+    "onboarding.cli.no_tty2": "abre `workspace` en una terminal y corre: workspace onboarding",
+    "onboarding.probe_fail": "probe falló: {err}",
 
-    # ── rediseño 2026-10-14: el pie corto de cada paso ──
+    # el pie corto de cada paso
     "onboarding.k.info": "cómo funciona",
     "onboarding.k.pick": "elige",
     "onboarding.k.choose": "elige",
     "onboarding.k.skip": "salta",
     "onboarding.k.start": "empieza",
-    "onboarding.k.to_hub": "al hub",
+    "onboarding.k.to_hub": "a Workspace",
     "onboarding.k.engine": "motor",
     "onboarding.k.space": "espacio",
     "onboarding.k.mark": "marca",
     "onboarding.k.next": "continúa",
     "onboarding.k.back": "atrás",
-    "onboarding.k.option": "opción",
-    "onboarding.k.apply": "aplica",
     "onboarding.k.path": "camino",
     "onboarding.k.open": "abre",
-    "onboarding.k.connect": "conecta",
-    "onboarding.continuar_sin_agente": "✦ continuar sin agente",
-    "onboarding.ir_al_hub": "✦ ir al hub",
-    "onboarding.action.sin_agente": "Enter continúa sin agente (lo agregas después)",
-    "onboarding.msg.as_chosen": "«{lbl}» elegido · ✦ continuar lo guarda",
+    "onboarding.ir_al_hub": "✦ ir a Workspace",
 }

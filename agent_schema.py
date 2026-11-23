@@ -27,11 +27,15 @@ import posixpath
 import re
 
 SUPPORTED_VERSIONS = (1,)
-#: `autonomy` del agente: brain (default: libre dentro de su cerebro) | ask
-#: (pregunta también dentro de su cerebro). Un "full" de una versión anterior
-#: se tolera sin aviso (se lee "brain"; la migración lo convierte).
-#: `skill_review`: bool opcional.
-AUTONOMY_LEVELS = ("ask", "brain", "full")
+#: `autonomy` del agente: brain (default: «Automático», el modo automático oficial
+#: de su motor, decisión del 18-nov; en un motor sin él, libre dentro de su
+#: cerebro) | edit («Editar sin preguntar»: libre dentro de su cerebro, lo demás
+#: pregunta) | ask (pregunta también dentro de su cerebro). Un "full" de una
+#: versión anterior se tolera sin aviso (se lee "brain"; la migración lo
+#: convierte). F7: sandbox (sin permisos, solo dentro del sandbox oficial del
+#: motor; con el paquete por sesión, arquitectura/permisos; sin él, o sin
+#: sandbox, se lee "edit"). `skill_review`: bool opcional.
+AUTONOMY_LEVELS = ("ask", "brain", "edit", "full", "sandbox")
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 _ID = re.compile(r"^[a-z0-9][a-z0-9_.:-]{0,63}$")
 _SECRET = re.compile(r"(sk-[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,})")

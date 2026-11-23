@@ -15,11 +15,8 @@
   [diagnóstico](diagnostico.md), que repara lo que haga falta. Si algo no se puede actualizar
   (sin internet, cambios tuyos a medio guardar), te avisa y sigue con lo demás.
 
-- **Desde el hub:** sección **Actualizaciones**. Muestra tu versión, si hay una nueva y solo lo
-  que puedes hacer en ese momento: **actualizar a vX** (cuando hay versión nueva), **revisar y
-  reparar**, **solo revisar**, **volver a vX** (cuando hay una versión anterior a la que volver;
-  pide Enter otra vez) y el ajuste de **automáticas**. Al terminar ves qué llegó y lo pendiente.
-  La explicación completa está en la tecla `i`.
+- **Desde el hub:** **Ajustes › Actualizaciones**. Ahí revisas, reparas o actualizas Workspace,
+  con los pasos en vivo.
 
 ## La red de seguridad
 
@@ -30,8 +27,8 @@ tu Python. Si no arranca:
 2. deja esa versión **fijada** (no reintenta la misma versión rota cada 6 horas);
 3. se libera solo cuando publicamos una versión más nueva.
 
-No tienes que hacer nada. Lo verás como una línea al abrir un agente y como «versión fijada»
-abajo a la derecha del hub. Si quieres reintentar igual: `workspace update --force`.
+No tienes que hacer nada. Lo verás como una línea al abrir un agente. Si quieres reintentar
+igual: `workspace update --force`.
 
 ## Qué no se toca
 
@@ -67,7 +64,7 @@ workspace version
 ```
 
 Muestra tu versión, de cuándo es tu última actualización y las novedades de esta versión. La
-versión también aparece abajo a la derecha del hub. El historial completo está en
+versión también aparece en el hub, en Ajustes › Actualizaciones. El historial completo está en
 **`CHANGELOG.md`**, en la carpeta de Workspace.
 
 ## Volver atrás
@@ -78,7 +75,6 @@ Si una versión nueva arranca pero no te convence:
 workspace update --rollback
 ```
 
-En el hub es la opción **volver a vX** de Actualizaciones (aparece solo cuando hay a cuál).
 Te muestra a qué versión vuelves y te pide confirmación. Vuelve el código de la versión
 anterior; tus agentes, cerebros y ajustes no se tocan. La versión nueva queda en pausa hasta que
 publiquemos una más reciente. Los ajustes que la versión nueva ya aplicó están hechos para que
@@ -94,11 +90,8 @@ Las actualizaciones automáticas son **opcionales**. Hay tres modos:
 | `notify` (solo avisar) | una vez al día te dice «hay una versión nueva» y no instala nada | sí, como mucho una vez al día |
 | `off` (apagadas) | no consulta nada | no |
 
-Para cambiarlo:
-
-- en el hub: sección **Actualizaciones**, fila **automáticas** (Enter pasa de un modo al siguiente: sí ·
-  solo avisar · no);
-- en la terminal: `workspace update --auto notify` (o `auto`, `off`); sin modo, te dice cuál tienes.
+Para cambiarlo, en la terminal: `workspace update --auto notify` (o `auto`, `off`); sin modo, te
+dice cuál tienes.
 
 En los tres modos, `workspace update` instala cuando lo pides y `workspace update --rollback`
 te regresa. Con `notify` u `off`, `workspace doctor` también respeta tu elección: te avisa si

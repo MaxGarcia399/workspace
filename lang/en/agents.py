@@ -185,8 +185,13 @@ STRINGS.update({
     "agentes.mg.bad_level": "unknown level: {v}",
     "agentes.mg.auto_ask": "{n} will ask before writing in its brain · from its next "
                            "session",
-    "agentes.mg.auto_brain": "{n} reads and writes its brain without asking · from its "
-                             "next session",
-    "agentes.mg.review_on": "skill review on for {n} · done when the next session opens, in plain sight",
+    "agentes.mg.auto_brain": "{n} works in automatic mode: its engine reviews each step and "
+                             "only asks you about risky ones · from its next session",
+    "agentes.mg.auto_edit": "{n} reads and writes its brain without asking · from its "
+                            "next session",
+    "agentes.mg.auto_sandbox": "{n} works without asking, but only inside its engine's "
+                               "sandbox (no network, only its folder); where there is no "
+                               "sandbox, it edits without asking · from its next session",
+    "agentes.mg.review_on": "skill review on for {n} · done when you reopen the tab, in plain sight; if not, you see it in the hub",
     "agentes.mg.review_off": "skill review off for {n}",
 })

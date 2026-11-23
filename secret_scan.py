@@ -33,7 +33,9 @@ Anti-fuga del propio reporte: los hallazgos NUNCA incluyen el secreto
 completo — solo un prefijo enmascarado (primeros 7 chars + longitud).
 
 Falso positivo legítimo (docs, ejemplos): añade `workspace:allow-secret` en la
-misma línea y el escáner la salta.
+misma línea y el escáner la salta (la etiqueta de la instalación anterior,
+`<nombre anterior>:allow-secret` de legacy.py, vale igual: hay .md en los
+cerebros que la llevan).
 
 Cero dependencias (stdlib, Python 3.9+). Mac y Windows. Falla-suave: errores
 de I/O ⇒ archivo saltado, jamás excepción al caller. Amputable (C10).
@@ -48,7 +50,29 @@ MAX_FINDINGS_PER_FILE = 20      # techo anti-flood por archivo
 MAX_FINDINGS_PER_SCAN = 200     # techo de cordura por cerebro
 MAX_HISTORY_COMMITS = 500       # cap de historia git: no escanear repos infinitos
 ALLOW_MARKER = "workspace:allow-secret"
+try:                                      # el nombre de la instalación anterior vive solo en legacy.py
+    from legacy import NAME_LOWER as _ANTERIOR
+except ImportError:                       # pragma: no cover — secret_scan suelto, sin el repo
+    _ANTERIOR = ""
+#: Las etiquetas que valen: la de hoy y la de la instalación anterior, que siguen en .md de los cerebros.
+ALLOW_MARKERS = (ALLOW_MARKER,) + ((_ANTERIOR + ":allow-secret",) if _ANTERIOR else ())
 ENV_OVERRIDE = "WORKSPACE_ALLOW_SECRET"   # escape de emergencia por entorno (F3)
+#: El id de envío de una skill que Workspace escribía antes en el historial («sk-» + su ejecución, a veces con 6 hex
+#: más): no es una llave, y la regex genérica de OpenAI lo tomaba por una («9 secretos» al arrancar). Se reconoce
+#: por su forma EXACTA —la regex no se afloja—; los nuevos ya empiezan con «skill-».
+_ID_ENVIO_SKILL = re.compile(r"sk-s-[0-9]{14}-[0-9a-f]{4}(?:-[0-9a-f]{6})?")
+
+
+def permitida(linea):
+    """¿La línea lleva una etiqueta de falso positivo (`workspace:allow-secret` o la de antes)?"""
+    return any(m in linea for m in ALLOW_MARKERS)
+
+
+def sin_marcas(texto):
+    """`texto` sin las etiquetas de falso positivo: donde no deben servir de atajo (una nota, un resumen)."""
+    for m in ALLOW_MARKERS:
+        texto = texto.replace(m, "")
+    return texto
 
 # ── patrones (clase, regex) — el grupo `secret` (si existe) es la credencial;
 #    sin grupo, el match completo lo es. Anclas por formato del proveedor.
@@ -239,10 +263,12 @@ def scan_text(text):
             secret = m.groupdict().get("secret") or m.group(0)
             if cls != "private_key_block" and _placeholder(secret):
                 continue
+            if cls == "openai_api_key" and _ID_ENVIO_SKILL.fullmatch(secret):
+                continue   # el id de envío de una skill de Workspace (los de antes), no una llave
             ls = text.rfind("\n", 0, m.start()) + 1
             le = text.find("\n", m.start())
             le = len(text) if le < 0 else le
-            if ALLOW_MARKER in text[ls:le]:
+            if permitida(text[ls:le]):
                 continue   # excepción explícita del socio en esa línea
             findings.append({"class": cls,
                              "line": text.count("\n", 0, m.start()) + 1,
@@ -522,7 +548,7 @@ def scan_git_history(brain, max_commits=None):
         if raw_line.startswith("+") and not raw_line.startswith("+++"):
             diff_line_num += 1
             line_content = raw_line[1:]   # quitar el "+" del diff
-            if ALLOW_MARKER in line_content:
+            if permitida(line_content):
                 continue
             for fnd in scan_text(line_content):
                 fnd["commit"] = current_commit

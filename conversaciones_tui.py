@@ -131,7 +131,8 @@ def _hora(t):
 
 def _cuando(t, ahora=None):
     """La hora de un mensaje; si no es de hoy, con el día corto: «ayer 23:10»,
-    «8 nov 23:10» (con el año si es de otro). Meses del catálogo, no del
+    «8 nov 23:10» (con el año si es de otro). Hacia el futuro igual (un pedido
+    que vence): «mañana 12:00», «12 nov 9:00». Meses del catálogo, no del
     locale del sistema (igual en Mac y Windows)."""
     h = _hora(t)
     lt = time.localtime(t)
@@ -141,6 +142,10 @@ def _cuando(t, ahora=None):
     ayer = time.localtime(time.mktime((hoy.tm_year, hoy.tm_mon, hoy.tm_mday - 1, 12, 0, 0, 0, 0, -1)))
     if lt[:3] == ayer[:3]:
         return _t("conv.when.yesterday", "ayer {h}", h=h)
+    manana = time.localtime(time.mktime((hoy.tm_year, hoy.tm_mon, hoy.tm_mday + 1, 12, 0, 0, 0, 0,
+                                         -1)))
+    if lt[:3] == manana[:3]:
+        return _t("conv.when.tomorrow", "mañana {h}", h=h)
     meses = _t("conv.when.months", "ene feb mar abr may jun jul ago sep oct nov dic").split()
     mes = meses[lt.tm_mon - 1] if len(meses) == 12 else str(lt.tm_mon)
     if lt.tm_year == hoy.tm_year:
@@ -335,7 +340,7 @@ def _texto_evento(sala, e, nombres):
     """La línea de sistema de un evento, o None si no se pinta."""
     if not e.get("valido"):
         return None
-    a, h = e["accion"], _hora(e["t"])
+    a, h = e["accion"], _cuando(e["t"])
     tu = salas.es_socio(e.get("de"))
     quien = _t("conv.you_lower", "ti") if tu else nombres(e.get("de"))
     if a == "pausa":
@@ -360,13 +365,15 @@ def _texto_evento(sala, e, nombres):
     if a == "cancelar":
         return _sis(_t("conv.sis.cancelled", "pedido a {a} cancelado por {b} · {h}",
                        a=para, b=quien, h=h), t=e["t"])
-    if a == "soltar" and e.get("por") == salas.POR_DECISOR:
+    if a == "soltar" and e.get("por") == salas.POR_DECISOR and salas.decisor_encendido():
         return _sis(_t("conv.sis.released_decider",
                        "◆ el decisor soltó el pedido a {a} (solo informa) · {h}", a=quien, h=h),
                     t=e["t"])
     if a == "soltar":
         return _sis(_t("conv.sis.released", "{a} soltó un pedido sin responder · {h}",
                        a=quien, h=h), t=e["t"])
+    if a == "salir" and e.get("efectivo"):
+        return _sis(_t("conv.sis.left", "{a} salió de la sala · {h}", a=quien, h=h), t=e["t"])
     if a == "delegar":
         return _sis(_t("conv.sis.delegated", "{a} le pasó un pedido a {b} · {h}",
                        a=quien, b=nombres(e.get("en")), h=h), t=e["t"])
@@ -420,9 +427,12 @@ def conv_de(sala, local, ahora=None, conocidas=None, brains=None):
                if x]
     avs = _avisos_panel(sala)
     for (_mid, clave), av in avs.items():           # lo que Workspace tecleó en un panel (aquí)
-        if av.get("estado") == "avisado":
+        if av.get("estado") in ("avisado", "leido"):
             eventos.append(_sis(_t("conv.sis.notified", "◆ avisé a {a} en su panel · {h}",
-                                   a=nombre(clave), h=_hora(av.get("t") or 0)), t=av.get("t") or 0))
+                                   a=nombre(clave), h=_cuando(av.get("t") or 0)), t=av.get("t") or 0))
+        elif av.get("estado") == "no_leido":
+            eventos.append(_sis(_t("conv.sis.notice_unread", "◆ avisé a {a} pero no lo leyó · {h}",
+                                   a=nombre(clave), h=_cuando(av.get("t") or 0)), t=av.get("t") or 0))
     unidos = [e for e in sala["eventos"] if e["accion"] == "unirse" and e.get("valido")
               and e["de"] in parts]
     items, msgs = [], []
@@ -466,7 +476,7 @@ def conv_de(sala, local, ahora=None, conocidas=None, brains=None):
         if lote:
             ns = list(dict.fromkeys(nombre_corto({"parts": list(parts.values())}, e["de"])
                                     for e in lote))
-            h = _hora(lote[-1]["t"])
+            h = _cuando(lote[-1]["t"])
             txt = (_t("conv.sis.joined_1", "{a} se unió · {h}", a=ns[0], h=h) if len(ns) == 1 else
                    _t("conv.sis.joined_n", "{a} y {b} se unieron · {h}",
                       a=", ".join(ns[:-1]), b=ns[-1], h=h))
@@ -517,7 +527,7 @@ def _a_quien_avisar(sala, avs, parts, brains):
             if not cands or aviso_panel.panel_de(cands[0]) is None:
                 continue
             av = avs.get((mid, cands[0])) or {}
-            if av.get("estado") == "avisado":
+            if av.get("estado") in ("avisado", "leido"):
                 continue
             est = salas.estado_participante(sala, cands[0], brains=brains)
             if est.get("estado") == "escuchando":
@@ -560,6 +570,12 @@ def vencido(conv, msg, ahora):
 
 def alerta(conv, ahora):
     return next((it for it in conv["items"] if it["k"] == "msg" and vencido(conv, it, ahora)), None)
+
+
+def vencidos(conv, ahora):
+    """TODOS los pedidos vencidos de la sala (el aviso y «30 min más» /
+    «Cancelar» van con todos a la vez: uno por uno, la sala parecía trabada)."""
+    return [it for it in conv["items"] if it["k"] == "msg" and vencido(conv, it, ahora)]
 
 
 def part(conv, pid):
@@ -897,6 +913,27 @@ def _no_contesto(conv, al):
     return nombre_corto(conv, pend[0]) if pend else "?"
 
 
+def _no_contestaron(conv, als):
+    """«Beto, Caro»: quienes deben algo en esos pedidos vencidos (sin repetir)."""
+    nombres = []
+    for al in als:
+        for x in al["pedido"]["a"]:
+            if x not in al["pedido"]["listos"]:
+                n = nombre_corto(conv, x)
+                if n not in nombres:
+                    nombres.append(n)
+    return ", ".join(nombres) or "?"
+
+
+def _texto_tarde(conv, ahora):
+    """La línea roja de la tarjeta: «Beto no contestó a tiempo» o «3 pedidos
+    vencidos»; '' si no hay."""
+    als = vencidos(conv, ahora)
+    if len(als) > 1:
+        return _t("conv.list.late_n", "{n} pedidos vencidos", n=len(als))
+    return _t("conv.list.late", "{a} no contestó a tiempo", a=_no_contesto(conv, als[0])) if als else ""
+
+
 def lista_col(S, K, w):
     C = Col(K, w)
     C.contar = "conv"
@@ -920,8 +957,7 @@ def lista_col(S, K, w):
             l2 = _der(l2, _c(K, "OK", "● %d" % conv["nuevos"], True), w - 4)
         al = alerta(conv, ahora)
         if al:
-            l3 = _c(K, "ERR", _t("conv.list.late", "{a} no contestó a tiempo",
-                                 a=_no_contesto(conv, al)), True)
+            l3 = _c(K, "ERR", _texto_tarde(conv, ahora), True)
         elif conv["pausada"]:
             l3 = _c(K, "B", _t("conv.list.paused", "en pausa"))
         else:
@@ -976,15 +1012,17 @@ def _linea_espera(K, conv, msg, ahora):
     fin = fin_pedido(conv, msg)
     if ahora >= fin:
         return _c(K, "GREY", _t("conv.wait.prefix", "esperando a: ")) + _c(K, "ERR", nombres, True) + \
-            _c(K, "GREY", _t("conv.wait.expired", "  ·  venció {h}", h=_hora(fin)))
+            _c(K, "GREY", _t("conv.wait.expired", "  ·  venció {h}", h=_cuando(fin, ahora)))
     sin = ""
     av = conv.get("avisar") or {}
+    if av.get("mid") == msg["id"] and av.get("motivo") == "no_leido":
+        sin = _t("conv.wait.notice_unread", "  ·  aviso sin leer: [v] Avisar")
     if av.get("mid") == msg["id"] and av.get("motivo") in ("foco", "trabajando"):
         sin = _t("conv.wait.no_notice", "  ·  sin aviso ({m}): [v] Avisar",
                  m=_t("conv.wait.focus", "tiene el foco") if av["motivo"] == "foco"
                  else _t("conv.wait.busy", "trabajando"))
     return _c(K, "GREY", _t("conv.wait.prefix", "esperando a: ")) + _c(K, "WH", nombres) + \
-        _c(K, "GREY", _t("conv.wait.due", "  ·  vence {h}, faltan {d}", h=_hora(fin),
+        _c(K, "GREY", _t("conv.wait.due", "  ·  vence {h}, faltan {d}", h=_cuando(fin, ahora),
                          d=_dur(fin - ahora))) + (_c(K, "C", sin) if sin else "")
 
 
@@ -1171,22 +1209,41 @@ def chat_col(S, K, w):
     C.add([""])
     al = alerta(conv, ahora)
     if al:
+        als = vencidos(conv, ahora)
         q = _no_contesto(conv, al)
         qid = next((x for x in al["pedido"]["a"] if x not in al["pedido"]["listos"]), None)
         cerrada = part(conv, qid)["estado"] == "cerrado" if qid else False
         dentro = Col(K, w - 5)
         dur = _dur(fin_pedido(conv, al) - al["t"])
-        dentro.add([_c(K, "ERR", (_t("conv.alert.closed",
-                                     "{a} no contestó en {d} y su pestaña está cerrada.", a=q, d=dur)
-                                  if cerrada else
-                                  _t("conv.alert.late", "{a} no contestó en {d}.", a=q, d=dur)),
-                       True),
-                    _c(K, "DIM", _t("conv.alert.what",
-                                    "Dejaron de esperarlo y te avisaron. ¿Qué hacemos?")), ""])
+        if len(als) > 1:                 # todos de una vez: «N pedidos vencidos»
+            dentro.add([_c(K, "ERR", _t("conv.alert.late_n", "{n} pedidos vencidos: no "
+                                        "contestaron {a}.", n=len(als),
+                                        a=_no_contestaron(conv, als)), True),
+                        _c(K, "DIM", _t("conv.alert.what_n", "Dejaron de esperarlos y te "
+                                        "avisaron. ¿Qué hacemos?")), ""])
+            mas = [_t("conv.btn.more_all", "[m] 30 min más a todos"),
+                   _t("conv.btn.more_short", "[m] 30 min más"), "[m]"]
+            seg_x = _t("conv.btn.cancel_all_sure", "[x] ¿Cancelar todos?")
+            conf_x = S.get("confirmar") == ("cancelar", conv["id"])
+            can = [((seg_x if conf_x else _t("conv.btn.cancel_all", "[x] Cancelar todos")), seg_x),
+                   _t("conv.btn.cancel_short", "[x] Cancelar"), "[x]"]
+        else:
+            dentro.add([_c(K, "ERR", (_t("conv.alert.closed",
+                                         "{a} no contestó en {d} y su pestaña está cerrada.",
+                                         a=q, d=dur)
+                                      if cerrada else
+                                      _t("conv.alert.late", "{a} no contestó en {d}.", a=q, d=dur)),
+                           True),
+                        _c(K, "DIM", _t("conv.alert.what",
+                                        "Dejaron de esperarlo y te avisaron. ¿Qué hacemos?")), ""])
+            mas = [_t("conv.btn.more", "[m] Esperar 30 min más"),
+                   _t("conv.btn.more_short", "[m] 30 min más"), "[m]"]
+            can = [_t("conv.btn.cancel", "[x] Cancelar pedido"),
+                   _t("conv.btn.cancel_short", "[x] Cancelar"), "[x]"]
         _botones(dentro, [_b(("abrir_a",), [_t("conv.btn.open_to", "[a] Abrir a {a}", a=q),
                                             _t("conv.btn.open", "[a] Abrir"), "[a]"], primero=True),
-                          _b(("mas30",), [_t("conv.btn.more", "[m] Esperar 30 min más"), "[m]"]),
-                          _b(("cancelar",), [_t("conv.btn.cancel", "[x] Cancelar pedido"), "[x]"])],
+                          _b(("mas30",), mas),
+                          _b(("cancelar",), can, rojo=S.get("confirmar") == ("cancelar", conv["id"]))],
                  S.get("hover"))
         a = len(C.lineas)
         C.add([" " + x for x in SB.caja(K, dentro.lineas, w - 1, K["ERR"])])
@@ -1220,7 +1277,10 @@ def chat_col(S, K, w):
             specs.append(_b(("avisar",), niv, primero=True))   # nombre variable: se acorta antes
         if not conv["cerrada"]:
             pau, rea = _t("conv.btn.pause", "[p] Pausar"), _t("conv.btn.resume", "[p] Reanudar")
-            specs.append(_b(("pausar",), [(rea if conv["pausada"] else pau, rea), "[p]"]))
+            conf_p = S.get("confirmar") == ("pausa", conv["id"])
+            seg_p = _t("conv.btn.pause_sure", "[p] ¿Pausar?")
+            txt = rea if conv["pausada"] else (seg_p if conf_p else pau)
+            specs.append(_b(("pausar",), [(txt, rea, seg_p), "[p]"], rojo=conf_p))
             conf = S.get("confirmar") == conv["id"]
             cer, seg = _t("conv.btn.close", "[c] Cerrar"), _t("conv.btn.sure", "[c] ¿Seguro?")
             specs.append(_b(("cerrar",), [(seg if conf else cer, seg), "[c]"], rojo=conf))
@@ -1446,7 +1506,7 @@ def _fila_lista(S, K, conv, w, sel, hover, ahora):
     tit = _c(K, "WH", conv["titulo"], sel)
     l1 = _der(HL.clip(tit, max(4, iw - HL.vis(der) - 1)), der, iw)
     if al:
-        l2 = _c(K, "ERR", _t("conv.list.late", "{a} no contestó a tiempo", a=_no_contesto(conv, al)))
+        l2 = _c(K, "ERR", _texto_tarde(conv, ahora))
     elif prob:
         l2 = _c(K, "ERR", prob)
     else:
@@ -1488,6 +1548,27 @@ def _chat_monitor(S, K, w):
     prob = problema(conv)
     if prob:
         C.add([HL.clip(_c(K, "ERR", "  ⚠ " + prob, True), w)])
+    als = vencidos(conv, time.time())
+    if als:                              # lo vencido, con qué hacer (m · x van con todos)
+        tarde = "  ⚠ " + _texto_tarde(conv, time.time())
+        varios = len(als) > 1
+        m_txt = (_t("conv.mon.more_all", "[m] 30 min más a todos") if varios
+                 else _t("conv.mon.more", "[m] 30 min más"))
+        x_txt = ((_t("conv.mon.cancel_all_sure", "[x] ¿cancelar todos?")
+                  if S.get("confirmar") == ("cancelar", conv["id"]) else
+                  _t("conv.mon.cancel_all", "[x] cancelar todos")) if varios
+                 else _t("conv.mon.cancel", "[x] cancelar"))
+        botones = _c(K, "C", m_txt) + _c(K, "GREY", " · ") + _c(K, "C", x_txt)
+        if HL.vis(tarde) + 3 + HL.vis(botones) <= w:    # cabe en una línea
+            x0 = HL.vis(tarde) + 3
+            C.add([_c(K, "ERR", tarde, True) + _c(K, "GREY", " · ") + botones])
+        else:                                            # si no, los botones debajo, enteros
+            x0 = 4
+            C.add([HL.clip(_c(K, "ERR", tarde, True), w), HL.clip(" " * x0 + botones, w)])
+        fila = len(C.lineas) - 1
+        C.zonas.append((fila, fila, x0, x0 + HL.vis(m_txt) - 1, ("mas30",)))
+        x1 = x0 + HL.vis(m_txt) + 3
+        C.zonas.append((fila, fila, x1, x1 + HL.vis(x_txt) - 1, ("cancelar",)))
     C.add([_c(K, "DK", "─" * w)])                     # la cabecera, separada del chat
     C.fijas = len(C.lineas)
     C.abajo = True                       # con burbujas, arriba nunca media burbuja
@@ -1568,10 +1649,10 @@ def _ayuda(K, w, vista):
                  ("i", _t("conv.help.info", "info del grupo")),
                  ("a", _t("conv.help.open", "abrir al agente")),
                  ("v", _t("conv.help.notify", "avisarle en su panel (esta máquina)")),
-                 ("p", _t("conv.help.pause", "pausar / reanudar")),
+                 ("p", _t("conv.help.pause", "pausar (dos veces) / reanudar")),
                  ("c", _t("conv.help.close", "cerrar (dos veces)")),
                  ("r · b", _t("conv.help.archive", "archivar · borrar (cerrada)")),
-                 ("m · x", _t("conv.help.expired", "si venció: más tiempo · cancelar"))]
+                 ("m · x", _t("conv.help.expired", "si venció: más tiempo · cancelar (todos)"))]
     else:
         filas = [("↑ ↓", _t("conv.help.pick", "elegir una conversación")),
                  ("Enter →", _t("conv.help.enter", "abrirla")),
@@ -1815,7 +1896,7 @@ def accion_monitor(S, key):
     if mon.get("ayuda"):
         mon["ayuda"] = False
         return key not in ("q", "\x03")
-    if key not in ("c", "b"):
+    if key not in ("c", "b", "p", "x"):                  # las que piden confirmar la conservan
         S["aviso"] = ""
     if S.get("escribiendo") is not None or S.get("desplegada"):
         publica = S.get("escribiendo") is not None and key in ("\r", "\n")
@@ -2137,10 +2218,35 @@ def _avisar(S, conv):
     return True
 
 
+#: Lo que pide un segundo toque → la acción que lo confirma (otra lo deshace).
+_CONFIRMA = {"pausa": "pausar", "cancelar": "cancelar"}
+
+
+def _a_todos(S, conv, als, accion, **extra):
+    """La acción del socio sobre cada pedido vencido, de a uno: → (cuántos
+    salieron, [el error de cada uno que no]). Uno que falla no frena a los
+    demás; la vista se rehace al final."""
+    ok, errores = 0, []
+    for al in als:
+        try:
+            salas.accion_socio(conv["id"], accion, _socio(conv), _brains(S), pedido=al["id"],
+                               **extra)
+            ok += 1
+        except salas.Error as e:
+            errores.append(str(e))
+        except Exception as e:
+            errores.append("%s: %s" % (type(e).__name__, e))
+    refrescar(S, forzar=True)
+    return ok, errores
+
+
 def accion_de(S, acc):
     """Lo que hace una acción (clic, tecla o botón). False = salir de la sección."""
     conv = conv_abierta(S)
     tipo = acc[0]
+    pend = S.get("confirmar")
+    if isinstance(pend, tuple) and pend[0] in _CONFIRMA and _CONFIRMA[pend[0]] != tipo:
+        S["confirmar"] = None                            # otra acción: el 2.º toque ya no vale
     if tipo == "filtro":
         S["filtro"] = acc[1]
         vis = convs_filtradas(S)
@@ -2195,6 +2301,14 @@ def accion_de(S, acc):
         else:
             S["escribiendo"] = ""
     elif tipo == "pausar" and not conv["cerrada"]:
+        # pausar pide confirmación (p otra vez): en una ventana chica el botón
+        # queda en «[p]» y el socio pausó sin querer; reanudar, no
+        if not conv["pausada"] and S.get("confirmar") != ("pausa", conv["id"]):
+            S["confirmar"] = ("pausa", conv["id"])
+            S["aviso"] = _t("conv.aviso.confirm_pause", "¿Pausar la sala? Los agentes paran · "
+                                                         "pulsa p otra vez")
+            return True
+        S["confirmar"] = None
         accion = "reanudar" if conv["pausada"] else "pausa"
         _hacer(S, conv, lambda: salas.accion_socio(sid, accion, _socio(conv), bm),
                _t("conv.aviso.resumed", "Sigue: los agentes retoman al leerlo.") if conv["pausada"]
@@ -2232,19 +2346,46 @@ def accion_de(S, acc):
     elif tipo == "avisar" and not conv["cerrada"]:
         return _avisar(S, conv)
     elif tipo == "mas30":
-        al = alerta(conv, time.time())
-        if al:
-            q = _no_contesto(conv, al)
+        als = vencidos(conv, time.time())
+        if not als:
+            S["aviso"] = _t("conv.aviso.none_late", "No hay pedidos vencidos.")
+        elif len(als) == 1:
+            q = _no_contesto(conv, als[0])
             _hacer(S, conv, lambda: salas.accion_socio(sid, "mas_tiempo", _socio(conv), bm,
-                                                       pedido=al["id"], minutos=30),
-                   _t("conv.aviso.more", "Le das 30 min más a {a}.", a=q))
+                                                       pedido=als[0]["id"], minutos=30),
+                   "✓ " + _t("conv.aviso.more", "Le das 30 min más a {a}.", a=q))
+        else:
+            ok, errores = _a_todos(S, conv, als, "mas_tiempo", minutos=30)
+            S["aviso"] = (
+                "✓ " + _t("conv.aviso.more_n", "30 min más a los {n} pedidos vencidos ({a}).",
+                          n=len(als), a=_no_contestaron(conv, als)) if not errores else
+                _t("conv.aviso.more_partial", "30 min más a {ok} de {n} pedidos; {f} no se pudo: "
+                   "{e}", ok=ok, n=len(als), f=len(errores), e=errores[0]) if ok else
+                _t("conv.aviso.fail", "No se pudo: {e}", e=errores[0]))
     elif tipo == "cancelar":
-        al = alerta(conv, time.time())
-        if al:
-            q = _no_contesto(conv, al)
+        als = vencidos(conv, time.time())
+        if not als:
+            S["aviso"] = _t("conv.aviso.none_late", "No hay pedidos vencidos.")
+        elif len(als) == 1:
+            q = _no_contesto(conv, als[0])
             _hacer(S, conv, lambda: salas.accion_socio(sid, "cancelar", _socio(conv), bm,
-                                                       pedido=al["id"]),
-                   _t("conv.aviso.cancelled", "Pedido a {a} cancelado.", a=q))
+                                                       pedido=als[0]["id"]),
+                   "✓ " + _t("conv.aviso.cancelled", "Pedido a {a} cancelado.", a=q))
+            S["scroll"]["chat"] = None
+        elif S.get("confirmar") != ("cancelar", conv["id"]):
+            # varios a la vez: un segundo toque, como pausar y cerrar
+            S["confirmar"] = ("cancelar", conv["id"])
+            S["aviso"] = _t("conv.aviso.confirm_cancel_all", "¿Cancelar los {n} pedidos vencidos? "
+                                                              "Pulsa x otra vez", n=len(als))
+        else:
+            S["confirmar"] = None
+            ok, errores = _a_todos(S, conv, als, "cancelar")
+            S["aviso"] = (
+                "✓ " + _t("conv.aviso.cancelled_n", "{n} pedidos cancelados ({a}).",
+                          n=len(als), a=_no_contestaron(conv, als)) if not errores else
+                _t("conv.aviso.cancelled_partial", "{ok} de {n} pedidos cancelados; {f} no se "
+                   "pudo: {e}", ok=ok, n=len(als), f=len(errores), e=errores[0]) if ok else
+                _t("conv.aviso.fail", "No se pudo: {e}", e=errores[0]))
             S["scroll"]["chat"] = None
     return True
 
@@ -2321,7 +2462,7 @@ def accion(S, key, monitor=True):
                 return accion_de(S, acc)
             return True
         return True
-    if key not in ("c", "b"):
+    if key not in ("c", "b", "p", "x"):                  # las que piden confirmar la conservan
         S["aviso"] = ""
     if S.get("escribiendo") is not None:                 # una línea de texto
         if key == "\x1b":
@@ -2557,7 +2698,6 @@ def run():
 
 
 if __name__ == "__main__":
-    r = run()
-    if r:
-        print("abrir: %s %s" % (r.get("agente"), " ".join(r.get("args") or [])))
-    sys.exit(0)
+    # ARCHIVO MÍNIMO por una versión (I25, código muerto: se borra en la versión 2): ya no se abre.
+    import puertas
+    sys.exit(puertas.redirigir("hub", sys.argv[1:]))

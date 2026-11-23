@@ -7,12 +7,17 @@ un Windows recién instalado bajó 2026.10.4 y 0.22.2, que cambiaron su config
 Todo «servía en la Mac» y en la máquina nueva decía «sin sesión». Un cliente
 nuevo SIEMPRE instala la última versión, no la que probamos.
 
-Contrato: un adapter declara `VERIFIED_VERSIONS = ("x.y.z", …)` — las versiones
-del CLI oficial con las que se verificaron sus lecturas (status, sesiones,
-config). `doctor` compara contra la instalada y, si es de una línea más nueva
-(mayor.menor) que la más nueva verificada — o más vieja que la más vieja —,
-lo AVISA (no falla): así el «no funciona» llega con su causa probable.
-tests/test_engine_versions.py exige la declaración a todo motor nuevo.
+Contrato: las versiones PROBADAS de cada motor son UNA sola lista, la
+`versiones_probadas` de su ficha (arquitectura/fichas/<motor>.json: con las
+que se corre la prueba a fondo del motor real; el canario de nuestras máquinas
+la amplía cuando una versión nueva sale verde). Conexiones en verde (F1):
+antes Motores leía la `VERIFIED_VERSIONS` del parser de métricas y la ficha
+decía otra cosa (Kiro 3.5.0 «nueva» en Motores y «probada» en su ficha); esa
+lista del parser sigue siendo solo de las métricas (con qué transcript se
+probó su lector). El adapter no declara otra. `doctor` y Motores comparan
+contra la instalada y, si no es una de esas, lo DICEN sin alarmar (una versión
+nueva es informativa: C8-a): así el «no funciona» llega con su causa probable.
+tests/test_engine_versions.py lo exige.
 
 Cero dependencias (stdlib, 3.9+). Falla-suave: nada aquí lanza.
 """
@@ -30,14 +35,46 @@ def parse(text):
     return tuple(int(g) for g in m.groups() if g is not None)
 
 
+def motor_de(mod):
+    """El id del motor de un adapter («engines.claude_code» → «claude-code»)."""
+    return str(getattr(mod, "__name__", "")).rsplit(".", 1)[-1].replace("_", "-")
+
+
+def probadas_de_la_ficha(motor):
+    """`versiones_probadas` de la ficha del motor (lista de textos), o None si no tiene ficha."""
+    try:
+        import json
+        import os
+        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "arquitectura", "fichas",
+                         str(motor) + ".json")
+        with open(p, encoding="utf-8") as fh:
+            vv = json.load(fh).get("versiones_probadas")
+        return [str(v) for v in vv] if isinstance(vv, list) else None
+    except Exception:
+        return None
+
+
+def _lista(mod):
+    """(la lista de la ficha del motor, el mismo conjunto) o (None, set()) si el motor no tiene ficha. La forma de
+    dos valores queda por compatibilidad: antes eran la lista del parser y las que tenían un «pasa»."""
+    vv = probadas_de_la_ficha(motor_de(mod))
+    if vv is None:
+        return None, set()
+    return vv, set(vv)
+
+
 def verified(mod):
-    """Versiones verificadas que declara el adapter, parseadas y ordenadas."""
+    """Versiones PROBADAS del motor del adapter `mod`, parseadas y ordenadas: las de `versiones_probadas` de su ficha
+    (la lista única). Un `VERIFIED_VERSIONS` propio solo lo traen los dobles de las pruebas."""
+    vv = getattr(mod, "VERIFIED_VERSIONS", None)
+    if vv is None:
+        vv = _lista(mod)[0]
     out = []
-    for v in getattr(mod, "VERIFIED_VERSIONS", None) or ():
+    for v in vv or ():
         p = parse(v)
         if p:
             out.append(p)
-    return sorted(out)
+    return sorted(set(out))
 
 
 def _fmt(t):
@@ -126,9 +163,11 @@ def installed_version(exe, runner=None, timeout=15):
                 env = secret_store.engine_env()
             except Exception:
                 pass
+            # sin ventana: la página corre sin consola (localhost_fondo) y en Windows cada `--version` abría
+            # la suya, visible un instante («Revisar ahora» en Conexiones: una por motor)
             r = arbol_procesos.run([exe, "--version"], capture_output=True, text=True,
                                    encoding="utf-8", errors="replace", timeout=timeout,
-                                   stdin=subprocess.DEVNULL, env=env)
+                                   stdin=subprocess.DEVNULL, env=env, **arbol_procesos.sin_ventana())
         if getattr(r, "returncode", 1) == 0:
             out = (getattr(r, "stdout", "") or "").strip()
     except Exception:
@@ -186,12 +225,14 @@ def allow_anyway(prompt="  ¿Abrir de todos modos? [s/N] "):
 
 
 def drift(mod, version_text):
-    """('ok'|'newer'|'older'|'unsupported'|'broken'|'unknown', instalada, rango)
-    para el
-    `--version` del motor. 'unsupported' = más vieja que MIN_SUPPORTED del
-    adapter (no funciona: se bloquea con su UPGRADE_HINT). 'unknown' = el
-    adapter no declara versiones o no se pudo leer la instalada. 'broken' =
-    bug conocido en ESTA plataforma (KNOWN_BROKEN; detalle con broken())."""
+    """('ok'|'newer'|'older'|'unsupported'|'broken'|'unknown', instalada,
+    probadas) para el `--version` del motor. 'ok' = es una de las probadas;
+    'newer' / 'older' = más nueva / más vieja que la probada más nueva (la que
+    muestra `probadas`, con cuántas más hay). 'unsupported' = más vieja que MIN_SUPPORTED del adapter (no
+    funciona: se bloquea con su UPGRADE_HINT). 'untested' = el motor tiene
+    ficha pero su lista de probadas está vacía. 'unknown' = sin ficha, o no se pudo
+    leer la instalada. 'broken' = bug conocido en ESTA plataforma
+    (KNOWN_BROKEN; detalle con broken())."""
     have = parse(version_text)
     if broken(mod, version_text):
         return "broken", _fmt(have), ""
@@ -199,11 +240,12 @@ def drift(mod, version_text):
     if have and floor and have < floor:
         return "unsupported", _fmt(have), _fmt(floor) + "+"
     ver = verified(mod)
+    if have and not ver and getattr(mod, "VERIFIED_VERSIONS", None) is None \
+            and _lista(mod)[0] is not None:
+        return "untested", _fmt(have), ""
     if not have or not ver:
         return "unknown", have and _fmt(have), ""
-    rango = _fmt(ver[0]) if len(ver) == 1 else "%s–%s" % (_fmt(ver[0]), _fmt(ver[-1]))
-    if have[:2] > ver[-1][:2]:
-        return "newer", _fmt(have), rango
-    if have[:2] < ver[0][:2]:
-        return "older", _fmt(have), rango
-    return "ok", _fmt(have), rango
+    rango = _fmt(ver[-1]) + (" (y %d más)" % (len(ver) - 1) if len(ver) > 1 else "")
+    if have in ver:
+        return "ok", _fmt(have), rango
+    return ("newer" if have > ver[-1] else "older"), _fmt(have), rango

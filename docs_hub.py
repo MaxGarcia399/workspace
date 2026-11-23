@@ -409,6 +409,9 @@ def _modo_txt(m):
 
 def _decisores_vivo():
     """«Decisores: apagado» o qué usos están encendidos y con qué modelo."""
+    from decisions import decisores_activos
+    if not decisores_activos():
+        return ""
     try:
         import decisions as D
         m = D.global_model()
